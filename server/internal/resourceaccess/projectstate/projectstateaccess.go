@@ -45,6 +45,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -252,7 +253,7 @@ func (s *GitStore) stageArtifactForReviewOnBranch(ctx context.Context, projectID
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.StageArtifactForReview: nil staged model")
 	}
 	kind := model.Kind()
-	return s.applyMutationOnBranch(ctx, "StageArtifactForReview", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+	return s.applyMutationOnBranch(ctx, "StageArtifactForReview", projectID, expectedVersion, slotFootprint(kind), branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		slot, ok := slotPtr(p, kind)
 		if !ok {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.StageArtifactForReview: unknown kind %s", kind))
@@ -308,7 +309,7 @@ func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID Projec
 	for _, k := range kinds {
 		preserve[k] = true
 	}
-	return s.applyMutationOnBranch(ctx, "ReconcileBranchFromMain", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+	return s.applyMutationOnBranch(ctx, "ReconcileBranchFromMain", projectID, expectedVersion, nil, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		// p is the session-branch tip; overlay main's slots for every kind this branch is NOT
 		// drafting, leaving every in-flight draft (+ its review ledger) intact.
 		for _, e := range slotTable() {
@@ -331,7 +332,7 @@ func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID P
 		ApprovedBy:  approvedBy,
 		DraftedBy:   draftedBy,
 	}
-	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
+	return s.applyMutation(ctx, "CommitArtifact", projectID, expectedVersion, slotFootprint(kind), cred, idempotencyKey, modeUpsert, commitTransition(kind, prov))
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +353,7 @@ func (s *GitStore) CommitArtifactWithProvenance(ctx context.Context, projectID P
 // written against, and a seed that could only mint fresh comments would re-file it as a new,
 // unanchored one — the very detachment replyTo exists to prevent.
 func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutationOnBranch(ctx, "SeedReviewComments", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+	return s.applyMutationOnBranch(ctx, "SeedReviewComments", projectID, expectedVersion, slotFootprint(kind), branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		slot, ok := slotPtr(p, kind)
 		if !ok {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SeedReviewComments: unknown kind %s", kind))
@@ -378,7 +379,7 @@ func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID Pro
 // reconcile) is a no-op success — no second audit entry. Errors: unknown kind or an
 // uncommitted slot → ContractMisuse.
 func (s *GitStore) AcknowledgeStaleBasis(ctx context.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutationOnBranch(ctx, "AcknowledgeStaleBasis", projectID, expectedVersion, "", cred, idempotencyKey, modeRequireExisting,
+	return s.applyMutationOnBranch(ctx, "AcknowledgeStaleBasis", projectID, expectedVersion, slotFootprint(kind), "", cred, idempotencyKey, modeRequireExisting,
 		acknowledgeStaleBasisTransition(kind, note))
 }
 
@@ -418,7 +419,7 @@ func (s *GitStore) SetOperatingModel(ctx context.Context, projectID ProjectID, e
 	if !model.Valid() {
 		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SetOperatingModel: unknown operating model %q", string(model)))
 	}
-	return s.applyMutation(ctx, "SetOperatingModel", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(ctx, "SetOperatingModel", projectID, expectedVersion, fp(operatingModelFootprint), cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatingModel = model
 		return nil
 	})
@@ -442,7 +443,7 @@ func (s *GitStore) SetOperatingModel(ctx context.Context, projectID ProjectID, e
 // beyond the last member is not a conflict a retry can heal, and the Manager's
 // seal-side conflict loop must not spin on it.
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(ctx, "AdvancePhase", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+	return s.applyMutation(ctx, "AdvancePhase", projectID, expectedVersion, fp(advancePhaseFootprint), cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		if p.Phase >= lastPhase {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
 				"projectstate.AdvancePhase: project %s is already at the last Method phase (%d); there is no phase beyond construction",
@@ -480,7 +481,7 @@ func (s *GitStore) SetResearchInput(ctx context.Context, projectID ProjectID, ex
 			ContentBytes: int64(len(src.Content)),
 		}
 	}
-	return s.applyMutationOnBranchFiles(ctx, "SetResearchInput", projectID, expectedVersion, "", cred, idempotencyKey, modeRequireExisting, files, func(p *Project) error {
+	return s.applyMutationOnBranchFiles(ctx, "SetResearchInput", projectID, expectedVersion, fp(researchFootprint), "", cred, idempotencyKey, modeRequireExisting, files, func(p *Project) error {
 		// Replace the whole corpus pointer set. Stale corpus files from a prior
 		// SetResearchInput at other indices/slugs are dropped implicitly: buildStateFiles
 		// carries forward research/* from the snapshot, but the pointer set is authoritative
@@ -560,7 +561,7 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 	}
 
 	// Fresh init: no committed state — seed project.json at Version 1.
-	return s.applyMutation(ctx, "CreateProject", projectID, 0, cred, idempotencyKey, modeCreateOnly, func(p *Project) error {
+	return s.applyMutation(ctx, "CreateProject", projectID, 0, nil, cred, idempotencyKey, modeCreateOnly, func(p *Project) error {
 		p.Owner = owner
 		p.Name = name
 		p.Phase = PhaseSystemDesign
@@ -971,12 +972,13 @@ func (s *GitStore) applyMutation(
 	op string,
 	projectID ProjectID,
 	expectedVersion Version,
+	guard *footprint,
 	cred RepoCredential,
 	idempotencyKey fwra.IdempotencyKey,
 	mode mutationMode,
 	mutate func(p *Project) error,
 ) (Version, error) {
-	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, "", cred, idempotencyKey, mode, nil, mutate)
+	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, guard, "", cred, idempotencyKey, mode, nil, mutate)
 }
 
 // applyMutationOnBranch is applyMutation parameterized by an OPTIONAL session-branch
@@ -990,13 +992,14 @@ func (s *GitStore) applyMutationOnBranch(
 	op string,
 	projectID ProjectID,
 	expectedVersion Version,
+	guard *footprint,
 	branch string,
 	cred RepoCredential,
 	idempotencyKey fwra.IdempotencyKey,
 	mode mutationMode,
 	mutate func(p *Project) error,
 ) (Version, error) {
-	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, branch, cred, idempotencyKey, mode, nil, mutate)
+	return s.applyMutationOnBranchFiles(ctx, op, projectID, expectedVersion, guard, branch, cred, idempotencyKey, mode, nil, mutate)
 }
 
 // applyMutationOnBranchFiles is applyMutationOnBranch that ALSO writes extraFiles (each
@@ -1010,6 +1013,7 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	op string,
 	projectID ProjectID,
 	expectedVersion Version,
+	guard *footprint,
 	branch string,
 	cred RepoCredential,
 	idempotencyKey fwra.IdempotencyKey,
@@ -1076,17 +1080,31 @@ func (s *GitStore) applyMutationOnBranchFiles(
 		return rec.ResultVersion, nil
 	}
 
-	// STEPS 2–3 — decode + mode gate + version guard.
-	p, err := loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
+	// STEPS 2–3 — decode + mode gate + version guard. On main a verb that names its
+	// footprint is guarded by it (FIX-006 ruling 5: see FOOTPRINT GUARDS); a branch write,
+	// and a verb whose precondition is the whole document (CreateProject), keep the exact
+	// project-version guard. Main writes restamp the footprint ledger either way.
+	onMain := branch == ""
+	var marks tipMarks
+	var p Project
+	if guard != nil && onMain {
+		p, err = loadAggregateForFootprint(snap, op, projectID, expectedVersion, mode, *guard, &marks)
+	} else {
+		p, err = loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
+		if err == nil && onMain {
+			marks, err = loadTipMarks(snap, p.Version)
+		}
+	}
 	if err != nil {
 		return 0, err
 	}
 
-	// STEP 4 — pure in-memory transition + version bump.
+	// STEP 4 — pure in-memory transition + version bump. The new Version is tip + 1 (the
+	// exact guard made the tip equal expectedVersion; a footprint guard admits an older read).
 	if mErr := mutate(&p); mErr != nil {
 		return 0, mErr
 	}
-	p.Version = expectedVersion + 1
+	p.Version++
 
 	// STEP 5 — build the new subtree (whole project.json + ALL dedup records,
 	// carrying forward the existing ones) and write the new dedup record in the SAME
@@ -1094,6 +1112,11 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now(), extraFiles)
 	if err != nil {
 		return 0, err
+	}
+	if onMain {
+		if err := stampWriteMarks(files, marks, p.Version); err != nil {
+			return 0, err
+		}
 	}
 	res, err := repo.CommitSubtree(ctx, statePathPrefix, files, snap.Base, commitMessage(op, idempotencyKey), auth)
 	if err != nil {
@@ -1276,9 +1299,18 @@ func (s *GitStore) applyRowOnce(
 	if mErr := mutate(&p); mErr != nil {
 		return 0, mErr
 	}
+	marks, err := loadTipMarks(snap, p.Version)
+	if err != nil {
+		return 0, err
+	}
 	p.Version++
 	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now(), nil)
 	if err != nil {
+		return 0, err
+	}
+	// The row write restamps the footprint ledger too: it marks only its own row, which is
+	// exactly why it no longer stales a conditional write on anything else.
+	if err := stampWriteMarks(files, marks, p.Version); err != nil {
 		return 0, err
 	}
 	beforeRowCommit()
@@ -1510,6 +1542,346 @@ func loadAggregateForMutation(snap fwgithub.GitSnapshot, op string, projectID Pr
 	if p.Version != expectedVersion {
 		return Project{}, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: stale version for project %s: have %d, expected %d", op, projectID, p.Version, expectedVersion))
 	}
+	return p, nil
+}
+
+// ---------------------------------------------------------------------------
+// FOOTPRINT GUARDS (FIX-006 ruling 5, folded in).
+//
+// A conditional whole-document write used to be guarded by the PROJECT Version: refused
+// unless the tip still carried exactly the version its caller read. Every sibling row write
+// moves that Version, so under a construction fan-out a conditional writer that reads,
+// decides and writes — the facade's Pause/Resume and M0 revoke with 3 attempts, a child's
+// slot commit or phase advance with 20 — queued behind sibling row writes on every attempt
+// and lost every one (the review measured P2's revoke failing 2 of 5 runs). The row writes
+// never touched anything those writers depend on: the guard was false sharing again, one
+// level up from the row verbs' own (root cause 1).
+//
+// So a main-scoped conditional verb now names its FOOTPRINT — the members of the document
+// its decision depends on (its slot, the pause, the phase, ...) — and is refused only when
+// one of THOSE changed after the version its caller read. The check runs at the tip, inside
+// the write queue, so nothing can land between it and the commit. A sibling row write cannot
+// fail it; a genuinely conflicting change to the same footprint still refuses it with
+// Conflict, exactly as before.
+//
+// WHAT CHANGED WHEN lives in a second state file, write_marks.json beside project.json: for
+// every footprint key the project Version of the last RA write that changed it, and the
+// digest of its bytes at the version the ledger describes. It is a separate file and not a
+// member of project.json for one reason: the state document is 3-way merged (the activity
+// and session branches), and only main's RA writes ever modify this file, so a merge always
+// takes main's copy cleanly instead of adding a multi-line member for the envelope resolver
+// to fight over. Every RA write on main restamps it in the same commit as the document.
+//
+// IT IS SELF-HEALING AND ONLY EVER CONSERVATIVE. A writer outside the RA (the local merge
+// step, a GitHub merge, a hand edit) changes the document without restamping the ledger:
+//   - when the tip's Version is not the one the ledger describes (or the ledger is absent or
+//     unreadable: a document from before this change), every key is treated as changed AT
+//     THE TIP — the old exact guard, for one write — and that write re-baselines the ledger;
+//   - when the Version matches but a key's bytes differ from its recorded digest (a merge
+//     restores main's version and keeps the branch's content), that key is treated as
+//     changed at the tip.
+//
+// Either way a mark can only be RAISED to the tip, never lowered below a real change, so the
+// guard refuses at least everything the exact guard would have refused for that footprint.
+//
+// Writes on a session BRANCH keep the exact project-version guard and never touch the
+// ledger: no row writes ride a branch, so nothing there is starved, and leaving the file
+// unchanged on the branch is what keeps its merge clean.
+// ---------------------------------------------------------------------------
+
+// writeMarksFile is the footprint ledger, relative to statePathPrefix.
+const writeMarksFile = "write_marks.json"
+
+// writeMarks is the ledger as committed.
+type writeMarks struct {
+	// Version is the project Version of the write that last stamped the ledger; the ledger
+	// describes the document at exactly this version.
+	Version Version `json:"version"`
+	// Since is the version the ledger was (re)baselined at: a key it holds no entry for has
+	// been absent and unchanged since then.
+	Since Version `json:"since"`
+	// DocDigest is the digest of the whole project.json the ledger describes, so a write on
+	// an untouched tip need not re-digest it.
+	DocDigest string `json:"docDigest"`
+	// Marks is the per-footprint record, keyed by footprintKeys' names.
+	Marks map[string]footprintMark `json:"marks"`
+}
+
+// footprintMark is one footprint key's record.
+type footprintMark struct {
+	// At is the project Version of the last write that changed the key.
+	At Version `json:"at"`
+	// Digest is the key's bytes' digest at the ledger's Version ("" = absent).
+	Digest string `json:"digest,omitempty"`
+}
+
+// footprint is the set of document members a conditional verb's decision depends on. Keys
+// name top-level members of project.json; for the per-entry maps ("slots",
+// "activityExecution", "activityGit") a key is "<member>.<entry key>", and a prefix such as
+// "slots." covers every entry. The ledger keys are DERIVED from the document, never listed
+// by hand, so a member added later is tracked from its first write.
+type footprint struct {
+	keys     []string
+	prefixes []string
+}
+
+func (f footprint) covers(key string) bool {
+	if slices.Contains(f.keys, key) {
+		return true
+	}
+	for _, p := range f.prefixes {
+		if strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// slotFootprintKey names one artifact slot's footprint key (slots are keyed by kind ordinal).
+func slotFootprintKey(kind ArtifactKind) string {
+	return "slots." + strconv.Itoa(int(kind))
+}
+
+// The per-verb footprints. Each says what the verb's caller decided on, so a change there
+// after the caller's read refuses the write. phase rides along on most: it moves only on the
+// seal, an advance or a revoke, never under a herd, and a write decided in another phase
+// should not land.
+var (
+	// pauseFootprint: RecordOperatorPaused / RecordOperatorResumed. A pause or resume that
+	// did not see the latest pause must not overwrite (or clear) it.
+	pauseFootprint = footprint{keys: []string{"operatorPaused", "pauseReason", "phase"}}
+	// reviewPolicyFootprint: RecordReviewPolicy replaces the whole policy it read.
+	reviewPolicyFootprint = footprint{keys: []string{"reviewPolicy"}}
+	// trackingFootprint: RecordTrackingPoint inserts into the progress record it read.
+	trackingFootprint = footprint{keys: []string{"constructionProgress"}}
+	// operatingModelFootprint / researchFootprint: the two Method inputs.
+	operatingModelFootprint = footprint{keys: []string{"operatingModel", "phase"}}
+	researchFootprint       = footprint{keys: []string{"research", "phase"}}
+	// advancePhaseFootprint: the advance is decided on the phase AND every slot being
+	// committed (the seal's precondition), so any slot change refuses it.
+	advancePhaseFootprint = footprint{keys: []string{"phase"}, prefixes: []string{"slots."}}
+)
+
+// slotFootprint is the footprint of a verb on one artifact slot: CommitArtifactWithProvenance,
+// StageArtifactForReviewOnBranch / SeedReviewCommentsOnBranch on main, AcknowledgeStaleBasis,
+// and RecordSdpReviewOutcome (the SDP review slot). A commit also re-flags downstream slots
+// stale, but it reads their status at the tip inside the queue, so they are not part of
+// what its caller decided on.
+func slotFootprint(kind ArtifactKind) *footprint {
+	return &footprint{keys: []string{slotFootprintKey(kind), "phase"}}
+}
+
+func fp(f footprint) *footprint { return &f }
+
+// footprintEnvelopeKeys are the store's own bookkeeping, never a footprint.
+var footprintEnvelopeKeys = map[string]bool{"version": true, "updatedAt": true}
+
+// footprintEntryMembers are the members tracked per entry rather than whole.
+var footprintEntryMembers = map[string]bool{"slots": true, "activityExecution": true, "activityGit": true, "activityConstruction": true}
+
+// digestBytes is the digest the ledger records.
+func digestBytes(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:16])
+}
+
+// footprintDigests splits a project.json into its footprint keys and digests each.
+func footprintDigests(raw []byte) (map[string]string, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(top)+64)
+	for k, v := range top {
+		if footprintEnvelopeKeys[k] {
+			continue
+		}
+		if footprintEntryMembers[k] {
+			var entries map[string]json.RawMessage
+			if err := json.Unmarshal(v, &entries); err == nil {
+				for ek, ev := range entries {
+					out[k+"."+ek] = digestBytes(ev)
+				}
+				continue
+			}
+		}
+		out[k] = digestBytes(v)
+	}
+	return out, nil
+}
+
+// readWriteMarks decodes the ledger from snap; ok=false when it is absent or unreadable (the
+// conservative case — never an error, so a damaged ledger degrades to the exact guard).
+func readWriteMarks(snap fwgithub.GitSnapshot) (writeMarks, bool) {
+	raw, ok := snap.Files[writeMarksFile]
+	if !ok {
+		return writeMarks{}, false
+	}
+	var wm writeMarks
+	if err := json.Unmarshal(raw, &wm); err != nil || wm.Marks == nil {
+		return writeMarks{}, false
+	}
+	return wm, true
+}
+
+// tipMarks is the ledger as it applies to the tip a write read: the effective "changed at"
+// of every key, and the tip's per-key digests.
+type tipMarks struct {
+	tip     Version
+	since   Version
+	valid   bool
+	at      map[string]Version
+	digests map[string]string
+}
+
+// markAt is the effective version key last changed at, as of the tip.
+func (m tipMarks) markAt(key string) Version {
+	if !m.valid {
+		return m.tip
+	}
+	if v, ok := m.at[key]; ok {
+		return v
+	}
+	if _, present := m.digests[key]; present {
+		return m.tip // a key the ledger never saw appeared outside the RA
+	}
+	return m.since
+}
+
+// loadTipMarks resolves the ledger against the tip's project.json (tipRaw, absent for a
+// brand-new project) at tip Version.
+func loadTipMarks(snap fwgithub.GitSnapshot, tip Version) (tipMarks, error) {
+	m := tipMarks{tip: tip, since: tip, at: map[string]Version{}, digests: map[string]string{}}
+	tipRaw, exists := snap.Files[projectFile]
+	if !exists {
+		m.valid = true // nothing exists yet, so nothing changed after any read
+		return m, nil
+	}
+	wm, ok := readWriteMarks(snap)
+	docDigest := digestBytes(tipRaw)
+	if ok && wm.Version == tip && wm.DocDigest == docDigest {
+		// The steady state: the tip is exactly what the ledger describes.
+		m.valid, m.since = true, wm.Since
+		for k, mk := range wm.Marks {
+			m.at[k] = mk.At
+			if mk.Digest != "" {
+				m.digests[k] = mk.Digest
+			}
+		}
+		return m, nil
+	}
+	digests, err := footprintDigests(tipRaw)
+	if err != nil {
+		return tipMarks{}, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: digest project.json")
+	}
+	m.digests = digests
+	if !ok || wm.Version != tip {
+		// No ledger, or the document's Version moved outside the RA: every key is treated
+		// as changed at the tip (the exact guard, for this one write).
+		return m, nil
+	}
+	// The Version matches but the bytes do not: an outside writer (a merge) changed some
+	// keys without bumping it. Those keys changed at the tip; the rest keep their marks.
+	m.valid, m.since = true, wm.Since
+	for k, mk := range wm.Marks {
+		m.at[k] = mk.At
+		if digests[k] != mk.Digest {
+			m.at[k] = tip
+		}
+	}
+	for k := range digests {
+		if _, seen := wm.Marks[k]; !seen {
+			m.at[k] = tip
+		}
+	}
+	return m, nil
+}
+
+// guardFootprint is the conditional verb's STEP 3 on main: refused when expectedVersion is
+// newer than the tip (no caller read that), or when any key of f changed after it.
+func guardFootprint(op string, projectID ProjectID, expectedVersion Version, m tipMarks, f footprint) error {
+	if expectedVersion > m.tip {
+		return fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: stale version for project %s: have %d, expected %d (newer than the project)",
+			op, projectID, m.tip, expectedVersion))
+	}
+	keys := slices.Concat(f.keys, slices.Collect(maps.Keys(m.digests)), slices.Collect(maps.Keys(m.at)))
+	slices.Sort(keys)
+	for _, k := range slices.Compact(keys) {
+		if !f.covers(k) {
+			continue
+		}
+		if at := m.markAt(k); at > expectedVersion {
+			return fwra.New(fwra.Conflict, fmt.Sprintf(
+				"projectstate.%s: stale version for project %s: %s changed at version %d, after the read at %d (have %d)",
+				op, projectID, k, at, expectedVersion, m.tip))
+		}
+	}
+	return nil
+}
+
+// stampWriteMarks adds the restamped ledger to a main write's file set: every key whose
+// bytes this write changed is marked at newVersion, every other keeps its effective mark.
+func stampWriteMarks(files map[string][]byte, m tipMarks, newVersion Version) error {
+	newRaw := files[projectFile]
+	digests, err := footprintDigests(newRaw)
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "projectstate: digest the new project.json")
+	}
+	wm := writeMarks{Version: newVersion, Since: m.since, DocDigest: digestBytes(newRaw), Marks: map[string]footprintMark{}}
+	if !m.valid {
+		wm.Since = m.tip
+	}
+	keys := slices.Concat(slices.Collect(maps.Keys(digests)), slices.Collect(maps.Keys(m.digests)), slices.Collect(maps.Keys(m.at)))
+	for _, k := range keys {
+		if _, done := wm.Marks[k]; done {
+			continue
+		}
+		at := m.markAt(k)
+		if digests[k] != m.digests[k] {
+			at = newVersion
+		}
+		if digests[k] == "" && at <= wm.Since {
+			continue // absent and unchanged since the baseline: Since already answers for it
+		}
+		wm.Marks[k] = footprintMark{At: at, Digest: digests[k]}
+	}
+	b, err := json.MarshalIndent(wm, "", "  ")
+	if err != nil {
+		return fwra.Wrap(fwra.Infrastructure, err, "projectstate: encode write marks")
+	}
+	files[writeMarksFile] = b
+	return nil
+}
+
+// loadAggregateForFootprint is loadAggregateForMutation for a main-scoped conditional verb
+// that names its footprint: the same decode and mode gate, then guardFootprint at the tip
+// instead of the exact project-version equality. The resolved ledger is returned through
+// marks for the write to restamp.
+func loadAggregateForFootprint(snap fwgithub.GitSnapshot, op string, projectID ProjectID, expectedVersion Version, mode mutationMode, f footprint, marks *tipMarks) (Project, error) {
+	p, exists, err := decodeProjectFromSnapshot(snap, projectID)
+	if err != nil {
+		return Project{}, err
+	}
+	if !exists {
+		// No document: the exact rules apply unchanged (mode gate, expectedVersion 0).
+		p, err = loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
+		if err != nil {
+			return Project{}, err
+		}
+		*marks, err = loadTipMarks(snap, p.Version)
+		return p, err
+	}
+	if mode == modeCreateOnly {
+		return Project{}, fwra.New(fwra.Conflict, fmt.Sprintf("projectstate.%s: project %s already exists", op, projectID))
+	}
+	m, err := loadTipMarks(snap, p.Version)
+	if err != nil {
+		return Project{}, err
+	}
+	if err := guardFootprint(op, projectID, expectedVersion, m, f); err != nil {
+		return Project{}, err
+	}
+	*marks = m
 	return p, nil
 }
 
@@ -1800,7 +2172,7 @@ func buildStateFiles(snap fwgithub.GitSnapshot, p *Project, key fwra.Idempotency
 	// research/ corpus files (F42) must survive EVERY unrelated mutation — like the dedup
 	// ledger — so a stage/commit/reject never wipes the corpus a prior SetResearchInput wrote.
 	for path, b := range snap.Files {
-		if strings.HasPrefix(path, appliedMutationsDir+"/") || strings.HasPrefix(path, researchDir+"/") {
+		if strings.HasPrefix(path, appliedMutationsDir+"/") || strings.HasPrefix(path, researchDir+"/") || path == writeMarksFile {
 			files[path] = b
 		}
 	}
@@ -2467,7 +2839,7 @@ func sameOperatorNote(n OperatorNote, in OperatorNoteInput) bool {
 // recordOperatorPaused records the operator-paused head-state transition by
 // setting Project.OperatorPaused = true and Project.PauseReason = reason.
 func (s *GitStore) recordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(rc.Context, "RecordOperatorPaused", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordOperatorPaused", projectID, expectedVersion, fp(pauseFootprint), cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = true
 		p.PauseReason = reason
 		return nil
@@ -2501,7 +2873,7 @@ func (s *GitStore) recordSdpReviewOutcome(rc fwra.Context, projectID ProjectID, 
 	default:
 		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: unknown outcome %d", verb, int(outcome)))
 	}
-	return s.applyMutation(rc.Context, "RecordSdpReviewOutcome", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordSdpReviewOutcome", projectID, expectedVersion, slotFootprint(KindSdpReview), cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		slot, ok := slotPtr(p, KindSdpReview)
 		if !ok {
 			return fwra.New(fwra.ContractMisuse, verb+": the project has no SDP review slot")
@@ -2546,7 +2918,7 @@ func (s *GitStore) recordTrackingPoint(rc fwra.Context, projectID ProjectID, exp
 	if point.Week < 1 {
 		return 0, fwra.New(fwra.ContractMisuse, fmt.Sprintf("%s: week %d; tracking weeks start at 1", verb, point.Week))
 	}
-	return s.applyMutation(rc.Context, "RecordTrackingPoint", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordTrackingPoint", projectID, expectedVersion, fp(trackingFootprint), cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		if p.ConstructionProgress == nil {
 			return fwra.New(fwra.ContractMisuse, verb+": the project has no construction progress record; it is not in construction")
 		}
@@ -2568,7 +2940,7 @@ func (s *GitStore) recordTrackingPoint(rc fwra.Context, projectID ProjectID, exp
 // project that is not paused changes no field: the construction Manager's façade owns the
 // "not paused" precondition, so the RA stays an idempotent writer of the cleared state.
 func (s *GitStore) recordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(rc.Context, "RecordOperatorResumed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordOperatorResumed", projectID, expectedVersion, fp(pauseFootprint), cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.OperatorPaused = false
 		p.PauseReason = ""
 		return nil
@@ -2578,7 +2950,7 @@ func (s *GitStore) recordOperatorResumed(rc fwra.Context, projectID ProjectID, e
 // recordReviewPolicy persists the per-project ReviewPolicy by setting
 // Project.ReviewPolicy = policy.
 func (s *GitStore) recordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.applyMutation(rc.Context, "RecordReviewPolicy", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+	return s.applyMutation(rc.Context, "RecordReviewPolicy", projectID, expectedVersion, fp(reviewPolicyFootprint), cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		p.ReviewPolicy = policy
 		return nil
 	})

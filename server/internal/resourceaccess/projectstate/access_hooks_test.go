@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2798,7 +2799,7 @@ func TestActivityExecution_RowWriteReappliesAfterAnOutsideCommit(t *testing.T) {
 
 // TestActivityExecution_RowGuardAndConditionalGuardKept: dropping the project version from
 // the row verbs does not drop the ROW's own guard, and the whole-document conditional verbs
-// keep their project version guard.
+// keep a guard — on their footprint (FIX-006 ruling 5), which the row writes do not move.
 func TestActivityExecution_RowGuardAndConditionalGuardKept(t *testing.T) {
 	h := scenariohost.Start(t)
 	repo := testinfra.StartLocalGitRepo(t, "main")
@@ -2835,66 +2836,249 @@ func TestActivityExecution_RowGuardAndConditionalGuardKept(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read version: %v", err)
 	}
-	if _, err := ps.AdvancePhase(callContext(t, h, "stale-advance"), fix006Project, head-1); raKind(err) != "Conflict" {
-		t.Errorf("a conditional write on a stale project version: err %v, want Conflict", err)
+	// The conditional verbs keep a guard — on their own footprint (ruling 5): a pause read
+	// before another pause landed is refused; the row writes above stale nothing.
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-1"), fix006Project, head-2, "after the rows",
+		callContext(t, h, "pause-1").IdempotencyKey); err != nil {
+		t.Fatalf("a pause read before two row writes: %v (kind %s), want success — row writes are not its footprint", err, raKind(err))
+	}
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-2"), fix006Project, head, "stale",
+		callContext(t, h, "pause-2").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a pause read before the pause that landed: err %v, want Conflict", err)
 	}
 }
 
-// TestActivityExecution_ConditionalWriteUnderSiblingHerd MEASURES ruling 5's residual: a
-// conditional whole-document write (the facade's Pause: read the version, write against
-// it, re-read on Conflict) racing a fix006Herd sibling herd. It must converge once the herd
-// drains; how many attempts it needed WHILE the herd ran is the number ruling 5 decides
-// on (the facade bounds itself at 3).
-func TestActivityExecution_ConditionalWriteUnderSiblingHerd(t *testing.T) {
-	h := scenariohost.Start(t)
-	repo := testinfra.StartLocalGitRepo(t, "main")
-	seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseConstruction))
-	ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
-	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+// conditionalWriteBound is the facade's re-read -> re-write bound (resumeConflictAttempts,
+// activityRowWriteAttempts): the number of attempts a conditional writer racing a sibling
+// herd must converge within (ruling 5).
+const conditionalWriteBound = 3
 
-	var herd sync.WaitGroup
-	herdDone := make(chan struct{})
-	errs := make([]error, fix006Herd)
-	for i := range fix006Herd {
-		herd.Go(func() {
-			id := fmt.Sprintf("C-cond-%02d", i)
-			_, errs[i] = ae.OpenActivity(callContext(t, h, "open-"+id), fix006Project, projectstate.NoActivityVersionExpectation, id,
-				projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "open-"+id).IdempotencyKey)
+// runningHerd is a sibling herd that keeps writing rows until stopped: fix006Herd children,
+// each born, then upserting its git-status row over and over — the row traffic a real
+// construction fan-out keeps up for as long as its children run. landed counts the writes.
+type runningHerd struct {
+	stop   chan struct{}
+	wg     sync.WaitGroup
+	landed atomic.Int64
+	errs   []error
+}
+
+// herdWritesEach is a safety cap on each sibling's git-status upserts. The herd is stopped
+// explicitly long before it; the cap only bounds a test that fails to stop it, because every
+// state commit carries the whole dedup ledger and the platform stages it file by file, so a
+// write's cost grows with every write before it.
+const herdWritesEach = 50
+
+func startRunningHerd(t *testing.T, h *scenariohost.Host, repoURL, prefix string, size int) *runningHerd {
+	t.Helper()
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repoURL)
+	git := projectstate.NewGitLocalGitActivityStatusAccess(repoURL)
+	hd := &runningHerd{stop: make(chan struct{}), errs: make([]error, size)}
+	for i := range size {
+		hd.wg.Go(func() {
+			id := fmt.Sprintf("%s-%02d", prefix, i)
+			if _, err := ae.OpenActivity(callContext(t, h, "open-"+id), fix006Project, projectstate.NoActivityVersionExpectation, id,
+				projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "open-"+id).IdempotencyKey); err != nil {
+				hd.errs[i] = fmt.Errorf("OpenActivity %s: %w", id, err)
+				return
+			}
+			hd.landed.Add(1)
+			for n := 0; n < herdWritesEach; n++ {
+				select {
+				case <-hd.stop:
+					return
+				default:
+				}
+				step := fmt.Sprintf("ci-%s-%d", id, n)
+				if _, err := git.RecordActivityCIObserved(callContext(t, h, step), fix006Project, id, projectstate.CICheckState(n%3),
+					projectstate.RepoCredential{}, callContext(t, h, step).IdempotencyKey); err != nil {
+					hd.errs[i] = fmt.Errorf("RecordActivityCIObserved %s #%d: %w", id, n, err)
+					return
+				}
+				hd.landed.Add(1)
+			}
 		})
 	}
-	go func() { herd.Wait(); close(herdDone) }()
+	return hd
+}
 
-	const bound = 500
-	attempts, duringHerd := 0, 0
-	var last error
-	for attempts < bound {
-		attempts++
-		select {
-		case <-herdDone:
-		default:
-			duringHerd++
+// awaitLanded blocks until the herd has landed at least n writes (so it is genuinely
+// running, not still queueing its births) or fails the test.
+func (hd *runningHerd) awaitLanded(t *testing.T, n int64) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Minute)
+	for hd.landed.Load() < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("the herd landed only %d writes in 2m, want %d", hd.landed.Load(), n)
 		}
-		v, err := ps.ReadProjectVersion(callContext(t, h, "pause-read"), fix006Project)
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func (hd *runningHerd) halt(t *testing.T) {
+	t.Helper()
+	close(hd.stop)
+	hd.wg.Wait()
+	for i, err := range hd.errs {
+		if err != nil {
+			t.Errorf("sibling %d: %v (kind %s)", i, err, raKind(err))
+		}
+	}
+}
+
+// convergeConditional runs one conditional writer the facade's way — read the project,
+// write against the version it read, re-read on Conflict — at most conditionalWriteBound
+// times, and reports how many attempts it took and how many herd writes landed meanwhile.
+func convergeConditional(t *testing.T, h *scenariohost.Host, ps projectstate.ProjectStateAccess, hd *runningHerd, name string,
+	write func(step string, v projectstate.Version) error,
+) {
+	t.Helper()
+	before := hd.landed.Load()
+	var last error
+	for attempt := 1; attempt <= conditionalWriteBound; attempt++ {
+		p, err := ps.ReadProject(callContext(t, h, fmt.Sprintf("%s-read-%d", name, attempt)), fix006Project)
+		if err != nil {
+			t.Errorf("%s: read: %v", name, err)
+			return
+		}
+		if last = write(name, p.Version); last == nil {
+			during := hd.landed.Load() - before
+			t.Logf("%s converged on attempt %d while %d sibling row writes landed", name, attempt, during)
+			if during == 0 {
+				t.Errorf("%s: no sibling write landed while it ran — the herd was not racing it", name)
+			}
+			return
+		}
+		if raKind(last) != "Conflict" {
+			t.Errorf("%s attempt %d: %v (kind %s), want only Conflicts", name, attempt, last, raKind(last))
+			return
+		}
+	}
+	t.Errorf("%s did not converge in %d attempts while %d sibling row writes landed: %v (ruling 5: a sibling's row write must not stale a conditional write)",
+		name, conditionalWriteBound, hd.landed.Load()-before, last)
+}
+
+// fix006SlotsProject is a project in construction whose mission, glossary and SDP review
+// are committed — the slots the conditional writers below move.
+func fix006SlotsProject() projectstate.Project {
+	p := baseProject(fix006Project, 3, projectstate.PhaseConstruction)
+	p.Mission = committed(missionStatement("FIX-006 ruling 5"))
+	p.Glossary = committed(&projectstate.Glossary{Items: []projectstate.GlossaryItem{{Term: "Herd", Definition: "The siblings a seal births at once."}}})
+	p.SdpReview = committed(&projectstate.SdpReview{})
+	return p
+}
+
+// TestConditionalWrite_ConvergesUnderSiblingHerd is ruling 5 folded in (FIX-006): a
+// conditional whole-document write is guarded by what it depends on, not by the project
+// Version every sibling row write moves. Under a herd of fix006Herd siblings that keeps
+// writing rows for the whole test, each facade-shaped conditional writer — the Pause, a slot
+// commit, and the M0 revoke (RecordSdpReviewOutcome) — converges within the facade's 3
+// attempts. Before the fold every attempt queued behind sibling row writes and lost.
+func TestConditionalWrite_ConvergesUnderSiblingHerd(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+	ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+
+	hd := startRunningHerd(t, h, repo.URL, "C-herd", fix006Herd)
+	hd.awaitLanded(t, fix006Herd+fix006Herd/2)
+
+	// The writers race the herd AND each other, as the facade's and the seal's do; the pause
+	// and the slot commit touch disjoint footprints, so neither may stale the other either.
+	var writers sync.WaitGroup
+	writers.Go(func() {
+		convergeConditional(t, h, ps, hd, "pause", func(step string, v projectstate.Version) error {
+			_, err := ps.RecordOperatorPaused(callContext(t, h, step), fix006Project, v, "FIX-006 ruling 5", callContext(t, h, step).IdempotencyKey)
+			return err
+		})
+	})
+	writers.Go(func() {
+		convergeConditional(t, h, ps, hd, "slot-commit", func(step string, v projectstate.Version) error {
+			_, err := ds.CommitArtifactWithProvenance(callContext(t, h, step), fix006Project, v, projectstate.KindMission, "operator", "platform")
+			return err
+		})
+	})
+	writers.Wait()
+	// The revoke moves the phase, which the other two depend on, so it goes last.
+	writers.Go(func() {
+		convergeConditional(t, h, ps, hd, "m0-revoke", func(step string, v projectstate.Version) error {
+			_, err := ps.RecordSdpReviewOutcome(callContext(t, h, step), fix006Project, v, projectstate.ReviewWithdrawn, "", callContext(t, h, step).IdempotencyKey)
+			return err
+		})
+	})
+	writers.Wait()
+	hd.halt(t)
+}
+
+// TestConditionalWrite_SameFootprintChangeStillConflicts: the per-footprint guard is still a
+// guard. A conditional write against a version older than the last change to what it
+// depends on — the same pause, the same slot — is refused with Conflict, herd or no herd;
+// a change to a DIFFERENT slot does not refuse it.
+func TestConditionalWrite_SameFootprintChangeStillConflicts(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+	ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+	hd := startRunningHerd(t, h, repo.URL, "C-same", 8)
+	hd.awaitLanded(t, 16)
+	defer hd.halt(t)
+
+	read := func(step string) projectstate.Version {
+		v, err := ps.ReadProjectVersion(callContext(t, h, step), fix006Project)
 		if err != nil {
 			t.Fatalf("read version: %v", err)
 		}
-		if _, last = ps.RecordOperatorPaused(callContext(t, h, "pause"), fix006Project, v, "FIX-006 measurement",
-			callContext(t, h, "pause").IdempotencyKey); last == nil {
-			break
-		}
-		if raKind(last) != "Conflict" {
-			t.Fatalf("pause attempt %d: %v (kind %s), want only Conflicts", attempts, last, raKind(last))
-		}
+		return v
 	}
-	herd.Wait()
-	for i, err := range errs {
-		if err != nil {
-			t.Errorf("sibling %d: %v", i, err)
-		}
+
+	// The same pause: the operator's second pause lands first; the first, on its older read, is refused.
+	stale := read("pause-read-1")
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-b"), fix006Project, read("pause-read-2"), "second pause",
+		callContext(t, h, "pause-b").IdempotencyKey); err != nil {
+		t.Fatalf("the racing pause: %v", err)
 	}
-	if last != nil {
-		t.Fatalf("the conditional write did not converge in %d attempts: %v", bound, last)
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-a"), fix006Project, stale, "first pause",
+		callContext(t, h, "pause-a").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a pause on a version older than the racing pause: err %v, want Conflict", err)
 	}
-	t.Logf("ruling-5 measurement: the conditional write needed %d attempt(s), %d of them while the %d-sibling herd was still writing (facade bound: 3)",
-		attempts, duringHerd, fix006Herd)
+	if _, err := ps.RecordOperatorResumed(callContext(t, h, "resume-stale"), fix006Project, stale,
+		callContext(t, h, "resume-stale").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a resume that did not see the pause it would clear: err %v, want Conflict", err)
+	}
+
+	// The same slot: a re-commit of the mission lands first; a commit read before it is refused.
+	stale = read("slot-read-1")
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-b"), fix006Project, read("slot-read-2"),
+		projectstate.KindMission, "operator", "platform"); err != nil {
+		t.Fatalf("the racing commit: %v", err)
+	}
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-a"), fix006Project, stale,
+		projectstate.KindMission, "operator", "platform"); raKind(err) != "Conflict" {
+		t.Errorf("a slot commit on a version older than the slot's last change: err %v, want Conflict", err)
+	}
+
+	// A different slot: a glossary commit lands between the read and the mission commit, and
+	// does not refuse it (the mission's footprint did not move).
+	before := read("other-read-1")
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-glossary"), fix006Project, read("other-read-2"),
+		projectstate.KindGlossary, "operator", "platform"); err != nil {
+		t.Fatalf("the glossary commit: %v", err)
+	}
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-mission"), fix006Project, before,
+		projectstate.KindMission, "operator", "platform"); err != nil {
+		t.Errorf("a mission commit across an unrelated glossary commit: %v (kind %s), want success", err, raKind(err))
+	}
+
+	// The phase advance depends on every slot: the glossary commit above stales it.
+	if _, err := ps.AdvancePhase(callContext(t, h, "advance-stale"), fix006Project, before); raKind(err) != "Conflict" {
+		t.Errorf("AdvancePhase on a read older than a slot commit: err %v, want Conflict", err)
+	}
+
+	// A version the project has not reached is never a valid read.
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-future"), fix006Project, read("future-read")+1000, "future",
+		callContext(t, h, "pause-future").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a conditional write on a version from the future: err %v, want Conflict", err)
+	}
 }
