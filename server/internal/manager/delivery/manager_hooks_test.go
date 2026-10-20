@@ -1642,23 +1642,30 @@ func settleDesignWalk(activity string) settler {
 		if err != nil {
 			return out, err
 		}
-		before := s.revisionsBefore[activity]
-		eventually(t, walkWindow, "the "+activity+" walk acting on the decision", func() (bool, string) {
-			v, qerr := subject.QueryActivityView(callContext(t, h, ""), planProject, delivery.ActivityID(activity))
-			if qerr != nil {
-				return false, qerr.Error()
-			}
-			switch v.State {
-			case delivery.ActivityViewDone, delivery.ActivityViewFailed:
-				return true, ""
-			case delivery.ActivityViewAwaitingHuman:
-				return newRoundAwaitsHuman(v, before), "still at the same gate"
-			}
-			return false, string(v.State)
-		})
+		awaitWalkActed(t, h, subject, s, activity)
 		awaitPumpSettled(t, h, subject, activity)
 		return out, err
 	}
+}
+
+// awaitWalkActed waits until the design activity's walk acted on the step: it finished,
+// or it holds a NEW round at a gate.
+func awaitWalkActed(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, activity string) {
+	t.Helper()
+	before := s.revisionsBefore[activity]
+	eventually(t, walkWindow, "the "+activity+" walk acting on the decision", func() (bool, string) {
+		v, qerr := subject.QueryActivityView(callContext(t, h, ""), planProject, delivery.ActivityID(activity))
+		if qerr != nil {
+			return false, qerr.Error()
+		}
+		switch v.State {
+		case delivery.ActivityViewDone, delivery.ActivityViewFailed:
+			return true, ""
+		case delivery.ActivityViewAwaitingHuman:
+			return newRoundAwaitsHuman(v, before), "still at the same gate"
+		}
+		return false, string(v.State)
+	})
 }
 
 // revisionCounts is how many revisions each task of an activity holds.
@@ -1704,10 +1711,17 @@ func snapshotRevisions(t *testing.T, h *scenariohost.Host, subject delivery.Deli
 // probe's to report.
 func settleCommitment(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, out any, err error) (any, error) {
 	t.Helper()
-	out, err = settleDesignWalk("projectDesign")(t, h, subject, s, out, err)
 	if err != nil {
 		return out, err
 	}
+	// NOT settleDesignWalk: its pump-idle wait is wrong once the seal lands. The sealed
+	// pump fans the construction frontier out and stays open while those children walk —
+	// it goes idle only when construction drains or the pump halts. That wait used to
+	// return because the fan-out always halted (FIX-006's defect, which FIX-003 made a
+	// halt and 57c73c28 let awaitPumpIdle accept); with the fan-out healthy it burned the
+	// whole walkWindow and failed every P1/P2 run. A sealed project is settled by its
+	// frontier being born; an unsealed one still waits for its pump to settle.
+	awaitWalkActed(t, h, subject, s, "projectDesign")
 	deadline := time.Now().Add(30 * time.Second)
 	sealed := false
 	for !sealed && time.Now().Before(deadline) {
@@ -1720,7 +1734,9 @@ func settleCommitment(t *testing.T, h *scenariohost.Host, subject delivery.Deliv
 	}
 	if sealed {
 		awaitFrontierBorn(t, h, subject, s)
+		return out, err
 	}
+	awaitPumpSettled(t, h, subject, "projectDesign")
 	return out, err
 }
 
@@ -1735,13 +1751,12 @@ func settleCommitment(t *testing.T, h *scenariohost.Host, subject delivery.Deliv
 // blocked row.
 func awaitFrontierBorn(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack) {
 	t.Helper()
-	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "frontier-read"), planProject)
-	if err != nil {
-		t.Fatalf("hooks: read the sealed project: %v", err)
-	}
-	frontier := constructionFrontier(proj)
-	t.Logf("hooks: post-seal construction frontier: %d activities", len(frontier))
-	eventually(t, walkWindow, fmt.Sprintf("the %d-activity construction frontier being born", len(frontier)), func() (bool, string) {
+	// THE FRONTIER IS RE-COMPUTED ON EVERY POLL, and it must hold a CONSTRUCTION activity.
+	// Read once at the seal, it is only the design activities already born: the phase reads
+	// construction a beat before the M0 milestone resolves for the construction activities,
+	// so a one-shot read made this wait return at once and the fan-out was never reached
+	// (measured: "frontier: 3 activities", zero construction births).
+	eventually(t, walkWindow, "the post-seal construction frontier being born", func() (bool, string) {
 		v, qerr := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
 		if qerr != nil {
 			return false, qerr.Error()
@@ -1754,12 +1769,28 @@ func awaitFrontierBorn(t *testing.T, h *scenariohost.Host, subject delivery.Deli
 		if rerr != nil {
 			return false, rerr.Error()
 		}
+		frontier := constructionFrontier(p)
+		built := withoutDesign(frontier)
+		if len(built) == 0 {
+			return false, fmt.Sprintf("no construction activity eligible yet (%d design)", len(frontier))
+		}
 		unborn := unbornOf(frontier, p)
 		if len(unborn) == 0 {
-			t.Logf("hooks: construction frontier born: %d rows", len(frontier))
+			t.Logf("hooks: construction frontier born: %d rows (%d construction)", len(frontier), len(built))
 		}
 		return len(unborn) == 0, fmt.Sprintf("%d of %d unborn (e.g. %v)", len(unborn), len(frontier), unborn[:min(3, len(unborn))])
 	})
+}
+
+// withoutDesign is frontier minus the design activities (designOrder).
+func withoutDesign(frontier []string) []string {
+	var out []string
+	for _, id := range frontier {
+		if !slices.Contains(designOrder, id) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // constructionFrontier is every activity of the committed plan whose dependencies resolve

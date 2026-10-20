@@ -1993,13 +1993,11 @@ func (s *stack) recordedPumpHalt() (*mgr.PumpHalt, error) {
 func (s *stack) awaitFrontierBorn(t *testing.T) {
 	t.Helper()
 	pid := projectstate.ProjectID(s.project)
-	proj, err := s.ps.ReadProject(s.h.ResourceAccessContext(t, s.nextKey("frontier-read")), pid)
-	if err != nil {
-		t.Fatalf("hooks: read the sealed project: %v", err)
-	}
-	frontier := constructionFrontier(proj)
-	t.Logf("hooks: post-seal construction frontier: %d activities", len(frontier))
-	eventually(t, walkWindow, fmt.Sprintf("the %d-activity construction frontier being born", len(frontier)), func() (bool, string) {
+	// THE FRONTIER IS RE-COMPUTED ON EVERY POLL, and it must hold a CONSTRUCTION activity:
+	// read once at the seal it is only the design activities already born (the M0
+	// milestone resolves for construction a beat after the phase reads construction), and
+	// the wait returned before the fan-out it exists to reach.
+	eventually(t, walkWindow, "the post-seal construction frontier being born", func() (bool, string) {
 		if sum, serr := s.summary(t); serr == nil && sum.RunState == mgr.ProjectHalted {
 			t.Logf("hooks: the pump halted before the frontier was born")
 			return true, ""
@@ -2008,12 +2006,28 @@ func (s *stack) awaitFrontierBorn(t *testing.T) {
 		if rerr != nil {
 			return false, rerr.Error()
 		}
+		frontier := constructionFrontier(p)
+		built := withoutDesign(frontier)
+		if len(built) == 0 {
+			return false, fmt.Sprintf("no construction activity eligible yet (%d design)", len(frontier))
+		}
 		unborn := unbornOf(frontier, p)
 		if len(unborn) == 0 {
-			t.Logf("hooks: construction frontier born: %d rows", len(frontier))
+			t.Logf("hooks: construction frontier born: %d rows (%d construction)", len(frontier), len(built))
 		}
 		return len(unborn) == 0, fmt.Sprintf("%d of %d unborn (e.g. %v)", len(unborn), len(frontier), unborn[:min(3, len(unborn))])
 	})
+}
+
+// withoutDesign is frontier minus the design activities (designOrder).
+func withoutDesign(frontier []string) []string {
+	var out []string
+	for _, id := range frontier {
+		if !slices.Contains(designOrder, id) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // constructionFrontier is every activity of the committed plan whose dependencies resolve
