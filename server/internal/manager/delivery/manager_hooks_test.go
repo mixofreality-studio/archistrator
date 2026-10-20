@@ -1618,7 +1618,7 @@ var settlers = map[string]settler{
 	// seal moved the project, a send-back when the redraft is back at the gate.
 	"commit-to-a-project-option-P1#2":              settleCommitment,
 	"commit-to-a-project-option-P2#2":              settleCommitment,
-	"commit-to-a-project-option-P2#3":              settleDesignWalk("projectDesign"),
+	"commit-to-a-project-option-P2#3":              settleRevoke,
 	"commit-to-a-project-option-P3#2":              settleDesignWalk("projectDesign"),
 	"send-back-change-requests-for-a-redraft-P1#1": settleDesignWalk("architecture"),
 	"send-back-change-requests-for-a-redraft-P2#1": settleDesignWalk("architecture"),
@@ -1737,6 +1737,31 @@ func settleCommitment(t *testing.T, h *scenariohost.Host, subject delivery.Deliv
 		return out, err
 	}
 	awaitPumpSettled(t, h, subject, "projectDesign")
+	return out, err
+}
+
+// settleRevoke settles the grace-window revoke of an M0 commitment: the re-opened
+// projectDesign walk holds a NEW M0 round for the founder (or failed). Not
+// settleDesignWalk: right after the revoke the activity still reads done, so that wait
+// returned at once and then waited for the pump to go idle — and the construction
+// children the commitment already started keep the pump open, so it burned the whole
+// walkWindow (measured once the fan-out was reached deterministically).
+func settleRevoke(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, out any, err error) (any, error) {
+	t.Helper()
+	if err != nil {
+		return out, err
+	}
+	before := s.revisionsBefore["projectDesign"]
+	eventually(t, walkWindow, "the re-opened projectDesign walk presenting a new M0 round", func() (bool, string) {
+		v, qerr := subject.QueryActivityView(callContext(t, h, ""), planProject, "projectDesign")
+		if qerr != nil {
+			return false, qerr.Error()
+		}
+		if v.State == delivery.ActivityViewFailed {
+			return true, ""
+		}
+		return v.State == delivery.ActivityViewAwaitingHuman && newRoundAwaitsHuman(v, before), string(v.State)
+	})
 	return out, err
 }
 
