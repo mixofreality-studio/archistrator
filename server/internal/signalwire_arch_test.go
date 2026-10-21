@@ -160,19 +160,26 @@ import (
 //	wantSignalChannelSites — workflow.GetSignalChannel call sites in non-test,
 //	  non-generated code under server/internal. (An earlier recon said 13; the
 //	  thirteenth is prose, at deliveryactivity.go:3729.)
-//	wantBusProducerSites   — MessageBusDeliverSignal call sites.
-//	wantBusChannelSites    — of the 10, those whose NAME a producer uses.
+//	wantBusProducerSites   — messageBus.deliverSignal call sites, in either spelling
+//	  (isBusProducerCall).
+//	wantBusChannelSites    — of the 11, those whose NAME a producer uses.
 //
 // dct4 (Plan 4 Task 4) took the count from 12 to 10: billing's CloseCycleWorkflow lost
 // its inboundRevenueReceived drain and its chargebackReceived await with the two
 // webhook-fed revenue ops (neither had a producer of any kind).
 //
+// FIX-003 took the channels from 10 to 11, the bus channels from 6 to 7 and the producers
+// from 5 to 6: the pump's operatorResumeRequested channel, and ResumeProject's relay onto a
+// halted pump, which is the first producer to deliver from a Manager's FAÇADE
+// (m.messageBus.DeliverSignal) rather than through the Activity invoker — the spelling
+// isBusProducerCall learned in the same commit, because the gate could not see it before.
+//
 // A change to any of these is a change to this gate's coverage and must be made
 // deliberately, here, in the same commit as the code that moved it.
 const (
-	wantSignalChannelSites = 10
-	wantBusProducerSites   = 5
-	wantBusChannelSites    = 6
+	wantSignalChannelSites = 11
+	wantBusProducerSites   = 6
+	wantBusChannelSites    = 7
 )
 
 // wantBusDeliveredNames is the closed set of signal NAMES that cross the bus as raw
@@ -185,6 +192,7 @@ var wantBusDeliveredNames = []string{
 	"activityLeaseRequested",
 	"applyDelinquencyPolicy",
 	"operatorPauseRequested",
+	"operatorResumeRequested",
 }
 
 // ---------------------------------------------------------------------------
@@ -611,7 +619,7 @@ func busDeliveredSignalNames(t *testing.T, g *wireGraph) map[string]string {
 				return true
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "MessageBusDeliverSignal" || len(call.Args) < 3 {
+			if !ok || !isBusProducerCall(sel) || len(call.Args) < 3 {
 				return true
 			}
 			site := g.pos(call.Pos())
@@ -635,6 +643,26 @@ func busDeliveredSignalNames(t *testing.T, g *wireGraph) map[string]string {
 		t.Fatal("no messageBus.deliverSignal producer found; this gate would pass vacuously")
 	}
 	return out
+}
+
+// isBusProducerCall reports whether a call's selector is a messageBus.deliverSignal
+// producer. There are TWO spellings, and the gate was blind to the second until FIX-003
+// wrote one: inside a workflow the delivery goes through the generated Activity invoker
+// (wf.Acts.MessageBusDeliverSignal), and from a Manager's façade it is the injected
+// utility's own method (m.messageBus.DeliverSignal). Both put the NAME third and both hand
+// the Temporal client raw bytes, so both are producers of the same wire form. The façade
+// spelling is matched on the receiver's FIELD name — messageBus, the restricted utility's
+// one name in every Manager (TestMessageBusManagersOnly) — because a bare DeliverSignal
+// selector would also match the utility's own implementation.
+func isBusProducerCall(sel *ast.SelectorExpr) bool {
+	switch sel.Sel.Name {
+	case "MessageBusDeliverSignal":
+		return true
+	case "DeliverSignal":
+		recv, ok := sel.X.(*ast.SelectorExpr)
+		return ok && recv.Sel.Name == "messageBus"
+	}
+	return false
 }
 
 // wireSignalNameArg reads messagebus.SignalName(<ident>) and reports the ident.

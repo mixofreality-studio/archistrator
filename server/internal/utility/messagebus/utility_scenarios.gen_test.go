@@ -124,6 +124,29 @@ func TestScenario_pause_construction_P1(t *testing.T) {
 	})
 }
 
+// inputResumePausedConstructionP3S1 is step 1's parameters of DeliverSignal, decoded from the binding's inputs.
+type inputResumePausedConstructionP3S1 struct {
+	TargetExecutionID messagebus.ExecutionID      `json:"targetExecutionID"`
+	SignalName        messagebus.SignalName       `json:"signalName"`
+	Payload           messagebus.ExecutionPayload `json:"payload"`
+	Start             *messagebus.ExecutionStart  `json:"start"`
+}
+
+// TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
+func TestScenario_resume_paused_construction_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "messageBus", "resume-paused-construction-P3", func(t *testing.T) {
+		var subject messagebus.MessageBus = newSubject(t, h)
+		// step 1: DeliverSignal (node release-halt; guards halt-check=[yes])
+		var in1 inputResumePausedConstructionP3S1
+		mustUnmarshal(t, `{"targetExecutionID":"dct-messagebus-resume-p3:nextActivity","signalName":"operatorResumeRequested","payload":{"Bytes":"eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1yZXN1bWUtcDMiLCJIYWx0ZWRPbiI6IkMtcmV2aWV3LWVuZ2luZSIsIkhhbHRlZEF0IjoiMjAyNi0xMC0xN1QyMTo0Nzo1MVoiLCJIYWx0Q2F1c2UiOiJoZWFkLXN0YXRlIGNvbmZsaWN0IGRpZCBub3QgY29udmVyZ2Ugd2l0aGluIGJvdW5kZWQgYXR0ZW1wdHMifQ=="}}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepResumePausedConstructionP3S1(t, h, subject, in1)
+		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"errorExpected":false}`)
+	})
+}
+
 // callContext is the fwra call context a generated step calls the subject with:
 // the test's own context, a zero principal and, on an idempotent layer, a key
 // unique to the step. A step that needs an identity is a Hook:true step.

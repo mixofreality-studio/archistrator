@@ -1662,12 +1662,12 @@ type inputResumePausedConstructionP1S1 struct {
 	Reason    string                   `json:"reason"`
 }
 
-// TestScenario_resume_paused_construction_P1 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
+// TestScenario_resume_paused_construction_P1 — Resume Paused Construction — [no] · [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → pause-settled → record-resume → run-state-running → pump-fires → continue → activity-started → end).
 func TestScenario_resume_paused_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "resume-paused-construction-P1", func(t *testing.T) {
 		var subject delivery.DeliveryManager = newSubject(t, h)
-		// step 1: SetProjectRunState (node choose-resume; guards pause-settled=[yes])
+		// step 1: SetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[yes])
 		var in1 inputResumePausedConstructionP1S1
 		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"Vendor contract signed; resume construction."}`, &in1)
 		var out1 any
@@ -1693,12 +1693,12 @@ type inputResumePausedConstructionP2S1 struct {
 	Reason    string                   `json:"reason"`
 }
 
-// TestScenario_resume_paused_construction_P2 — Resume Paused Construction — [no] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → pause-settled → retry-later → run-state-still-paused → end).
+// TestScenario_resume_paused_construction_P2 — Resume Paused Construction — [no] · [no] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → pause-settled → retry-later → run-state-still-paused → end).
 func TestScenario_resume_paused_construction_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "resume-paused-construction-P2", func(t *testing.T) {
 		var subject delivery.DeliveryManager = newSubject(t, h)
-		// step 1: SetProjectRunState (node choose-resume; guards pause-settled=[no])
+		// step 1: SetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[no])
 		var in1 inputResumePausedConstructionP2S1
 		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"Vendor contract signed; resume construction."}`, &in1)
 		var out1 any
@@ -1714,6 +1714,37 @@ func TestScenario_resume_paused_construction_P2(t *testing.T) {
 		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe1_1)
 		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
 		expect(t, "resume-paused-construction-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":true}}","errorExpected":false}`)
+	})
+}
+
+// inputResumePausedConstructionP3S1 is step 1's parameters of SetProjectRunState, decoded from the binding's inputs.
+type inputResumePausedConstructionP3S1 struct {
+	ProjectID delivery.ProjectID       `json:"projectID"`
+	RunState  delivery.ProjectRunState `json:"runState"`
+	Reason    string                   `json:"reason"`
+}
+
+// TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
+func TestScenario_resume_paused_construction_P3(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "deliveryManager", "resume-paused-construction-P3", func(t *testing.T) {
+		var subject delivery.DeliveryManager = newSubject(t, h)
+		// step 1: SetProjectRunState (node choose-resume; guards halt-check=[yes])
+		var in1 inputResumePausedConstructionP3S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"The project store accepts writes again; resume construction."}`, &in1)
+		var out1 any
+		var err1 error
+		out1, err1 = stepResumePausedConstructionP3S1(t, h, subject, in1)
+		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"errorExpected":false}`)
+		// probe 1.1: deliveryManager.QueryProjectView for release-halt
+		var pout1_1 any
+		var perr1_1 error
+		var probe1_1 struct {
+			Query delivery.ProjectViewQuery `json:"query"`
+		}
+		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe1_1)
+		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		expect(t, "resume-paused-construction-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false,\"runState\":\"running\"}}","errorExpected":false}`)
 	})
 }
 

@@ -1836,7 +1836,32 @@ func (m *deliveryManager) GetProject(rc fwmanager.Context, projectID ProjectID) 
 	}
 	m.computeNetworkAtRead(&proj)
 	m.computeDeploymentEdgesAtRead(&proj)
-	return m.projectStateToContract(proj), nil
+	st := m.projectStateToContract(proj)
+	st.PumpHalt = m.readPumpHalt(ctx, projectID)
+	st.RunState = projectRunStateOf(st.OperatorPaused, st.PumpHalt)
+	return st, nil
+}
+
+// readPumpHalt is the project view's read of the pump's halt (FIX-003). It FAILS SOFT, and
+// that is a decision, not an omission: the view is the project's every screen, and a pump
+// whose Query cannot be served right now (a worker restarting) must not take the whole
+// project read down with it. The miss is logged; the halt itself is durable in the pump and
+// reads back on the next view. Begin and ResumeProject read the same Query FAIL-CLOSED.
+func (m *deliveryManager) readPumpHalt(ctx context.Context, projectID ProjectID) *PumpHalt {
+	return m.cs.viewPumpHalt(ctx, projectID)
+}
+
+// projectRunStateOf folds the recorded pause and the pump's halt into the one run state the
+// view carries. HALTED WINS over paused: both stop dispatch and one resume clears both, but
+// the halt is the one whose cause the operator must see — it names a failed activity.
+func projectRunStateOf(paused bool, halt *PumpHalt) ProjectRunState {
+	switch {
+	case halt != nil:
+		return ProjectHalted
+	case paused:
+		return ProjectPaused
+	}
+	return ProjectRunning
 }
 
 // GetDesignHealth returns the LIVE design-health read-model for one project: the
@@ -3993,6 +4018,14 @@ const changeRowConflictReread = "row-conflict-reread"
 // A history recorded before the fence keeps its recorded decision.
 const changeRowConflictSentVersion = "row-conflict-sent-version"
 
+// changeRowTerminalIgnoresProject fences the ROW-VERB arm of the Conflict loop
+// (applyRowRecovering, FIX-006). Since the row verbs stopped asserting the project version,
+// a project-version move can no longer cause their Conflict, so their terminality is
+// decided on the row alone and the loop makes no project-version read. A history recorded
+// before the fence keeps its recorded sequence — the readVersionE Activity, then the
+// two-version rule — so the suite's recorded histories replay unchanged.
+const changeRowTerminalIgnoresProject = "row-terminal-ignores-project"
+
 // terminalConflictErrType is the Temporal Type() applyRecovering raises when a Conflict
 // cannot be a version conflict, because RE-READING CHANGED NOTHING.
 //
@@ -5893,6 +5926,9 @@ func (m *constructionManager) ExecuteNextActivity(rc fwmanager.Context, projectI
 	if err := m.refuseWhilePaused(ctx, projectID); err != nil {
 		return PumpResult{}, err
 	}
+	if err := m.refuseWhileHalted(ctx, projectID); err != nil {
+		return PumpResult{}, err
+	}
 
 	wfID := pumpWorkflowID(projectID)
 	slog.Default().InfoContext(ctx, "construction pump: start-or-join",
@@ -5944,6 +5980,74 @@ func pausedDetail(reason string) string {
 		return "construction is paused — resume it to continue"
 	}
 	return fmt.Sprintf("construction is paused (%s) — resume it to continue", reason)
+}
+
+// refuseWhileHalted is ExecuteNextActivity's HALTED precheck (FIX-003), the halt's twin of
+// refuseWhilePaused: a pump parked on a failed activity refuses Begin with FailedPrecondition,
+// naming the activity, the cause and the way back. A Begin cannot clear a halt — joining the
+// parked pump would only read its halt back — and a Begin that silently did nothing would be
+// the exact class of silence the halt exists to end. The halt is read from the pump itself
+// (pumpHaltOf): the project store may be what refused the failure. A pump whose halt cannot be
+// read is Infrastructure — Begin never dispatches past a halt it could not rule out.
+func (m *constructionManager) refuseWhileHalted(ctx context.Context, projectID ProjectID) error {
+	halt, halted, err := m.pumpHaltOf(ctx, projectID)
+	if err != nil {
+		return newError(fwmanager.Infrastructure, "read the construction pump's halt before starting construction: "+err.Error())
+	}
+	if !halted {
+		return nil
+	}
+	return newError(fwmanager.FailedPrecondition, haltedDetail(halt))
+}
+
+// haltedDetail is the refusal a halted project gets from Begin. It names ResumeProject — the
+// operator's resume, setProjectRunState(running) — because that is the one way back.
+func haltedDetail(h PumpHalt) string {
+	return fmt.Sprintf("construction is halted: activity %s failed (%s) — fix the cause, then resume construction (ResumeProject) to continue",
+		h.ActivityID, h.Cause)
+}
+
+// pumpHaltOf reads the project's pump halt through the queryPumpHalt Query (FIX-003), and
+// reports whether there is one. No pump, or a pump that is not RUNNING, holds no halt: a
+// closed pump's halt is gone with it, which is what the drain runbook warns about. Each RPC
+// is bounded by pumpRPCTimeout. Any other fault is returned for the caller to classify.
+func (m *constructionManager) pumpHaltOf(ctx context.Context, projectID ProjectID) (PumpHalt, bool, error) {
+	if m.client == nil {
+		// A manager composed without Temporal (a composition that serves project reads and
+		// births only) runs no pump, so it holds no halt.
+		return PumpHalt{}, false, nil
+	}
+	wfID := pumpWorkflowID(projectID)
+	dctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer cancel()
+	resp, err := m.client.DescribeWorkflowExecution(dctx, wfID, "")
+	if err != nil {
+		if isNotFound(err) {
+			return PumpHalt{}, false, nil
+		}
+		return PumpHalt{}, false, err
+	}
+	info := resp.GetWorkflowExecutionInfo()
+	if info == nil || info.GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+		return PumpHalt{}, false, nil
+	}
+	qctx, qcancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer qcancel()
+	enc, err := m.client.QueryWorkflow(qctx, wfID, info.GetExecution().GetRunId(), queryPumpHalt)
+	if err != nil {
+		if isNotFound(err) {
+			return PumpHalt{}, false, nil
+		}
+		return PumpHalt{}, false, err
+	}
+	var halt *PumpHalt
+	if err := enc.Get(&halt); err != nil {
+		return PumpHalt{}, false, err
+	}
+	if halt == nil {
+		return PumpHalt{}, false, nil
+	}
+	return *halt, true, nil
 }
 
 // pumpDispatchPollInterval paces the façade's poll of the pump's synchronous
@@ -6012,7 +6116,9 @@ func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we clie
 		if qerr == nil && d.Decided {
 			// The lease pump starts every eligible activity, so one tick's answer is the
 			// whole frontier.
-			return PumpResult{Dispatched: d.Dispatched, ActivityIDs: d.ActivityIDs}, nil
+			// A HALTED pump publishes its halt as the decision (FIX-003), so a caller that
+			// joined it learns the halt now instead of falling through to terminalPumpResult.
+			return PumpResult{Dispatched: d.Dispatched, ActivityIDs: d.ActivityIDs, Halt: d.Halt}, nil
 		}
 		now := time.Now()
 		switch {
@@ -6184,23 +6290,36 @@ func (m *constructionManager) PauseProject(rc fwmanager.Context, projectID Proje
 	return nil
 }
 
-// ResumeProject — op 2.10 (plan B1.7; amendment §B.1). Clears the project's RECORDED
-// operator pause and starts (or joins) its pump. A write straight through the RA (the
-// SetReviewPolicy pattern): no supervision workflow is involved, because the pause
-// branch handles exactly one signal and exits.
+// ResumeProject — op 2.10 (plan B1.7; amendment §B.1; FIX-003). The operator's ONE way back,
+// from a recorded PAUSE and from a pump HALT alike: it clears the project's recorded operator
+// pause, relays a resume onto a halted pump, or both, and starts (or joins) the pump. A pause
+// is cleared by a write straight through the RA (the SetReviewPolicy pattern): no
+// supervision workflow is involved, because the pause branch handles exactly one signal and
+// exits. A halt is cleared by a signal to the pump, and by NOTHING ELSE: it lives in the
+// pump's execution, never in the store.
 //
 // Refusals, in a PINNED order: ContractMisuse (empty id) → NotFound (no project) →
-// FailedPrecondition, not in construction → FailedPrecondition, not paused (never a
-// silent no-op) → FailedPrecondition, a pause is still being applied (its supervision
-// run {p}:construction is RUNNING: the pause is recorded but not yet relayed, and a
-// resume now could be followed by a relay that stops the fresh pump). Nothing is
-// written on any refusal.
+// FailedPrecondition, not in construction → Infrastructure, the pump's halt cannot be read →
+// FailedPrecondition, neither paused nor halted (never a silent no-op) → FailedPrecondition, a
+// pause is still being applied (its supervision run {p}:construction is RUNNING: the pause is
+// recorded but not yet relayed, and a resume now could be followed by a relay that stops the
+// fresh pump). Nothing is written and nothing is relayed on any refusal.
 //
-// The write (RecordOperatorResumed) is retried on a version Conflict up to
-// resumeConflictAttempts times, re-reading the version between tries. Then the pump is
-// started or joined WITHOUT awaiting its decision. If that start fails, the resume has
-// still landed: the record is clear, so the 30s sweep pumps the project. That is logged,
-// never returned as an error.
+// PAUSED: the write (RecordOperatorResumed) is retried on a version Conflict up to
+// resumeConflictAttempts times, re-reading the version between tries.
+//
+// HALTED AND NOT PAUSED: NOTHING IS WRITTEN. The store may be the very thing that refused the
+// failure the pump halted on, and a resume that had to write first could never land. The
+// resume is relayed onto the pump id as signalOperatorResumeRequested through
+// messageBus.deliverSignal — the relay shape the pause uses — and the parked pump clears the
+// halt and re-enters its loop.
+//
+// BOTH: the resume is recorded first and relayed second, so the pump the relay frees reads a
+// project with no recorded pause and does not go quiet on it.
+//
+// Then the pump is started or joined WITHOUT awaiting its decision. If that start fails, the
+// resume has still landed: the record is clear, so the 30s sweep pumps the project. That is
+// logged, never returned as an error.
 func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID ProjectID) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -6216,20 +6335,62 @@ func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID Proj
 	if proj.Phase != projectstate.PhaseConstruction {
 		return newError(fwmanager.FailedPrecondition, fmt.Sprintf("project %s is not in construction, so there is no construction to resume", projectID))
 	}
-	if !proj.OperatorPaused {
-		return newError(fwmanager.FailedPrecondition, "construction is not paused — there is nothing to resume")
+	halt, halted, err := m.pumpHaltOf(ctx, projectID)
+	if err != nil {
+		return newError(fwmanager.Infrastructure, "read the construction pump's halt: "+err.Error())
 	}
-	if err := m.refuseWhilePauseInFlight(ctx, projectID); err != nil {
-		return err
+	if !proj.OperatorPaused && !halted {
+		return newError(fwmanager.FailedPrecondition, "construction is neither paused nor halted — there is nothing to resume")
 	}
-	if err := m.recordResumed(ctx, projectID, proj); err != nil {
-		return err
+	if proj.OperatorPaused {
+		if err := m.refuseWhilePauseInFlight(ctx, projectID); err != nil {
+			return err
+		}
+		if err := m.recordResumed(ctx, projectID, proj); err != nil {
+			return err
+		}
+	}
+	if halted {
+		if err := m.relayResumeToPump(ctx, projectID, halt); err != nil {
+			return err
+		}
 	}
 	if _, err := m.startOrJoinPump(ctx, projectID); err != nil {
 		slog.Default().WarnContext(ctx, "construction resumed, but the pump did not start now; the 30-second sweep will start it",
 			"projectId", string(projectID), "error", err.Error())
 	}
 	return nil
+}
+
+// operatorResumeSignal is ResumeProject's relay payload. The pump reads none of it — the
+// signal NAME is the operator's intent, and the pump receives into `any` — so the body is
+// for the history's reader: which project, and which halt the operator resumed.
+type operatorResumeSignal struct {
+	ProjectID ProjectID
+	HaltedOn  ActivityID
+	HaltedAt  time.Time
+	HaltCause string
+}
+
+// relayResumeToPump delivers the operator's resume to the project's ONE pump through the
+// messageBus utility's deliverSignal — the relay the pause uses (relayPauseToPump), here from
+// the façade rather than from inside a workflow. A pump that closed between the halt read and
+// this delivery has taken its halt with it, so NotFound is not a failure: the start-or-join
+// that follows starts a fresh pump. Every other fault is the caller's: the resume did not
+// land, and nothing was written.
+func (m *constructionManager) relayResumeToPump(ctx context.Context, projectID ProjectID, halt PumpHalt) error {
+	b, err := json.Marshal(operatorResumeSignal{ProjectID: projectID, HaltedOn: halt.ActivityID, HaltedAt: halt.HaltedAt, HaltCause: halt.Cause})
+	if err != nil {
+		return newError(fwmanager.Infrastructure, "encode the resume relay: "+err.Error())
+	}
+	err = m.messageBus.DeliverSignal(fwra.Context{Context: ctx},
+		messagebus.ExecutionID(pumpWorkflowID(projectID)),
+		messagebus.SignalName(signalOperatorResumeRequested),
+		messagebus.ExecutionPayload{Bytes: b}, nil)
+	if err == nil || isRANotFound(err) {
+		return nil
+	}
+	return mapRAError(err, "messageBus.DeliverSignal")
 }
 
 // resumeConflictAttempts bounds ResumeProject's re-read → re-write loop on a version
@@ -6546,7 +6707,7 @@ func (m *constructionManager) reopenActivity(ctx context.Context, projectID Proj
 
 // rearmActivity is the reopen arm's ONE write: the requeue note that re-arms the row.
 func (m *constructionManager) rearmActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
-	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		// TERMINALITY IS PRE-CHECKED HERE, on the row this attempt just read, and the reason is the
 		// error KIND the store answers with (Task 12 round 3, minor (e)): a requeue against a live
 		// row is refused `fwra.Conflict`, because the arguments are impeccable and only the STATE is
@@ -6570,7 +6731,7 @@ func (m *constructionManager) rearmActivity(ctx context.Context, projectID Proje
 				activityID, phase))
 		}
 		_, err := m.activityExecution.RecordOperatorNote(fwra.Context{Context: ctx},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.ProjectID(projectID), row.Version, string(activityID),
 			projectstate.OperatorNoteInput{
 				NoteID: reopenNoteID(activityID, row),
 				Kind:   projectstate.NoteRequeue,
@@ -6768,6 +6929,9 @@ func (m *constructionManager) QueryActivityView(rc fwmanager.Context, projectID 
 	tasks := deriveTaskViews(lc, normalizeAttempts(id, ledger, resolved, records, live), row.OperatorNotes, row.Reviews, liveGates)
 	view := activityViewFrom(activityID, item, typ, variant, lc, resolved, tasks)
 	view.State = activityViewState(coarse, live)
+	if view.State == ActivityViewNotStarted || view.State == ActivityViewRunning {
+		view.State = haltedViewState(view.State, activityID, m.viewPumpHalt(ctx, projectID))
+	}
 	// THE FIVE LIVE-GATE FACTS LAND ON THE TASK THEY ARE ABOUT (stage 4b3). They used to be
 	// copied onto the ACTIVITY from the session's single-valued pair, so a fork showed one
 	// branch's roster beside both gates and the Activity Experience's reviewers strip drew
@@ -6849,37 +7013,38 @@ func (m *constructionManager) GetPumpStatus(rc fwmanager.Context, projectID Proj
 // here is the ordinary case and not an error to surface.
 const activityRowWriteAttempts = 3
 
-// onActivityRow is the Manager-side applyRecovering: read the project ONCE (its version AND
-// the row's come out of the same read, so the two expectations the facet's CAS pair needs
-// can never disagree), apply, and re-read on a version Conflict.
+// onActivityRow is the Manager-side row write: read the activity's ROW, apply, and re-read
+// on a Conflict.
 //
-// ONE READ PER ATTEMPT, deliberately. The narrow ReadActivityExecution answers the row but
-// not the project version the verbs assert on, so a narrow read would be two reads and two
-// chances for them to describe different moments.
+// ONE NARROW READ PER ATTEMPT (FIX-006). The row verbs assert no project version any more —
+// they are applied at the store's tip under its write queue — so the only expectation a
+// façade write carries is the row's own version, and the narrow ReadActivityExecution is
+// the whole read. (It used to read the whole project so that the project version and the row
+// version came out of one read; with the project version gone that reason lapsed, and so did
+// the "changed concurrently" failures an operator's reopen, resolve, withdraw or ask hit
+// whenever a fan-out of sibling rows was being written.) A Conflict now means THIS row moved
+// — the child writing it while the operator decided — which is still the ordinary case the
+// bound exists for.
 //
 // A Conflict is RETRIED; anything else is returned as it came, because `apply` also carries
 // this path's own FailedPrecondition refusals (no round, a decided round, a live gate) and
 // re-reading cannot change any of them.
 func (m *constructionManager) onActivityRow(
 	ctx context.Context, projectID ProjectID, activityID ActivityID,
-	apply func(proj projectstate.Project, row projectstate.ActivityExecution) error,
+	apply func(row projectstate.ActivityExecution) error,
 ) error {
 	var last error
 	for range activityRowWriteAttempts {
-		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+		row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), string(activityID))
 		if err != nil {
 			if isRANotFound(err) {
-				return newError(fwmanager.NotFound, err.Error())
+				return newError(fwmanager.NotFound, fmt.Sprintf(
+					"activity %s has no execution row: the pump has not dispatched it, so it has no ledger to write on (%v)", activityID, err))
 			}
 			return newError(fwmanager.Infrastructure, err.Error())
 		}
-		row, ok := proj.ActivityExecution[string(activityID)]
-		if !ok {
-			return newError(fwmanager.NotFound, fmt.Sprintf(
-				"activity %s has no execution row: the pump has not dispatched it, so it has no ledger to write on", activityID))
-		}
 		row.ActivityID = string(activityID)
-		err = apply(proj, row)
+		err = apply(row)
 		if err == nil {
 			return nil
 		}
@@ -6920,7 +7085,7 @@ func (m *constructionManager) SetTaskCommentStatus(
 		return newError(fwmanager.ContractMisuse, "a comment-status decision needs the status to set")
 	}
 	var mirror string
-	if err := m.onActivityRow(rc.Context, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	if err := m.onActivityRow(rc.Context, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		r, ok := roundOfComment(row, commentID)
 		if !ok {
 			// The caller's own address is in the sentence, because "no such comment" is most often
@@ -6930,7 +7095,7 @@ func (m *constructionManager) SetTaskCommentStatus(
 		}
 		mirror = taskOfRound(r)
 		_, err := m.activityExecution.SetReviewCommentStatus(fwra.Context{Context: rc.Context},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.ProjectID(projectID), row.Version, string(activityID),
 			r.RoundID, commentID, status, projectstate.RepoCredential{},
 			rowWriteKey("comment-status", projectID, activityID))
 		if err != nil && !csIsRAConflict(err) {
@@ -7038,7 +7203,7 @@ func (m *constructionManager) WithdrawReviewRound(
 	default:
 		return err
 	}
-	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		r, rerr := latestRoundFor(row, taskID, kind)
 		if rerr != nil {
 			return rerr
@@ -7049,7 +7214,7 @@ func (m *constructionManager) WithdrawReviewRound(
 				r.Round, taskID, r.Outcome, r.DecidedBy))
 		}
 		_, err := m.activityExecution.DecideReviewRound(fwra.Context{Context: ctx},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.ProjectID(projectID), row.Version, string(activityID),
 			r.RoundID, projectstate.RoundWithdrawn, decidedByOperator, projectstate.RepoCredential{},
 			rowWriteKey("withdraw", projectID, activityID))
 		if err != nil && !csIsRAConflict(err) {
@@ -7090,7 +7255,7 @@ func (m *constructionManager) AskTaskQuestions(
 	if len(qs) == 0 && len(replies) == 0 {
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
-	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(row projectstate.ActivityExecution) error {
 		r, rerr := latestRoundFor(row, taskID, kind)
 		if rerr != nil {
 			return rerr
@@ -7109,7 +7274,7 @@ func (m *constructionManager) AskTaskQuestions(
 			return perr
 		}
 		_, err := m.activityExecution.AppendReviewVerdict(fwra.Context{Context: ctx},
-			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID), r.RoundID,
+			projectstate.ProjectID(projectID), row.Version, string(activityID), r.RoundID,
 			projectstate.ReviewVerdict{
 				ReviewerRole: reviewAuthorRole,
 				Actor:        decidedByOperator,
@@ -8642,8 +8807,8 @@ func observePipelineActivityOptions() workflow.ActivityOptions {
 // recordActivityOptions is the head-state Record-verb preset VALUE (10s; ContractMisuse
 // terminal only — Conflict must reach the workflow so the §6.5 re-read→re-apply loop can
 // recover it) the manifest's Opts hook (workermanifest.go) applies to the GENERATED
-// activityExecutionAccess / gitActivityStatusAccess / projectStateAccess Record* invokers
-// by registered name. Every Record* verb goes through the generated invoker surface, so only the
+// projectStateAccess Record* invokers by registered name. (The activityExecutionAccess and
+// gitActivityStatusAccess row verbs moved to rowWriteActivityOptions in FIX-006.) Every Record* verb goes through the generated invoker surface, so only the
 // VALUE form is needed (no direct-ExecuteActivity call site for this preset).
 func recordActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
@@ -8652,11 +8817,34 @@ func recordActivityOptions() workflow.ActivityOptions {
 	}.Options()
 }
 
-// stampNoteDeliveredActivityOptions is the delivery stamp's preset (M4): the record
-// preset's per-attempt timeout, uncapped attempts inside noteStampRetryWindow, and
-// ContractMisuse terminal (the store refusing to stamp one note to two attempts).
+// rowWriteActivityOptions is the preset for the ROW verbs (FIX-006): the eight
+// activityExecutionAccess mutators and the two gitActivityStatusAccess upserts. The store
+// now serialises every state write of a repo in a per-process queue that spans read → apply
+// → commit, and the wait in that queue counts against StartToClose. A 31-wide M0-seal
+// fan-out puts ~63 early row writes in the queue at once, at roughly 0.3–0.5 s each locally
+// (measured: mgr_1 moved the project version 53→74 in ~12 s under contention) and more on
+// GitHub, where every write is a depth-1 clone plus a push — so the record preset's 10 s
+// would time the tail of the queue out, and a timed-out waiter re-enters at the tail on
+// retry: convergent, but with wasted attempts and noisy timeouts. Two minutes holds the
+// measured local queue with room; the RA test reports the write-latency p50/p99 that sizes
+// it. Terminal on ContractMisuse only: a row Conflict reaches the workflow's
+// applyRowRecovering, and the store's in-RA re-apply EXHAUSTION is a Transient this
+// RetryPolicy backs off (never a Conflict).
+func rowWriteActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:    2 * time.Minute,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
+}
+
+// stampNoteDeliveredActivityOptions is the delivery stamp's preset (M4): uncapped attempts
+// inside noteStampRetryWindow, and ContractMisuse terminal (the store refusing to stamp one
+// note to two attempts). The stamp is a row write (FIX-006), so an attempt may wait in the
+// store's write queue: its per-attempt timeout is half the window rather than the record
+// preset's 10 s, which leaves the window room for a second attempt.
 func stampNoteDeliveredActivityOptions() workflow.ActivityOptions {
-	o := recordActivityOptions()
+	o := rowWriteActivityOptions()
+	o.StartToCloseTimeout = noteStampRetryWindow / 2
 	o.ScheduleToCloseTimeout = noteStampRetryWindow
 	return o
 }
@@ -9159,31 +9347,30 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		"designSessionAccess.commitArtifactWithProvenance":   mutateActivityOptions(),
 		"designSessionAccess.stageArtifactForReviewOnBranch": mutateActivityOptions(),
 		"designSessionAccess.reconcileBranchFromMain":        mutateActivityOptions(),
-		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
-		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
+		// The git-status upserts are ROW writes (FIX-006) and take the row-write preset.
+		"gitActivityStatusAccess.recordActivityBranchOpened": rowWriteActivityOptions(),
+		"gitActivityStatusAccess.recordActivityCIObserved":   rowWriteActivityOptions(),
 		// (The git-status started/completed/archApproved/merged verbs were deleted in dct4:
 		// the ledger's OpenActivity / RecordActivityOutcome / review round carry those facts.)
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
-		// EXECUTION LEDGER (stage 3, changeExecutionLedger): the attempt and review-round
-		// writes are head-state Record verbs and take the Record preset for the same
-		// reason — ContractMisuse terminal, and Conflict deliberately NOT, so the §6.5
-		// re-read→re-apply loop in applyRecovering is what resolves it rather than a
-		// Temporal retry re-issuing the same stale expected version forever.
-		"activityExecutionAccess.openActivity":          recordActivityOptions(),
-		"activityExecutionAccess.recordAttemptOutcome":  recordActivityOptions(),
-		"activityExecutionAccess.openReviewRound":       recordActivityOptions(),
-		"activityExecutionAccess.appendReviewVerdict":   recordActivityOptions(),
-		"activityExecutionAccess.decideReviewRound":     recordActivityOptions(),
-		"activityExecutionAccess.recordActivityOutcome": recordActivityOptions(),
+		// EXECUTION LEDGER (stage 3, changeExecutionLedger; FIX-006): the attempt, round and
+		// outcome writes are ROW writes and take the row-write preset — ContractMisuse
+		// terminal, a row Conflict left to applyRowRecovering, and a StartToClose sized for
+		// the store's write queue (rowWriteActivityOptions says why).
+		"activityExecutionAccess.openActivity":          rowWriteActivityOptions(),
+		"activityExecutionAccess.recordAttemptOutcome":  rowWriteActivityOptions(),
+		"activityExecutionAccess.openReviewRound":       rowWriteActivityOptions(),
+		"activityExecutionAccess.appendReviewVerdict":   rowWriteActivityOptions(),
+		"activityExecutionAccess.decideReviewRound":     rowWriteActivityOptions(),
+		"activityExecutionAccess.recordActivityOutcome": rowWriteActivityOptions(),
 		// THE REQUEUE NOTE (stage 4b3 Task 10) joins them, because the round sweep's heal
 		// gave this verb its first WORKFLOW caller — every other writer of it is the Manager,
-		// which does not consult this hook at all. It is a head-state Record verb like the six
-		// above and takes their preset for their reason; without an entry it would silently
-		// inherit the generated 15s default, which is how the defect this gate exists for
-		// shipped once.
-		"activityExecutionAccess.recordOperatorNote": recordActivityOptions(),
+		// which does not consult this hook at all. It is a row write like the six above and
+		// takes their preset for their reason; without an entry it would silently inherit the
+		// generated 15s default, which is how the defect this gate exists for shipped once.
+		"activityExecutionAccess.recordOperatorNote": rowWriteActivityOptions(),
 		// The ROW READ the Conflict arm makes (stage 4b1, terminalAfterRowReread) takes NO
 		// entry here, DELIBERATELY: it rides the generated default, exactly as the two
 		// design rails' row read has since stage 3. A preset was considered and rejected —
@@ -10643,6 +10830,32 @@ func (m *constructionManager) liveSessionFor(ctx context.Context, projectID Proj
 	return v, true, nil
 }
 
+// haltedViewState is FIX-003's reading of an activity the pump HALTED on: its row may say it
+// never started (its birth was refused) or that it is running (its failure write was refused),
+// and neither is true — nothing is working it and nothing will until the operator resumes. A
+// recorded terminal (done, failed) is never overridden: the row is the better fact there.
+func haltedViewState(state ActivityViewState, activityID ActivityID, halt *PumpHalt) ActivityViewState {
+	if halt != nil && halt.ActivityID == activityID {
+		return ActivityViewHaltedByFailure
+	}
+	return state
+}
+
+// viewPumpHalt is the views' read of the pump's halt — the project summary's and the
+// activity view's — fail-soft for readPumpHalt's reason.
+func (m *constructionManager) viewPumpHalt(ctx context.Context, projectID ProjectID) *PumpHalt {
+	halt, halted, err := m.pumpHaltOf(ctx, projectID)
+	if err != nil {
+		slog.Default().WarnContext(ctx, "project view: the construction pump's halt could not be read; the view omits it this time",
+			"projectId", string(projectID), "error", err.Error())
+		return nil
+	}
+	if !halted {
+		return nil
+	}
+	return &halt
+}
+
 // activityViewState folds the row's effective coarse state and the live session into
 // the view's five states. KNOWN STAGE-0 GAP: the coarse state comes from the row, the
 // task states from the evidence, and a Running row that stored no CurrentPhase has no
@@ -11572,7 +11785,9 @@ func (m *deliveryManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID 
 // ---- op 7: SetProjectRunState ----------------------------------------------
 
 // SetProjectRunState is the operator's pause/resume, as one op over an enum rather than
-// two verbs. `paused` carries the reason; `running` clears the recorded pause.
+// two verbs. `paused` carries the reason; `running` is ResumeProject — it clears the recorded
+// pause and releases a halted pump (FIX-003). `halted` is a state the pump enters on its own
+// and is refused as a request.
 func (m *deliveryManager) SetProjectRunState(rc fwmanager.Context, projectID ProjectID, runState ProjectRunState, reason string) error {
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -11587,6 +11802,10 @@ func (m *deliveryManager) SetProjectRunState(rc fwmanager.Context, projectID Pro
 		return m.cs.PauseProject(rc, projectID, reason)
 	case ProjectRunning:
 		return m.cs.ResumeProject(rc, projectID)
+	case ProjectHalted:
+		// A halt is a FACT the pump establishes on a failed activity, never an instruction: an
+		// operator who wants construction stopped pauses it.
+		return newError(fwmanager.ContractMisuse, "deliveryManager.SetProjectRunState: halted is entered by the construction pump on a failed activity and cannot be requested — pause construction instead")
 	}
 	return newError(fwmanager.ContractMisuse, "deliveryManager.SetProjectRunState: unknown run state")
 }
@@ -13990,6 +14209,16 @@ const (
 	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
 	// background self-cascade drain (constructionManager.md §2.1).
 	queryPumpDispatch = "pumpDispatchDecision"
+	// queryPumpHalt returns the pump's halt (*PumpHalt, nil when it is not halted) — FIX-003.
+	// The halt lives ONLY in the pump's execution, because the failure that halted it may be
+	// one the project store refused to record; the project view and ResumeProject's
+	// precondition read it here and nowhere else.
+	queryPumpHalt = "pumpHaltState"
+	// signalOperatorResumeRequested is ResumeProject's relay onto a HALTED pump (FIX-003): it
+	// clears the halt and hands the activities it held back to the frontier. It is the
+	// resume's half of the operator pause/resume pair on the pump, and the only way a halt
+	// clears — a head-state write does not.
+	signalOperatorResumeRequested = "operatorResumeRequested"
 	// THE MAIN-WRITE LEASE (stage 4b2). Three signals, all of them Manager-internal
 	// plumbing between the project's ONE pump and its per-activity children, all of them
 	// delivered by the EXISTING messageBus.deliverSignal — no new ResourceAccess producer

@@ -1795,12 +1795,15 @@ const (
 var gitLocalFarExpiry = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
 
 // gitLocalAccess is the concrete local-git SourceControlAccess. It holds only the shared
-// repo URL and a mutex serialising this instance's own throwaway-clone git operations
-// against that repo (V1 assumes one local developer driving one session at a time — the
-// same scope agenticjob's localExecAccess documents).
+// repo URL. Every op works in a throwaway clone of its own; the ones that PUSH (seat,
+// branch open, merge) run clone → push inside fwgithub.PushLocal, the process-wide
+// per-repo lock every in-process writer of that repo shares (FIX-002, INTERIM — see
+// docs/bugs/2026-10-18-fix-002-interim-push-lock.md). The repo is the one `archistrator
+// init` makes, main checked out with updateInstead, where a push that loses a race
+// leaves staged changes behind and wedges every later push. A private mutex here
+// serialised this instance only against itself; reads need no lock at all.
 type gitLocalAccess struct {
 	repoURL string
-	gitMu   sync.Mutex
 }
 
 var _ SourceControlAccess = (*gitLocalAccess)(nil)
@@ -1865,7 +1868,7 @@ func (a *gitLocalAccess) AdoptProjectRepo(_ fwra.Context, spec RepoAdoptionSpec)
 // .github/workflows/ prefix with a ".." segment cannot escape the working tree. A push
 // rejected because main moved under the clone is the seam's one retryable Conflict
 // (retry re-reads main), exactly as the GitHub ref race is.
-func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, files []ManagedFile, _ RepoCredential) (CommitRef, error) {
+func (a *gitLocalAccess) CommitManagedFiles(rc fwra.Context, repo RepoRef, files []ManagedFile, _ RepoCredential) (CommitRef, error) {
 	if RepoRefIsZero(repo) {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal CommitManagedFiles: zero RepoRef")
 	}
@@ -1875,8 +1878,18 @@ func (a *gitLocalAccess) CommitManagedFiles(_ fwra.Context, repo RepoRef, files 
 	if err := validateManagedFileSet(files); err != nil {
 		return "", err
 	}
-	a.gitMu.Lock()
-	defer a.gitMu.Unlock()
+	var commit CommitRef
+	err := fwgithub.PushLocal(rc, a.repoURL, func() error {
+		var cerr error
+		commit, cerr = a.seatManagedFiles(files)
+		return cerr
+	})
+	return commit, gitLocalLockedErr("CommitManagedFiles", err)
+}
+
+// seatManagedFiles is CommitManagedFiles' clone → write → commit → push, run under the
+// shared repo's push lock.
+func (a *gitLocalAccess) seatManagedFiles(files []ManagedFile) (CommitRef, error) {
 	cloneDir, cleanup, err := a.cloneMain()
 	if err != nil {
 		return "", err
@@ -1953,8 +1966,6 @@ func (a *gitLocalAccess) ReadManagedFile(_ fwra.Context, repo RepoRef, p string,
 		return ManagedFileRead{}, fwra.New(fwra.ContractMisuse,
 			"gitlocal ReadManagedFile: path "+p+" is not an aiarch-managed file")
 	}
-	a.gitMu.Lock()
-	defer a.gitMu.Unlock()
 	cloneDir, cleanup, err := a.cloneMain()
 	if err != nil {
 		return ManagedFileRead{}, err
@@ -1988,7 +1999,7 @@ func (a *gitLocalAccess) SyncManagedScaffold(_ fwra.Context, repo RepoRef, _ Rep
 // branch is an idempotent no-op success (mirroring the GitHub CreateBranch semantics the
 // spine relies on). Performed in a throwaway clone: the branch ref is created at main's tip
 // and pushed to the shared repo.
-func (a *gitLocalAccess) OpenBranch(_ fwra.Context, repo RepoRef, branch BranchName, _ RepoCredential) (BranchRef, error) {
+func (a *gitLocalAccess) OpenBranch(rc fwra.Context, repo RepoRef, branch BranchName, _ RepoCredential) (BranchRef, error) {
 	if RepoRefIsZero(repo) {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: zero RepoRef")
 	}
@@ -1999,29 +2010,30 @@ func (a *gitLocalAccess) OpenBranch(_ fwra.Context, repo RepoRef, branch BranchN
 	if !gitLocalValidBranch(b) {
 		return "", fwra.New(fwra.ContractMisuse, "gitlocal OpenBranch: "+b+" is not a valid branch name")
 	}
-	a.gitMu.Lock()
-	defer a.gitMu.Unlock()
+	err := fwgithub.PushLocal(rc, a.repoURL, func() error {
+		cloneDir, cleanup, err := a.cloneMain()
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		clone, err := openGitLocalClone(cloneDir)
+		if err != nil {
+			return err
+		}
 
-	cloneDir, cleanup, err := a.cloneMain()
+		// Idempotent: the branch already exists in the shared repo → no-op success.
+		if _, found, rerr := gitLocalRemoteBranch(clone, b); rerr != nil || found {
+			return rerr
+		}
+		// Create off main: the clone's main is origin/main's tip; push it to the new ref.
+		refspec := gitconfig.RefSpec(plumbing.NewBranchReferenceName(gitLocalMainBranch) + ":" + plumbing.NewBranchReferenceName(b))
+		if perr := gitLocalPush(clone, refspec); perr != nil {
+			return fwra.Wrap(fwra.Infrastructure, perr, "gitlocal OpenBranch: create branch "+b+" failed")
+		}
+		return nil
+	})
 	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	clone, err := openGitLocalClone(cloneDir)
-	if err != nil {
-		return "", err
-	}
-
-	// Idempotent: the branch already exists in the shared repo → no-op success.
-	if _, found, rerr := gitLocalRemoteBranch(clone, b); rerr != nil {
-		return "", rerr
-	} else if found {
-		return BranchRef(b), nil
-	}
-	// Create off main: the clone's main is origin/main's tip; push it to the new ref.
-	refspec := gitconfig.RefSpec(plumbing.NewBranchReferenceName(gitLocalMainBranch) + ":" + plumbing.NewBranchReferenceName(b))
-	if perr := gitLocalPush(clone, refspec); perr != nil {
-		return "", fwra.Wrap(fwra.Infrastructure, perr, "gitlocal OpenBranch: create branch "+b+" failed")
+		return "", gitLocalLockedErr("OpenBranch", err)
 	}
 	return BranchRef(b), nil
 }
@@ -2065,8 +2077,6 @@ func (a *gitLocalAccess) GetPullRequestStatus(_ fwra.Context, repo RepoRef, pr P
 	if err != nil {
 		return PullRequestStatus{}, err
 	}
-	a.gitMu.Lock()
-	defer a.gitMu.Unlock()
 	mergeable, err := a.trialMerge(head)
 	if err != nil {
 		return PullRequestStatus{}, err
@@ -2089,7 +2099,7 @@ func (a *gitLocalAccess) PostReview(_ fwra.Context, repo RepoRef, _ PullRequestR
 // merged-and-deleted) is delete-only idempotent re-entry. A conflict is an honest
 // fwra.Conflict with NOTHING pushed — the shared repo is untouched, so the manager's F80c
 // reconcileDivergedBranch + re-approve path applies unchanged.
-func (a *gitLocalAccess) MergePullRequest(_ fwra.Context, repo RepoRef, pr PullRequestRef, _ RepoCredential) (MergeResult, error) {
+func (a *gitLocalAccess) MergePullRequest(rc fwra.Context, repo RepoRef, pr PullRequestRef, _ RepoCredential) (MergeResult, error) {
 	if RepoRefIsZero(repo) {
 		return MergeResult{}, fwra.New(fwra.ContractMisuse, "gitlocal MergePullRequest: zero RepoRef")
 	}
@@ -2097,11 +2107,14 @@ func (a *gitLocalAccess) MergePullRequest(_ fwra.Context, repo RepoRef, pr PullR
 	if err != nil {
 		return MergeResult{}, err
 	}
-	a.gitMu.Lock()
-	defer a.gitMu.Unlock()
-	commit, err := a.mergeHeadIntoMain(head)
+	var commit string
+	err = fwgithub.PushLocal(rc, a.repoURL, func() error {
+		var merr error
+		commit, merr = a.mergeHeadIntoMain(head)
+		return merr
+	})
 	if err != nil {
-		return MergeResult{}, err
+		return MergeResult{}, gitLocalLockedErr("MergePullRequest", err)
 	}
 	return MergeResult{Commit: commit, Merged: true}, nil
 }
@@ -2172,6 +2185,18 @@ func (a *gitLocalAccess) cloneMain() (cloneDir string, cleanup func(), err error
 		return "", func() {}, fwra.Wrap(fwra.Infrastructure, cerr, "gitlocal: clone failed: no "+gitLocalMainBranch+": "+strings.TrimSpace(out))
 	}
 	return cloneDir, cleanup, nil
+}
+
+// gitLocalLockedErr passes through the typed error a locked op returned and types the one
+// thing fwgithub.PushLocal adds of its own: the lock wait ending with the caller's ctx
+// (cancelled or past its deadline) before the op ran. That is Infrastructure — nothing
+// was read or written — and stays retryable, unlike a ContractMisuse would be.
+func gitLocalLockedErr(op string, err error) error {
+	var fe *fwra.Error
+	if err == nil || errors.As(err, &fe) {
+		return err
+	}
+	return fwra.Wrap(fwra.Infrastructure, err, "gitlocal "+op+": wait for the shared repo's push lock")
 }
 
 // gitLocalRemoteURL resolves the configured repo URL into the form the clone's origin

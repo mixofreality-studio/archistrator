@@ -18,7 +18,12 @@
  *     the activities with no stored record, read from the rows the server sent,
  *     never a hardcoded list.
  */
-import type { ConstructionRows, ConstructionStage } from '../../../contracts/types';
+import type {
+  ConstructionRows,
+  ConstructionStage,
+  ProjectRunState,
+  PumpHalt,
+} from '../../../contracts/types';
 import { inFlightActivityIds } from '../list/activityScope.ts';
 import type { OwedMarks } from '../tasks/owedChip.ts';
 
@@ -439,6 +444,15 @@ export function notStartedActivities(
 /** The status label a paused project carries, in the console and the Tasks lens. */
 export const PAUSED_LABEL = 'Paused — Resume to continue';
 
+/**
+ * The status label a HALTED project carries (FIX-003): its construction pump stopped on
+ * an activity that failed — possibly a failure the project store could not even record —
+ * and dispatches nothing until the operator resumes it. The same Resume clears it.
+ */
+export function haltedLabel(activityId: string): string {
+  return `Halted — ${activityId} failed; Resume to continue`;
+}
+
 export interface PausedControl {
   label: string;
   /** The status the console and the Tasks lens show beside the control. */
@@ -450,16 +464,30 @@ export interface PausedControl {
 }
 
 /**
- * The Resume control for a paused project, or `undefined` when the project is not
- * paused (or its read is not in): the Begin control then renders as before.
+ * The Resume control for a paused or HALTED project, or `undefined` when it is neither
+ * (or its read is not in): the Begin control then renders as before. A halt wins the
+ * label when both hold — it names the failed activity the operator must look at — and
+ * one resume clears both.
  */
 export function pausedControlFor(input: {
   operatorPaused: boolean | undefined;
   pauseReason: string | undefined;
+  /** The server's run state; `halted` with a pumpHalt is the FIX-003 halt. */
+  runState?: ProjectRunState | undefined;
+  pumpHalt?: PumpHalt | undefined;
   projectLoading: boolean;
   /** A resume request is in flight. */
   pending: boolean;
 }): PausedControl | undefined {
+  if (input.runState === 'halted' && input.pumpHalt !== undefined) {
+    return {
+      label: 'Resume halted construction',
+      statusLabel: haltedLabel(input.pumpHalt.activityId),
+      reason: input.pumpHalt.cause,
+      disabled: input.pending || input.projectLoading,
+      busy: input.pending,
+    };
+  }
   if (input.operatorPaused !== true) return undefined;
   const reason = input.pauseReason?.trim();
   return {
@@ -492,12 +520,12 @@ export function resumeOutcomeCopy(outcome: ResumeOutcome): { headline: string; d
     case 'resumed':
       return {
         headline: 'Resumed — construction continues within 30 seconds.',
-        detail: 'The pause is cleared and the pump is starting.',
+        detail: 'The pause or halt is cleared and the pump is continuing.',
       };
     case 'rejected':
       return {
         headline: `Resume refused: ${outcome.message}.`,
-        detail: 'The server refused the request, so construction is still paused.',
+        detail: 'The server refused the request, so construction is still stopped.',
       };
     case 'unknown':
       return {

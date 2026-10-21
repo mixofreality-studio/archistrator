@@ -426,6 +426,7 @@ components:
                 - awaitingHuman
                 - done
                 - failed
+                - haltedByFailure
             type: string
             x-enum-varnames:
                 - ActivityViewNotStarted
@@ -433,6 +434,7 @@ components:
                 - ActivityViewAwaitingHuman
                 - ActivityViewDone
                 - ActivityViewFailed
+                - ActivityViewHaltedByFailure
             x-go-base: string
         DeliveryAnchoredComment:
             additionalProperties: false
@@ -1611,13 +1613,16 @@ components:
         DeliveryProjectID:
             type: string
         DeliveryProjectRunState:
+            description: 'The run state of a project''s construction. running: nothing holds it. paused: an operator''s pause is recorded (PauseProject). halted: the project''s one construction pump stopped the cascade on an activity that failed and is parked, keeping the halt in its own execution because the failure may be one the project store could not record; it dispatches nothing until ResumeProject. halted is entered by the pump, never requested: setProjectRunState refuses it (ContractMisuse). Paused and halted can hold at once; the view reports halted then, and one resume clears both.'
             enum:
                 - running
                 - paused
+                - halted
             type: string
             x-enum-varnames:
                 - ProjectRunning
                 - ProjectPaused
+                - ProjectHalted
             x-go-base: string
         DeliveryProjectState:
             additionalProperties: false
@@ -1674,8 +1679,14 @@ components:
                 pauseReason:
                     description: The reason the operator gave when pausing construction. Omitted when construction is not paused.
                     type: string
+                pumpHalt:
+                    $ref: '#/components/schemas/DeliveryPumpHalt'
+                    description: Why construction is halted, read from the project's construction pump. Omitted when the pump is not halted.
                 reviewPolicy:
                     $ref: '#/components/schemas/DeliveryReviewPolicyView'
+                runState:
+                    $ref: '#/components/schemas/DeliveryProjectRunState'
+                    description: 'The project''s construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator''s pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike.'
                 testingState:
                     $ref: '#/components/schemas/DeliveryTestingStateView'
             required:
@@ -1693,6 +1704,7 @@ components:
                 - operatingModel
                 - constructionStarted
                 - operatorPaused
+                - runState
             type: object
         DeliveryProjectSummary:
             additionalProperties: false
@@ -1872,17 +1884,42 @@ components:
             required:
                 - kind
             type: object
+        DeliveryPumpHalt:
+            additionalProperties: false
+            description: Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.
+            properties:
+                activityId:
+                    $ref: '#/components/schemas/DeliveryActivityID'
+                    description: The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade.
+                    x-go-name: ActivityID
+                cause:
+                    description: 'The failure as the pump saw it: the activity execution''s error, or the reason its row records.'
+                    type: string
+                haltedAt:
+                    description: When the pump halted.
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - activityId
+                - cause
+                - haltedAt
+            type: object
         DeliveryPumpResult:
             additionalProperties: false
             properties:
                 activityIds:
-                    description: Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight).
+                    description: Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, a halted pump, or an activity already in flight).
                     items:
                         $ref: '#/components/schemas/DeliveryActivityID'
                     type: array
                     x-go-name: ActivityIDs
                 dispatched:
                     type: boolean
+                halt:
+                    $ref: '#/components/schemas/DeliveryPumpHalt'
+                    description: 'Set when the project''s pump is halted on a failed activity: the tick dispatched nothing and will not until ResumeProject.'
             required:
                 - dispatched
             type: object

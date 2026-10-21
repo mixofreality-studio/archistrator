@@ -5373,7 +5373,7 @@
                   {
                     "id": "see-paused",
                     "kind": "action",
-                    "label": "Operator sees construction is paused, and why",
+                    "label": "Operator sees construction is paused or halted, and why",
                     "roleName": "Operator",
                     "linkedActorId": "operator"
                   },
@@ -5391,6 +5391,28 @@
                     "roleName": "",
                     "linkedActorId": null,
                     "anchor": "choose-resume"
+                  },
+                  {
+                    "id": "halt-check",
+                    "kind": "decision",
+                    "label": "Is construction halted on a failed activity?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "note-halt-check",
+                    "kind": "note",
+                    "label": "'Halted' is read from the construction pump itself (its haltState query), never from the project store: the failure that halted it may be one the store refused to record. The [yes] branch needs the binding to arrange a pump halted on an activity whose first write the store refused, so this decision is internal and the step is a Hook candidate.",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "anchor": "halt-check"
+                  },
+                  {
+                    "id": "release-halt",
+                    "kind": "action",
+                    "label": "Relay the resume onto the parked pump; nothing is written to the project store, which may still be refusing writes",
+                    "roleName": "",
+                    "linkedActorId": null
                   },
                   {
                     "id": "pause-settled",
@@ -5488,7 +5510,25 @@
                   },
                   {
                     "from": "note-resume-run-state",
+                    "to": "halt-check",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "halt-check",
                     "to": "pause-settled",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "halt-check",
+                    "to": "release-halt",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "release-halt",
+                    "to": "pump-fires",
                     "kind": "controlFlow",
                     "guard": ""
                   },
@@ -10380,6 +10420,17 @@
                     "to": "project-git-repo",
                     "mode": "sync",
                     "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "release-halt",
+                "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "deliverSignal(pump execution, operatorResumeRequested) — releases the pump parked on the failed activity; the halt lives only in the pump, so nothing is written to the project store"
                   }
                 ]
               },
@@ -17877,12 +17928,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18005,12 +18050,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18057,12 +18096,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18106,12 +18139,6 @@
                 "name": "projectID",
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
                 }
               },
               {
@@ -18185,12 +18212,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18246,12 +18267,6 @@
                 "name": "projectID",
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
                 }
               },
               {
@@ -18313,12 +18328,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "expectedActivityVersion",
                 "schema": {
                   "type": "integer",
@@ -18374,12 +18383,6 @@
                 "name": "projectID",
                 "schema": {
                   "$ref": "#/$defs/ProjectID"
-                }
-              },
-              {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
                 }
               },
               {
@@ -18450,7 +18453,7 @@
           }
         ]
       },
-      "notes": "The one staging -\u003e review -\u003e commit verb family for EVERY activity, and the owner of the two append-only per-activity ledgers (Attempts, Reviews). Added ADDITIVELY in stage 3 task 3 over three facets it supersedes. constructionTransitionAccess is DELETED (dct Plan 4 Task 3, spec §11 ruling A5 — there is no production usage, so no in-flight history to protect): its activity-scoped callers moved onto these verbs (RecordActivityExited + RecordActivityFailed → RecordActivityOutcome, RecordOperatorNote + RecordOperatorNoteDelivered → RecordOperatorNote, RecordChangeReviewed dropped because the review is the round DecideReviewRound records), and its three project-scoped writes moved to projectStateAccess. gitActivityStatusAccess and designSessionAccess keep only the ops with live callers (their own notes list them). RecordActivityOutcome is the one verb besides OpenActivity that may BIRTH a row: a FAILURE recorded with no activity-version expectation against an activity that has no row (the pump's blocked verdict — an unclassifiable activity or an unresolvable dependency has nothing to open) creates the row it fails, exactly as the retired RecordActivityFailed did; an outcome without a failure reason, or any expectation, still requires the row. RecordOperatorNote STAMPS DELIVERY ON A RE-RECORD: re-recording a note that is already held with identical content and a deliveredToAttemptID stamps it delivered to that attempt if it was not yet delivered, is a no-op if it was delivered to the same attempt, and is refused (ContractMisuse) if it was delivered to another — the fold of the retired note/delivery pair, so the dispatch that carries a gate's note marks it delivered without a second verb. NO SEPARATE COMMIT LANE. Spec 5.3 asks for a project-scoped serialized lane {projectId}:statewrite; it is deliberately NOT built, because applyMutationOnBranchFiles already is one: it fetches the branch tip fresh per call, probes the idempotency ledger BEFORE the version guard, and commits project.json plus the dedup record in ONE git commit CAS'd against the observed base, so git's ref update is the cross-process gate on both substrates. A CAS loss surfaces as fwra.Conflict, which is Temporal-retryable, and the workflow already carries the re-read -\u003e re-apply loop. A second durable singleton per project is exactly the shape the pump-singular-per-project fix had to clean up. Per-activity Version (task 4) is an additional in-document guard inside the transition, not a lane; {projectId}:statewrite is earmarked for stage 4, where the parallel pump actually raises contention. REOPEN IS A REQUEUE NOTE, NOT A THIRTEENTH VERB (stage 4b1 task 12). Terminal was terminal and nothing could undo it: OpenActivity refuses an exited row ('a finished activity is not re-opened in place'), StartedAt/CompletedAt/FailureReason/FailureDetail are write-once, and the pump's eligibility refuses any row a pump has written - so a failed walk, a spent variance budget or an operator's Skip left an activity NOTHING could ever re-run, and the operator's only recovery was an amendment minting a new activity id. RecordOperatorNote of kind REQUEUE now re-arms such a row: it clears exactly those four head facts and preserves everything that makes the activity's history readable (both ledgers, the lifecycle pin, the classified type/variant, produced artifacts, operator notes), so the next walk re-seeds the tasks that passed and re-dispatches only what did not. A requeue against a row that has NOT exited is refused - there is nothing to requeue, and re-arming a live row would hand a second child the row this one is writing. WHY A FOLD AND NOT A NEW OP, measured rather than assumed: a thirteenth verb here puts this facet past App-C's op ceiling of 12 and fires DH-CONTRACT-OPCOUNT-MAX, which the committed state's own advisory pin asserts ABSENT (designhealth TestGreenFixtureAdvisoriesFire: 'the largest surviving contract is 12 ... the FIRST time the repo has had no Manager contract past App-C's ceiling'). The requeue kind was already in the OperatorNoteKind vocabulary with no writer, an operator's re-open is exactly the decision that verb records, and folding makes the audit entry and the re-arm ONE commit - so a crash can no longer leave a re-armed activity with nobody's name on it, which two ops could."
+      "notes": "The one staging -\u003e review -\u003e commit verb family for EVERY activity, and the owner of the two append-only per-activity ledgers (Attempts, Reviews). Added ADDITIVELY in stage 3 task 3 over three facets it supersedes. constructionTransitionAccess is DELETED (dct Plan 4 Task 3, spec §11 ruling A5 — there is no production usage, so no in-flight history to protect): its activity-scoped callers moved onto these verbs (RecordActivityExited + RecordActivityFailed → RecordActivityOutcome, RecordOperatorNote + RecordOperatorNoteDelivered → RecordOperatorNote, RecordChangeReviewed dropped because the review is the round DecideReviewRound records), and its three project-scoped writes moved to projectStateAccess. gitActivityStatusAccess and designSessionAccess keep only the ops with live callers (their own notes list them). RecordActivityOutcome is the one verb besides OpenActivity that may BIRTH a row: a FAILURE recorded with no activity-version expectation against an activity that has no row (the pump's blocked verdict — an unclassifiable activity or an unresolvable dependency has nothing to open) creates the row it fails, exactly as the retired RecordActivityFailed did; an outcome without a failure reason, or any expectation, still requires the row. RecordOperatorNote STAMPS DELIVERY ON A RE-RECORD: re-recording a note that is already held with identical content and a deliveredToAttemptID stamps it delivered to that attempt if it was not yet delivered, is a no-op if it was delivered to the same attempt, and is refused (ContractMisuse) if it was delivered to another — the fold of the retired note/delivery pair, so the dispatch that carries a gate's note marks it delivered without a second verb. NO SEPARATE COMMIT LANE. Spec 5.3 asks for a project-scoped serialized lane {projectId}:statewrite; it is deliberately NOT built, because applyMutationOnBranchFiles already is one: it fetches the branch tip fresh per call, probes the idempotency ledger BEFORE the version guard, and commits project.json plus the dedup record in ONE git commit CAS'd against the observed base, so git's ref update is the cross-process gate on both substrates. A CAS loss surfaces as fwra.Conflict, which is Temporal-retryable, and the workflow already carries the re-read -\u003e re-apply loop. A second durable singleton per project is exactly the shape the pump-singular-per-project fix had to clean up. Per-activity Version (task 4) is an additional in-document guard inside the transition, not a lane; {projectId}:statewrite is earmarked for stage 4, where the parallel pump actually raises contention. REOPEN IS A REQUEUE NOTE, NOT A THIRTEENTH VERB (stage 4b1 task 12). Terminal was terminal and nothing could undo it: OpenActivity refuses an exited row ('a finished activity is not re-opened in place'), StartedAt/CompletedAt/FailureReason/FailureDetail are write-once, and the pump's eligibility refuses any row a pump has written - so a failed walk, a spent variance budget or an operator's Skip left an activity NOTHING could ever re-run, and the operator's only recovery was an amendment minting a new activity id. RecordOperatorNote of kind REQUEUE now re-arms such a row: it clears exactly those four head facts and preserves everything that makes the activity's history readable (both ledgers, the lifecycle pin, the classified type/variant, produced artifacts, operator notes), so the next walk re-seeds the tasks that passed and re-dispatches only what did not. A requeue against a row that has NOT exited is refused - there is nothing to requeue, and re-arming a live row would hand a second child the row this one is writing. WHY A FOLD AND NOT A NEW OP, measured rather than assumed: a thirteenth verb here puts this facet past App-C's op ceiling of 12 and fires DH-CONTRACT-OPCOUNT-MAX, which the committed state's own advisory pin asserts ABSENT (designhealth TestGreenFixtureAdvisoriesFire: 'the largest surviving contract is 12 ... the FIRST time the repo has had no Manager contract past App-C's ceiling'). The requeue kind was already in the OperatorNoteKind vocabulary with no writer, an operator's re-open is exactly the decision that verb records, and folding makes the audit entry and the re-arm ONE commit - so a crash can no longer leave a re-armed activity with nobody's name on it, which two ops could. FIX-006 (2026-10-18): the eight mutators (OpenActivity, RecordAttemptOutcome, OpenReviewRound, AppendReviewVerdict, SetReviewCommentStatus, DecideReviewRound, RecordActivityOutcome, RecordOperatorNote) are ROW-SCOPED and take no expectedVersion. Each reads and writes only its own activity's row, whose own optimistic check is expectedActivityVersion; the project version was false sharing that made every sibling write stale the next, and a fan-out wider than the caller's retry bound halted the pump at the M0 seal. The store applies a row write at the tip it reads, under a per-repo+branch in-process write queue that spans read, apply and commit, still stamps Version = tip + 1 and returns it, and re-applies the write itself when a ref compare-and-swap is lost to a writer outside the queue. A Conflict from a row verb is therefore always the ROW's refusal (a stale expectedActivityVersion, an exited row, a decided round); exhausting the in-store re-apply bound is a retryable Transient, never a Conflict. StageTaskOutput is not a row write: it is a conditional whole-document write on the session BRANCH and keeps its live expectedVersion."
     },
     "agenticJobAccess": {
       "component": "agenticJobAccess",
@@ -20952,14 +20955,16 @@
             "running",
             "awaitingHuman",
             "done",
-            "failed"
+            "failed",
+            "haltedByFailure"
           ],
           "x-enum-varnames": [
             "ActivityViewNotStarted",
             "ActivityViewRunning",
             "ActivityViewAwaitingHuman",
             "ActivityViewDone",
-            "ActivityViewFailed"
+            "ActivityViewFailed",
+            "ActivityViewHaltedByFailure"
           ],
           "x-go-base": "string"
         },
@@ -22510,13 +22515,16 @@
         },
         "ProjectRunState": {
           "type": "string",
+          "description": "The run state of a project's construction. running: nothing holds it. paused: an operator's pause is recorded (PauseProject). halted: the project's one construction pump stopped the cascade on an activity that failed and is parked, keeping the halt in its own execution because the failure may be one the project store could not record; it dispatches nothing until ResumeProject. halted is entered by the pump, never requested: setProjectRunState refuses it (ContractMisuse). Paused and halted can hold at once; the view reports halted then, and one resume clears both.",
           "enum": [
             "running",
-            "paused"
+            "paused",
+            "halted"
           ],
           "x-enum-varnames": [
             "ProjectRunning",
-            "ProjectPaused"
+            "ProjectPaused",
+            "ProjectHalted"
           ],
           "x-go-base": "string"
         },
@@ -22603,6 +22611,14 @@
             "pauseReason": {
               "type": "string",
               "description": "The reason the operator gave when pausing construction. Omitted when construction is not paused."
+            },
+            "runState": {
+              "$ref": "#/$defs/ProjectRunState",
+              "description": "The project's construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator's pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike."
+            },
+            "pumpHalt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Why construction is halted, read from the project's construction pump. Omitted when the pump is not halted."
             }
           },
           "required": [
@@ -22619,7 +22635,8 @@
             "ServiceContracts",
             "operatingModel",
             "constructionStarted",
-            "operatorPaused"
+            "operatorPaused",
+            "runState"
           ],
           "additionalProperties": false
         },
@@ -22871,6 +22888,34 @@
           ],
           "additionalProperties": false
         },
+        "PumpHalt": {
+          "type": "object",
+          "description": "Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
+          "properties": {
+            "activityId": {
+              "$ref": "#/$defs/ActivityID",
+              "x-go-name": "ActivityID",
+              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade."
+            },
+            "cause": {
+              "type": "string",
+              "description": "The failure as the pump saw it: the activity execution's error, or the reason its row records."
+            },
+            "haltedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When the pump halted."
+            }
+          },
+          "required": [
+            "activityId",
+            "cause",
+            "haltedAt"
+          ],
+          "additionalProperties": false
+        },
         "PumpResult": {
           "type": "object",
           "properties": {
@@ -22883,7 +22928,11 @@
                 "$ref": "#/$defs/ActivityID"
               },
               "x-go-name": "ActivityIDs",
-              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight)."
+              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, a halted pump, or an activity already in flight)."
+            },
+            "halt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Set when the project's pump is halted on a failed activity: the tick dispatched nothing and will not until ResumeProject."
             }
           },
           "required": [
@@ -25422,7 +25471,7 @@
           }
         ]
       },
-      "notes": "Design-slot mechanics only. A construction task's review lives on its activity's review round (StageTaskOutput, AppendReviewVerdict, SetReviewCommentStatus, DecideReviewRound); the artifact-kind-scoped send-back, comment-status and withdraw verbs that carried no activityId/taskId/roundId were deleted in dct4 (no caller after the co-author files' retirement). What remains is design-slot mechanics with live callers: ReadProjectOnBranch (read-back off an activity branch, and the pump's main read with branch \"\"), StageArtifactForReviewOnBranch + CommitArtifactWithProvenance (the birth prefix plan and the M0 computed slots; the provenance commit of every design slot), ReconcileBranchFromMain (the merge guard's diverged-branch repair) and SeedReviewCommentsOnBranch (question threads on a committed design slot, always on main)."
+      "notes": "Design-slot mechanics only. A construction task's review lives on its activity's review round (StageTaskOutput, AppendReviewVerdict, SetReviewCommentStatus, DecideReviewRound); the artifact-kind-scoped send-back, comment-status and withdraw verbs that carried no activityId/taskId/roundId were deleted in dct4 (no caller after the co-author files' retirement). What remains is design-slot mechanics with live callers: ReadProjectOnBranch (read-back off an activity branch, and the pump's main read with branch \"\"), StageArtifactForReviewOnBranch + CommitArtifactWithProvenance (the birth prefix plan and the M0 computed slots; the provenance commit of every design slot), ReconcileBranchFromMain (the merge guard's diverged-branch repair) and SeedReviewCommentsOnBranch (question threads on a committed design slot, always on main). FOOTPRINT GUARDS (FIX-006 ruling 5, 2026-10-20). On main (branch \"\") StageArtifactForReviewOnBranch, CommitArtifactWithProvenance and SeedReviewCommentsOnBranch are guarded by their own slot and the phase, not the project Version: expectedVersion is the version the caller read, and the write is refused (Conflict) only when that slot or the phase changed after it, so sibling row writes and commits of OTHER slots never stale it, while a racing change to the same slot still does. A commit still re-flags downstream slots stale from their status at the tip. On a session branch every verb, and ReconcileBranchFromMain always, keeps the exact project-version guard on the branch's own version: no row write rides a branch, so nothing there is starved."
     },
     "episodeAccess": {
       "component": "episodeAccess",
@@ -26675,12 +26724,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -26744,12 +26787,6 @@
                 }
               },
               {
-                "name": "expectedVersion",
-                "schema": {
-                  "$ref": "#/$defs/Version"
-                }
-              },
-              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -26781,7 +26818,7 @@
           }
         ]
       },
-      "notes": "The git-forward PR/CI mirror, and nothing else. The execution facts it used to carry (started, completed, merged, architect-approved) were folded onto activityExecutionAccess and deleted in dct4: OpenActivity births the row, RecordActivityOutcome stamps the exit, and the review ledger (AppendReviewVerdict / DecideReviewRound) is the authoritative approval. The two survivors mirror what the rail reports: RecordActivityBranchOpened (the activity branch and its pull request, read by the Tasks lens and the test-run venue URL) and RecordActivityCIObserved (the PR's required-check rollup, written by the merge guard so a refused merge's reason is readable off project state)."
+      "notes": "The git-forward PR/CI mirror, and nothing else. The execution facts it used to carry (started, completed, merged, architect-approved) were folded onto activityExecutionAccess and deleted in dct4: OpenActivity births the row, RecordActivityOutcome stamps the exit, and the review ledger (AppendReviewVerdict / DecideReviewRound) is the authoritative approval. The two survivors mirror what the rail reports: RecordActivityBranchOpened (the activity branch and its pull request, read by the Tasks lens and the test-run venue URL) and RecordActivityCIObserved (the PR's required-check rollup, written by the merge guard so a refused merge's reason is readable off project state). FIX-006 (2026-10-18): both verbs are ROW-SCOPED upserts on one activity's git-status row and take no expectedVersion: the store applies them at the tip it reads, under the per-repo+branch in-process write queue, stamps Version = tip + 1, and re-applies itself on a ref compare-and-swap lost to a writer outside the queue (exhausting that bound is a retryable Transient, never a Conflict). The rows carry no row version: their writes were blind re-applies after a project-version re-read before, and an at-tip apply is the same semantics."
     },
     "interventionEngine": {
       "component": "interventionEngine",
@@ -27676,14 +27713,16 @@
             "running",
             "awaitingHuman",
             "done",
-            "failed"
+            "failed",
+            "haltedByFailure"
           ],
           "x-enum-varnames": [
             "ActivityViewNotStarted",
             "ActivityViewRunning",
             "ActivityViewAwaitingHuman",
             "ActivityViewDone",
-            "ActivityViewFailed"
+            "ActivityViewFailed",
+            "ActivityViewHaltedByFailure"
           ],
           "x-go-base": "string"
         },
@@ -29255,13 +29294,16 @@
         },
         "ProjectRunState": {
           "type": "string",
+          "description": "The run state of a project's construction. running: nothing holds it. paused: an operator's pause is recorded (PauseProject). halted: the project's one construction pump stopped the cascade on an activity that failed and is parked, keeping the halt in its own execution because the failure may be one the project store could not record; it dispatches nothing until ResumeProject. halted is entered by the pump, never requested: setProjectRunState refuses it (ContractMisuse). Paused and halted can hold at once; the view reports halted then, and one resume clears both.",
           "enum": [
             "running",
-            "paused"
+            "paused",
+            "halted"
           ],
           "x-enum-varnames": [
             "ProjectRunning",
-            "ProjectPaused"
+            "ProjectPaused",
+            "ProjectHalted"
           ],
           "x-go-base": "string"
         },
@@ -29348,6 +29390,14 @@
             "pauseReason": {
               "type": "string",
               "description": "The reason the operator gave when pausing construction. Omitted when construction is not paused."
+            },
+            "runState": {
+              "$ref": "#/$defs/ProjectRunState",
+              "description": "The project's construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator's pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike."
+            },
+            "pumpHalt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Why construction is halted, read from the project's construction pump. Omitted when the pump is not halted."
             }
           },
           "required": [
@@ -29364,7 +29414,8 @@
             "ServiceContracts",
             "operatingModel",
             "constructionStarted",
-            "operatorPaused"
+            "operatorPaused",
+            "runState"
           ],
           "additionalProperties": false
         },
@@ -29616,6 +29667,34 @@
           ],
           "additionalProperties": false
         },
+        "PumpHalt": {
+          "type": "object",
+          "description": "Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
+          "properties": {
+            "activityId": {
+              "$ref": "#/$defs/ActivityID",
+              "x-go-name": "ActivityID",
+              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade."
+            },
+            "cause": {
+              "type": "string",
+              "description": "The failure as the pump saw it: the activity execution's error, or the reason its row records."
+            },
+            "haltedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When the pump halted."
+            }
+          },
+          "required": [
+            "activityId",
+            "cause",
+            "haltedAt"
+          ],
+          "additionalProperties": false
+        },
         "PumpResult": {
           "type": "object",
           "properties": {
@@ -29628,7 +29707,11 @@
                 "$ref": "#/$defs/ActivityID"
               },
               "x-go-name": "ActivityIDs",
-              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight)."
+              "description": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, a halted pump, or an activity already in flight)."
+            },
+            "halt": {
+              "$ref": "#/$defs/PumpHalt",
+              "description": "Set when the project's pump is halted on a failed activity: the tick dispatched nothing and will not until ResumeProject."
             }
           },
           "required": [
@@ -38522,7 +38605,7 @@
           }
         ]
       },
-      "notes": "The core port of a component that publishes FOUR contract facets over one git substrate and one Go package: projectStateAccess (12 ops — the slots, the plan, the catalog seam, and the three PROJECT-SCOPED records RecordOperatorPaused / RecordOperatorResumed / RecordReviewPolicy), gitActivityStatusAccess (6), designSessionAccess (8) and activityExecutionAccess (12, added in stage 3 task 3). The middle two facets keep only the ops with live callers — see their own notes. constructionTransitionAccess was DELETED (dct Plan 4 Task 3, spec §11 ruling A5: deleted, not deprecated): its activity-scoped verbs were already superseded by activityExecutionAccess, and its three project-scoped writes moved here, where its own note said they belonged — cred-free like every op on this facet, the adapter minting the per-project credential just-in-time. That move was the 'next core-port op addition', so the catalog split (CreateProject/ListProjects → projectCatalogAccess) is now OWED: it is earmarked rather than folded into a deletion commit, and this facet is at App-C's ceiling of 12 until it lands."
+      "notes": "The core port of a component that publishes FOUR contract facets over one git substrate and one Go package: projectStateAccess (12 ops — the slots, the plan, the catalog seam, and the three PROJECT-SCOPED records RecordOperatorPaused / RecordOperatorResumed / RecordReviewPolicy), gitActivityStatusAccess (6), designSessionAccess (8) and activityExecutionAccess (12, added in stage 3 task 3). The middle two facets keep only the ops with live callers — see their own notes. constructionTransitionAccess was DELETED (dct Plan 4 Task 3, spec §11 ruling A5: deleted, not deprecated): its activity-scoped verbs were already superseded by activityExecutionAccess, and its three project-scoped writes moved here, where its own note said they belonged — cred-free like every op on this facet, the adapter minting the per-project credential just-in-time. That move was the 'next core-port op addition', so the catalog split (CreateProject/ListProjects → projectCatalogAccess) is now OWED: it is earmarked rather than folded into a deletion commit, and this facet is at App-C's ceiling of 12 until it lands. FOOTPRINT GUARDS (FIX-006 ruling 5, 2026-10-20). expectedVersion on every conditional verb here is the project Version the caller's decision READ, and the store refuses the write (Conflict) only when something that verb depends on changed after it: RecordOperatorPaused and RecordOperatorResumed the pause (operatorPaused, pauseReason) and the phase; RecordSdpReviewOutcome the sdpReview slot and the phase; AcknowledgeStaleBasis its slot and the phase; AdvancePhase the phase and EVERY slot (the seal is decided on all of them); RecordReviewPolicy the review policy; RecordTrackingPoint the construction progress record; SetOperatingModel the operating model and the phase; SetResearchInput the research corpus and the phase. A version newer than the project is always a Conflict. Sibling row writes (activityExecutionAccess, gitActivityStatusAccess) change none of these, so a construction fan-out no longer stales a conditional write: under the project-version guard the facade's 3-attempt revoke lost every attempt to the herd (P2 failed 2 of 5). The check runs at the tip inside the per-project write queue. What changed when is the store's own ledger, .aiarch/state/write_marks.json (per document member, the version of the last store write that changed it and its digest), restamped by every main write in the same commit; only main's store writes modify it, so the state document's 3-way merges take main's copy. It is only ever conservative: an absent ledger, a version moved outside the store, or a member whose bytes changed outside it (a merge) all read as changed at the tip, the exact guard for that one write. CreateProject keeps the exact rule (expectedVersion 0, the document absent): its precondition genuinely is the whole document, and it runs once, before any row exists."
     },
     "reviewEngine": {
       "component": "reviewEngine",
@@ -40641,11 +40724,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -40725,11 +40803,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-ask-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "1",
                     "schemaRef": ""
                   },
                   {
@@ -40820,11 +40893,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -40912,11 +40980,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41001,11 +41064,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-cpo-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "22",
                     "schemaRef": ""
                   },
                   {
@@ -41125,11 +41183,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "22",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41243,11 +41296,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -41411,11 +41459,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41527,11 +41570,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41611,11 +41649,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -41779,11 +41812,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41895,11 +41923,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -41969,11 +41992,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "3",
                     "schemaRef": ""
                   },
                   {
@@ -42056,11 +42074,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -42165,11 +42178,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42234,11 +42242,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -42324,11 +42327,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42403,11 +42401,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "4",
                     "schemaRef": ""
                   },
                   {
@@ -42490,11 +42483,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p4",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -42599,11 +42587,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42668,11 +42651,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p4",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -42758,11 +42736,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -42837,11 +42810,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p4",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "4",
                     "schemaRef": ""
                   },
                   {
@@ -42924,11 +42892,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -43089,11 +43052,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "1",
                     "schemaRef": ""
                   },
                   {
@@ -43267,11 +43225,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43383,11 +43336,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43467,11 +43415,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p6",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -43635,11 +43578,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43751,11 +43689,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "2",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43828,11 +43761,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -43902,11 +43830,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p6",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "4",
                     "schemaRef": ""
                   },
                   {
@@ -43989,11 +43912,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -44098,11 +44016,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -44167,11 +44080,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -44254,11 +44162,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "3",
                     "schemaRef": ""
                   },
                   {
@@ -44422,11 +44325,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "4",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -44535,11 +44433,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-epa-p7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "5",
                     "schemaRef": ""
                   },
                   {
@@ -44709,11 +44602,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -44880,11 +44768,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -44964,11 +44847,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-rq-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -45088,11 +44966,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "3",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45192,11 +45065,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "0",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45267,6 +45135,88 @@
             ]
           },
           {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenActivity",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-aea-rs-p3",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "expectedActivityVersion",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "activityID",
+                    "value": "D-ARCH",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "typ",
+                    "value": "8",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "variant",
+                    "value": "0",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "pin",
+                    "value": "{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "cred",
+                    "value": "{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "idempotencyKey",
+                    "value": "stp-aea-rs-p3:open",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "activity-started",
+                    "component": "activityExecutionAccess",
+                    "operation": "ReadActivityExecution",
+                    "inputs": [
+                      {
+                        "name": "projectID",
+                        "value": "stp-aea-rs-p3",
+                        "schemaRef": ""
+                      },
+                      {
+                        "name": "activityID",
+                        "value": "D-ARCH",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": null,
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
             "steps": [
               {
@@ -45276,11 +45226,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-sb-p1",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -45450,11 +45395,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45534,11 +45474,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-sb-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "0",
                     "schemaRef": ""
                   },
                   {
@@ -45708,11 +45643,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "1",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "expectedActivityVersion",
                     "value": "0",
                     "schemaRef": ""
@@ -45876,11 +45806,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-aea-sb-p2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "2",
                     "schemaRef": ""
                   },
                   {
@@ -53177,6 +53102,58 @@
             ]
           },
           {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "SetProjectRunState",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-delivery",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "runState",
+                    "value": "running",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "The project store accepts writes again; resume construction.",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "release-halt",
+                    "component": "deliveryManager",
+                    "operation": "QueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false,\"runState\":\"running\"}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": null,
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
             "steps": [
               {
@@ -57075,11 +57052,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "12",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57139,11 +57111,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57185,11 +57152,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P2",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57252,11 +57214,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57298,11 +57255,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P3",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57350,11 +57302,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "12",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57396,11 +57343,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57463,11 +57405,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57504,11 +57441,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P5",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "14",
                     "schemaRef": ""
                   },
                   {
@@ -57571,11 +57503,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "15",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57617,11 +57544,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P6",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57684,11 +57606,6 @@
                     "schemaRef": ""
                   },
                   {
-                    "name": "expectedVersion",
-                    "value": "13",
-                    "schemaRef": ""
-                  },
-                  {
                     "name": "activityID",
                     "value": "C-DM",
                     "schemaRef": ""
@@ -57730,11 +57647,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "12",
                     "schemaRef": ""
                   },
                   {
@@ -57794,11 +57706,6 @@
                   {
                     "name": "projectID",
                     "value": "stp-gas-P7",
-                    "schemaRef": ""
-                  },
-                  {
-                    "name": "expectedVersion",
-                    "value": "13",
                     "schemaRef": ""
                   },
                   {
@@ -61455,6 +61362,94 @@
             ]
           },
           {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DeliveryQueryProjectView",
+                "inputs": [
+                  {
+                    "name": "query",
+                    "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-mcp\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"halted\",\"pumpHalt\":{\"activityId\":\"C-review-engine\"}}}}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": null,
+                "unobservable": null,
+                "hook": true
+              },
+              {
+                "seq": 2,
+                "operation": "DeliverySetProjectRunState",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "dct-owner/dct-mcp",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "runState",
+                    "value": "running",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "reason",
+                    "value": "The project store accepts writes again; resume construction.",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [
+                  {
+                    "for": "release-halt",
+                    "component": "mcpClient",
+                    "operation": "DeliveryQueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-mcp\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"running\"}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  },
+                  {
+                    "for": "pump-fires",
+                    "component": "mcpClient",
+                    "operation": "DeliveryQueryProjectView",
+                    "inputs": [
+                      {
+                        "name": "query",
+                        "value": "{\"kind\":\"pump\",\"projectId\":\"dct-owner/dct-mcp\"}",
+                        "schemaRef": ""
+                      }
+                    ],
+                    "expect": {
+                      "result": "{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}",
+                      "errorExpected": false,
+                      "errorCode": ""
+                    }
+                  }
+                ],
+                "unobservable": null,
+                "hook": true
+              }
+            ]
+          },
+          {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
             "steps": [
               {
@@ -63499,6 +63494,40 @@
                   {
                     "name": "payload",
                     "value": "{\"Bytes\":\"eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1wYXVzZS1wMSIsIlJlYXNvbiI6Im9wZXJhdG9yIHBhdXNlZCBjb25zdHJ1Y3Rpb24ifQ==\",\"ContentType\":\"application/json\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "DeliverSignal",
+                "inputs": [
+                  {
+                    "name": "targetExecutionID",
+                    "value": "dct-messagebus-resume-p3:nextActivity",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "signalName",
+                    "value": "operatorResumeRequested",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "payload",
+                    "value": "{\"Bytes\":\"eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1yZXN1bWUtcDMiLCJIYWx0ZWRPbiI6IkMtcmV2aWV3LWVuZ2luZSIsIkhhbHRlZEF0IjoiMjAyNi0xMC0xN1QyMTo0Nzo1MVoiLCJIYWx0Q2F1c2UiOiJoZWFkLXN0YXRlIGNvbmZsaWN0IGRpZCBub3QgY29udmVyZ2Ugd2l0aGluIGJvdW5kZWQgYXR0ZW1wdHMifQ==\"}",
                     "schemaRef": ""
                   }
                 ],
@@ -69118,6 +69147,30 @@
                 "unobservable": [
                   "retry-later"
                 ],
+                "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "ReadProject",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": "stp-psa-rs-p3",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "{\"ID\":\"stp-psa-rs-p3\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":false}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": [],
+                "unobservable": [],
                 "hook": true
               }
             ]
@@ -74933,6 +74986,54 @@
                 "probes": null,
                 "unobservable": null,
                 "hook": true
+              }
+            ]
+          },
+          {
+            "scenario": "resume-paused-construction-P3",
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "OpenConstructionConsole",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"navigate\",\"value\":\"/project/dct-owner%2Fdct-plan/plan?lens=list\"}",
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"plan-lens-tasks\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-tasks-lens\"},{\"visible\":\"construction-paused-label\"},{\"visible\":\"construction-resume\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": null,
+                "unobservable": null,
+                "hook": false
+              },
+              {
+                "seq": 2,
+                "operation": "ResumeConstruction",
+                "inputs": [
+                  {
+                    "name": "action",
+                    "value": "{\"kind\":\"click\",\"target\":\"construction-resume\"}",
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"visible\":\"construction-resume-outcome\"},{\"visible\":\"construction-begin\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": null,
+                "unobservable": null,
+                "hook": false
               }
             ]
           },

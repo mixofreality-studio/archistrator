@@ -65,6 +65,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -1729,5 +1730,201 @@ func TestLocalRailJudgesTheWholeDiffWithoutMain(t *testing.T) {
 	scope := v.call(t, "edit-scope")
 	if !strings.Contains(scope, "--no-main") || strings.Contains(scope, "--main ") {
 		t.Errorf("edit-scope call %q, want --no-main and no --main", scope)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FIX-002: concurrent writers into the LOCAL state repo `archistrator init` makes
+// ---------------------------------------------------------------------------
+
+// raceRounds is how many times TestLocalStateRepoSurvivesConcurrentBirthsAndAMerge
+// races its writers. Measured before the fix (2026-10-18, four runs): the merge's
+// push lost a race and wedged the repo in round 12, 13, 13 and 15; every round must
+// leave the checkout clean after it.
+const raceRounds = 40
+
+// birthsPerRound is how many OpenActivity births race the round's merge. The births
+// serialise among themselves (projectstate's store takes the lock), so more of them
+// keep main moving for the whole of the merge's clone → merge → push window.
+const birthsPerRound = 4
+
+// maxBirthAttempts bounds one birth's retry loop (a Conflict retries; since FIX-006 a birth
+// asserts no project version, so none is expected).
+const maxBirthAttempts = 20
+
+// TestLocalStateRepoSurvivesConcurrentBirthsAndAMerge is the FIX-002 regression on
+// the topology `archistrator init` produces for the local venue: a NON-bare repo
+// with main CHECKED OUT and receive.denyCurrentBranch=updateInstead. Each round
+// races birthsPerRound OpenActivity births (projectstate's GitStore push) against
+// one local merge job (this component's clone → merge → push to main, then the
+// branch delete), which is what the pump does when it opens activities while
+// another finishes. Before the fix, a push that lost the race had already written its tree
+// into the target's index (push-to-checkout runs before the ref CAS), and git then
+// refused every later push to main ("Working directory has staged changes") — the
+// births burned their retry budget on a refusal no re-read can clear. Every writer
+// now holds the per-repo lock (github.PushLocal), so each round's writes all
+// land and the checkout is clean after every one of them.
+func TestLocalStateRepoSurvivesConcurrentBirthsAndAMerge(t *testing.T) {
+	rig := newRaceRig(t)
+	var born []string
+	for round := range raceRounds {
+		writers := []func() error{func() error { return rig.merge(mergeActivity(round)) }}
+		for n := range birthsPerRound {
+			id := fmt.Sprintf("C-%d-%d", round, n)
+			born = append(born, id)
+			writers = append(writers, func() error { return rig.birth(id) })
+		}
+		for i, err := range raceWriters(writers) {
+			if err != nil {
+				t.Errorf("round %d writer %d (0 is the merge): %v", round, i, err)
+			}
+		}
+		if dirty := gitOut(t, rig.repo.Dir, "status", "--porcelain", "--untracked-files=no"); dirty != "" {
+			t.Fatalf("round %d left the checked-out main dirty — every later push to main is refused:\n%s", round, dirty)
+		}
+		if t.Failed() {
+			t.FailNow()
+		}
+	}
+	rig.assertLanded(born)
+}
+
+// raceRig is the FIX-002 race's subject and collaborators, all over one repo on the
+// init topology.
+type raceRig struct {
+	t          *testing.T
+	h          *scenariohost.Host
+	repo       testinfra.LocalGitRepo
+	jobs       agenticjob.AgenticJobAccess
+	executions projectstate.ActivityExecutionAccess
+	state      projectstate.ProjectStateAccess
+}
+
+// raceProject is the project every racing write lands on.
+const raceProject projectstate.ProjectID = "stp-fix-002"
+
+func newRaceRig(t *testing.T) *raceRig {
+	t.Helper()
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalCheckedOutRepo(t, "main")
+	commitStateDoc(t, repo.Dir, "main", projectstate.Project{ID: raceProject, Version: 1, Phase: projectstate.PhaseConstruction, Name: "FIX-002"})
+	seedActivityBranches(t, repo.Dir, raceRounds)
+
+	root := t.TempDir()
+	stateMCP := writeExecutable(t, filepath.Join(root, "bin", "aiarch-state-mcp"),
+		strings.ReplaceAll(scenarioStateTool, "@VERSION@", projectstate.StateToolVersion()))
+	jobs, err := agenticjob.NewLocalExecAgenticJobAccess(repo.URL, string(raceProject), stateMCP, projectstate.StateToolVersion(), runTimeout)
+	if err != nil {
+		t.Fatalf("NewLocalExecAgenticJobAccess: %v", err)
+	}
+	return &raceRig{t: t, h: h, repo: repo, jobs: jobs,
+		executions: projectstate.NewGitLocalActivityExecutionAccess(repo.URL),
+		state:      projectstate.NewGitLocalProjectStateAccess(repo.URL)}
+}
+
+// birth opens activityID as the delivery manager's child does. OpenActivity is a ROW write
+// (FIX-006): it asserts no project version, so a racing merge or sibling birth cannot make it
+// stale; a lost ref-CAS is re-applied inside the store. The loop stays for a Conflict, which
+// a birth with no row expectation cannot get, so one attempt is the expected count.
+func (r *raceRig) birth(activityID string) error {
+	rc := callContext(r.t, r.h, "open-"+activityID)
+	var last error
+	for range maxBirthAttempts {
+		_, last = r.executions.OpenActivity(rc, raceProject, projectstate.NoActivityVersionExpectation, activityID,
+			projectstate.ActivityTypeService, 0, projectstate.LifecyclePin{TypeKey: "service", AssetsVersion: "v0.10.1"},
+			projectstate.RepoCredential{}, rc.IdempotencyKey)
+		if last == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%d attempts: %w", maxBirthAttempts, last)
+}
+
+// merge runs the local merge job for activityID; it is synchronous, so the first
+// observation is terminal.
+func (r *raceRig) merge(activityID string) error {
+	rc := callContext(r.t, r.h, "merge-"+activityID)
+	handle, err := r.jobs.SubmitAgenticJob(rc, agenticjob.PipelineSpec{
+		ProjectID:      agenticjob.ProjectID(raceProject),
+		ActivityID:     agenticjob.ConstructionActivityID(activityID),
+		Steps:          []agenticjob.PipelineStep{{Name: "merge"}},
+		DispatchInputs: map[string]string{agenticjob.DispatchInputJobKey: agenticjob.DispatchJobMerge},
+	})
+	if err != nil {
+		return err
+	}
+	obs, err := r.jobs.ObserveAgenticJob(rc, handle)
+	if err != nil {
+		return err
+	}
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		return fmt.Errorf("merge ended %s: %s", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	return nil
+}
+
+// assertLanded checks every birth's row and every merge's file are on main, and every
+// merged branch is gone.
+func (r *raceRig) assertLanded(born []string) {
+	t := r.t
+	p, err := r.state.ReadProject(callContext(t, r.h, "probe"), raceProject)
+	if err != nil {
+		t.Fatalf("read the landed state: %v", err)
+	}
+	for _, id := range born {
+		if _, ok := p.ActivityExecution[id]; !ok {
+			t.Errorf("birth of %s did not land on main", id)
+		}
+	}
+	for round := range raceRounds {
+		if branchExists(r.repo.Dir, "activity/"+mergeActivity(round)) {
+			t.Errorf("merged branch activity/%s still exists", mergeActivity(round))
+		}
+	}
+	if got := len(strings.Fields(gitOut(t, r.repo.Dir, "ls-tree", "--name-only", "main", "merged/"))); got != raceRounds {
+		t.Errorf("main carries %d merged files, want %d", got, raceRounds)
+	}
+}
+
+// raceWriters releases every writer at once and returns each one's error.
+func raceWriters(writers []func() error) []error {
+	errs := make([]error, len(writers))
+	var start, done sync.WaitGroup
+	start.Add(1)
+	for i, w := range writers {
+		done.Go(func() {
+			start.Wait()
+			errs[i] = w()
+		})
+	}
+	start.Done()
+	done.Wait()
+	return errs
+}
+
+// mergeActivity is the activity whose branch round's merge job lands.
+func mergeActivity(round int) string { return fmt.Sprintf("C-merge-%d", round) }
+
+// seedActivityBranches creates activity/C-merge-<n> for n < count, each one commit
+// off main adding merged/<n>.txt — a file no state write touches, so every merge is
+// clean and the only thing it can collide with is another writer's push.
+func seedActivityBranches(t *testing.T, repoDir string, count int) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "branches")
+	runGit(t, "", "clone", "--quiet", repoDir, work)
+	for n := range count {
+		branch := "activity/" + mergeActivity(n)
+		runGit(t, work, "checkout", "--quiet", "-B", branch, "origin/main")
+		path := filepath.Join(work, "merged", strconv.Itoa(n)+".txt")
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("hooks: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(branch+"\n"), 0o600); err != nil {
+			t.Fatalf("hooks: %v", err)
+		}
+		runGit(t, work, "add", "merged")
+		runGit(t, work, "-c", "user.name=arrange", "-c", "user.email=arrange@example.invalid",
+			"-c", "commit.gpgsign=false", "commit", "--no-verify", "--quiet", "-m", "arrange: "+branch)
+		runGit(t, work, "push", "--quiet", "origin", branch)
 	}
 }

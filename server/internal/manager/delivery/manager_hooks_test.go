@@ -186,8 +186,12 @@ type stack struct {
 	// revisionsBefore is each design activity's revision count per task, taken before a
 	// step whose settler waits on a design walk (snapshotRevisions).
 	revisionsBefore map[string]map[string]int
-	mu              sync.Mutex
-	arranged        map[int]bool
+	// haltedChildRun and mainBeforeResume are what the halted arrangement saw before the
+	// resume (FIX-003): the run of the activity child the store refused, and main's head.
+	haltedChildRun   string
+	mainBeforeResume string
+	mu               sync.Mutex
+	arranged         map[int]bool
 }
 
 var (
@@ -241,6 +245,9 @@ func newSubject(t *testing.T, h *scenariohost.Host) delivery.DeliveryManager {
 		serve: func() {
 			once.Do(func() {
 				h.StartWorker(t, delivery.TaskQueue, func(w scenariohost.Worker) { delivery.RegisterManagerWorker(w, subject) })
+				// Registered AFTER the worker's own cleanup so that it runs BEFORE it (cleanups
+				// are LIFO): the halt is answered by a Query only a live worker serves.
+				t.Cleanup(func() { assertNotHalted(t, h, subject) })
 			})
 		}}
 	stacksMu.Lock()
@@ -1491,6 +1498,8 @@ var arrangements = map[string]arrangement{
 	"view-the-project-state-log-P2": arrangeSeventhVersion,
 	"resume-paused-construction-P1": arrangePausedProject(false),
 	"resume-paused-construction-P2": arrangePausedProject(true),
+	// [halted]: the pump parked on drivenActivity, whose first write the store refused.
+	"resume-paused-construction-P3": arrangeHaltedProject,
 	// execute-a-project-activity: the review policy names who judges, the agent script
 	// names whether the construction dispatch lands.
 	"execute-a-project-activity-P1":             arrangeExecute(vibes, nil),
@@ -1591,6 +1600,9 @@ func arrangeBuiltActivity(t *testing.T, h *scenariohost.Host, subject delivery.D
 // settlers is keyed by "<scenario>#<seq>".
 var settlers = map[string]settler{
 	"pause-construction-P1#1": settlePaused,
+	// A resume of a halted pump only signals it; it settles when the activity the halt
+	// held is dispatched again.
+	"resume-paused-construction-P3#1": settleHaltReleased,
 	// An ask on a committed artifact settles when the round's answer workflow has closed:
 	// the job ran (or its seat was refused) and its replies, if any, landed on main.
 	"ask-a-clarifying-question-during-review-P3#1": settleAnswerJob,
@@ -1606,7 +1618,7 @@ var settlers = map[string]settler{
 	// seal moved the project, a send-back when the redraft is back at the gate.
 	"commit-to-a-project-option-P1#2":              settleCommitment,
 	"commit-to-a-project-option-P2#2":              settleCommitment,
-	"commit-to-a-project-option-P2#3":              settleDesignWalk("projectDesign"),
+	"commit-to-a-project-option-P2#3":              settleRevoke,
 	"commit-to-a-project-option-P3#2":              settleDesignWalk("projectDesign"),
 	"send-back-change-requests-for-a-redraft-P1#1": settleDesignWalk("architecture"),
 	"send-back-change-requests-for-a-redraft-P2#1": settleDesignWalk("architecture"),
@@ -1630,23 +1642,30 @@ func settleDesignWalk(activity string) settler {
 		if err != nil {
 			return out, err
 		}
-		before := s.revisionsBefore[activity]
-		eventually(t, walkWindow, "the "+activity+" walk acting on the decision", func() (bool, string) {
-			v, qerr := subject.QueryActivityView(callContext(t, h, ""), planProject, delivery.ActivityID(activity))
-			if qerr != nil {
-				return false, qerr.Error()
-			}
-			switch v.State {
-			case delivery.ActivityViewDone, delivery.ActivityViewFailed:
-				return true, ""
-			case delivery.ActivityViewAwaitingHuman:
-				return newRoundAwaitsHuman(v, before), "still at the same gate"
-			}
-			return false, string(v.State)
-		})
+		awaitWalkActed(t, h, subject, s, activity)
 		awaitPumpSettled(t, h, subject, activity)
 		return out, err
 	}
+}
+
+// awaitWalkActed waits until the design activity's walk acted on the step: it finished,
+// or it holds a NEW round at a gate.
+func awaitWalkActed(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, activity string) {
+	t.Helper()
+	before := s.revisionsBefore[activity]
+	eventually(t, walkWindow, "the "+activity+" walk acting on the decision", func() (bool, string) {
+		v, qerr := subject.QueryActivityView(callContext(t, h, ""), planProject, delivery.ActivityID(activity))
+		if qerr != nil {
+			return false, qerr.Error()
+		}
+		switch v.State {
+		case delivery.ActivityViewDone, delivery.ActivityViewFailed:
+			return true, ""
+		case delivery.ActivityViewAwaitingHuman:
+			return newRoundAwaitsHuman(v, before), "still at the same gate"
+		}
+		return false, string(v.State)
+	})
 }
 
 // revisionCounts is how many revisions each task of an activity holds.
@@ -1692,19 +1711,218 @@ func snapshotRevisions(t *testing.T, h *scenariohost.Host, subject delivery.Deli
 // probe's to report.
 func settleCommitment(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, out any, err error) (any, error) {
 	t.Helper()
-	out, err = settleDesignWalk("projectDesign")(t, h, subject, s, out, err)
 	if err != nil {
 		return out, err
 	}
+	// NOT settleDesignWalk: its pump-idle wait is wrong once the seal lands. The sealed
+	// pump fans the construction frontier out and stays open while those children walk —
+	// it goes idle only when construction drains or the pump halts. That wait used to
+	// return because the fan-out always halted (FIX-006's defect, which FIX-003 made a
+	// halt and 57c73c28 let awaitPumpIdle accept); with the fan-out healthy it burned the
+	// whole walkWindow and failed every P1/P2 run. A sealed project is settled by its
+	// frontier being born; an unsealed one still waits for its pump to settle.
+	awaitWalkActed(t, h, subject, s, "projectDesign")
 	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	sealed := false
+	for !sealed && time.Now().Before(deadline) {
 		v, qerr := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
 		if qerr == nil && v.Summary != nil && v.Summary.PhaseName == "construction" {
+			sealed = true
 			break
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+	if sealed {
+		awaitFrontierBorn(t, h, subject, s)
+		return out, err
+	}
+	awaitPumpSettled(t, h, subject, "projectDesign")
 	return out, err
+}
+
+// settleRevoke settles the grace-window revoke of an M0 commitment: the re-opened
+// projectDesign walk holds a NEW M0 round for the founder (or failed). Not
+// settleDesignWalk: right after the revoke the activity still reads done, so that wait
+// returned at once and then waited for the pump to go idle — and the construction
+// children the commitment already started keep the pump open, so it burned the whole
+// walkWindow (measured once the fan-out was reached deterministically).
+func settleRevoke(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, out any, err error) (any, error) {
+	t.Helper()
+	if err != nil {
+		return out, err
+	}
+	before := s.revisionsBefore["projectDesign"]
+	eventually(t, walkWindow, "the re-opened projectDesign walk presenting a new M0 round", func() (bool, string) {
+		v, qerr := subject.QueryActivityView(callContext(t, h, ""), planProject, "projectDesign")
+		if qerr != nil {
+			return false, qerr.Error()
+		}
+		if v.State == delivery.ActivityViewFailed {
+			return true, ""
+		}
+		return v.State == delivery.ActivityViewAwaitingHuman && newRoundAwaitsHuman(v, before), string(v.State)
+	})
+	return out, err
+}
+
+// awaitFrontierBorn is FIX-006's deterministic reach (guard part b). The seal hands the
+// pump the whole construction frontier at once, and before this wait the scenario often
+// tore down before a single sibling was born — so whether a contended fan-out was ever
+// exercised depended on timing (8 of 12 runs never reached it). It waits, bounded by
+// walkWindow, until every activity of the post-seal frontier has a row, or the pump has
+// halted (which assertNotHalted then reports). The frontier is computed from the
+// committed plan exactly as the pump's selection reads it: every activity with no row
+// whose dependencies resolve — satisfied, or a plan defect the pump records as a
+// blocked row.
+func awaitFrontierBorn(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack) {
+	t.Helper()
+	// THE FRONTIER IS RE-COMPUTED ON EVERY POLL, and it must hold a CONSTRUCTION activity.
+	// Read once at the seal, it is only the design activities already born: the phase reads
+	// construction a beat before the M0 milestone resolves for the construction activities,
+	// so a one-shot read made this wait return at once and the fan-out was never reached
+	// (measured: "frontier: 3 activities", zero construction births).
+	eventually(t, walkWindow, "the post-seal construction frontier being born", func() (bool, string) {
+		v, qerr := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+		if qerr != nil {
+			return false, qerr.Error()
+		}
+		if v.Summary != nil && v.Summary.RunState == delivery.ProjectHalted {
+			t.Logf("hooks: the pump halted before the frontier was born")
+			return true, ""
+		}
+		p, rerr := s.ps.ReadProject(h.ResourceAccessContext(t, "frontier-poll"), planProject)
+		if rerr != nil {
+			return false, rerr.Error()
+		}
+		frontier := constructionFrontier(p)
+		built := withoutDesign(frontier)
+		if len(built) == 0 {
+			return false, fmt.Sprintf("no construction activity eligible yet (%d design)", len(frontier))
+		}
+		unborn := unbornOf(frontier, p)
+		if len(unborn) == 0 {
+			t.Logf("hooks: construction frontier born: %d rows (%d construction)", len(frontier), len(built))
+		}
+		return len(unborn) == 0, fmt.Sprintf("%d of %d unborn (e.g. %v)", len(unborn), len(frontier), unborn[:min(3, len(unborn))])
+	})
+}
+
+// withoutDesign is frontier minus the design activities (designOrder).
+func withoutDesign(frontier []string) []string {
+	var out []string
+	for _, id := range frontier {
+		if !slices.Contains(designOrder, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// constructionFrontier is every activity of the committed plan whose dependencies resolve
+// (satisfied, or a defect the pump records as a blocked row) — born or not: the read can land
+// after some of the fan-out's births, and those belong to the frontier as much as the rest.
+func constructionFrontier(proj projectstate.Project) []string {
+	network, nok := proj.Network.Model.(*projectstate.Network)
+	list, lok := proj.ActivityList.Model.(*projectstate.ActivityList)
+	if !nok || !lok || network == nil || list == nil {
+		return nil
+	}
+	itemByName := make(map[string]projectstate.ActivityItem, len(list.Activities))
+	for _, item := range list.Activities {
+		itemByName[item.Name] = item
+	}
+	deps := make(map[string][]string, len(network.Dependencies))
+	for _, d := range network.Dependencies {
+		deps[d.Activity] = d.DependsOn
+	}
+	milestones := projectstate.MilestonesByID(network)
+	var frontier []string
+	for _, item := range list.Activities {
+		res := projectstate.AllDepsSatisfied(deps[item.Name], itemByName, proj.ActivityExecution, milestones)
+		if res.Satisfied || res.ProblemReason != "" {
+			frontier = append(frontier, item.Name)
+		}
+	}
+	return frontier
+}
+
+// unbornOf is the members of frontier that hold no row on p yet.
+func unbornOf(frontier []string, p projectstate.Project) []string {
+	var unborn []string
+	for _, id := range frontier {
+		if _, ok := p.ActivityExecution[id]; !ok {
+			unborn = append(unborn, id)
+		}
+	}
+	return unborn
+}
+
+// expectHalt is every scenario that ENDS with the construction pump halted BY DESIGN, with
+// the reason (FIX-006 guard part c). It is measured, not guessed: both suites were run with
+// assertNotHalted active and every scenario that ended halted is either here, with the
+// arrangement that fails a walk on purpose, or was a finding. A halt not listed here fails
+// the scenario.
+var expectHalt = map[string]string{}
+
+// recordedPumpHalt answers the project pump's halt Query on its LATEST run, running or not:
+// nil when the project never had a pump or its pump is not halted. The workflow id and the
+// Query name are the pump's registered ones (deliverymanager.go pumpWorkflowID and
+// queryPumpHalt) — the hooks reach the execution the way the operator's console does.
+func recordedPumpHalt(h *scenariohost.Host, project string) (*delivery.PumpHalt, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	wfID := project + ":nextActivity"
+	d, err := h.TemporalClient().DescribeWorkflowExecution(ctx, wfID, "")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("describe %s: %w", wfID, err)
+	}
+	enc, err := h.TemporalClient().QueryWorkflow(ctx, wfID, d.GetWorkflowExecutionInfo().GetExecution().GetRunId(), "pumpHaltState")
+	if err != nil {
+		return nil, fmt.Errorf("query %s: %w", wfID, err)
+	}
+	var halt *delivery.PumpHalt
+	if err := enc.Get(&halt); err != nil {
+		return nil, fmt.Errorf("decode %s's halt: %w", wfID, err)
+	}
+	return halt, nil
+}
+
+// assertNotHalted is FIX-006's guard part (a): a scenario must not end with its project's
+// pump HALTED unless expectHalt says why. No wait — a halt is durable, so one read at
+// teardown sees every halt the scenario reached. It exists because awaitPumpIdle accepts a
+// halted pump as idle (FIX-003, 57c73c28, which arrangeFailedActivity and
+// arrangeHaltedProject need): without this assertion a pump that halts on a
+// store-contention exhaustion passes every scenario.
+//
+// IT READS THE PUMP'S OWN EXECUTION, NOT THE PROJECT VIEW, and that was measured: the host
+// terminates every workflow the scenario started before any t.Cleanup runs (RunScenario's
+// deferred endScenarioWorkflows), and the view reads a halt only off a RUNNING pump, so at
+// teardown the view always says "not halted". The halt Query still answers on the
+// terminated run — the worker replays its history — and this cleanup runs while the worker
+// is alive (it is registered after it).
+func assertNotHalted(t *testing.T, h *scenariohost.Host, _ delivery.DeliveryManager) {
+	t.Helper()
+	scenario := t.Name()[strings.LastIndex(t.Name(), "/")+1:]
+	halt, err := recordedPumpHalt(h, planProject)
+	if err != nil {
+		t.Errorf("hooks: scenario %s: the pump's halt could not be read at teardown: %v", scenario, err)
+		return
+	}
+	if halt == nil {
+		return
+	}
+	detail := "(no halt detail)"
+	if b, merr := json.Marshal(halt); merr == nil {
+		detail = string(b)
+	}
+	if reason, ok := expectHalt[scenario]; ok {
+		t.Logf("hooks: scenario %s ended with the pump halted, by design (%s): %s", scenario, reason, detail)
+		return
+	}
+	t.Errorf("hooks: scenario %s ended with the construction pump HALTED, which no scenario expects unless expectHalt names it: %s", scenario, detail)
 }
 
 // awaitPumpSettled waits, after a design activity finished, for the pump that ran it to
@@ -1859,7 +2077,10 @@ func settleAnswerJob(t *testing.T, h *scenariohost.Host, subject delivery.Delive
 	return out, err
 }
 
-// awaitPumpIdle waits until the project's pump reports no open run.
+// awaitPumpIdle waits until the project's pump dispatches nothing more: it reports no open
+// run, or it is HALTED (FIX-003). A halted pump stays open — parking is what keeps the sweep
+// from restarting it — but it starts nothing until a resume, which is exactly what this wait
+// used to observe as a closed run when a failed activity child ended the pump.
 func awaitPumpIdle(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager) {
 	t.Helper()
 	id := planProject
@@ -1868,7 +2089,14 @@ func awaitPumpIdle(t *testing.T, h *scenariohost.Host, subject delivery.Delivery
 		if err != nil {
 			return false, err.Error()
 		}
-		return v.Pump != nil && !v.Pump.Open, "pump open"
+		if v.Pump != nil && !v.Pump.Open {
+			return true, ""
+		}
+		sum, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+		if err != nil {
+			return false, err.Error()
+		}
+		return sum.Summary != nil && sum.Summary.RunState == delivery.ProjectHalted, "pump open"
 	})
 }
 
@@ -1976,6 +2204,212 @@ func arrangePausedProject(inFlight bool) arrangement {
 			t.Fatalf("hooks: request the in-flight pause: %v", err)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The halted pump (FIX-003)
+// ---------------------------------------------------------------------------
+
+// arrangeHaltedProject is the [yes] arm of the halt-check guard, built the way the bench
+// run of 2026-10-17 met it: the project store REFUSES every write, so the construction
+// activity the pump dispatches fails at its very first write (its OpenActivity birth) and
+// leaves no row, and nothing anyone can read in the store says the cascade stopped. The
+// pump must PARK on that failure instead of returning — which used to hand the project to
+// the 30-second sweep, which restarted a fresh chain into the same refusal, 57 times in
+// that run. Before the operator resumes, this arrangement proves the halt is durable and
+// visible:
+//
+//  1. the in-flight project is built (drivenActivity eligible, the pump idle), then the
+//     store is made to refuse writes (refuseStoreWrites) and the pump is ticked;
+//  2. the halt is READ, from the pump, through the subject's views: the project's run
+//     state is halted and names drivenActivity, the activity reads haltedByFailure, and
+//     the pump is still open;
+//  3. Begin is refused, naming ResumeProject;
+//  4. three sweep ticks each skip the project, and neither the pump's run nor the
+//     activity child's run moves — no restart loop;
+//  5. the store is healed and an unrelated head-state write lands; a reconcile tick later
+//     the pump is still halted and has dispatched nothing — a head move is not a resume.
+func arrangeHaltedProject(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, seq int) {
+	t.Helper()
+	if seq != 1 {
+		return
+	}
+	arrangeProject(t, h, subject, s, "")
+	refuseStoreWrites(t, s.repo)
+	out, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-halt-0001")
+	if err != nil {
+		t.Fatalf("hooks: tick the pump into the refusing store: %v", err)
+	}
+	if !out.Dispatched || !slices.Contains(out.ActivityIDs, delivery.ActivityID(drivenActivity)) {
+		t.Fatalf("hooks: the tick dispatched %+v, want %s", out, drivenActivity)
+	}
+
+	halt := awaitHalt(t, h, subject)
+	if halt.Cause == "" {
+		t.Fatalf("hooks: the halt names no cause: %+v", halt)
+	}
+	if v := awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewHaltedByFailure); v.State != delivery.ActivityViewHaltedByFailure {
+		t.Fatalf("hooks: %s reads %s, want haltedByFailure", drivenActivity, v.State)
+	}
+	pumpRun := pumpRunOf(t, h)
+	s.haltedChildRun = childRunOf(t, h)
+
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-halt-0002"); err == nil ||
+		!errorHasCode(err, "FailedPrecondition") || !strings.Contains(err.Error(), "ResumeProject") {
+		t.Fatalf("hooks: Begin on a halted project answered %v, want FailedPrecondition naming ResumeProject", err)
+	}
+
+	for tick := 1; tick <= 3; tick++ {
+		if pumped := tickSweep(t, h, tick); slices.Contains(pumped, planProject) {
+			t.Fatalf("hooks: sweep tick %d restarted the halted project's pump (pumped %v)", tick, pumped)
+		}
+	}
+	assertStillHalted(t, h, subject, pumpRun, s.haltedChildRun, "after three sweep ticks")
+
+	healStoreWrites(t, s.repo)
+	setPolicy(t, h, subject, vibes)
+	// One full reconcile tick: the pump re-reads head-state on it, and must not take the
+	// moved head for a resume.
+	time.Sleep(haltReconcileWait)
+	assertStillHalted(t, h, subject, pumpRun, s.haltedChildRun, "after an unrelated head-state write and a reconcile tick")
+	s.mainBeforeResume = strings.TrimSpace(git(t, s.repo.Dir, "rev-parse", "main"))
+}
+
+// haltReconcileWait outlasts the pump's 30-second reconcile tick.
+const haltReconcileWait = 35 * time.Second
+
+// refuseStoreWrites puts the scenario repo in the topology the bench run's store had: main
+// CHECKED OUT, receive.denyCurrentBranch=updateInstead, and a change staged in its index.
+// git then refuses every push to main ("Working directory has staged changes") however
+// often it is retried — a store that reads but cannot be written.
+func refuseStoreWrites(t *testing.T, repo workingRepo) {
+	t.Helper()
+	git(t, repo.Dir, "config", "receive.denyCurrentBranch", "updateInstead")
+	git(t, repo.Dir, "checkout", "-q", "main")
+	if err := os.WriteFile(filepath.Join(repo.Dir, haltDirt), []byte("staged by hand\n"), 0o600); err != nil {
+		t.Fatalf("hooks: dirty the checkout: %v", err)
+	}
+	git(t, repo.Dir, "add", haltDirt)
+}
+
+// healStoreWrites is the operator's one-time recovery: unstage, clean, and take the
+// checkout off main again.
+func healStoreWrites(t *testing.T, repo workingRepo) {
+	t.Helper()
+	git(t, repo.Dir, "reset", "-q", "--mixed")
+	if err := os.Remove(filepath.Join(repo.Dir, haltDirt)); err != nil {
+		t.Fatalf("hooks: clean the checkout: %v", err)
+	}
+	git(t, repo.Dir, "checkout", "-q", "checkout")
+	git(t, repo.Dir, "config", "--unset", "receive.denyCurrentBranch")
+}
+
+// haltDirt is the file staged to make the checkout refuse pushes.
+const haltDirt = "staged-by-hand.txt"
+
+// awaitHalt waits until the project view reports the pump halted on drivenActivity.
+func awaitHalt(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager) delivery.PumpHalt {
+	t.Helper()
+	var halt delivery.PumpHalt
+	eventually(t, walkWindow, "the pump halting on "+drivenActivity, func() (bool, string) {
+		v, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+		if err != nil {
+			return false, err.Error()
+		}
+		if v.Summary == nil || v.Summary.RunState != delivery.ProjectHalted || v.Summary.PumpHalt == nil {
+			return false, fmt.Sprintf("run state %v", v.Summary)
+		}
+		halt = *v.Summary.PumpHalt
+		return halt.ActivityID == drivenActivity, "halted on " + string(halt.ActivityID)
+	})
+	return halt
+}
+
+// assertStillHalted checks the halt held: the view still reads halted, the pump is the
+// SAME run (nothing restarted it) and the activity child is the SAME run (nothing
+// re-dispatched it).
+func assertStillHalted(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, pumpRun, childRun, when string) {
+	t.Helper()
+	v, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+	if err != nil || v.Summary == nil || v.Summary.RunState != delivery.ProjectHalted {
+		t.Fatalf("hooks: %s the project is not halted any more (%v, %v)", when, v.Summary, err)
+	}
+	if got := pumpRunOf(t, h); got != pumpRun {
+		t.Fatalf("hooks: %s the pump is run %s, want the halted run %s — something restarted it", when, got, pumpRun)
+	}
+	if got := childRunOf(t, h); got != childRun {
+		t.Fatalf("hooks: %s %s is run %s, want the refused run %s — something re-dispatched it", when, drivenActivity, got, childRun)
+	}
+}
+
+// pumpRunOf is the project pump's latest run, which must be RUNNING: a halted pump parks,
+// it never closes.
+func pumpRunOf(t *testing.T, h *scenariohost.Host) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(h.Context(t), 10*time.Second)
+	defer cancel()
+	d, err := h.TemporalClient().DescribeWorkflowExecution(ctx, planProject+":nextActivity", "")
+	if err != nil {
+		t.Fatalf("hooks: describe the pump: %v", err)
+	}
+	info := d.GetWorkflowExecutionInfo()
+	if info.GetStatus().String() != "Running" {
+		t.Fatalf("hooks: the pump is %s, want Running", info.GetStatus())
+	}
+	return info.GetExecution().GetRunId()
+}
+
+// childRunOf is the latest run of drivenActivity's child execution.
+func childRunOf(t *testing.T, h *scenariohost.Host) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(h.Context(t), 10*time.Second)
+	defer cancel()
+	d, err := h.TemporalClient().DescribeWorkflowExecution(ctx, planProject+":activity:"+drivenActivity, "")
+	if err != nil {
+		t.Fatalf("hooks: describe %s's execution: %v", drivenActivity, err)
+	}
+	return d.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+}
+
+// tickSweep fires ONE tick of the platform's 30-second pump sweep — the workflow its
+// Schedule starts — through the message bus the composition root wires, and returns the
+// projects that tick started a pump for.
+func tickSweep(t *testing.T, h *scenariohost.Host, tick int) []string {
+	t.Helper()
+	id := fmt.Sprintf("dct-dm-sweep-tick-%d", tick)
+	bus := messagebus.NewTemporalMessageBus(h.TemporalClient(), deliveryKinds())
+	if err := bus.DeliverSignal(h.ResourceAccessContext(t, id), messagebus.ExecutionID(id), "tick",
+		messagebus.ExecutionPayload{}, &messagebus.ExecutionStart{Kind: "constructionPumpSweep"}); err != nil {
+		t.Fatalf("hooks: fire sweep tick %d: %v", tick, err)
+	}
+	ctx, cancel := context.WithTimeout(h.Context(t), time.Minute)
+	defer cancel()
+	var res struct{ PumpedProjects []string }
+	if err := h.TemporalClient().GetWorkflow(ctx, id, "").Get(ctx, &res); err != nil {
+		t.Fatalf("hooks: sweep tick %d: %v", tick, err)
+	}
+	return res.PumpedProjects
+}
+
+// settleHaltReleased waits until the resume has freed the halted pump: drivenActivity is
+// dispatched again — a NEW run of its child, the one run a resume buys — and the project
+// reads running. And it checks the resume's own promise: it wrote NOTHING to the store,
+// which may have been refusing writes when the operator pressed it.
+func settleHaltReleased(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, out any, err error) (any, error) {
+	t.Helper()
+	if err != nil {
+		return out, err
+	}
+	awaitActivityState(t, h, subject, drivenActivity,
+		delivery.ActivityViewRunning, delivery.ActivityViewAwaitingHuman, delivery.ActivityViewDone)
+	if got := childRunOf(t, h); got == s.haltedChildRun {
+		t.Fatalf("hooks: %s was not dispatched again after the resume (still run %s)", drivenActivity, got)
+	}
+	log := git(t, s.repo.Dir, "log", "--format=%s", s.mainBeforeResume+"..main")
+	if strings.Contains(log, "OperatorResumed") || strings.Contains(log, "OperatorPaused") {
+		t.Fatalf("hooks: the resume of a halted, unpaused project wrote to the store:\n%s", log)
+	}
+	return out, err
 }
 
 // settlePaused waits until the pause the step requested is recorded on the project.
@@ -2802,6 +3236,16 @@ func stepResumePausedConstructionP2S1(t *testing.T, h *scenariohost.Host, subjec
 	arrange(t, h, subject, "resume-paused-construction-P2", 1)
 	out, err := any(nil), subject.SetProjectRunState(callContext(t, h, ""), in.ProjectID, in.RunState, in.Reason)
 	return settle(t, h, subject, "resume-paused-construction-P2", 1, out, err)
+}
+
+// stepResumePausedConstructionP3S1 — Resume Paused Construction — [yes], step 1: SetProjectRunState
+// Projected stimulus (JSON): {"seq":1,"node":"choose-resume","input":{"kind":"call","from":"web-client","to":"deliverymanager","op":"SetProjectRunState","call":"resume-paused-construction/choose-resume/2","via":["web-client","mcp-client"]},"expectedOutputs":null,"expectedStates":null,"hints":["Resume is setProjectRunState(projectId, running, reason): the run-state value is the literal 'running' and reason must be non-empty (Go-side non-emptiness guard); MCP and web surfaces bind to the same Manager entry."]}
+// Binding (JSON): {"seq":1,"operation":"SetProjectRunState","inputs":[{"name":"projectID","value":"dct-owner/dct-delivery"},{"name":"runState","value":"running"},{"name":"reason","value":"The project store accepts writes again; resume construction."}],"expect":{"errorExpected":false},"probes":[{"for":"release-halt","component":"deliveryManager","operation":"QueryProjectView","inputs":[{"name":"query","value":"{\"kind\":\"summary\",\"projectId\":\"dct-owner/dct-delivery\"}"}],"expect":{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false,\"runState\":\"running\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+func stepResumePausedConstructionP3S1(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, in inputResumePausedConstructionP3S1) (any, error) {
+	t.Helper()
+	arrange(t, h, subject, "resume-paused-construction-P3", 1)
+	out, err := any(nil), subject.SetProjectRunState(callContext(t, h, ""), in.ProjectID, in.RunState, in.Reason)
+	return settle(t, h, subject, "resume-paused-construction-P3", 1, out, err)
 }
 
 // stepSendBackChangeRequestsForARedraftP1S1 — Send Back Change Requests for a Redraft — [yes], step 1: SubmitReviewDecision
