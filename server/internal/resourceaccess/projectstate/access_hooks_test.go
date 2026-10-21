@@ -3197,6 +3197,7 @@ func TestConditionalWrite_OutsideWriterFallsBackToTheExactGuard(t *testing.T) {
 // verbs depend on, one at a time, so dropping either from its footprint goes red:
 //   - AdvancePhase on the PHASE alone: two seals read the same version (the child's own and
 //     the facade's on one M0 approve); the second must be refused, never a second increment.
+//   - AdvancePhase on the SLOTS alone: a seal read before a slot changed, the phase untouched.
 //   - RecordSdpReviewOutcome on the SDP REVIEW SLOT alone: a revoke read before the review
 //     was re-committed (a fresh decision, the phase untouched) must be refused.
 func TestConditionalWrite_FootprintMembersAreLoadBearing(t *testing.T) {
@@ -3222,6 +3223,28 @@ func TestConditionalWrite_FootprintMembersAreLoadBearing(t *testing.T) {
 		}
 		if p.Phase != projectstate.PhaseProjectDesign {
 			t.Errorf("phase after two seals on one read: %d, want %d (one advance)", p.Phase, projectstate.PhaseProjectDesign)
+		}
+	})
+
+	t.Run("AdvancePhase/slots", func(t *testing.T) {
+		// A seal read before a slot changed (the phase untouched) must be refused: the
+		// all-committed gate it decided on no longer describes the project.
+		repo := testinfra.StartLocalGitRepo(t, "main")
+		p := fix006SlotsProject()
+		p.Phase = projectstate.PhaseSystemDesign
+		seedRepoDoc(t, repo.Dir, p)
+		ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+		ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+		v, err := ps.ReadProjectVersion(callContext(t, h, "seal-read"), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "recommit-mission"), fix006Project, v,
+			projectstate.KindMission, "operator", "platform"); err != nil {
+			t.Fatalf("the re-commit: %v", err)
+		}
+		if _, err := ps.AdvancePhase(callContext(t, h, "seal-stale"), fix006Project, v); raKind(err) != "Conflict" {
+			t.Errorf("a seal read before a slot change: err %v (kind %s), want Conflict", err, raKind(err))
 		}
 	})
 
