@@ -1318,10 +1318,7 @@ func (s *GitStore) applyRowOnce(
 // rowJitter is a small, attempt-scaled pause before a re-apply, so writers that lost to
 // the same outside push do not re-read in lockstep.
 func rowJitter(attempt int) time.Duration {
-	n := time.Duration(attempt) * 5 * time.Millisecond
-	if n > rowReapplyJitter {
-		n = rowReapplyJitter
-	}
+	n := min(time.Duration(attempt)*5*time.Millisecond, rowReapplyJitter)
 	return n + time.Duration(rand.Int64N(int64(5*time.Millisecond))) //nolint:gosec // G404: retry jitter, not a secret
 }
 

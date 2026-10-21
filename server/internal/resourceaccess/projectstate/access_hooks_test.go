@@ -2883,7 +2883,7 @@ func startRunningHerd(t *testing.T, h *scenariohost.Host, repoURL, prefix string
 				return
 			}
 			hd.landed.Add(1)
-			for n := 0; n < herdWritesEach; n++ {
+			for n := range herdWritesEach {
 				select {
 				case <-hd.stop:
 					return
