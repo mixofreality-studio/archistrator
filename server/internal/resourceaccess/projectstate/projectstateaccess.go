@@ -1085,16 +1085,7 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	// and a verb whose precondition is the whole document (CreateProject), keep the exact
 	// project-version guard. Main writes restamp the footprint ledger either way.
 	onMain := branch == ""
-	var marks tipMarks
-	var p Project
-	if guard != nil && onMain {
-		p, err = loadAggregateForFootprint(snap, op, projectID, expectedVersion, mode, *guard, &marks)
-	} else {
-		p, err = loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
-		if err == nil && onMain {
-			marks, err = loadTipMarks(snap, p.Version)
-		}
-	}
+	p, marks, err := loadAggregateGuarded(snap, op, projectID, expectedVersion, guard, onMain, mode)
 	if err != nil {
 		return 0, err
 	}
@@ -1109,14 +1100,9 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	// STEP 5 — build the new subtree (whole project.json + ALL dedup records,
 	// carrying forward the existing ones) and write the new dedup record in the SAME
 	// commit (REWORK.3 same-commit coupling — atomic per git ref update).
-	files, err := buildStateFiles(snap, &p, idempotencyKey, p.Version, op, s.now(), extraFiles)
+	files, err := s.stateWriteFiles(snap, &p, idempotencyKey, op, extraFiles, onMain, marks)
 	if err != nil {
 		return 0, err
-	}
-	if onMain {
-		if err := stampWriteMarks(files, marks, p.Version); err != nil {
-			return 0, err
-		}
 	}
 	res, err := repo.CommitSubtree(ctx, statePathPrefix, files, snap.Base, commitMessage(op, idempotencyKey), auth)
 	if err != nil {
@@ -1128,6 +1114,15 @@ func (s *GitStore) applyMutationOnBranchFiles(
 	}
 	_ = res // Base token is the satellite's; Version is the caller-visible token.
 	return p.Version, nil
+}
+
+// stateWriteFiles is buildStateFiles plus, for a main write, the restamped footprint ledger.
+func (s *GitStore) stateWriteFiles(snap fwgithub.GitSnapshot, p *Project, idempotencyKey fwra.IdempotencyKey, op string, extraFiles map[string][]byte, onMain bool, marks tipMarks) (map[string][]byte, error) {
+	files, err := buildStateFiles(snap, p, idempotencyKey, p.Version, op, s.now(), extraFiles)
+	if err != nil || !onMain {
+		return files, err
+	}
+	return files, stampWriteMarks(files, marks, p.Version)
 }
 
 // ---------------------------------------------------------------------------
@@ -1327,7 +1322,7 @@ func rowJitter(attempt int) time.Duration {
 	if n > rowReapplyJitter {
 		n = rowReapplyJitter
 	}
-	return n + time.Duration(rand.Int64N(int64(5*time.Millisecond)))
+	return n + time.Duration(rand.Int64N(int64(5*time.Millisecond))) //nolint:gosec // G404: retry jitter, not a secret
 }
 
 // sleepCtx sleeps d or until ctx is done.
@@ -1851,6 +1846,23 @@ func stampWriteMarks(files map[string][]byte, m tipMarks, newVersion Version) er
 	}
 	files[writeMarksFile] = b
 	return nil
+}
+
+// loadAggregateGuarded selects the write's STEP 2–3: the footprint guard for a main-scoped
+// verb that names one, the exact project-version guard otherwise; on main it also resolves
+// the footprint ledger the write restamps.
+func loadAggregateGuarded(snap fwgithub.GitSnapshot, op string, projectID ProjectID, expectedVersion Version, guard *footprint, onMain bool, mode mutationMode) (Project, tipMarks, error) {
+	var marks tipMarks
+	if guard != nil && onMain {
+		p, err := loadAggregateForFootprint(snap, op, projectID, expectedVersion, mode, *guard, &marks)
+		return p, marks, err
+	}
+	p, err := loadAggregateForMutation(snap, op, projectID, expectedVersion, mode)
+	if err != nil || !onMain {
+		return p, marks, err
+	}
+	marks, err = loadTipMarks(snap, p.Version)
+	return p, marks, err
 }
 
 // loadAggregateForFootprint is loadAggregateForMutation for a main-scoped conditional verb

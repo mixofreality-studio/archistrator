@@ -2570,7 +2570,7 @@ func pushOutsideCommit(dir, name string) error {
 	}
 	for _, s := range steps {
 		if out, err := exec.Command("git", s...).CombinedOutput(); err != nil {
-			return fmt.Errorf("git %v: %v: %s", s, err, out)
+			return fmt.Errorf("git %v: %w: %s", s, err, out)
 		}
 	}
 	if err := os.MkdirAll(filepath.Join(work, "outside"), 0o750); err != nil {
@@ -2585,7 +2585,7 @@ func pushOutsideCommit(dir, name string) error {
 		{"-C", work, "push", "--quiet", "origin", "main"},
 	} {
 		if out, err := exec.Command("git", s...).CombinedOutput(); err != nil {
-			return fmt.Errorf("git %v: %v: %s", s, err, out)
+			return fmt.Errorf("git %v: %w: %s", s, err, out)
 		}
 	}
 	return nil
