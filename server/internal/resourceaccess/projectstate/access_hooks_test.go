@@ -7,6 +7,7 @@
 package projectstate_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -3081,4 +3082,169 @@ func TestConditionalWrite_SameFootprintChangeStillConflicts(t *testing.T) {
 		callContext(t, h, "pause-future").IdempotencyKey); raKind(err) != "Conflict" {
 		t.Errorf("a conditional write on a version from the future: err %v, want Conflict", err)
 	}
+}
+
+// pushOutsideStateEdit advances main in the repo at dir with a commit no projectstate writer
+// made that rewrites .aiarch/state/<file> through edit — the local merge step, a GitHub merge
+// or a hand edit, none of which restamps the footprint ledger.
+func pushOutsideStateEdit(t *testing.T, dir, file string, edit func([]byte) []byte) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "outside-edit")
+	runGit(t, "", "clone", "--quiet", dir, work)
+	runGit(t, work, "checkout", "--quiet", "main")
+	path := filepath.Join(work, ".aiarch", "state", file)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: a test temp dir
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("arrange: read %s: %v", file, err)
+	}
+	next := edit(raw)
+	if bytes.Equal(next, raw) {
+		t.Fatalf("arrange: the outside edit of %s changed nothing", file)
+	}
+	if err := os.WriteFile(path, next, 0o600); err != nil {
+		t.Fatalf("arrange: write %s: %v", file, err)
+	}
+	runGit(t, work, "add", filepath.Join(".aiarch", "state", file))
+	runGit(t, work, "-c", "user.name=outside", "-c", "user.email=outside@aiarch.local", "-c", "commit.gpgsign=false",
+		"commit", "--quiet", "-m", "outside edit of "+file)
+	runGit(t, work, "push", "--quiet", "origin", "main")
+}
+
+// TestConditionalWrite_OutsideWriterFallsBackToTheExactGuard: the footprint ledger is only
+// ever conservative. A member changed on main by a writer outside the store — a merge that
+// keeps main's Version, a Version moved by hand, a damaged ledger — reads as changed at the
+// tip, so a conditional write whose caller read before it is refused, exactly as the
+// project-version guard would refuse it. Only the member the outside writer changed is
+// suspect when the Version still matches: a write on a disjoint footprint still lands.
+func TestConditionalWrite_OutsideWriterFallsBackToTheExactGuard(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+
+	read := func(step string) projectstate.Version {
+		v, err := ps.ReadProjectVersion(callContext(t, h, step), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		return v
+	}
+	// Two store writes: the first baselines the ledger, the second leaves it describing the tip.
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause"), fix006Project, read("r0"), "store pause",
+		callContext(t, h, "pause").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: pause: %v", err)
+	}
+	full := "full"
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-0"), fix006Project, read("r1"), projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-0").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: policy: %v", err)
+	}
+
+	// (1) After a caller's read, a store write moves the Version (a disjoint member), then a
+	// merge keeps main's Version but brings a different pause reason. A resume on the older
+	// read must not clear a pause it never saw; a write on a disjoint footprint still lands.
+	// (A read AT the merged Version cannot be told from one before the merge; the
+	// project-version guard could not tell them apart either, so that is not asserted.)
+	stale := read("r2")
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-1"), fix006Project, stale, projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-1").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: policy: %v", err)
+	}
+	tip := read("r2a")
+	pushOutsideStateEdit(t, repo.Dir, "project.json", func(b []byte) []byte {
+		return bytes.Replace(b, []byte(`"pauseReason": "store pause"`), []byte(`"pauseReason": "merged pause"`), 1)
+	})
+	if got := read("r2b"); got != tip {
+		t.Fatalf("arrange: the outside edit moved the Version %d -> %d; it must keep it", tip, got)
+	}
+	if _, err := ps.RecordOperatorResumed(callContext(t, h, "resume-stale"), fix006Project, stale,
+		callContext(t, h, "resume-stale").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a resume read before an outside change to the pause (Version kept): err %v, want Conflict", err)
+	}
+	if _, err := ps.SetOperatingModel(callContext(t, h, "model-1"), fix006Project, stale, projectstate.OperatingModelArchistratorOperated); err != nil {
+		t.Errorf("an operating-model write across an outside change to the pause only: %v (kind %s), want success", err, raKind(err))
+	}
+	vibes := "vibes"
+
+	// (2) An outside writer moves the Version: every member reads as changed at the tip.
+	stale = read("r3")
+	pushOutsideStateEdit(t, repo.Dir, "project.json", func(b []byte) []byte {
+		return bytes.Replace(b, []byte(fmt.Sprintf(`"version": %d,`, stale)), []byte(fmt.Sprintf(`"version": %d,`, stale+1)), 1)
+	})
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-2"), fix006Project, stale, projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-2").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a policy write read before an outside Version move: err %v, want Conflict", err)
+	}
+
+	// (3) A damaged ledger: the same.
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-3"), fix006Project, read("r4"), projectstate.ReviewPolicy{Preset: &vibes},
+		callContext(t, h, "policy-3").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: re-baseline: %v", err)
+	}
+	stale = read("r5")
+	if _, err := ps.RecordOperatorResumed(callContext(t, h, "resume"), fix006Project, stale,
+		callContext(t, h, "resume").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: resume: %v", err)
+	}
+	pushOutsideStateEdit(t, repo.Dir, "write_marks.json", func([]byte) []byte { return []byte("{not json") })
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-4"), fix006Project, stale, projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-4").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a policy write read before a write, over a damaged ledger: err %v, want Conflict", err)
+	}
+}
+
+// TestConditionalWrite_FootprintMembersAreLoadBearing pins the members the two seal-side
+// verbs depend on, one at a time, so dropping either from its footprint goes red:
+//   - AdvancePhase on the PHASE alone: two seals read the same version (the child's own and
+//     the facade's on one M0 approve); the second must be refused, never a second increment.
+//   - RecordSdpReviewOutcome on the SDP REVIEW SLOT alone: a revoke read before the review
+//     was re-committed (a fresh decision, the phase untouched) must be refused.
+func TestConditionalWrite_FootprintMembersAreLoadBearing(t *testing.T) {
+	h := scenariohost.Start(t)
+
+	t.Run("AdvancePhase/phase", func(t *testing.T) {
+		repo := testinfra.StartLocalGitRepo(t, "main")
+		seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseSystemDesign))
+		ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+		v, err := ps.ReadProjectVersion(callContext(t, h, "read"), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		if _, err := ps.AdvancePhase(callContext(t, h, "seal-child"), fix006Project, v); err != nil {
+			t.Fatalf("the first seal: %v", err)
+		}
+		if _, err := ps.AdvancePhase(callContext(t, h, "seal-facade"), fix006Project, v); raKind(err) != "Conflict" {
+			t.Errorf("a second seal on the same read: err %v (kind %s), want Conflict", err, raKind(err))
+		}
+		p, err := ps.ReadProject(callContext(t, h, "read-back"), fix006Project)
+		if err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if p.Phase != projectstate.PhaseProjectDesign {
+			t.Errorf("phase after two seals on one read: %d, want %d (one advance)", p.Phase, projectstate.PhaseProjectDesign)
+		}
+	})
+
+	t.Run("RecordSdpReviewOutcome/sdpReview", func(t *testing.T) {
+		repo := testinfra.StartLocalGitRepo(t, "main")
+		seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+		ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+		ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+		read := func(step string) projectstate.Version {
+			v, err := ps.ReadProjectVersion(callContext(t, h, step), fix006Project)
+			if err != nil {
+				t.Fatalf("read version: %v", err)
+			}
+			return v
+		}
+		stale := read("revoke-read")
+		if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "recommit-sdp"), fix006Project, read("recommit-read"),
+			projectstate.KindSdpReview, "operator", "platform"); err != nil {
+			t.Fatalf("the re-commit: %v", err)
+		}
+		if _, err := ps.RecordSdpReviewOutcome(callContext(t, h, "revoke"), fix006Project, stale, projectstate.ReviewWithdrawn, "",
+			callContext(t, h, "revoke").IdempotencyKey); raKind(err) != "Conflict" {
+			t.Errorf("a revoke read before the SDP review was re-committed: err %v (kind %s), want Conflict", err, raKind(err))
+		}
+	})
 }
