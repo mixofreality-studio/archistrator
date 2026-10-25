@@ -35,10 +35,14 @@ func comment(id string, round int64, role, text string) projectstate.ReviewComme
 
 // fixtureProject is a project whose architecture activity has a two-round sealed slot
 // thread, a critique, and a legacy execution row.
+// componentKey is the fixture component's contract key — projectstate.ContractKeyFor of
+// "c", which the codec requires on every non-Resource component (FIX-007).
+var componentKey = "c"
+
 func fixtureProject() projectstate.Project {
 	return projectstate.Project{
 		ID: "p1", Version: 7, Owner: "o", Name: "fixture",
-		SystemDesign: committedSlot(&projectstate.System{Components: []projectstate.Component{{ID: "c", Name: "c"}}}, []projectstate.ReviewComment{
+		SystemDesign: committedSlot(&projectstate.System{Components: []projectstate.Component{{ID: "c", Name: "c", ContractKey: &componentKey}}}, []projectstate.ReviewComment{
 			comment("r1c1", 1, "architect", "first round, first comment"),
 			comment("r1c2", 1, "productManager", "first round, second comment"),
 			comment("r2c1", 2, "architect", "second round"),
