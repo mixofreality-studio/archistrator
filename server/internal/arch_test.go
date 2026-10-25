@@ -1030,6 +1030,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// the delivery Manager's testing gate and review-floor read (and TaskSpecFor's edit
 		// scope) share. Same category as ComponentScenarios.
 		"ContractKeyOf",
+		// ContractKeyFor (FIX-007): the ONE derivation of a component's contract key
+		// (lowerCamel(id), none for a Resource) — FinalizeDraftModel stamps it, the codec
+		// enforces it at read-back, and aiarch-state-mcp's recordServiceContract and
+		// REC-BUILT-UNRECORDED resolve through it. projectstate owns the System model it is
+		// derived over; same category as ContractKeyOf / the Finalize/identity helpers.
+		"ContractKeyFor",
 		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 		// needs an explicit entry like the System model types) + its hand-written accessors.
