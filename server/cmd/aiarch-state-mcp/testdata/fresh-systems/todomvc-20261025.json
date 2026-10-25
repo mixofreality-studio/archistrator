@@ -1,0 +1,1209 @@
+{
+  "components": [
+    {
+      "id": "todo-portal",
+      "name": "TodoPortal",
+      "kind": "client",
+      "layer": "client",
+      "encapsulates": "Presentation-host volatility: the web app and MCP-hosted embedded UIs over one set of list behaviors",
+      "encapsulatesVolatilities": [
+        "Presentation-host volatility"
+      ],
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "agent-gateway",
+      "name": "AgentGateway",
+      "kind": "client",
+      "layer": "client",
+      "encapsulates": "Programmatic-access protocol volatility: web API and MCP surfaces for the team's agents",
+      "encapsulatesVolatilities": [
+        "Programmatic-access protocol volatility"
+      ],
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "list-keeping-manager",
+      "name": "ListKeepingManager",
+      "kind": "manager",
+      "layer": "manager",
+      "encapsulates": "Change-propagation volatility: the list-keeping flow and which changes must reach every other open surface",
+      "encapsulatesVolatilities": [
+        "Change-propagation volatility"
+      ],
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "identity-access",
+      "name": "IdentityAccess",
+      "kind": "resourceAccess",
+      "layer": "resourceAccess",
+      "encapsulates": "Owner-identity volatility: resolves whose list is acted on, by session, sign-on, or delegated agent credential",
+      "encapsulatesVolatilities": [
+        "Owner-identity volatility"
+      ],
+      "atomicBusinessVerbs": [
+        "resolveOwner"
+      ]
+    },
+    {
+      "id": "todo-record-access",
+      "name": "TodoRecordAccess",
+      "kind": "resourceAccess",
+      "layer": "resourceAccess",
+      "encapsulates": "Durable-record storage volatility: the store and technology holding each owner's todo record",
+      "encapsulatesVolatilities": [
+        "Durable-record storage volatility"
+      ],
+      "atomicBusinessVerbs": [
+        "appendTodo",
+        "retitleTodo",
+        "discardTodo",
+        "flipCompletion",
+        "markAll",
+        "discardCompleted",
+        "tallyCompletion",
+        "recallView",
+        "countItemsLeft"
+      ]
+    },
+    {
+      "id": "todo-store",
+      "name": "TodoStore",
+      "kind": "resource",
+      "layer": "resource",
+      "encapsulates": "",
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "identity-provider",
+      "name": "IdentityProvider",
+      "kind": "resource",
+      "layer": "resource",
+      "encapsulates": "",
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "message-bus",
+      "name": "MessageBus",
+      "kind": "utility",
+      "layer": "utility",
+      "encapsulates": "Deployment-environment volatility (facet): change-notice transport per environment; hosting itself is resolved in .operationalConcepts",
+      "encapsulatesVolatilities": [
+        "Deployment-environment volatility"
+      ],
+      "atomicBusinessVerbs": null
+    }
+  ],
+  "relationships": [
+    {
+      "from": "todo-portal",
+      "to": "list-keeping-manager",
+      "mode": "sync",
+      "label": "addTodo | retitleTodo | removeTodo | toggleTodo | toggleAll | clearCompleted | reviewList(view) → todos, itemsLeft"
+    },
+    {
+      "from": "agent-gateway",
+      "to": "list-keeping-manager",
+      "mode": "sync",
+      "label": "addTodo | retitleTodo | removeTodo | toggleTodo | toggleAll | clearCompleted | reviewList(view) → todos, itemsLeft"
+    },
+    {
+      "from": "list-keeping-manager",
+      "to": "identity-access",
+      "mode": "sync",
+      "label": "resolveOwner(credential) → owner"
+    },
+    {
+      "from": "list-keeping-manager",
+      "to": "todo-record-access",
+      "mode": "sync",
+      "label": "appendTodo | retitleTodo | discardTodo | flipCompletion | markAll | discardCompleted | tallyCompletion | recallView | countItemsLeft"
+    },
+    {
+      "from": "list-keeping-manager",
+      "to": "message-bus",
+      "mode": "sync",
+      "label": "publish(ListChanged(owner))"
+    },
+    {
+      "from": "todo-portal",
+      "to": "message-bus",
+      "mode": "sync",
+      "label": "subscribe(ListChanged(owner))"
+    },
+    {
+      "from": "agent-gateway",
+      "to": "message-bus",
+      "mode": "sync",
+      "label": "subscribe(ListChanged(owner))"
+    },
+    {
+      "from": "todo-record-access",
+      "to": "todo-store",
+      "mode": "sync",
+      "label": "read and write the owner's todo record, idempotent per todo id"
+    },
+    {
+      "from": "identity-access",
+      "to": "identity-provider",
+      "mode": "sync",
+      "label": "verify the presented credential and name its owner"
+    }
+  ],
+  "dynamicViews": [
+    {
+      "useCaseId": "maintain-the-todo-list",
+      "key": "maintain-the-todo-list",
+      "title": "Maintain the Todo List",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "submit a change to the list",
+              "alt": "s1"
+            },
+            {
+              "from": "team-agent",
+              "to": "agent-gateway",
+              "mode": "sync",
+              "label": "request a change to the list",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "addTodo | retitleTodo | removeTodo | toggleTodo | toggleAll | clearCompleted",
+              "alt": "s2"
+            },
+            {
+              "from": "agent-gateway",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "addTodo | retitleTodo | removeTodo | toggleTodo | toggleAll | clearCompleted",
+              "alt": "s2"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "appendTodo(owner, title)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "retitleTodo(owner, todoId, title)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3b",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "discardTodo(owner, todoId)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a4",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "discardTodo(owner, todoId)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a5",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "flipCompletion(owner, todoId)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "d6",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "tallyCompletion(owner) → allCompleted"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos' completion"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a6",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "markAll(owner, active)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a6b",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "markAll(owner, completed)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "d7",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "tallyCompletion(owner) → anyCompleted"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos' completion"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a7",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "discardCompleted(owner)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a8",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "countItemsLeft(owner) → itemsLeft"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's active todos"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a9",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "message-bus",
+              "mode": "sync",
+              "label": "publish(ListChanged(owner))"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "review-the-todo-list",
+      "key": "review-the-todo-list",
+      "title": "Review the Todo List",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "open the list or choose a view",
+              "alt": "s1"
+            },
+            {
+              "from": "team-agent",
+              "to": "agent-gateway",
+              "mode": "sync",
+              "label": "ask for the list under a view",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "reviewList(view) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "agent-gateway",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "reviewList(view) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "recallView(owner, view) → todos"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos in the view"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "countItemsLeft(owner) → itemsLeft"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's active todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "add-a-todo",
+      "key": "add-a-todo",
+      "title": "Add a todo",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "type a new todo and submit it"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "addTodo(title) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "appendTodo(owner, title)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "fix-a-todo-s-wording",
+      "key": "fix-a-todo-s-wording",
+      "title": "Fix a todo's wording",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "commit revised wording"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "retitleTodo(todoId, title) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "retitleTodo(owner, todoId, title)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "discardTodo(owner, todoId)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "remove-a-todo",
+      "key": "remove-a-todo",
+      "title": "Remove a todo",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "remove a todo"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "removeTodo(todoId) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "discardTodo(owner, todoId)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "mark-a-todo-done-or-not-done",
+      "key": "mark-a-todo-done-or-not-done",
+      "title": "Mark a todo done or not done",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "check or uncheck a todo"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "toggleTodo(todoId) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "flipCompletion(owner, todoId)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "mark-everything-done-at-once",
+      "key": "mark-everything-done-at-once",
+      "title": "Mark everything done at once",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "activate toggle-all"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "toggleAll() → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "d1",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "tallyCompletion(owner) → allCompleted"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos' completion"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "markAll(owner, active)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "markAll(owner, completed)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "sweep-away-finished-todos",
+      "key": "sweep-away-finished-todos",
+      "title": "Sweep away finished todos",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "activate clear completed"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "clearCompleted() → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "d1",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "tallyCompletion(owner) → anyCompleted"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos' completion"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "discardCompleted(owner)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "switch-between-all-left-to-do-and-done",
+      "key": "switch-between-all-left-to-do-and-done",
+      "title": "Switch between all, left to do, and done",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "choose the All, Active, or Completed view"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "reviewList(view) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "recallView(owner, view) → todos"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos in the view"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "countItemsLeft(owner) → itemsLeft"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's active todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "see-how-many-todos-are-left",
+      "key": "see-how-many-todos-are-left",
+      "title": "See how many todos are left",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "look at the list"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "reviewList(view) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "recallView(owner, view) → todos"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos in the view"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "countItemsLeft(owner) → itemsLeft"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's active todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "find-the-list-still-there-next-time",
+      "key": "find-the-list-still-there-next-time",
+      "title": "Find the list still there next time",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "come back to the app"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "reviewList(view) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "recallView(owner, view) → todos"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos in the view"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "countItemsLeft(owner) → itemsLeft"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's active todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "use-the-list-embedded-in-mcp-hosted-uis",
+      "key": "use-the-list-embedded-in-mcp-hosted-uis",
+      "title": "Use the list embedded in MCP-hosted UIs",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "user",
+              "to": "todo-portal",
+              "mode": "sync",
+              "label": "open the list inside an MCP-hosted tool"
+            },
+            {
+              "from": "todo-portal",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "reviewList(view) → todos, itemsLeft"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "recallView(owner, view) → todos"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's todos in the view"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "countItemsLeft(owner) → itemsLeft"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's active todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "let-team-agent-tooling-drive-the-list",
+      "key": "let-team-agent-tooling-drive-the-list",
+      "title": "Let team agent tooling drive the list",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "team-agent",
+              "to": "agent-gateway",
+              "mode": "sync",
+              "label": "call the web API or MCP surface on a user's behalf"
+            },
+            {
+              "from": "agent-gateway",
+              "to": "list-keeping-manager",
+              "mode": "sync",
+              "label": "addTodo | retitleTodo | removeTodo | toggleTodo | toggleAll | clearCompleted"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "identity-access",
+              "mode": "sync",
+              "label": "resolveOwner(credential) → owner"
+            },
+            {
+              "from": "identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify the presented credential and name its owner"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "appendTodo | retitleTodo | discardTodo | flipCompletion | markAll | discardCompleted (the requested change)"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "write the owner's todo record"
+            },
+            {
+              "from": "list-keeping-manager",
+              "to": "todo-record-access",
+              "mode": "sync",
+              "label": "countItemsLeft(owner) → itemsLeft"
+            },
+            {
+              "from": "todo-record-access",
+              "to": "todo-store",
+              "mode": "sync",
+              "label": "read the owner's active todos"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "list-keeping-manager",
+              "to": "message-bus",
+              "mode": "sync",
+              "label": "publish(ListChanged(owner))"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

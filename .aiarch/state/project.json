@@ -7308,6 +7308,7 @@
             ],
             "atomicBusinessVerbs": [],
             "buildStatus": "planned",
+            "contractKey": "schedulerClient",
             "constructionProfile": "generated",
             "provisioning": "owned",
             "uiSurface": false
@@ -7770,6 +7771,7 @@
             "encapsulates": "Utility: structured logging sink every Manager reports to. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
             "buildStatus": "external",
+            "contractKey": "logging",
             "constructionProfile": "provided",
             "provisioning": "owned",
             "uiSurface": false
@@ -7782,6 +7784,7 @@
             "encapsulates": "Utility: health and telemetry reporting surface (OTel) for every Manager. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
             "atomicBusinessVerbs": [],
             "buildStatus": "external",
+            "contractKey": "diagnostics",
             "constructionProfile": "provided",
             "provisioning": "owned",
             "uiSurface": false
@@ -35565,7 +35568,8 @@
               "type": [
                 "null",
                 "string"
-              ]
+              ],
+              "description": "Server-derived: lowerCamel(id) for every non-Resource component, none for a Resource. Names where the component's contract is filed in .serviceContracts; does not claim that one exists. Any drafted value is replaced."
             },
             "constructionProfile": {
               "type": [

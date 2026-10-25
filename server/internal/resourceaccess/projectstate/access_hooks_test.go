@@ -3271,3 +3271,146 @@ func TestConditionalWrite_FootprintMembersAreLoadBearing(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// FIX-007: the contract key is identity-derived, stamped at the draft boundary and
+// enforced at read-back.
+// ---------------------------------------------------------------------------
+
+// fix007Component is a component of kind k with id, optionally carrying a drafted key.
+func fix007Component(id string, k projectstate.ComponentKind, key *string) projectstate.Component {
+	layers := map[projectstate.ComponentKind]projectstate.Layer{
+		projectstate.CompClient: projectstate.LayerClient, projectstate.CompManager: projectstate.LayerManager,
+		projectstate.CompEngine: projectstate.LayerEngine, projectstate.CompResourceAccess: projectstate.LayerResourceAccess,
+		projectstate.CompResource: projectstate.LayerResource, projectstate.CompUtility: projectstate.LayerUtility,
+	}
+	return projectstate.Component{ID: id, Name: id, Kind: k, Layer: layers[k], Encapsulates: "v", ContractKey: key}
+}
+
+func fix007Key(s string) *string { return &s }
+
+// fix007KeyOf is the stored key, "" when absent.
+func fix007KeyOf(c projectstate.Component) string {
+	if c.ContractKey == nil {
+		return ""
+	}
+	return *c.ContractKey
+}
+
+// TestFinalizeDraftModel_StampsEveryContractKey: the server, not the agent, assigns the
+// key — a drafted wrong key is overwritten, a missing one is stamped, and a Resource
+// (provisioned, never contracted) carries none even when the draft gave it one.
+func TestFinalizeDraftModel_StampsEveryContractKey(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		fix007Component("billing-engine", projectstate.CompEngine, fix007Key("somethingElse")),
+		fix007Component("web-client", projectstate.CompClient, nil),
+		fix007Component("a-b-c-d", projectstate.CompUtility, nil),
+		fix007Component("billing-store", projectstate.CompResource, fix007Key("billingStore")),
+	}}
+	if err := projectstate.FinalizeDraftModel(sys); err != nil {
+		t.Fatalf("FinalizeDraftModel: %v", err)
+	}
+	want := map[string]string{"billing-engine": "billingEngine", "web-client": "webClient", "a-b-c-d": "aBCD", "billing-store": ""}
+	for _, c := range sys.Components {
+		if got := fix007KeyOf(c); got != want[c.ID] {
+			t.Errorf("component %q: contractKey %q after finalize, want %q", c.ID, got, want[c.ID])
+		}
+	}
+}
+
+// TestValidateModelIdentities_NamesEveryNonSlugComponentID: the key is defined over a
+// slug id only, so GATE 1b refuses every component whose id is not its own slug — all of
+// them in one message, so the agent fixes the whole draft in one round trip.
+func TestValidateModelIdentities_NamesEveryNonSlugComponentID(t *testing.T) {
+	sys := &projectstate.System{Components: []projectstate.Component{
+		fix007Component("Billing Engine", projectstate.CompEngine, nil),
+		fix007Component("review_engine", projectstate.CompEngine, nil),
+		fix007Component("good-one", projectstate.CompManager, nil),
+	}}
+	err := projectstate.ValidateModelIdentities(sys)
+	if err == nil {
+		t.Fatal("non-slug component ids passed the identity gate")
+	}
+	for _, id := range []string{`"Billing Engine"`, `"review_engine"`} {
+		if !strings.Contains(err.Error(), id) {
+			t.Errorf("the identity refusal does not name %s: %v", id, err)
+		}
+	}
+	if strings.Contains(err.Error(), "good-one") {
+		t.Errorf("the identity refusal names the slug id good-one: %v", err)
+	}
+}
+
+// fix007Decode encodes a project whose committed System holds comps and decodes it back.
+func fix007Decode(t *testing.T, comps ...projectstate.Component) error {
+	t.Helper()
+	p := projectstate.Project{ID: "fix007", Version: 1, Owner: "owner", Name: "FIX-007",
+		SystemDesign: projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.System{Components: comps}}}
+	raw, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	_, _, err = projectstate.DecodeProjectJSON(raw, "fix007")
+	return err
+}
+
+// TestDecodeProjectJSON_RefusesAContractKeyOffTheDerivation: read-back holds a stored
+// System to the same derivation the draft path stamps — a missing key, a disagreeing
+// key and a key on a Resource are each refused, every offender named at once — so a
+// writer that bypasses FinalizeDraftModel is loud at the next read, never silent.
+func TestDecodeProjectJSON_RefusesAContractKeyOffTheDerivation(t *testing.T) {
+	good := fix007Component("billing-engine", projectstate.CompEngine, fix007Key("billingEngine"))
+	store := fix007Component("billing-store", projectstate.CompResource, nil)
+	if err := fix007Decode(t, good, store); err != nil {
+		t.Fatalf("a conforming System is refused: %v", err)
+	}
+	for name, bad := range map[string]projectstate.Component{
+		"missing":     fix007Component("review-engine", projectstate.CompEngine, nil),
+		"disagreeing": fix007Component("review-engine", projectstate.CompEngine, fix007Key("reviews")),
+		"on resource": fix007Component("review-store", projectstate.CompResource, fix007Key("reviewStore")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := fix007Decode(t, good, bad, store)
+			if err == nil || !strings.Contains(err.Error(), `"`+bad.ID+`"`) {
+				t.Fatalf("read-back accepted a %s contractKey on %q: %v", name, bad.ID, err)
+			}
+			if strings.Contains(err.Error(), `"billing-engine"`) {
+				t.Errorf("read-back names the conforming component: %v", err)
+			}
+		})
+	}
+	err := fix007Decode(t, fix007Component("a-engine", projectstate.CompEngine, nil), fix007Component("b-manager", projectstate.CompManager, nil))
+	if err == nil || !strings.Contains(err.Error(), `"a-engine"`) || !strings.Contains(err.Error(), `"b-manager"`) {
+		t.Fatalf("read-back must name every offender at once: %v", err)
+	}
+}
+
+// TestDecodeProjectJSON_AcceptsTheOwnDocument: archistrator's own project.json conforms
+// to the contract-key invariant (FIX-007 stamped its three key-less non-Resources).
+func TestDecodeProjectJSON_AcceptsTheOwnDocument(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := projectstate.DecodeProjectJSON(raw, ""); err != nil || !ok {
+		t.Fatalf("the own document does not decode: ok=%v err=%v", ok, err)
+	}
+}
+
+// TestContractKeyFor: lowerCamel of the kebab id for every kind but Resource, over ids of
+// one to four segments; a Resource has none.
+func TestContractKeyFor(t *testing.T) {
+	ids := map[string]string{"logging": "logging", "billing-engine": "billingEngine", "mcp-apps-surface": "mcpAppsSurface", "a-b-c-d": "aBCD", "web-client-2": "webClient2"}
+	for _, k := range []projectstate.ComponentKind{projectstate.CompClient, projectstate.CompManager, projectstate.CompEngine,
+		projectstate.CompResourceAccess, projectstate.CompResource, projectstate.CompUtility} {
+		for id, want := range ids {
+			got, ok := projectstate.ContractKeyFor(fix007Component(id, k, nil))
+			if k == projectstate.CompResource {
+				want = ""
+			}
+			if got != want || ok != (k != projectstate.CompResource) {
+				t.Errorf("ContractKeyFor(%s %q) = %q, %v; want %q, %v", k, id, got, ok, want, k != projectstate.CompResource)
+			}
+		}
+	}
+}

@@ -1,0 +1,1994 @@
+{
+  "id": "rigproj",
+  "version": 1,
+  "owner": "owner",
+  "name": "Test Project",
+  "slots": {
+    "0": {
+      "status": 2,
+      "kind": 0,
+      "model": {
+        "vision": "A dependable personal todo list a small team can adopt tomorrow and trust to keep their work.",
+        "objectives": [
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          },
+          {
+            "number": 0,
+            "statement": ""
+          }
+        ],
+        "mission": "Keep every person's list as the single, durable record held on the team's behalf rather than on any one device, and let people and the team's agents act on that same record through whichever way they already work, every change taking effect at once and showing its true remaining count."
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-10-25T17:32:38Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "1": {
+      "status": 2,
+      "kind": 1,
+      "model": {
+        "items": [
+          {
+            "term": "User",
+            "definition": "The person who keeps a todo list and acts on it to track what they still have to do.",
+            "category": "Who"
+          },
+          {
+            "term": "Team",
+            "definition": "The small group of people who adopt the todo app together; each member keeps their own list.",
+            "category": "Who"
+          },
+          {
+            "term": "Team Agent",
+            "definition": "Another piece of the team's automated tooling that reads and changes a todo list on a user's behalf, with the same effect as the user doing it.",
+            "category": "Who"
+          },
+          {
+            "term": "Todo",
+            "definition": "One thing the user intends to do, made up of its title and whether it is completed.",
+            "category": "What"
+          },
+          {
+            "term": "Todo List",
+            "definition": "The ordered collection of every todo a user currently keeps; new todos join at the end.",
+            "category": "What"
+          },
+          {
+            "term": "Title",
+            "definition": "The free-text wording of a todo that says what is to be done; it is never empty or blank.",
+            "category": "What"
+          },
+          {
+            "term": "Completed",
+            "definition": "The state of a todo the user has marked as done; a todo that is not completed is active.",
+            "category": "What"
+          },
+          {
+            "term": "Active Todo",
+            "definition": "A todo that is not completed, so it is still left to do.",
+            "category": "What"
+          },
+          {
+            "term": "Add Todo",
+            "definition": "Put a new, active todo with the given title at the end of the list; blank wording adds nothing.",
+            "category": "What"
+          },
+          {
+            "term": "Edit Todo",
+            "definition": "Change the title of an existing todo in place; abandoning the change keeps the original title, and committing blank wording removes the todo.",
+            "category": "What"
+          },
+          {
+            "term": "Remove Todo",
+            "definition": "Take one todo off the list, whatever its completed state, leaving every other todo untouched.",
+            "category": "What"
+          },
+          {
+            "term": "Toggle Todo",
+            "definition": "Flip one todo between completed and active without affecting any other todo.",
+            "category": "What"
+          },
+          {
+            "term": "Toggle All",
+            "definition": "In one action mark every todo completed, or, when every todo is already completed, mark every todo active again.",
+            "category": "What"
+          },
+          {
+            "term": "Clear Completed",
+            "definition": "In one action remove every completed todo from the list, leaving active todos untouched; does nothing when none are completed.",
+            "category": "What"
+          },
+          {
+            "term": "Review List",
+            "definition": "Look at the list through a chosen view, always seeing the true number of todos left to do.",
+            "category": "What"
+          },
+          {
+            "term": "View",
+            "definition": "Which todos the user is currently looking at: All, Active, or Completed; choosing a view never changes any todo.",
+            "category": "What"
+          },
+          {
+            "term": "All View",
+            "definition": "The view showing every todo regardless of its completed state.",
+            "category": "What"
+          },
+          {
+            "term": "Active View",
+            "definition": "The view showing only the todos that are still left to do.",
+            "category": "What"
+          },
+          {
+            "term": "Completed View",
+            "definition": "The view showing only the todos that are done.",
+            "category": "What"
+          },
+          {
+            "term": "Items Left",
+            "definition": "The count of active todos in the whole list, independent of the current view, current after every change.",
+            "category": "What"
+          },
+          {
+            "term": "Title Validation",
+            "definition": "Deciding whether proposed wording is a usable title by discarding blank or whitespace-only wording.",
+            "category": "How"
+          },
+          {
+            "term": "Aggregate Toggle Decision",
+            "definition": "Deciding whether Toggle All marks everything completed or everything active, based on whether every todo is already completed.",
+            "category": "How"
+          },
+          {
+            "term": "View Selection",
+            "definition": "Choosing which todos belong in a view from their completed state, without altering them.",
+            "category": "How"
+          },
+          {
+            "term": "Active Counting",
+            "definition": "Working out how many todos in the whole list are still active.",
+            "category": "How"
+          },
+          {
+            "term": "Append Todo",
+            "definition": "Record a new todo at the end of a user's kept list.",
+            "category": "How"
+          },
+          {
+            "term": "Retitle Todo",
+            "definition": "Record new wording for one kept todo.",
+            "category": "How"
+          },
+          {
+            "term": "Mark Todo",
+            "definition": "Record one kept todo, or every kept todo at once, as completed or active.",
+            "category": "How"
+          },
+          {
+            "term": "Discard Todos",
+            "definition": "Remove one kept todo, or every kept completed todo at once, from the record.",
+            "category": "How"
+          },
+          {
+            "term": "Recall List",
+            "definition": "Retrieve a user's kept list exactly as last recorded, with the same titles, order, and completed states.",
+            "category": "How"
+          },
+          {
+            "term": "Durable Todo Record",
+            "definition": "The lasting record of each user's todo list, held on the team's behalf rather than on any one device, so the list survives closing, reloading, or restarting anything.",
+            "category": "Where"
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-10-25T17:32:38Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "3": {
+      "status": 2,
+      "kind": 3,
+      "model": {
+        "items": [
+          {
+            "name": "Presentation-host volatility",
+            "rationale": "WHAT: where and how a person sees and works their list. WHY: today the same team already works through two different hosts at once (an ordinary web app in a browser and an embedded surface inside the MCP-hosted tools they use), and each host has its own rendering, input gestures (double-click/Enter/Escape/blur for edit, checkbox for toggle) and lifecycle; the team adopts new hosts as its tooling changes. LIKELIHOOD: high, a second host exists on day one and further embeddings (chat, IDE panels) arrive with each tooling shift. EFFECT: if the list behaviors were written against one host, every new host would re-implement add/edit/toggle/clear/view/count rules and they would drift apart; encapsulating the host keeps one set of list behaviors behind every surface.",
+            "axis": "allCustomersAtOneTime",
+            "traces": [
+              "B-01",
+              "B-02",
+              "B-03",
+              "B-04",
+              "B-05",
+              "B-06",
+              "B-07",
+              "B-08",
+              "B-11"
+            ]
+          },
+          {
+            "name": "Programmatic-access protocol volatility",
+            "rationale": "WHAT: the protocol by which software (the team's agents and other tooling) reaches the list. WHY: at the same time some callers use an ordinary web API and others drive it as an MCP surface, and the MCP protocol itself has revised its transport and capability model several times a year since its release, a change rate that falls well inside this system's lifespan. LIKELIHOOD: high, protocol revisions and new agent frameworks arrive continually. EFFECT: unencapsulated, every protocol revision would ripple into the list behaviors and validation; behind a seam, a new or revised protocol is one adapter and the agent's action has exactly the same effect as the person's.",
+            "axis": "allCustomersAtOneTime",
+            "traces": [
+              "B-01",
+              "B-02",
+              "B-03",
+              "B-04",
+              "B-05",
+              "B-06",
+              "B-07",
+              "B-08",
+              "B-10"
+            ]
+          },
+          {
+            "name": "Durable-record storage volatility",
+            "rationale": "WHAT: where and in what technology the durable todo record is held. WHY: the founder requires it be held by a real service, not the browser, and built 'the way we build everything else here', and that house standard moves as the team's platform evolves; a quick trial store tomorrow is unlikely to be the store the team keeps once it adopts the app. LIKELIHOOD: medium-high over a 1-3 year horizon (trial store to team-standard store, store migrations). EFFECT: unencapsulated, storage technology would leak into every operation that appends, retitles, marks, discards or recalls todos, so a store change would touch every behavior; encapsulated, a store change is contained to record access.",
+            "axis": "sameCustomerOverTime",
+            "traces": [
+              "B-01",
+              "B-02",
+              "B-03",
+              "B-04",
+              "B-05",
+              "B-06",
+              "B-09"
+            ]
+          },
+          {
+            "name": "Owner-identity volatility",
+            "rationale": "WHAT: how the system knows whose list is being acted on and on whose behalf an agent acts. WHY: the contract scopes the list to a single user/session today, but the mission keeps every person's list for a team and lets the team's agents act on a person's behalf; as the team moves from trial to adoption, identification will move from a session to the team's standard sign-on and to delegated agent credentials. LIKELIHOOD: high within the first year of real use. EFFECT: if 'whose list' were wired into each operation and each surface, every identity change would ripple through all of them; encapsulated, list behaviors simply receive an owner.",
+            "axis": "sameCustomerOverTime",
+            "traces": [
+              "B-09",
+              "B-10"
+            ]
+          },
+          {
+            "name": "Change-propagation volatility",
+            "rationale": "WHAT: how a change made through one surface becomes visible on the other surfaces showing the same list. WHY: the mission requires every change to take effect at once on the one shared record, while a person's browser view, an embedded host view and an agent may all be looking at it simultaneously; hosts differ today in what they support (refetch, server push, protocol notifications). LIKELIHOOD: medium-high, it bites the first time an agent changes a list a person has open. EFFECT: unencapsulated, each surface invents its own refresh logic and stale items-left counts appear; encapsulated, the notification mechanism can change per host without touching list behaviors.",
+            "axis": "allCustomersAtOneTime",
+            "traces": [
+              "B-08",
+              "B-10",
+              "B-11"
+            ]
+          },
+          {
+            "name": "Deployment-environment volatility",
+            "rationale": "WHAT: where and how the service is run and reached by its surfaces. WHY: the founder wants something usable tomorrow yet built the way the house builds everything, so the first deployment is a fast trial that will be moved onto the team's standard runtime once adopted, and the service must stay reachable by the browser, embedded host and agent tooling throughout. LIKELIHOOD: medium-high, at least one move is expected after the trial. EFFECT: if hosting assumptions (addresses, process model, configuration) were baked into list behaviors or surfaces, a move would touch them all; expected disposition is an operational concept rather than a component.",
+            "axis": "sameCustomerOverTime",
+            "traces": [
+              "B-09",
+              "B-10",
+              "B-11"
+            ]
+          }
+        ],
+        "rejected": [
+          {
+            "name": "View-set volatility (All/Active/Completed)",
+            "reason": "A view is a predicate over the completed flag; adding or changing a view is a data/conditional change in one place, never a structural ripple.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Items-left counting volatility",
+            "reason": "Counting active todos over the whole list is a single fixed computation; the only real risk (stale counts on other surfaces) is carried by change-propagation volatility.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Title-validation rule volatility",
+            "reason": "Rejecting blank/whitespace wording is a one-line rule; tightening it (e.g. a length limit) is a conditional, not an architectural change.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Toggle-all / clear-completed / empty-edit-deletes semantics",
+            "reason": "These are the TodoMVC contract that every todo app implements identically; changing them would change what a todo list is, and the reference explicitly fixes them.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Append-at-end ordering",
+            "reason": "New todos joining the end is universal todo-list behavior; drag-to-reorder is explicitly out of scope.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Todo-content volatility (due dates, priorities, tags)",
+            "reason": "The contract says these 'must not be assumed required'; encapsulating todo attributes now designs for a competitor's product, and any added field would be absorbed by record storage anyway.",
+            "class": "speculative"
+          },
+          {
+            "name": "Multi-user list sharing",
+            "reason": "Explicitly out of scope; each member keeps their own list and nothing in the brief grounds shared lists.",
+            "class": "speculative"
+          },
+          {
+            "name": "Offline sync",
+            "reason": "Explicitly out of scope, and the founder wants the record held by the service rather than the device.",
+            "class": "speculative"
+          },
+          {
+            "name": "Undo/redo history",
+            "reason": "Explicitly out of scope; no behavior asks for history.",
+            "class": "speculative"
+          },
+          {
+            "name": "Reminders / notifications to people",
+            "reason": "Nothing in the brief or contract mentions reminding anyone; this would be a new product feature, not a change to this business.",
+            "class": "speculative"
+          },
+          {
+            "name": "Logging block",
+            "reason": "Siren-song reflex block; no business behavior depends on how the service logs.",
+            "class": "speculative"
+          },
+          {
+            "name": "Reporting / analytics on completed work",
+            "reason": "Siren-song reflex block; the founder asks only to see items left, which is a behavior, not a reporting need.",
+            "class": "speculative"
+          },
+          {
+            "name": "Scale / load growth",
+            "reason": "A small team keeping personal lists; no evidence of load that would drive structure.",
+            "class": "speculative"
+          },
+          {
+            "name": "Data residency / retention policy",
+            "reason": "No regulatory or retention requirement appears in the brief for a team-internal todo list.",
+            "class": "speculative"
+          },
+          {
+            "name": "Edit interaction gestures (double-click, Enter, Escape, blur)",
+            "reason": "Gestures differ per host and are the same underlying change as Presentation-host volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Embedded MCP Apps surface",
+            "reason": "A specific host, not an underlying change; covered by Presentation-host volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "MCP specification revisions",
+            "reason": "The same underlying change as Programmatic-access protocol volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Agent authorization (what agents may do on a person's behalf)",
+            "reason": "Delegated acting is part of who-is-acting-for-whom; folded into Owner-identity volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Concurrent person/agent edits to the same todo",
+            "reason": "For a single owner's list, last-write-wins on one todo is a policy handled in one place; making the result visible is change-propagation volatility.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Record schema evolution",
+            "reason": "How the todo shape is stored as it evolves is the same change as Durable-record storage volatility.",
+            "class": "foldedInto"
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-10-25T17:32:38Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "4": {
+      "status": 2,
+      "kind": 4,
+      "model": {
+        "decisions": [
+          {
+            "useCase": {
+              "id": "maintain-the-todo-list",
+              "name": "Maintain the Todo List",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                },
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Ask to change the list from the web app or an embedded surface",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "s2",
+                    "kind": "start",
+                    "label": "Ask to change the list through the web API or MCP surface",
+                    "roleName": "Team Agent",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m0",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the change is for",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d1",
+                    "kind": "decision",
+                    "label": "Which change is requested?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d2",
+                    "kind": "decision",
+                    "label": "Is the new wording a usable title?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Append a new active todo with that title to the end of the list",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "x2",
+                    "kind": "note",
+                    "label": "Nothing is added; blank wording is discarded",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m2",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d3",
+                    "kind": "decision",
+                    "label": "Is the revised wording a usable title?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "action",
+                    "label": "Record the revised title for that todo",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3b",
+                    "kind": "action",
+                    "label": "Remove that todo instead of saving blank wording",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m3",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a4",
+                    "kind": "action",
+                    "label": "Discard that one todo from the record",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a5",
+                    "kind": "action",
+                    "label": "Flip that one todo between completed and active",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d6",
+                    "kind": "decision",
+                    "label": "Is every todo already completed?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a6",
+                    "kind": "action",
+                    "label": "Mark every todo active",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a6b",
+                    "kind": "action",
+                    "label": "Mark every todo completed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m6",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d7",
+                    "kind": "decision",
+                    "label": "Are any todos completed?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a7",
+                    "kind": "action",
+                    "label": "Discard every completed todo, leaving active todos untouched",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "x7",
+                    "kind": "note",
+                    "label": "Nothing to clear; the list is unchanged",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m7",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m1",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a8",
+                    "kind": "action",
+                    "label": "Count the todos still left in the whole list",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "f1",
+                    "kind": "fork",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a9",
+                    "kind": "action",
+                    "label": "Notify every other open surface showing this list that it changed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "x9",
+                    "kind": "note",
+                    "label": "The requesting surface shows the updated list and its items-left count",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "j1",
+                    "kind": "join",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "x0",
+                    "kind": "note",
+                    "label": "Cancelling an edit in a surface discards the change there; the record is never touched",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "m0",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "s2",
+                    "to": "m0",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m0",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "d1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "d2",
+                    "kind": "guardedFlow",
+                    "guard": "[add]"
+                  },
+                  {
+                    "from": "d2",
+                    "to": "a2",
+                    "kind": "guardedFlow",
+                    "guard": "[usable]"
+                  },
+                  {
+                    "from": "d2",
+                    "to": "x2",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a2",
+                    "to": "m2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "x2",
+                    "to": "m2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m2",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "d3",
+                    "kind": "guardedFlow",
+                    "guard": "[edit]"
+                  },
+                  {
+                    "from": "d3",
+                    "to": "a3",
+                    "kind": "guardedFlow",
+                    "guard": "[usable]"
+                  },
+                  {
+                    "from": "d3",
+                    "to": "a3b",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a3",
+                    "to": "m3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3b",
+                    "to": "m3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m3",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a4",
+                    "kind": "guardedFlow",
+                    "guard": "[remove]"
+                  },
+                  {
+                    "from": "a4",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a5",
+                    "kind": "guardedFlow",
+                    "guard": "[toggle one]"
+                  },
+                  {
+                    "from": "a5",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "d6",
+                    "kind": "guardedFlow",
+                    "guard": "[toggle all]"
+                  },
+                  {
+                    "from": "d6",
+                    "to": "a6",
+                    "kind": "guardedFlow",
+                    "guard": "[all completed]"
+                  },
+                  {
+                    "from": "d6",
+                    "to": "a6b",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a6",
+                    "to": "m6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a6b",
+                    "to": "m6",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m6",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "d7",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "d7",
+                    "to": "a7",
+                    "kind": "guardedFlow",
+                    "guard": "[some completed]"
+                  },
+                  {
+                    "from": "d7",
+                    "to": "x7",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a7",
+                    "to": "m7",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "x7",
+                    "to": "m7",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m7",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m1",
+                    "to": "a8",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a8",
+                    "to": "f1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "f1",
+                    "to": "a9",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "f1",
+                    "to": "x9",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a9",
+                    "to": "j1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "x9",
+                    "to": "j1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "j1",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "Every customer of a todo list buys one thing: a single trustworthy record of what they still have to do that they can bend to their intent. The six change verbs are permutations of that one abstraction. It is nearly immutable (the TodoMVC contract has kept these semantics for over a decade), and what differentiates this product is that the change lands on one durable record held for the team, with identical effect whether a person or the team's agent makes it and visible at once on every surface. Hosts, protocols, stores, and identity schemes may all change around it; the act of maintaining the record does not."
+          },
+          {
+            "useCase": {
+              "id": "review-the-todo-list",
+              "name": "Review the Todo List",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                },
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Open the list or choose the All, Active, or Completed view",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "s2",
+                    "kind": "start",
+                    "label": "Ask for the list under a view through the web API or MCP surface",
+                    "roleName": "Team Agent",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m0",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list is being reviewed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Recall the todos belonging to the chosen view from the durable record, with the whole list's items-left count",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "x1",
+                    "kind": "note",
+                    "label": "The surface shows the todos in the view, indicates which view is current, and shows items left for the whole list",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "x2",
+                    "kind": "note",
+                    "label": "A surface notified that the list changed elsewhere reviews it again through this same flow",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "m0",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "s2",
+                    "to": "m0",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m0",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "x1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "x1",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "The second pillar every customer relies on is seeing where they stand: the list as last recorded, narrowed however they like, with the honest count of what is left. Views, the counter, and coming back tomorrow are all permutations of recalling the one record. It is shared by every user and agent, has not changed in the TodoMVC contract, and differentiates the product because the review always reflects the service-held record rather than a device's memory, through any host or protocol."
+          },
+          {
+            "useCase": {
+              "id": "add-a-todo",
+              "name": "Add a todo",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "maintain-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Type a new todo and submit it",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the change is for",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d1",
+                    "kind": "decision",
+                    "label": "Is the wording a usable title?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Append a new active todo with that title to the end of the list",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "note",
+                    "label": "Nothing is added",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m1",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "d1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a2",
+                    "kind": "guardedFlow",
+                    "guard": "[usable]"
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a3",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a2",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m1",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "One verb of maintaining the list: an append of a titled todo to the durable record, permuted only by title validation."
+          },
+          {
+            "useCase": {
+              "id": "fix-a-todo-s-wording",
+              "name": "Fix a todo's wording",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "maintain-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Commit a revised wording for an existing todo",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the change is for",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d1",
+                    "kind": "decision",
+                    "label": "Is the revised wording a usable title?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Record the revised title for that todo",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "action",
+                    "label": "Remove that todo instead of saving blank wording",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m1",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "d1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a2",
+                    "kind": "guardedFlow",
+                    "guard": "[usable]"
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a3",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a2",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m1",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A retitle of one kept todo; the same record-change flow as every other list change, differing only in the verb."
+          },
+          {
+            "useCase": {
+              "id": "remove-a-todo",
+              "name": "Remove a todo",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "maintain-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Remove a todo they no longer want",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the change is for",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Discard that one todo from the record",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Discarding one todo is CRUD mechanics, a single verb inside maintaining the list."
+          },
+          {
+            "useCase": {
+              "id": "mark-a-todo-done-or-not-done",
+              "name": "Mark a todo done or not done",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "maintain-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Check or uncheck a todo",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the change is for",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Flip that one todo between completed and active",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Flipping one completed flag is a permutation of the list-change flow, not business essence."
+          },
+          {
+            "useCase": {
+              "id": "mark-everything-done-at-once",
+              "name": "Mark everything done at once",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "maintain-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Activate the toggle-all control",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the change is for",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d1",
+                    "kind": "decision",
+                    "label": "Is every todo already completed?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Mark every todo active",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "action",
+                    "label": "Mark every todo completed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m1",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "d1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a2",
+                    "kind": "guardedFlow",
+                    "guard": "[all completed]"
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a3",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a2",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m1",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "An aggregate mark over the same record; the aggregate toggle decision is a conditional inside maintaining the list."
+          },
+          {
+            "useCase": {
+              "id": "sweep-away-finished-todos",
+              "name": "Sweep away finished todos",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "maintain-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Activate clear completed",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the change is for",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "d1",
+                    "kind": "decision",
+                    "label": "Are any todos completed?",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Discard every completed todo, leaving active todos untouched",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "note",
+                    "label": "Nothing to clear; the list is unchanged",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "m1",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "d1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a2",
+                    "kind": "guardedFlow",
+                    "guard": "[some completed]"
+                  },
+                  {
+                    "from": "d1",
+                    "to": "a3",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "a2",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "m1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "m1",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A bulk discard over the same record; a permutation of maintaining the list."
+          },
+          {
+            "useCase": {
+              "id": "switch-between-all-left-to-do-and-done",
+              "name": "Switch between all, left to do, and done",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Choose the All, Active, or Completed view",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list is being reviewed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Recall the todos belonging to the chosen view from the durable record, with the whole list's items-left count",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "note",
+                    "label": "The surface marks the current view",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "a3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A view is a predicate over the completed flag; it is a parameter of reviewing the list, not a distinct business behavior."
+          },
+          {
+            "useCase": {
+              "id": "see-how-many-todos-are-left",
+              "name": "See how many todos are left",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Look at the list",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list is being reviewed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Recall the todos belonging to the chosen view from the durable record, with the whole list's items-left count",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "note",
+                    "label": "The surface shows items left for the whole list",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "a3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Items left is part of the result of every review and of every change, not a use case of its own."
+          },
+          {
+            "useCase": {
+              "id": "find-the-list-still-there-next-time",
+              "name": "Find the list still there next time",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Come back to the app after closing or restarting",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list is being reviewed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Recall the todos belonging to the chosen view from the durable record, with the whole list's items-left count",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Durability is a property of the record that every use case relies on; returning to the app is simply reviewing the list again."
+          },
+          {
+            "useCase": {
+              "id": "let-team-agent-tooling-drive-the-list",
+              "name": "Let team agent tooling drive the list",
+              "actors": [
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "maintain-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Call the web API or MCP surface on a user's behalf",
+                    "roleName": "Team Agent",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list the agent is acting on",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Apply the requested change to that user's durable record and count items left",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "action",
+                    "label": "Notify every other open surface showing this list that it changed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "a3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Not a new behavior but a different actor and access protocol for the same change and review flows; agent access is carried by the actor list of both core use cases."
+          },
+          {
+            "useCase": {
+              "id": "use-the-list-embedded-in-mcp-hosted-uis",
+              "name": "Use the list embedded in MCP-hosted UIs",
+              "actors": [
+                {
+                  "id": "user",
+                  "role": "User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-todo-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "s1",
+                    "kind": "start",
+                    "label": "Open the list inside an MCP-hosted tool",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a1",
+                    "kind": "action",
+                    "label": "Resolve whose list is being reviewed",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a2",
+                    "kind": "action",
+                    "label": "Recall the todos belonging to the chosen view from the durable record, with the whole list's items-left count",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "a3",
+                    "kind": "note",
+                    "label": "The embedded surface presents the list exactly as the web app would",
+                    "roleName": "User",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "List Keeping",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "s1",
+                    "to": "a1",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a1",
+                    "to": "a2",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a2",
+                    "to": "a3",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "a3",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A presentation host, not a behavior; the same review and change flows serve every host."
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-10-25T17:32:38Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    }
+  }
+}

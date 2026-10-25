@@ -128,8 +128,9 @@ func (s *Session) applyEvidenceMutation(what string, mutate func(*projectstate.P
 // recordServiceContract writes the typed ServiceContract for the AMBIENT component into
 // .serviceContracts, lazy-allocating the map — the detailed-design phase's artifact. The
 // ambient component is the architecture component's id (AIARCH_COMPONENT_ID, kebab-case);
-// the contract is keyed by the component's own contractKey, the one key every reader of
-// .serviceContracts uses, so a component the System gives no contract key is refused.
+// the contract is filed under the component's contract key (projectstate.ContractKeyFor:
+// lowerCamel(id)), the one key every reader of .serviceContracts uses. A Resource has no
+// contract, and a component the System does not name has nothing to record.
 func (s *Session) recordServiceContract(contract map[string]any) error {
 	if s.ComponentID == "" {
 		return fmt.Errorf("recordServiceContract needs the ambient component (AIARCH_COMPONENT_ID); this construct job has none — it is not a component activity")
@@ -144,7 +145,7 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 			" — fix the field and call recordServiceContract again", err)
 	}
 	return s.applyConstructionMutation("service contract", func(p *projectstate.Project) error {
-		key, err := contractKeyOf(*p, s.ComponentID)
+		key, err := contractKeyFor(*p, s.ComponentID)
 		if err != nil {
 			return err
 		}
@@ -156,22 +157,23 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 	})
 }
 
-// contractKeyOf is the .serviceContracts key of the System component componentID: its
-// contractKey. A project with no System model, a component the System does not name, or
-// one it gives no contract key has no contract to record.
-func contractKeyOf(p projectstate.Project, componentID string) (string, error) {
+// contractKeyFor resolves the System component componentID to the key its contract is
+// filed under (projectstate.ContractKeyFor). A project with no System model, a
+// component the System does not name, or a Resource has no contract to record.
+func contractKeyFor(p projectstate.Project, componentID string) (string, error) {
 	sys, ok := p.SystemDesign.Model.(*projectstate.System)
 	if !ok || sys == nil {
-		return "", fmt.Errorf("recordServiceContract: the project has no System model, so component %q has no contract key to record under", componentID)
+		return "", fmt.Errorf("recordServiceContract: the project has no System model, so component %q has no contract to record", componentID)
 	}
 	for _, c := range sys.Components {
 		if c.ID != componentID {
 			continue
 		}
-		if c.ContractKey == nil || *c.ContractKey == "" {
-			return "", fmt.Errorf("recordServiceContract: the System gives component %q no contractKey — it has no service contract to record", componentID)
+		key, ok := projectstate.ContractKeyFor(c)
+		if !ok {
+			return "", fmt.Errorf("recordServiceContract: component %q is a Resource — a Resource is provisioned, it has no service contract", componentID)
 		}
-		return *c.ContractKey, nil
+		return key, nil
 	}
 	return "", fmt.Errorf("recordServiceContract: the System names no component %q", componentID)
 }
