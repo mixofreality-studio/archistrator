@@ -125,7 +125,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/mixofreality-studio/archistrator-platform/framework-go v0.16.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.2.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.3.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0
