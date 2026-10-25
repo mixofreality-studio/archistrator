@@ -7,10 +7,17 @@
 package projectstate_test
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,42 +107,42 @@ func probeActivityExecutionAccessAddAUseCaseToAnInFlightProjectP4S1N1(t *testing
 
 // stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1 — Ask a Clarifying Question During Review — [yes: session branch] · [yes], step 1: AppendReviewVerdict
 // Projected stimulus (JSON): {"seq":1,"node":"append-session-branch","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"AppendReviewVerdict","call":"ask-a-clarifying-question-during-review/append-session-branch/0"},"expectedOutputs":null,"expectedStates":[{"node":"thread-open-on-session-branch","object":"ReviewThread","inState":"[question entries open on session branch]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-ask-p1"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"operator\",\"actor\":\"operator\",\"verdict\":\"abstain\",\"summary\":\"Clarifying questions before a verdict.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"q-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Does 'operated' include billing the customer?\",\"authorRole\":\"operator\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-ask-p1:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"thread-open-on-session-branch","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-ask-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-ask-p1"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"operator\",\"actor\":\"operator\",\"verdict\":\"abstain\",\"summary\":\"Clarifying questions before a verdict.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"q-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Does 'operated' include billing the customer?\",\"authorRole\":\"operator\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-ask-p1:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"thread-open-on-session-branch","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-ask-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards artifact-state=[yes: session branch], answer-ran=[yes] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP1S1) (any, error) {
 	t.Helper()
-	seedMissionUnderReview(t, in.ProjectID, in.ExpectedVersion, "Deliver predictably engineered software, operated on the customer's behalf.")
-	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
+	seedMissionUnderReview(t, in.ProjectID, projectstate.Version(0), "Deliver predictably engineered software, operated on the customer's behalf.")
+	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1 — Ask a Clarifying Question During Review — [yes: session branch] · [no: dispatch miss], step 1: AppendReviewVerdict
 // Projected stimulus (JSON): {"seq":1,"node":"append-session-branch","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"AppendReviewVerdict","call":"ask-a-clarifying-question-during-review/append-session-branch/0"},"expectedOutputs":null,"expectedStates":[{"node":"thread-open-on-session-branch","object":"ReviewThread","inState":"[question entries open on session branch]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-ask-p2"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"operator\",\"actor\":\"operator\",\"verdict\":\"abstain\",\"summary\":\"Clarifying questions before a verdict.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"q-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Does 'operated' include billing the customer?\",\"authorRole\":\"operator\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-ask-p2:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"thread-open-on-session-branch","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-ask-p2"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-ask-p2"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"operator\",\"actor\":\"operator\",\"verdict\":\"abstain\",\"summary\":\"Clarifying questions before a verdict.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"q-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Does 'operated' include billing the customer?\",\"authorRole\":\"operator\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"question\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-ask-p2:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"thread-open-on-session-branch","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-ask-p2"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1) (any, error) {
 	t.Helper()
-	seedMissionUnderReview(t, in.ProjectID, in.ExpectedVersion, "Deliver predictably engineered software, operated on the customer's behalf.")
-	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
+	seedMissionUnderReview(t, in.ProjectID, projectstate.Version(0), "Deliver predictably engineered software, operated on the customer's behalf.")
+	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1 — Ask a Clarifying Question During Review — [no: committed] · [yes], step 1: AppendReviewVerdict
 // Projected stimulus (JSON): {"seq":1,"node":"record-answers","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"AppendReviewVerdict","call":"ask-a-clarifying-question-during-review/record-answers/0"},"expectedOutputs":null,"expectedStates":[{"node":"question-answered","object":"ReviewQuestion","inState":"[answered]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-ask-p3"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"architect\",\"actor\":\"agent\",\"verdict\":\"abstain\",\"summary\":\"Answers to the reviewer's questions.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[]"},{"name":"replies","value":"[{\"commentId\":\"r1c1\",\"authorRole\":\"architect\",\"text\":\"Yes: operating the system includes billing the customer for it.\",\"at\":\"\"}]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-ask-p3:answer:1"}],"expect":{"errorExpected":false},"probes":[{"for":"question-answered","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-ask-p3"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"answered\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-ask-p3"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"architect\",\"actor\":\"agent\",\"verdict\":\"abstain\",\"summary\":\"Answers to the reviewer's questions.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[]"},{"name":"replies","value":"[{\"commentId\":\"r1c1\",\"authorRole\":\"architect\",\"text\":\"Yes: operating the system includes billing the customer for it.\",\"at\":\"\"}]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-ask-p3:answer:1"}],"expect":{"errorExpected":false},"probes":[{"for":"question-answered","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-ask-p3"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"answered\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards artifact-state=[no: committed], answer-ran=[yes] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP3S1) (any, error) {
 	t.Helper()
-	seedMain(t, questionAwaitingAnswer(in.ProjectID, in.ExpectedVersion))
-	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
+	seedMain(t, questionAwaitingAnswer(in.ProjectID, projectstate.Version(0)))
+	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP1S1 — Execute a Project Activity — dispatch · yes, step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"activity-eligible","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"execute-a-project-activity/activity-eligible/5"},"expectedOutputs":null,"expectedStates":[{"node":"activity-lifecycle-open","object":"ActivityExecution","inState":"[lifecycle open, revision 1]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p1"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p1:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p1"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p1:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessExecuteAProjectActivityP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessExecuteAProjectActivityP1S1) (any, error) {
 	t.Helper()
-	seedMain(t, eligibleActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, eligibleActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP1S3 — Execute a Project Activity — dispatch · yes, step 3: StageTaskOutput
@@ -166,12 +173,12 @@ func probeActivityExecutionAccessExecuteAProjectActivityP1S4N2(t *testing.T, h *
 
 // stepActivityExecutionAccessExecuteAProjectActivityP2S1 — Execute a Project Activity — dispatch · no · no: exhausted · yes, step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"activity-eligible","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"execute-a-project-activity/activity-eligible/5"},"expectedOutputs":null,"expectedStates":[{"node":"activity-lifecycle-open","object":"ActivityExecution","inState":"[lifecycle open, revision 1]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p2"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p2:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p2"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p2"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p2:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p2"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessExecuteAProjectActivityP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessExecuteAProjectActivityP2S1) (any, error) {
 	t.Helper()
-	seedMain(t, eligibleActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, eligibleActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP2S3 — Execute a Project Activity — dispatch · no · no: exhausted · yes, step 3: StageTaskOutput
@@ -202,32 +209,32 @@ func probeActivityExecutionAccessExecuteAProjectActivityP2S4N2(t *testing.T, h *
 
 // stepActivityExecutionAccessExecuteAProjectActivityP3S1 — Execute a Project Activity — review · agents only · approve, step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"activity-eligible","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"execute-a-project-activity/activity-eligible/5"},"expectedOutputs":null,"expectedStates":[{"node":"activity-lifecycle-open","object":"ActivityExecution","inState":"[lifecycle open, revision 1]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p3"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p3:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p3"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p3"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p3:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p3"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards task-kind=review, requires-human=agents only, verdict=approve hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessExecuteAProjectActivityP3S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessExecuteAProjectActivityP3S1) (any, error) {
 	t.Helper()
-	seedMain(t, eligibleActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, eligibleActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP4S1 — Execute a Project Activity — review · human required · approve, step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"activity-eligible","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"execute-a-project-activity/activity-eligible/5"},"expectedOutputs":null,"expectedStates":[{"node":"activity-lifecycle-open","object":"ActivityExecution","inState":"[lifecycle open, revision 1]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p4"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p4:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p4"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p4"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p4:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p4"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards task-kind=review, requires-human=human required, verdict=approve hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessExecuteAProjectActivityP4S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessExecuteAProjectActivityP4S1) (any, error) {
 	t.Helper()
-	seedMain(t, eligibleActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, eligibleActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP5S1 — Execute a Project Activity — dispatch · no · yes: retry · yes, step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"activity-eligible","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"execute-a-project-activity/activity-eligible/5"},"expectedOutputs":null,"expectedStates":[{"node":"activity-lifecycle-open","object":"ActivityExecution","inState":"[lifecycle open, revision 1]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p5"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p5:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p5"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p5"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p5:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p5"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessExecuteAProjectActivityP5S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessExecuteAProjectActivityP5S1) (any, error) {
 	t.Helper()
-	seedMain(t, eligibleActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, eligibleActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP5S3 — Execute a Project Activity — dispatch · no · yes: retry · yes, step 3: StageTaskOutput
@@ -274,12 +281,12 @@ func probeActivityExecutionAccessExecuteAProjectActivityP5S6N2(t *testing.T, h *
 
 // stepActivityExecutionAccessExecuteAProjectActivityP6S1 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes, step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"activity-eligible","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"execute-a-project-activity/activity-eligible/5"},"expectedOutputs":null,"expectedStates":[{"node":"activity-lifecycle-open","object":"ActivityExecution","inState":"[lifecycle open, revision 1]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p6"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p6:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p6"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p6"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p6:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p6"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessExecuteAProjectActivityP6S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessExecuteAProjectActivityP6S1) (any, error) {
 	t.Helper()
-	seedMain(t, eligibleActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, eligibleActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP6S3 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes, step 3: StageTaskOutput
@@ -310,12 +317,12 @@ func probeActivityExecutionAccessExecuteAProjectActivityP6S4N2(t *testing.T, h *
 
 // stepActivityExecutionAccessExecuteAProjectActivityP7S1 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes, step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"activity-eligible","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"execute-a-project-activity/activity-eligible/5"},"expectedOutputs":null,"expectedStates":[{"node":"activity-lifecycle-open","object":"ActivityExecution","inState":"[lifecycle open, revision 1]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p7"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p7:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p7"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-epa-p7"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"typ","value":"7"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-epa-p7:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-lifecycle-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-epa-p7"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"type\":\"requirements\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessExecuteAProjectActivityP7S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessExecuteAProjectActivityP7S1) (any, error) {
 	t.Helper()
-	seedMain(t, eligibleActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, eligibleActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessExecuteAProjectActivityP7S7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes, step 7: StageTaskOutput
@@ -364,12 +371,12 @@ func probeActivityExecutionAccessReplanUnderScopeChangeP2S1N1(t *testing.T, h *s
 
 // stepActivityExecutionAccessReplanUnderScopeChangeP2S2 — Replan Under Scope Change — [no: scope change] · [accept], step 2: DecideReviewRound
 // Projected stimulus (JSON): {"seq":2,"node":"adopt","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"DecideReviewRound","call":"replan-under-scope-change/adopt/0.0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"DecideReviewRound","inputs":[{"name":"projectID","value":"stp-aea-rp-p2"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-PD"},{"name":"roundID","value":"D-PD:sdpReview:sdpReview:2"},{"name":"outcome","value":"passed"},{"name":"decidedBy","value":"architect-user"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rp-p2:decide:1"}],"expect":{"errorExpected":false},"probes":[{"for":"","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rp-p2"},{"name":"activityID","value":"D-PD"}],"expect":{"result":"{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"passed\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":2,"operation":"DecideReviewRound","inputs":[{"name":"projectID","value":"stp-aea-rp-p2"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-PD"},{"name":"roundID","value":"D-PD:sdpReview:sdpReview:2"},{"name":"outcome","value":"passed"},{"name":"decidedBy","value":"architect-user"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rp-p2:decide:1"}],"expect":{"errorExpected":false},"probes":[{"for":"","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rp-p2"},{"name":"activityID","value":"D-PD"}],"expect":{"result":"{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"passed\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards classify=[no: scope change], mgmt=[accept] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessReplanUnderScopeChangeP2S2(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessReplanUnderScopeChangeP2S2) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.DecideReviewRound(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Outcome, in.DecidedBy, in.Cred, in.IdempotencyKey)
+	return subject.DecideReviewRound(callContext(t, h, "2"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Outcome, in.DecidedBy, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessReplanUnderScopeChangeP3S1 — Replan Under Scope Change — [no: scope change] · [reject], step 1: StageTaskOutput
@@ -392,64 +399,64 @@ func probeActivityExecutionAccessReplanUnderScopeChangeP3S1N1(t *testing.T, h *s
 
 // stepActivityExecutionAccessReplanUnderScopeChangeP3S2 — Replan Under Scope Change — [no: scope change] · [reject], step 2: DecideReviewRound
 // Projected stimulus (JSON): {"seq":2,"node":"record-reject","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"DecideReviewRound","call":"replan-under-scope-change/record-reject/0"},"expectedOutputs":null,"expectedStates":[{"node":"sdp-revision-rejected","object":"SDP review revision","inState":"[rejected; current commitment stands]"}],"hints":null}
-// Binding (JSON): {"seq":2,"operation":"DecideReviewRound","inputs":[{"name":"projectID","value":"stp-aea-rp-p3"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-PD"},{"name":"roundID","value":"D-PD:sdpReview:sdpReview:2"},{"name":"outcome","value":"sentBack"},{"name":"decidedBy","value":"architect-user"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rp-p3:decide:1"}],"expect":{"errorExpected":false},"probes":[{"for":"sdp-revision-rejected","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rp-p3"},{"name":"activityID","value":"D-PD"}],"expect":{"result":"{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"sentBack\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":2,"operation":"DecideReviewRound","inputs":[{"name":"projectID","value":"stp-aea-rp-p3"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-PD"},{"name":"roundID","value":"D-PD:sdpReview:sdpReview:2"},{"name":"outcome","value":"sentBack"},{"name":"decidedBy","value":"architect-user"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rp-p3:decide:1"}],"expect":{"errorExpected":false},"probes":[{"for":"sdp-revision-rejected","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rp-p3"},{"name":"activityID","value":"D-PD"}],"expect":{"result":"{\"activityID\":\"D-PD\",\"reviews\":[{\"roundId\":\"D-PD:sdpReview:sdpReview:2\",\"taskId\":\"sdpReview\",\"outcome\":\"sentBack\",\"decidedBy\":\"architect-user\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards classify=[no: scope change], mgmt=[reject] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessReplanUnderScopeChangeP3S2(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessReplanUnderScopeChangeP3S2) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.DecideReviewRound(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Outcome, in.DecidedBy, in.Cred, in.IdempotencyKey)
+	return subject.DecideReviewRound(callContext(t, h, "2"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Outcome, in.DecidedBy, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S1 — Requeue a Failed Construction Activity, step 1: RecordOperatorNote
 // Projected stimulus (JSON): {"seq":1,"node":"record-reopen","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"RecordOperatorNote","call":"requeue-a-failed-construction-activity/record-reopen/1"},"expectedOutputs":null,"expectedStates":[{"node":"activity-reopened-state","object":"Construction Activity","inState":"[reopened]"},{"node":"failed-attempt-kept-state","object":"Failed Attempt","inState":"[on record]"},{"node":"requeue-note-pending-state","object":"Operator Note","inState":"[pending delivery]"}],"hints":["The requeue note is recorded with kind=requeue (wire name \"requeue\", not \"retry\") under gate \"reopen\". Its noteId is keyed to the terminal exit stamp it re-opens, so re-submitting the same re-queue is idempotent. The precondition accepts terminal rows only (failed, done, completedNotLanded); a live row is refused with FailedPrecondition. The failed attempt's outcome is never rewritten: the attempts[] count and the last outcome stay unchanged after the re-queue."]}
-// Binding (JSON): {"seq":1,"operation":"RecordOperatorNote","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"note","value":"{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"comments\":null}"},{"name":"deliveredToAttemptID","value":""},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rq-p1:note:1"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-reopened-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"},\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}},{"for":"failed-attempt-kept-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}}]}","errorExpected":false}},{"for":"requeue-note-pending-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordOperatorNote","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"note","value":"{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"comments\":null}"},{"name":"deliveredToAttemptID","value":""},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rq-p1:note:1"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-reopened-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"activityID\":\"D-REQ\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"},\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}},{"for":"failed-attempt-kept-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}}]}","errorExpected":false}},{"for":"requeue-note-pending-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards (none) hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S1) (any, error) {
 	t.Helper()
-	seedMain(t, failedActivity(in.ProjectID, in.ExpectedVersion))
-	return subject.RecordOperatorNote(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Note, in.DeliveredToAttemptID, in.Cred, in.IdempotencyKey)
+	seedMain(t, failedActivity(in.ProjectID, projectstate.Version(0)))
+	return subject.RecordOperatorNote(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Note, in.DeliveredToAttemptID, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S2 — Requeue a Failed Construction Activity, step 2: RecordOperatorNote
 // Projected stimulus (JSON): {"seq":2,"node":"resume-activity","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"RecordOperatorNote","call":"requeue-a-failed-construction-activity/resume-activity/1"},"expectedOutputs":null,"expectedStates":[{"node":"activity-resumed-state","object":"Construction Activity","inState":"[in progress at first incomplete phase]"},{"node":"requeue-note-delivered-state","object":"Operator Note","inState":"[delivered]"}],"hints":["Resume point = the first lifecycle phase without a passed attempt, not phase 0. Phases that already passed keep their attempts and are not re-dispatched. 'Delivered' means the note's deliveredToAttemptId equals the new attempt's attemptId."]}
-// Binding (JSON): {"seq":2,"operation":"RecordOperatorNote","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"expectedVersion","value":"3"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"note","value":"{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"comments\":null}"},{"name":"deliveredToAttemptID","value":"D-REQ:missionDraft:2"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rq-p1:note:2"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-resumed-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}},{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2}]}","errorExpected":false}},{"for":"requeue-note-delivered-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"deliveredToAttemptId\":\"D-REQ:missionDraft:2\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":2,"operation":"RecordOperatorNote","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"note","value":"{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"comments\":null}"},{"name":"deliveredToAttemptID","value":"D-REQ:missionDraft:2"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rq-p1:note:2"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-resumed-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"attempts\":[{\"attemptId\":\"D-REQ:missionDraft:1\",\"attempt\":1,\"outcome\":\"failed\",\"evidence\":{\"kind\":\"episode\",\"ref\":\"ep-stp-aea-rq-p1-missionDraft-1\"}},{\"attemptId\":\"D-REQ:missionDraft:2\",\"attempt\":2}]}","errorExpected":false}},{"for":"requeue-note-delivered-state","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rq-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"operatorNotes\":[{\"noteId\":\"requeue:D-REQ:2026-10-01T12:00:00Z\",\"kind\":6,\"gate\":\"reopen\",\"text\":\"Re-queue after the upstream fix landed.\",\"deliveredToAttemptId\":\"D-REQ:missionDraft:2\"}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards (none) hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessRequeueAFailedConstructionActivityP1S2(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessRequeueAFailedConstructionActivityP1S2) (any, error) {
 	t.Helper()
 	resumeRequeuedWalk(t, h, subject, in.ProjectID, in.ActivityID, in.DeliveredToAttemptID)
-	return subject.RecordOperatorNote(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Note, in.DeliveredToAttemptID, in.Cred, in.IdempotencyKey)
+	return subject.RecordOperatorNote(callContext(t, h, "2"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Note, in.DeliveredToAttemptID, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessResumePausedConstructionP1S1 — Resume Paused Construction — [yes], step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"continue","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"resume-paused-construction/continue/0"},"expectedOutputs":null,"expectedStates":[{"node":"activity-started","object":"Project activity","inState":"[started]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-rs-p1"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-ARCH"},{"name":"typ","value":"8"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rs-p1:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-started","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rs-p1"},{"name":"activityID","value":"D-ARCH"}],"expect":{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-rs-p1"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-ARCH"},{"name":"typ","value":"8"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rs-p1:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-started","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rs-p1"},{"name":"activityID","value":"D-ARCH"}],"expect":{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards pause-settled=[yes] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessResumePausedConstructionP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessResumePausedConstructionP1S1) (any, error) {
 	t.Helper()
-	seedMain(t, resumedAfterPause(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, resumedAfterPause(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessResumePausedConstructionP3S1 — Resume Paused Construction — [yes], step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"continue","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"resume-paused-construction/continue/0"},"expectedOutputs":null,"expectedStates":[{"node":"activity-started","object":"Project activity","inState":"[started]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-rs-p3"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-ARCH"},{"name":"typ","value":"8"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rs-p3:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-started","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rs-p3"},{"name":"activityID","value":"D-ARCH"}],"expect":{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-rs-p3"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-ARCH"},{"name":"typ","value":"8"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rs-p3:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-started","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rs-p3"},{"name":"activityID","value":"D-ARCH"}],"expect":{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards halt-check=[yes] hold — the project as a halted pump left
 // it: the activity's earlier birth was refused, so the store holds no row for it — then calls
 // the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessResumePausedConstructionP3S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessResumePausedConstructionP3S1) (any, error) {
 	t.Helper()
-	seedMain(t, haltReleased(in.ProjectID, in.ExpectedVersion))
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	seedMain(t, haltReleased(in.ProjectID, projectstate.Version(0)))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // stepActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1 — Send Back Change Requests for a Redraft — [yes], step 1: AppendReviewVerdict
 // Projected stimulus (JSON): {"seq":1,"node":"retain-thread","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"AppendReviewVerdict","call":"send-back-change-requests-for-a-redraft/retain-thread/0"},"expectedOutputs":null,"expectedStates":[{"node":"obj-thread-open","object":"Review thread","inState":"[change requests open, retained on session branch]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-sb-p1"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"cr-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Name the customer outcome the mission commits to.\",\"authorRole\":\"architect\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"changeRequest\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-sb-p1:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"obj-thread-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-sb-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-sb-p1"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"cr-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Name the customer outcome the mission commits to.\",\"authorRole\":\"architect\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"changeRequest\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-sb-p1:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"obj-thread-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-sb-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards resolved=[yes] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1) (any, error) {
 	t.Helper()
-	seedMissionUnderReview(t, in.ProjectID, in.ExpectedVersion, "Deliver predictably engineered software.")
-	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
+	seedMissionUnderReview(t, in.ProjectID, projectstate.Version(0), "Deliver predictably engineered software.")
+	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
 }
 
 // probeActivityExecutionAccessSendBackChangeRequestsForARedraftP1S2N1 — Send Back Change Requests for a Redraft — [yes], step 2, probe 1: designSessionAccess.ReadProjectOnBranch proves obj-draft-restaged.
@@ -462,12 +469,12 @@ func probeActivityExecutionAccessSendBackChangeRequestsForARedraftP1S2N1(t *test
 
 // stepActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1 — Send Back Change Requests for a Redraft — [no: iterate] · [yes], step 1: AppendReviewVerdict
 // Projected stimulus (JSON): {"seq":1,"node":"retain-thread","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"AppendReviewVerdict","call":"send-back-change-requests-for-a-redraft/retain-thread/0"},"expectedOutputs":null,"expectedStates":[{"node":"obj-thread-open","object":"Review thread","inState":"[change requests open, retained on session branch]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-sb-p2"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"cr-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Name the customer outcome the mission commits to.\",\"authorRole\":\"architect\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"changeRequest\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-sb-p2:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"obj-thread-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-sb-p2"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-sb-p2"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"cr-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Name the customer outcome the mission commits to.\",\"authorRole\":\"architect\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"changeRequest\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-sb-p2:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"obj-thread-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-sb-p2"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
 // Arranges the state in which guards resolved=[no: iterate], resolved=[yes] hold, then calls the operation exactly as its caller does and returns its result.
 func stepActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessSendBackChangeRequestsForARedraftP2S1) (any, error) {
 	t.Helper()
-	seedMissionUnderReview(t, in.ProjectID, in.ExpectedVersion, "Deliver predictably engineered software.")
-	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
+	seedMissionUnderReview(t, in.ProjectID, projectstate.Version(0), "Deliver predictably engineered software.")
+	return subject.AppendReviewVerdict(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.RoundID, in.Verdict, in.Comments, in.Replies, in.Cred, in.IdempotencyKey)
 }
 
 // probeActivityExecutionAccessSendBackChangeRequestsForARedraftP2S2N1 — Send Back Change Requests for a Redraft — [no: iterate] · [yes], step 2, probe 1: designSessionAccess.ReadProjectOnBranch proves obj-draft-restaged.
@@ -832,142 +839,142 @@ func newSubjectGitActivityStatusAccess(t *testing.T, _ *scenariohost.Host) proje
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP1S1 — Execute a Project Activity — dispatch · yes, step 1: RecordActivityBranchOpened
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityBranchOpened","call":"execute-a-project-activity/dispatch-task/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P1"},{"name":"expectedVersion","value":"12"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/101"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P1-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P1"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/101"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P1-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP1S1) (any, error) {
 	t.Helper()
-	seedMain(t, constructionDispatching(in.ProjectID, in.ExpectedVersion, in.ActivityID))
-	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
+	seedMain(t, constructionDispatching(in.ProjectID, projectstate.Version(12), in.ActivityID))
+	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP1S2 — Execute a Project Activity — dispatch · yes, step 2: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":2,"node":"observe-validate","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/observe-validate/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P1"},{"name":"expectedVersion","value":"13"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P1-s2-ci-success"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P1"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P1-s2-ci-success"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP1S2(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP1S2) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP2S1 — Execute a Project Activity — dispatch · no · no: exhausted · yes, step 1: RecordActivityBranchOpened
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityBranchOpened","call":"execute-a-project-activity/dispatch-task/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P2"},{"name":"expectedVersion","value":"12"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/102"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P2-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P2"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/102"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P2-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP2S1) (any, error) {
 	t.Helper()
-	seedMain(t, constructionDispatching(in.ProjectID, in.ExpectedVersion, in.ActivityID))
-	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
+	seedMain(t, constructionDispatching(in.ProjectID, projectstate.Version(12), in.ActivityID))
+	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP2S2 — Execute a Project Activity — dispatch · no · no: exhausted · yes, step 2: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":2,"node":"observe-validate","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/observe-validate/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P2"},{"name":"expectedVersion","value":"13"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"2"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P2-s2-ci-failure"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P2"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"2"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P2-s2-ci-failure"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP2S2(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP2S2) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP3S1 — Execute a Project Activity — review · agents only · approve, step 1: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":1,"node":"commit-artifact","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/commit-artifact/6"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P3"},{"name":"expectedVersion","value":"12"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P3-s1-ci-success"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P3"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P3-s1-ci-success"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=review, requires-human=agents only, verdict=approve hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP3S1(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP3S1) (any, error) {
 	t.Helper()
-	seedMain(t, pullRequestAwaitingCI(in.ProjectID, in.ExpectedVersion, in.ActivityID))
-	return subject.RecordActivityCIObserved(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	seedMain(t, pullRequestAwaitingCI(in.ProjectID, projectstate.Version(12), in.ActivityID))
+	return subject.RecordActivityCIObserved(callContext(t, h, "1"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP4S1 — Execute a Project Activity — review · human required · approve, step 1: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":1,"node":"commit-artifact","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/commit-artifact/6"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P4"},{"name":"expectedVersion","value":"12"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P4-s1-ci-success"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P4"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P4-s1-ci-success"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=review, requires-human=human required, verdict=approve hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP4S1(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP4S1) (any, error) {
 	t.Helper()
-	seedMain(t, pullRequestAwaitingCI(in.ProjectID, in.ExpectedVersion, in.ActivityID))
-	return subject.RecordActivityCIObserved(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	seedMain(t, pullRequestAwaitingCI(in.ProjectID, projectstate.Version(12), in.ActivityID))
+	return subject.RecordActivityCIObserved(callContext(t, h, "1"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP5S1 — Execute a Project Activity — dispatch · no · yes: retry · yes, step 1: RecordActivityBranchOpened
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityBranchOpened","call":"execute-a-project-activity/dispatch-task/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"expectedVersion","value":"12"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/105"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/105"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP5S1(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP5S1) (any, error) {
 	t.Helper()
-	seedMain(t, constructionDispatching(in.ProjectID, in.ExpectedVersion, in.ActivityID))
-	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
+	seedMain(t, constructionDispatching(in.ProjectID, projectstate.Version(12), in.ActivityID))
+	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP5S2 — Execute a Project Activity — dispatch · no · yes: retry · yes, step 2: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":2,"node":"observe-validate","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/observe-validate/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"expectedVersion","value":"13"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"2"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s2-ci-failure"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"2"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s2-ci-failure"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP5S2(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP5S2) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP5S3 — Execute a Project Activity — dispatch · no · yes: retry · yes, step 3: RecordActivityBranchOpened
 // Projected stimulus (JSON): {"seq":3,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityBranchOpened","call":"execute-a-project-activity/dispatch-task/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":3,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"expectedVersion","value":"14"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/105"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s3-branch-opened"}],"expect":{"result":"15","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":3,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/105"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s3-branch-opened"}],"expect":{"result":"15","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP5S3(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP5S3) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.RecordActivityBranchOpened(callContext(t, h, "3"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
+	return subject.RecordActivityBranchOpened(callContext(t, h, "3"), in.ProjectID, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP5S4 — Execute a Project Activity — dispatch · no · yes: retry · yes, step 4: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":4,"node":"observe-validate","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/observe-validate/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":4,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"expectedVersion","value":"15"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s4-ci-success"}],"expect":{"result":"16","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":4,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P5"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P5-s4-ci-success"}],"expect":{"result":"16","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP5S4(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP5S4) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.RecordActivityCIObserved(callContext(t, h, "4"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	return subject.RecordActivityCIObserved(callContext(t, h, "4"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP6S1 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes, step 1: RecordActivityBranchOpened
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityBranchOpened","call":"execute-a-project-activity/dispatch-task/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P6"},{"name":"expectedVersion","value":"12"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/106"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P6-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P6"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/106"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P6-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP6S1(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP6S1) (any, error) {
 	t.Helper()
-	seedMain(t, constructionDispatching(in.ProjectID, in.ExpectedVersion, in.ActivityID))
-	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
+	seedMain(t, constructionDispatching(in.ProjectID, projectstate.Version(12), in.ActivityID))
+	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP6S2 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes, step 2: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":2,"node":"observe-validate","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/observe-validate/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P6"},{"name":"expectedVersion","value":"13"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"2"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P6-s2-ci-failure"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P6"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"2"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P6-s2-ci-failure"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP6S2(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP6S2) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP7S1 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes, step 1: RecordActivityBranchOpened
 // Projected stimulus (JSON): {"seq":1,"node":"dispatch-task","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityBranchOpened","call":"execute-a-project-activity/dispatch-task/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P7"},{"name":"expectedVersion","value":"12"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/107"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P7-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"RecordActivityBranchOpened","inputs":[{"name":"projectID","value":"stp-gas-P7"},{"name":"activityID","value":"C-DM"},{"name":"branch","value":"activity/C-DM"},{"name":"branchRef","value":"refs/heads/activity/C-DM"},{"name":"prRef","value":"https://github.com/mixofreality-studio/stp-fixture/pull/107"},{"name":"crLabel","value":""},{"name":"isRevert","value":"false"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P7-s1-branch-opened"}],"expect":{"result":"13","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP7S1(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP7S1) (any, error) {
 	t.Helper()
-	seedMain(t, revisionRedispatch(in.ProjectID, in.ExpectedVersion, in.ActivityID))
-	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
+	seedMain(t, revisionRedispatch(in.ProjectID, projectstate.Version(12), in.ActivityID))
+	return subject.RecordActivityBranchOpened(callContext(t, h, "1"), in.ProjectID, in.ActivityID, in.Branch, in.BranchRef, in.PrRef, in.CrLabel, in.IsRevert, in.Cred, in.IdempotencyKey)
 }
 
 // stepGitActivityStatusAccessExecuteAProjectActivityP7S2 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes, step 2: RecordActivityCIObserved
 // Projected stimulus (JSON): {"seq":2,"node":"observe-validate","input":{"kind":"call","from":"delivery-manager","to":"gitactivitystatusaccess","op":"RecordActivityCIObserved","call":"execute-a-project-activity/observe-validate/2"},"expectedOutputs":null,"expectedStates":null,"hints":null}
-// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P7"},{"name":"expectedVersion","value":"13"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P7-s2-ci-success"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":2,"operation":"RecordActivityCIObserved","inputs":[{"name":"projectID","value":"stp-gas-P7"},{"name":"activityID","value":"C-DM"},{"name":"ci","value":"1"},{"name":"cred","value":"{\"Bytes\":\"c3RwLWdhcy1yZXBvLXRva2Vu\",\"ExpiresAt\":\"2026-10-03T12:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-gas-P7-s2-ci-success"}],"expect":{"result":"14","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
 // Arranges the state in which guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes hold, then calls the operation exactly as its caller does and returns its result.
 func stepGitActivityStatusAccessExecuteAProjectActivityP7S2(t *testing.T, h *scenariohost.Host, subject projectstate.GitActivityStatusAccess, in inputGitActivityStatusAccessExecuteAProjectActivityP7S2) (any, error) {
 	t.Helper()
 	// No further arrange: the state the earlier steps left IS this step's precondition.
-	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ExpectedVersion, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
+	return subject.RecordActivityCIObserved(callContext(t, h, "2"), in.ProjectID, in.ActivityID, in.Ci, in.Cred, in.IdempotencyKey)
 }
 
 // newSubjectProjectStateAccess builds the component under test.
@@ -1191,7 +1198,7 @@ func probeDesignSessionAccessCommitToAProjectOptionP1S1N1(t *testing.T, h *scena
 
 // stepActivityExecutionAccessCommitToAProjectOptionP1S1 — Commit to a Project Option — [commit] · [no], step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"commit-to-a-project-option/commit-option/2"},"expectedOutputs":[{"node":"commit-option","kind":"inferred","to":"","label":"Record the commitment; project approved for construction"}],"expectedStates":[{"node":"sdp-review-committed","object":"SDP Review (chosen option + build-cost ceiling)","inState":"[committed]"},{"node":"construction-work-items-opened","object":"Construction Work Items","inState":"[opened]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"},{"name":"expectedVersion","value":"22"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"C-project-state-access"},{"name":"typ","value":"0"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-cpo-p1:open"}],"expect":{"errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p1\",\"Version\":23,\"Phase\":2}","errorExpected":false}},{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"C-project-state-access"},{"name":"typ","value":"0"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-cpo-p1:open"}],"expect":{"errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p1\",\"Version\":23,\"Phase\":2}","errorExpected":false}},{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-cpo-p1"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arranges the commitment as delivery records it before the work items open — the SDP review committed through designSessionAccess and the project advanced into construction through projectStateAccess — then opens the first construction activity.
 func stepActivityExecutionAccessCommitToAProjectOptionP1S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessCommitToAProjectOptionP1S1) (any, error) {
 	t.Helper()
@@ -1200,7 +1207,7 @@ func stepActivityExecutionAccessCommitToAProjectOptionP1S1(t *testing.T, h *scen
 	if _, err := psaOn(t).AdvancePhase(callContext(t, h, "arrange-advance"), in.ProjectID, headVersion(t, h, in.ProjectID)); err != nil {
 		t.Fatalf("arrange: advance %s: %v", in.ProjectID, err)
 	}
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // probeActivityExecutionAccessCommitToAProjectOptionP1S1N1 — Commit to a Project Option — [commit] · [no], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
@@ -1239,7 +1246,7 @@ func probeDesignSessionAccessCommitToAProjectOptionP2S1N1(t *testing.T, h *scena
 
 // stepActivityExecutionAccessCommitToAProjectOptionP2S1 — Commit to a Project Option — [commit] · [yes], step 1: OpenActivity
 // Projected stimulus (JSON): {"seq":1,"node":"commit-option","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"commit-to-a-project-option/commit-option/2"},"expectedOutputs":[{"node":"commit-option","kind":"inferred","to":"","label":"Record the commitment; project approved for construction"}],"expectedStates":[{"node":"sdp-review-committed","object":"SDP Review (chosen option + build-cost ceiling)","inState":"[committed]"},{"node":"construction-work-items-opened","object":"Construction Work Items","inState":"[opened]"}],"hints":null}
-// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"},{"name":"expectedVersion","value":"22"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"C-project-state-access"},{"name":"typ","value":"0"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-cpo-p2:open"}],"expect":{"errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p2\",\"Version\":23,\"Phase\":2}","errorExpected":false}},{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}],"unobservable":[],"hook":true}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"C-project-state-access"},{"name":"typ","value":"0"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"service\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-cpo-p2:open"}],"expect":{"errorExpected":false},"probes":[{"for":"commit-option","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"ID\":\"stp-aea-cpo-p2\",\"Version\":23,\"Phase\":2}","errorExpected":false}},{"for":"sdp-review-committed","component":"projectStateAccess","operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"}],"expect":{"result":"{\"Phase\":2,\"SdpReview\":{\"Status\":2}}","errorExpected":false}},{"for":"construction-work-items-opened","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-cpo-p2"},{"name":"activityID","value":"C-project-state-access"}],"expect":{"result":"{\"activityID\":\"C-project-state-access\"}","errorExpected":false}}],"unobservable":[],"hook":true}
 // Arranges the commitment as delivery records it before the work items open — the SDP review committed through designSessionAccess and the project advanced into construction through projectStateAccess — then opens the first construction activity.
 func stepActivityExecutionAccessCommitToAProjectOptionP2S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessCommitToAProjectOptionP2S1) (any, error) {
 	t.Helper()
@@ -1248,7 +1255,7 @@ func stepActivityExecutionAccessCommitToAProjectOptionP2S1(t *testing.T, h *scen
 	if _, err := psaOn(t).AdvancePhase(callContext(t, h, "arrange-advance"), in.ProjectID, headVersion(t, h, in.ProjectID)); err != nil {
 		t.Fatalf("arrange: advance %s: %v", in.ProjectID, err)
 	}
-	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
 // probeActivityExecutionAccessCommitToAProjectOptionP2S1N1 — Commit to a Project Option — [commit] · [yes], step 1, probe 1: projectStateAccess.ReadProject proves commit-option.
@@ -2032,27 +2039,23 @@ func failedActivity(id projectstate.ProjectID, v projectstate.Version) projectst
 
 // resumeRequeuedWalk is the resumed walk the pump starts after a requeue: it re-opens the
 // re-armed row and opens the pending attempt the requeue note is then delivered to. Each
-// write holds the versions it just read, exactly as the delivery manager's child does.
+// write holds the row version it just read, exactly as the delivery manager's child does.
 func resumeRequeuedWalk(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, projectID projectstate.ProjectID, activityID, attemptID string) {
 	t.Helper()
-	head := func() (projectstate.Version, projectstate.ActivityExecution) {
-		env, err := projectstate.NewGitLocalDesignSessionAccess(scenarioRepo(t).URL).ReadProjectOnBranch(callContext(t, h, "arrange"), projectID, "")
-		if err != nil {
-			t.Fatalf("arrange: read head: %v", err)
-		}
+	head := func() projectstate.ActivityExecution {
 		row, err := subject.ReadActivityExecution(callContext(t, h, "arrange"), projectID, activityID)
 		if err != nil {
 			t.Fatalf("arrange: read row: %v", err)
 		}
-		return env.Version, row
+		return row
 	}
-	v, row := head()
-	if _, err := subject.OpenActivity(callContext(t, h, "arrange"), projectID, v, row.Version, activityID, row.Type, row.Variant,
+	row := head()
+	if _, err := subject.OpenActivity(callContext(t, h, "arrange"), projectID, row.Version, activityID, row.Type, row.Variant,
 		*row.Pin, projectstate.RepoCredential{}, callContext(t, h, "arrange-reopen").IdempotencyKey); err != nil {
 		t.Fatalf("arrange: re-open %s: %v", activityID, err)
 	}
-	v, row = head()
-	if _, err := subject.RecordAttemptOutcome(callContext(t, h, "arrange"), projectID, v, row.Version, activityID,
+	row = head()
+	if _, err := subject.RecordAttemptOutcome(callContext(t, h, "arrange"), projectID, row.Version, activityID,
 		projectstate.TaskAttemptInput{AttemptID: attemptID, TaskID: "missionDraft", Attempt: 2, Actor: projectstate.ActorAgent, Outcome: projectstate.OutcomePending},
 		projectstate.RepoCredential{}, callContext(t, h, "arrange-attempt").IdempotencyKey); err != nil {
 		t.Fatalf("arrange: open attempt %s: %v", attemptID, err)
@@ -2170,7 +2173,7 @@ func commitOnMain(t *testing.T, h *scenariohost.Host, projectID projectstate.Pro
 func openActivity(t *testing.T, h *scenariohost.Host, projectID projectstate.ProjectID, activityID string, typ projectstate.ActivityType, typeKey string) {
 	t.Helper()
 	pin := projectstate.LifecyclePin{TypeKey: typeKey, AssetsVersion: assetsVersion}
-	if _, err := aeaOn(t).OpenActivity(callContext(t, h, "arrange-open"), projectID, headVersion(t, h, projectID), 0, activityID, typ, 0, pin,
+	if _, err := aeaOn(t).OpenActivity(callContext(t, h, "arrange-open"), projectID, 0, activityID, typ, 0, pin,
 		projectstate.RepoCredential{}, callContext(t, h, "arrange-open-"+activityID).IdempotencyKey); err != nil {
 		t.Fatalf("arrange: open %s: %v", activityID, err)
 	}
@@ -2179,7 +2182,7 @@ func openActivity(t *testing.T, h *scenariohost.Host, projectID projectstate.Pro
 // recordNote is activityExecutionAccess recording an operator note on an existing row.
 func recordNote(t *testing.T, h *scenariohost.Host, projectID projectstate.ProjectID, activityID string, note projectstate.OperatorNoteInput) {
 	t.Helper()
-	if _, err := aeaOn(t).RecordOperatorNote(callContext(t, h, "arrange-note"), projectID, headVersion(t, h, projectID), rowVersion(t, h, projectID, activityID),
+	if _, err := aeaOn(t).RecordOperatorNote(callContext(t, h, "arrange-note"), projectID, rowVersion(t, h, projectID, activityID),
 		activityID, note, "", projectstate.RepoCredential{}, callContext(t, h, "arrange-note-"+note.NoteID).IdempotencyKey); err != nil {
 		t.Fatalf("arrange: record note %s on %s: %v", note.NoteID, activityID, err)
 	}
@@ -2206,7 +2209,7 @@ func rejectAllOptions(t *testing.T, h *scenariohost.Host, projectID projectstate
 		RoundID: sdpRoundID, TaskID: "sdpReview", Reviews: "sdp", ArtifactKind: &kind, Round: 1,
 		SubjectRef: projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: string(projectID) + "#pr-1"},
 	}
-	if _, err := aea.OpenReviewRound(callContext(t, h, "arrange-round"), projectID, headVersion(t, h, projectID), rowVersion(t, h, projectID, "P-SDP"),
+	if _, err := aea.OpenReviewRound(callContext(t, h, "arrange-round"), projectID, rowVersion(t, h, projectID, "P-SDP"),
 		"P-SDP", round, projectstate.RepoCredential{}, callContext(t, h, "arrange-round-key").IdempotencyKey); err != nil {
 		t.Fatalf("arrange: open SDP review round: %v", err)
 	}
@@ -2214,11 +2217,11 @@ func rejectAllOptions(t *testing.T, h *scenariohost.Host, projectID projectstate
 		Summary: "Reject all options.", AttemptID: "P-SDP:sdp:1", At: arrangedAt.Format(time.RFC3339)}
 	feedback := []projectstate.ReviewComment{{Anchor: "$.options", Text: "Reject all options: the compressed option exceeds the build-cost ceiling.",
 		AuthorRole: "founder", Round: 1, Status: projectstate.ReviewCommentOpen, Type: projectstate.ReviewCommentTypeChangeRequest}}
-	if _, err := aea.AppendReviewVerdict(callContext(t, h, "arrange-verdict"), projectID, headVersion(t, h, projectID), rowVersion(t, h, projectID, "P-SDP"),
+	if _, err := aea.AppendReviewVerdict(callContext(t, h, "arrange-verdict"), projectID, rowVersion(t, h, projectID, "P-SDP"),
 		"P-SDP", sdpRoundID, verdict, feedback, nil, projectstate.RepoCredential{}, callContext(t, h, "arrange-verdict-key").IdempotencyKey); err != nil {
 		t.Fatalf("arrange: append sendBack verdict: %v", err)
 	}
-	if _, err := aea.DecideReviewRound(callContext(t, h, "arrange-decide"), projectID, headVersion(t, h, projectID), rowVersion(t, h, projectID, "P-SDP"),
+	if _, err := aea.DecideReviewRound(callContext(t, h, "arrange-decide"), projectID, rowVersion(t, h, projectID, "P-SDP"),
 		"P-SDP", sdpRoundID, projectstate.RoundSentBack, "founder@stp.test", projectstate.RepoCredential{}, callContext(t, h, "arrange-decide-key").IdempotencyKey); err != nil {
 		t.Fatalf("arrange: decide SDP review round: %v", err)
 	}
@@ -2518,4 +2521,753 @@ func trackedConstruction(id projectstate.ProjectID, v projectstate.Version, week
 	}
 	p.ConstructionProgress = cp
 	return p
+}
+
+// ---------------------------------------------------------------------------
+// FIX-006 regressions: row-scoped writes commute under a sibling herd.
+// ---------------------------------------------------------------------------
+
+// fix006Project is the project every FIX-006 regression writes to.
+const fix006Project projectstate.ProjectID = "stp-fix-006"
+
+// fix006Herd is wider than twice the workflow's old retry bound (20), so a store that
+// still made sibling row writes contend on the project version could not converge it.
+const fix006Herd = 48
+
+// seedRepoDoc commits p as main's project.json in the repo at dir (bare or checked out).
+func seedRepoDoc(t *testing.T, dir string, p projectstate.Project) {
+	t.Helper()
+	raw, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("arrange: encode: %v", err)
+	}
+	work := filepath.Join(t.TempDir(), "seed")
+	runGit(t, "", "clone", "--quiet", dir, work)
+	runGit(t, work, "checkout", "--quiet", "-B", "main")
+	if err := os.MkdirAll(filepath.Join(work, ".aiarch", "state"), 0o750); err != nil {
+		t.Fatalf("arrange: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".aiarch", "state", "project.json"), raw, 0o600); err != nil {
+		t.Fatalf("arrange: %v", err)
+	}
+	runGit(t, work, "add", ".aiarch/state/project.json")
+	runGit(t, work, "-c", "user.name=seed", "-c", "user.email=seed@aiarch.local", "-c", "commit.gpgsign=false",
+		"commit", "--quiet", "-m", "seed")
+	runGit(t, work, "push", "--quiet", "origin", "main")
+}
+
+// pushOutsideCommit advances main in the repo at dir with a commit no projectstate writer
+// made: the cross-process writer (another pod, the local merge step) the store's in-RA
+// re-apply exists for.
+func pushOutsideCommit(dir, name string) error {
+	work, err := os.MkdirTemp("", "fix006-outside-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(work) }()
+	steps := [][]string{
+		{"clone", "--quiet", dir, work},
+		{"-C", work, "checkout", "--quiet", "main"},
+	}
+	for _, s := range steps {
+		if out, err := exec.Command("git", s...).CombinedOutput(); err != nil {
+			return fmt.Errorf("git %v: %w: %s", s, err, out)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(work, "outside"), 0o750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(work, "outside", name), []byte(name), 0o600); err != nil {
+		return err
+	}
+	for _, s := range [][]string{
+		{"-C", work, "add", "outside/" + name},
+		{"-C", work, "-c", "user.name=outside", "-c", "user.email=outside@aiarch.local", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "outside " + name},
+		{"-C", work, "push", "--quiet", "origin", "main"},
+	} {
+		if out, err := exec.Command("git", s...).CombinedOutput(); err != nil {
+			return fmt.Errorf("git %v: %w: %s", s, err, out)
+		}
+	}
+	return nil
+}
+
+func raKind(err error) string {
+	var e *projectstate.Error
+	if errors.As(err, &e) {
+		return e.Kind.String()
+	}
+	return "not an RA error"
+}
+
+func fix006Pin() projectstate.LifecyclePin {
+	return projectstate.LifecyclePin{TypeKey: "service", AssetsVersion: assetsVersion}
+}
+
+// writeSiblingTriple is the herd member's three early writes, as a construction child makes
+// them: the birth, the first task's pending attempt, and the git-status branch row.
+func writeSiblingTriple(t *testing.T, h *scenariohost.Host, ae projectstate.ActivityExecutionAccess, git projectstate.GitActivityStatusAccess, id string, lat *[]time.Duration, mu *sync.Mutex) error {
+	timed := func(f func() error) error {
+		start := time.Now()
+		err := f()
+		mu.Lock()
+		*lat = append(*lat, time.Since(start))
+		mu.Unlock()
+		return err
+	}
+	if err := timed(func() error {
+		_, err := ae.OpenActivity(callContext(t, h, "open-"+id), fix006Project, projectstate.NoActivityVersionExpectation, id,
+			projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "open-"+id).IdempotencyKey)
+		return err
+	}); err != nil {
+		return fmt.Errorf("OpenActivity %s: %w", id, err)
+	}
+	row, err := ae.ReadActivityExecution(callContext(t, h, "read-"+id), fix006Project, id)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", id, err)
+	}
+	if err := timed(func() error {
+		_, err := ae.RecordAttemptOutcome(callContext(t, h, "attempt-"+id), fix006Project, row.Version, id,
+			projectstate.TaskAttemptInput{AttemptID: "a-" + id, TaskID: projectstate.TaskSRS, Attempt: 1, Actor: projectstate.ActorAgent, Outcome: projectstate.OutcomePending},
+			projectstate.RepoCredential{}, callContext(t, h, "attempt-"+id).IdempotencyKey)
+		return err
+	}); err != nil {
+		return fmt.Errorf("RecordAttemptOutcome %s: %w", id, err)
+	}
+	if err := timed(func() error {
+		_, err := git.RecordActivityBranchOpened(callContext(t, h, "branch-"+id), fix006Project, id, "activity/"+id, "refs/heads/activity/"+id, "", "", false,
+			projectstate.RepoCredential{}, callContext(t, h, "branch-"+id).IdempotencyKey)
+		return err
+	}); err != nil {
+		return fmt.Errorf("RecordActivityBranchOpened %s: %w", id, err)
+	}
+	return nil
+}
+
+// TestActivityExecution_ConcurrentSiblingBirthsConverge is the FIX-006 regression: a
+// fan-out of fix006Herd siblings, each writing its own row three times with no project
+// version, all land — no Conflict, every row and git-status row present, one commit per
+// write, and NO ref-CAS lost among this process's state writers (the write queue spans
+// read → apply → commit). Before the fix every sibling write staled every other's project
+// version and the herd exhausted the workflow's bound at the M0 seal.
+func TestActivityExecution_ConcurrentSiblingBirthsConverge(t *testing.T) {
+	for _, topo := range []struct {
+		name  string
+		start func(*testing.T, string) testinfra.LocalGitRepo
+	}{{"bare", testinfra.StartLocalGitRepo}, {"checkedOut", testinfra.StartLocalCheckedOutRepo}} {
+		t.Run(topo.name, func(t *testing.T) {
+			h := scenariohost.Start(t)
+			repo := topo.start(t, "main")
+			const seedVersion = 7
+			seedRepoDoc(t, repo.Dir, baseProject(fix006Project, seedVersion, projectstate.PhaseConstruction))
+			commitsBefore := revCount(t, repo.Dir)
+			ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+			git := projectstate.NewGitLocalGitActivityStatusAccess(repo.URL)
+			lossesBefore := projectstate.StateWriteCASLosses()
+
+			var (
+				mu   sync.Mutex
+				lat  []time.Duration
+				wg   sync.WaitGroup
+				gate = make(chan struct{})
+			)
+			errs := make([]error, fix006Herd)
+			for i := range fix006Herd {
+				wg.Go(func() {
+					<-gate
+					errs[i] = writeSiblingTriple(t, h, ae, git, fmt.Sprintf("C-sib-%02d", i), &lat, &mu)
+				})
+			}
+			close(gate)
+			wg.Wait()
+			for i, err := range errs {
+				if err != nil {
+					t.Errorf("sibling %d: %v (kind %s)", i, err, raKind(err))
+				}
+			}
+			if t.Failed() {
+				t.FailNow()
+			}
+
+			p, err := projectstate.NewGitLocalProjectStateAccess(repo.URL).ReadProject(callContext(t, h, "probe"), fix006Project)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			for i := range fix006Herd {
+				id := fmt.Sprintf("C-sib-%02d", i)
+				row, ok := p.ActivityExecution[id]
+				if !ok || row.StartedAt == nil || row.Pin == nil {
+					t.Errorf("row %s not born with StartedAt and pin: %+v", id, row)
+				}
+				if _, ok := p.ActivityGit[id]; !ok {
+					t.Errorf("git-status row %s missing", id)
+				}
+			}
+			if want := projectstate.Version(seedVersion + 3*fix006Herd); p.Version != want {
+				t.Errorf("Version = %d, want %d (one bump per write)", p.Version, want)
+			}
+			if got := revCount(t, repo.Dir) - commitsBefore; got != 3*fix006Herd {
+				t.Errorf("%d commits landed, want %d", got, 3*fix006Herd)
+			}
+			if lost := projectstate.StateWriteCASLosses() - lossesBefore; lost != 0 {
+				t.Errorf("%d ref-CASes lost among in-process state writers, want 0 (the write queue must span read → commit)", lost)
+			}
+			slices.Sort(lat)
+			t.Logf("row write latency over %d writes: p50 %v p99 %v max %v", len(lat), lat[len(lat)/2], lat[len(lat)*99/100], lat[len(lat)-1])
+		})
+	}
+}
+
+func revCount(t *testing.T, dir string) int {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-list", "--count", "main").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-list: %v: %s", err, out)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatalf("rev-list: %v", err)
+	}
+	return n
+}
+
+// TestActivityExecution_RowWriteReappliesAfterAnOutsideCommit: a ref-CAS lost to a writer
+// OUTSIDE this process's queue is re-applied inside the store at the new tip — the caller
+// sees success, never a Conflict — and exhausting the re-apply bound is a retryable
+// Transient, never a Conflict (a Conflict on a row verb is read as the ROW's refusal by the
+// Manager, and on a row that did not move that is a false terminal).
+func TestActivityExecution_RowWriteReappliesAfterAnOutsideCommit(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseConstruction))
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+
+	var (
+		pushes  int
+		pushErr error
+	)
+	const outsideWins = 4
+	restore := projectstate.SetStateWriteTestHooks(projectstate.StateWriteTestHooks{BeforeRowCommit: func() {
+		if pushes < outsideWins {
+			pushes++
+			if err := pushOutsideCommit(repo.Dir, fmt.Sprintf("o%d", pushes)); err != nil {
+				pushErr = err
+			}
+		}
+	}})
+	lossesBefore := projectstate.StateWriteCASLosses()
+	_, err := ae.OpenActivity(callContext(t, h, "reapply"), fix006Project, projectstate.NoActivityVersionExpectation, "C-reapply",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "reapply").IdempotencyKey)
+	restore()
+	if pushErr != nil {
+		t.Fatalf("outside push: %v", pushErr)
+	}
+	if err != nil {
+		t.Fatalf("OpenActivity after %d outside commits: %v (kind %s), want the store to re-apply it", outsideWins, err, raKind(err))
+	}
+	if lost := projectstate.StateWriteCASLosses() - lossesBefore; lost != outsideWins {
+		t.Errorf("%d ref-CASes lost, want %d (one per outside commit, each re-applied)", lost, outsideWins)
+	}
+	p, err := projectstate.NewGitLocalProjectStateAccess(repo.URL).ReadProject(callContext(t, h, "probe"), fix006Project)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, ok := p.ActivityExecution["C-reapply"]; !ok || p.Version != 4 {
+		t.Errorf("after re-apply: row present %v, Version %d; want the row and Version 4", ok, p.Version)
+	}
+
+	// Exhaustion: every attempt loses to an outside commit, and the bound is 1 re-apply.
+	n := 0
+	restore = projectstate.SetStateWriteTestHooks(projectstate.StateWriteTestHooks{MaxRowReapply: 1, BeforeRowCommit: func() {
+		n++
+		if err := pushOutsideCommit(repo.Dir, fmt.Sprintf("x%d", n)); err != nil {
+			pushErr = err
+		}
+	}})
+	_, err = ae.OpenActivity(callContext(t, h, "exhaust"), fix006Project, projectstate.NoActivityVersionExpectation, "C-exhaust",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "exhaust").IdempotencyKey)
+	restore()
+	if pushErr != nil {
+		t.Fatalf("outside push: %v", pushErr)
+	}
+	if err == nil {
+		t.Fatal("OpenActivity converged although every attempt lost its ref-CAS")
+	}
+	if k := raKind(err); k != "Transient" {
+		t.Errorf("re-apply exhaustion classified %s, want Transient (never Conflict): %v", k, err)
+	}
+}
+
+// TestActivityExecution_RowGuardAndConditionalGuardKept: dropping the project version from
+// the row verbs does not drop the ROW's own guard, and the whole-document conditional verbs
+// keep a guard — on their footprint (FIX-006 ruling 5), which the row writes do not move.
+func TestActivityExecution_RowGuardAndConditionalGuardKept(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseConstruction))
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+
+	if _, err := ae.OpenActivity(callContext(t, h, "stale-birth"), fix006Project, 5, "C-guard",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "stale-birth").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a birth holding row version 5 of an absent row: err %v, want Conflict", err)
+	}
+	if _, err := ae.OpenActivity(callContext(t, h, "birth"), fix006Project, projectstate.NoActivityVersionExpectation, "C-guard",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "birth").IdempotencyKey); err != nil {
+		t.Fatalf("birth: %v", err)
+	}
+	row, err := ae.ReadActivityExecution(callContext(t, h, "read"), fix006Project, "C-guard")
+	if err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	attempt := func(n int64) error {
+		_, err := ae.RecordAttemptOutcome(callContext(t, h, fmt.Sprintf("a%d", n)), fix006Project, row.Version, "C-guard",
+			projectstate.TaskAttemptInput{AttemptID: fmt.Sprintf("a%d", n), TaskID: projectstate.TaskSRS, Attempt: n, Actor: projectstate.ActorAgent, Outcome: projectstate.OutcomePending},
+			projectstate.RepoCredential{}, callContext(t, h, fmt.Sprintf("a%d", n)).IdempotencyKey)
+		return err
+	}
+	if err := attempt(1); err != nil {
+		t.Fatalf("first writer on the held row version: %v", err)
+	}
+	if err := attempt(2); raKind(err) != "Conflict" || !strings.Contains(err.Error(), strconv.FormatInt(row.Version, 10)) {
+		t.Errorf("second writer on the same held row version: err %v, want a Conflict naming the versions", err)
+	}
+
+	head, err := ps.ReadProjectVersion(callContext(t, h, "head"), fix006Project)
+	if err != nil {
+		t.Fatalf("read version: %v", err)
+	}
+	// The conditional verbs keep a guard — on their own footprint (ruling 5): a pause read
+	// before another pause landed is refused; the row writes above stale nothing.
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-1"), fix006Project, head-2, "after the rows",
+		callContext(t, h, "pause-1").IdempotencyKey); err != nil {
+		t.Fatalf("a pause read before two row writes: %v (kind %s), want success — row writes are not its footprint", err, raKind(err))
+	}
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-2"), fix006Project, head, "stale",
+		callContext(t, h, "pause-2").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a pause read before the pause that landed: err %v, want Conflict", err)
+	}
+}
+
+// conditionalWriteBound is the facade's re-read -> re-write bound (resumeConflictAttempts,
+// activityRowWriteAttempts): the number of attempts a conditional writer racing a sibling
+// herd must converge within (ruling 5).
+const conditionalWriteBound = 3
+
+// runningHerd is a sibling herd that keeps writing rows until stopped: fix006Herd children,
+// each born, then upserting its git-status row over and over — the row traffic a real
+// construction fan-out keeps up for as long as its children run. landed counts the writes.
+type runningHerd struct {
+	stop   chan struct{}
+	wg     sync.WaitGroup
+	landed atomic.Int64
+	errs   []error
+}
+
+// herdWritesEach is a safety cap on each sibling's git-status upserts. The herd is stopped
+// explicitly long before it; the cap only bounds a test that fails to stop it, because every
+// state commit carries the whole dedup ledger and the platform stages it file by file, so a
+// write's cost grows with every write before it.
+const herdWritesEach = 50
+
+func startRunningHerd(t *testing.T, h *scenariohost.Host, repoURL, prefix string, size int) *runningHerd {
+	t.Helper()
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repoURL)
+	git := projectstate.NewGitLocalGitActivityStatusAccess(repoURL)
+	hd := &runningHerd{stop: make(chan struct{}), errs: make([]error, size)}
+	for i := range size {
+		hd.wg.Go(func() {
+			id := fmt.Sprintf("%s-%02d", prefix, i)
+			if _, err := ae.OpenActivity(callContext(t, h, "open-"+id), fix006Project, projectstate.NoActivityVersionExpectation, id,
+				projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "open-"+id).IdempotencyKey); err != nil {
+				hd.errs[i] = fmt.Errorf("OpenActivity %s: %w", id, err)
+				return
+			}
+			hd.landed.Add(1)
+			for n := range herdWritesEach {
+				select {
+				case <-hd.stop:
+					return
+				default:
+				}
+				step := fmt.Sprintf("ci-%s-%d", id, n)
+				if _, err := git.RecordActivityCIObserved(callContext(t, h, step), fix006Project, id, projectstate.CICheckState(n%3),
+					projectstate.RepoCredential{}, callContext(t, h, step).IdempotencyKey); err != nil {
+					hd.errs[i] = fmt.Errorf("RecordActivityCIObserved %s #%d: %w", id, n, err)
+					return
+				}
+				hd.landed.Add(1)
+			}
+		})
+	}
+	return hd
+}
+
+// awaitLanded blocks until the herd has landed at least n writes (so it is genuinely
+// running, not still queueing its births) or fails the test.
+func (hd *runningHerd) awaitLanded(t *testing.T, n int64) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Minute)
+	for hd.landed.Load() < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("the herd landed only %d writes in 2m, want %d", hd.landed.Load(), n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func (hd *runningHerd) halt(t *testing.T) {
+	t.Helper()
+	close(hd.stop)
+	hd.wg.Wait()
+	for i, err := range hd.errs {
+		if err != nil {
+			t.Errorf("sibling %d: %v (kind %s)", i, err, raKind(err))
+		}
+	}
+}
+
+// convergeConditional runs one conditional writer the facade's way — read the project,
+// write against the version it read, re-read on Conflict — at most conditionalWriteBound
+// times, and reports how many attempts it took and how many herd writes landed meanwhile.
+func convergeConditional(t *testing.T, h *scenariohost.Host, ps projectstate.ProjectStateAccess, hd *runningHerd, name string,
+	write func(step string, v projectstate.Version) error,
+) {
+	t.Helper()
+	before := hd.landed.Load()
+	var last error
+	for attempt := 1; attempt <= conditionalWriteBound; attempt++ {
+		p, err := ps.ReadProject(callContext(t, h, fmt.Sprintf("%s-read-%d", name, attempt)), fix006Project)
+		if err != nil {
+			t.Errorf("%s: read: %v", name, err)
+			return
+		}
+		if last = write(name, p.Version); last == nil {
+			during := hd.landed.Load() - before
+			t.Logf("%s converged on attempt %d while %d sibling row writes landed", name, attempt, during)
+			if during == 0 {
+				t.Errorf("%s: no sibling write landed while it ran — the herd was not racing it", name)
+			}
+			return
+		}
+		if raKind(last) != "Conflict" {
+			t.Errorf("%s attempt %d: %v (kind %s), want only Conflicts", name, attempt, last, raKind(last))
+			return
+		}
+	}
+	t.Errorf("%s did not converge in %d attempts while %d sibling row writes landed: %v (ruling 5: a sibling's row write must not stale a conditional write)",
+		name, conditionalWriteBound, hd.landed.Load()-before, last)
+}
+
+// fix006SlotsProject is a project in construction whose mission, glossary and SDP review
+// are committed — the slots the conditional writers below move.
+func fix006SlotsProject() projectstate.Project {
+	p := baseProject(fix006Project, 3, projectstate.PhaseConstruction)
+	p.Mission = committed(missionStatement("FIX-006 ruling 5"))
+	p.Glossary = committed(&projectstate.Glossary{Items: []projectstate.GlossaryItem{{Term: "Herd", Definition: "The siblings a seal births at once."}}})
+	p.SdpReview = committed(&projectstate.SdpReview{})
+	return p
+}
+
+// TestConditionalWrite_ConvergesUnderSiblingHerd is ruling 5 folded in (FIX-006): a
+// conditional whole-document write is guarded by what it depends on, not by the project
+// Version every sibling row write moves. Under a herd of fix006Herd siblings that keeps
+// writing rows for the whole test, each facade-shaped conditional writer — the Pause, a slot
+// commit, and the M0 revoke (RecordSdpReviewOutcome) — converges within the facade's 3
+// attempts. Before the fold every attempt queued behind sibling row writes and lost.
+func TestConditionalWrite_ConvergesUnderSiblingHerd(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+	ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+
+	hd := startRunningHerd(t, h, repo.URL, "C-herd", fix006Herd)
+	hd.awaitLanded(t, fix006Herd+fix006Herd/2)
+
+	// The writers race the herd AND each other, as the facade's and the seal's do; the pause
+	// and the slot commit touch disjoint footprints, so neither may stale the other either.
+	var writers sync.WaitGroup
+	writers.Go(func() {
+		convergeConditional(t, h, ps, hd, "pause", func(step string, v projectstate.Version) error {
+			_, err := ps.RecordOperatorPaused(callContext(t, h, step), fix006Project, v, "FIX-006 ruling 5", callContext(t, h, step).IdempotencyKey)
+			return err
+		})
+	})
+	writers.Go(func() {
+		convergeConditional(t, h, ps, hd, "slot-commit", func(step string, v projectstate.Version) error {
+			_, err := ds.CommitArtifactWithProvenance(callContext(t, h, step), fix006Project, v, projectstate.KindMission, "operator", "platform")
+			return err
+		})
+	})
+	writers.Wait()
+	// The revoke moves the phase, which the other two depend on, so it goes last.
+	writers.Go(func() {
+		convergeConditional(t, h, ps, hd, "m0-revoke", func(step string, v projectstate.Version) error {
+			_, err := ps.RecordSdpReviewOutcome(callContext(t, h, step), fix006Project, v, projectstate.ReviewWithdrawn, "", callContext(t, h, step).IdempotencyKey)
+			return err
+		})
+	})
+	writers.Wait()
+	hd.halt(t)
+}
+
+// TestConditionalWrite_SameFootprintChangeStillConflicts: the per-footprint guard is still a
+// guard. A conditional write against a version older than the last change to what it
+// depends on — the same pause, the same slot — is refused with Conflict, herd or no herd;
+// a change to a DIFFERENT slot does not refuse it.
+func TestConditionalWrite_SameFootprintChangeStillConflicts(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+	ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+	hd := startRunningHerd(t, h, repo.URL, "C-same", 8)
+	hd.awaitLanded(t, 16)
+	defer hd.halt(t)
+
+	read := func(step string) projectstate.Version {
+		v, err := ps.ReadProjectVersion(callContext(t, h, step), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		return v
+	}
+
+	// The same pause: the operator's second pause lands first; the first, on its older read, is refused.
+	stale := read("pause-read-1")
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-b"), fix006Project, read("pause-read-2"), "second pause",
+		callContext(t, h, "pause-b").IdempotencyKey); err != nil {
+		t.Fatalf("the racing pause: %v", err)
+	}
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-a"), fix006Project, stale, "first pause",
+		callContext(t, h, "pause-a").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a pause on a version older than the racing pause: err %v, want Conflict", err)
+	}
+	if _, err := ps.RecordOperatorResumed(callContext(t, h, "resume-stale"), fix006Project, stale,
+		callContext(t, h, "resume-stale").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a resume that did not see the pause it would clear: err %v, want Conflict", err)
+	}
+
+	// The same slot: a re-commit of the mission lands first; a commit read before it is refused.
+	stale = read("slot-read-1")
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-b"), fix006Project, read("slot-read-2"),
+		projectstate.KindMission, "operator", "platform"); err != nil {
+		t.Fatalf("the racing commit: %v", err)
+	}
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-a"), fix006Project, stale,
+		projectstate.KindMission, "operator", "platform"); raKind(err) != "Conflict" {
+		t.Errorf("a slot commit on a version older than the slot's last change: err %v, want Conflict", err)
+	}
+
+	// A different slot: a glossary commit lands between the read and the mission commit, and
+	// does not refuse it (the mission's footprint did not move).
+	before := read("other-read-1")
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-glossary"), fix006Project, read("other-read-2"),
+		projectstate.KindGlossary, "operator", "platform"); err != nil {
+		t.Fatalf("the glossary commit: %v", err)
+	}
+	if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "commit-mission"), fix006Project, before,
+		projectstate.KindMission, "operator", "platform"); err != nil {
+		t.Errorf("a mission commit across an unrelated glossary commit: %v (kind %s), want success", err, raKind(err))
+	}
+
+	// The phase advance depends on every slot: the glossary commit above stales it.
+	if _, err := ps.AdvancePhase(callContext(t, h, "advance-stale"), fix006Project, before); raKind(err) != "Conflict" {
+		t.Errorf("AdvancePhase on a read older than a slot commit: err %v, want Conflict", err)
+	}
+
+	// A version the project has not reached is never a valid read.
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause-future"), fix006Project, read("future-read")+1000, "future",
+		callContext(t, h, "pause-future").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a conditional write on a version from the future: err %v, want Conflict", err)
+	}
+}
+
+// pushOutsideStateEdit advances main in the repo at dir with a commit no projectstate writer
+// made that rewrites .aiarch/state/<file> through edit — the local merge step, a GitHub merge
+// or a hand edit, none of which restamps the footprint ledger.
+func pushOutsideStateEdit(t *testing.T, dir, file string, edit func([]byte) []byte) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "outside-edit")
+	runGit(t, "", "clone", "--quiet", dir, work)
+	runGit(t, work, "checkout", "--quiet", "main")
+	path := filepath.Join(work, ".aiarch", "state", file)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: a test temp dir
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("arrange: read %s: %v", file, err)
+	}
+	next := edit(raw)
+	if bytes.Equal(next, raw) {
+		t.Fatalf("arrange: the outside edit of %s changed nothing", file)
+	}
+	if err := os.WriteFile(path, next, 0o600); err != nil {
+		t.Fatalf("arrange: write %s: %v", file, err)
+	}
+	runGit(t, work, "add", filepath.Join(".aiarch", "state", file))
+	runGit(t, work, "-c", "user.name=outside", "-c", "user.email=outside@aiarch.local", "-c", "commit.gpgsign=false",
+		"commit", "--quiet", "-m", "outside edit of "+file)
+	runGit(t, work, "push", "--quiet", "origin", "main")
+}
+
+// TestConditionalWrite_OutsideWriterFallsBackToTheExactGuard: the footprint ledger is only
+// ever conservative. A member changed on main by a writer outside the store — a merge that
+// keeps main's Version, a Version moved by hand, a damaged ledger — reads as changed at the
+// tip, so a conditional write whose caller read before it is refused, exactly as the
+// project-version guard would refuse it. Only the member the outside writer changed is
+// suspect when the Version still matches: a write on a disjoint footprint still lands.
+func TestConditionalWrite_OutsideWriterFallsBackToTheExactGuard(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+	ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+
+	read := func(step string) projectstate.Version {
+		v, err := ps.ReadProjectVersion(callContext(t, h, step), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		return v
+	}
+	// Two store writes: the first baselines the ledger, the second leaves it describing the tip.
+	if _, err := ps.RecordOperatorPaused(callContext(t, h, "pause"), fix006Project, read("r0"), "store pause",
+		callContext(t, h, "pause").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: pause: %v", err)
+	}
+	full := "full"
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-0"), fix006Project, read("r1"), projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-0").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: policy: %v", err)
+	}
+
+	// (1) After a caller's read, a store write moves the Version (a disjoint member), then a
+	// merge keeps main's Version but brings a different pause reason. A resume on the older
+	// read must not clear a pause it never saw; a write on a disjoint footprint still lands.
+	// (A read AT the merged Version cannot be told from one before the merge; the
+	// project-version guard could not tell them apart either, so that is not asserted.)
+	stale := read("r2")
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-1"), fix006Project, stale, projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-1").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: policy: %v", err)
+	}
+	tip := read("r2a")
+	pushOutsideStateEdit(t, repo.Dir, "project.json", func(b []byte) []byte {
+		return bytes.Replace(b, []byte(`"pauseReason": "store pause"`), []byte(`"pauseReason": "merged pause"`), 1)
+	})
+	if got := read("r2b"); got != tip {
+		t.Fatalf("arrange: the outside edit moved the Version %d -> %d; it must keep it", tip, got)
+	}
+	if _, err := ps.RecordOperatorResumed(callContext(t, h, "resume-stale"), fix006Project, stale,
+		callContext(t, h, "resume-stale").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a resume read before an outside change to the pause (Version kept): err %v, want Conflict", err)
+	}
+	if _, err := ps.SetOperatingModel(callContext(t, h, "model-1"), fix006Project, stale, projectstate.OperatingModelArchistratorOperated); err != nil {
+		t.Errorf("an operating-model write across an outside change to the pause only: %v (kind %s), want success", err, raKind(err))
+	}
+	vibes := "vibes"
+
+	// (2) An outside writer moves the Version: every member reads as changed at the tip.
+	stale = read("r3")
+	pushOutsideStateEdit(t, repo.Dir, "project.json", func(b []byte) []byte {
+		return bytes.Replace(b, []byte(fmt.Sprintf(`"version": %d,`, stale)), []byte(fmt.Sprintf(`"version": %d,`, stale+1)), 1)
+	})
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-2"), fix006Project, stale, projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-2").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a policy write read before an outside Version move: err %v, want Conflict", err)
+	}
+
+	// (3) A damaged ledger: the same.
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-3"), fix006Project, read("r4"), projectstate.ReviewPolicy{Preset: &vibes},
+		callContext(t, h, "policy-3").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: re-baseline: %v", err)
+	}
+	stale = read("r5")
+	if _, err := ps.RecordOperatorResumed(callContext(t, h, "resume"), fix006Project, stale,
+		callContext(t, h, "resume").IdempotencyKey); err != nil {
+		t.Fatalf("arrange: resume: %v", err)
+	}
+	pushOutsideStateEdit(t, repo.Dir, "write_marks.json", func([]byte) []byte { return []byte("{not json") })
+	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-4"), fix006Project, stale, projectstate.ReviewPolicy{Preset: &full},
+		callContext(t, h, "policy-4").IdempotencyKey); raKind(err) != "Conflict" {
+		t.Errorf("a policy write read before a write, over a damaged ledger: err %v, want Conflict", err)
+	}
+}
+
+// TestConditionalWrite_FootprintMembersAreLoadBearing pins the members the two seal-side
+// verbs depend on, one at a time, so dropping either from its footprint goes red:
+//   - AdvancePhase on the PHASE alone: two seals read the same version (the child's own and
+//     the facade's on one M0 approve); the second must be refused, never a second increment.
+//   - AdvancePhase on the SLOTS alone: a seal read before a slot changed, the phase untouched.
+//   - RecordSdpReviewOutcome on the SDP REVIEW SLOT alone: a revoke read before the review
+//     was re-committed (a fresh decision, the phase untouched) must be refused.
+func TestConditionalWrite_FootprintMembersAreLoadBearing(t *testing.T) {
+	h := scenariohost.Start(t)
+
+	t.Run("AdvancePhase/phase", func(t *testing.T) {
+		repo := testinfra.StartLocalGitRepo(t, "main")
+		seedRepoDoc(t, repo.Dir, baseProject(fix006Project, 3, projectstate.PhaseSystemDesign))
+		ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+		v, err := ps.ReadProjectVersion(callContext(t, h, "read"), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		if _, err := ps.AdvancePhase(callContext(t, h, "seal-child"), fix006Project, v); err != nil {
+			t.Fatalf("the first seal: %v", err)
+		}
+		if _, err := ps.AdvancePhase(callContext(t, h, "seal-facade"), fix006Project, v); raKind(err) != "Conflict" {
+			t.Errorf("a second seal on the same read: err %v (kind %s), want Conflict", err, raKind(err))
+		}
+		p, err := ps.ReadProject(callContext(t, h, "read-back"), fix006Project)
+		if err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if p.Phase != projectstate.PhaseProjectDesign {
+			t.Errorf("phase after two seals on one read: %d, want %d (one advance)", p.Phase, projectstate.PhaseProjectDesign)
+		}
+	})
+
+	t.Run("AdvancePhase/slots", func(t *testing.T) {
+		// A seal read before a slot changed (the phase untouched) must be refused: the
+		// all-committed gate it decided on no longer describes the project.
+		repo := testinfra.StartLocalGitRepo(t, "main")
+		p := fix006SlotsProject()
+		p.Phase = projectstate.PhaseSystemDesign
+		seedRepoDoc(t, repo.Dir, p)
+		ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+		ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+		v, err := ps.ReadProjectVersion(callContext(t, h, "seal-read"), fix006Project)
+		if err != nil {
+			t.Fatalf("read version: %v", err)
+		}
+		if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "recommit-mission"), fix006Project, v,
+			projectstate.KindMission, "operator", "platform"); err != nil {
+			t.Fatalf("the re-commit: %v", err)
+		}
+		if _, err := ps.AdvancePhase(callContext(t, h, "seal-stale"), fix006Project, v); raKind(err) != "Conflict" {
+			t.Errorf("a seal read before a slot change: err %v (kind %s), want Conflict", err, raKind(err))
+		}
+	})
+
+	t.Run("RecordSdpReviewOutcome/sdpReview", func(t *testing.T) {
+		repo := testinfra.StartLocalGitRepo(t, "main")
+		seedRepoDoc(t, repo.Dir, fix006SlotsProject())
+		ps := projectstate.NewGitLocalProjectStateAccess(repo.URL)
+		ds := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+		read := func(step string) projectstate.Version {
+			v, err := ps.ReadProjectVersion(callContext(t, h, step), fix006Project)
+			if err != nil {
+				t.Fatalf("read version: %v", err)
+			}
+			return v
+		}
+		stale := read("revoke-read")
+		if _, err := ds.CommitArtifactWithProvenance(callContext(t, h, "recommit-sdp"), fix006Project, read("recommit-read"),
+			projectstate.KindSdpReview, "operator", "platform"); err != nil {
+			t.Fatalf("the re-commit: %v", err)
+		}
+		if _, err := ps.RecordSdpReviewOutcome(callContext(t, h, "revoke"), fix006Project, stale, projectstate.ReviewWithdrawn, "",
+			callContext(t, h, "revoke").IdempotencyKey); raKind(err) != "Conflict" {
+			t.Errorf("a revoke read before the SDP review was re-committed: err %v (kind %s), want Conflict", err, raKind(err))
+		}
+	})
 }

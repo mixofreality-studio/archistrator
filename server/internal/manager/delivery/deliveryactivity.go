@@ -2694,8 +2694,8 @@ func (wf *csWorkflows) openRound(
 		subject:         gateSubjectRef(&state.walk.gf, judged.StagedRef, judged.AttemptID),
 		judgedAttemptID: judged.AttemptID,
 	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID),
 			projectstate.ReviewRoundInput{
 				RoundID:      gate.roundID,
@@ -4921,8 +4921,8 @@ func (wf *csWorkflows) openActivityBranchAndPR(
 	gf.prRef = sourcecontrol.PullRequestRefString(pr)
 
 	// Mirror: birth the per-activity git head-state row (PR-tolerant fused upsert).
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityBranchOpened(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityBranchOpened(ctx, projectstate.ProjectID(in.ProjectID), string(in.ActivityID),
 			gf.branch, gf.branchRef, gf.prRef, gf.crLabel, gf.isRevert, gf.cred.toProjectState())
 	})
 	if err != nil {
@@ -4951,8 +4951,8 @@ func (wf *csWorkflows) observeCIAndRecord(
 		return csPullRequestStatusView{}, err
 	}
 
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), string(in.ActivityID),
 			st.CheckRollup, gf.cred.toProjectState())
 	})
 	if err != nil {
@@ -5141,8 +5141,8 @@ func (wf *csWorkflows) mirrorObservedRollup(
 	st csPullRequestStatusView,
 	headVersion *projectstate.Version,
 ) error {
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), string(in.ActivityID),
 			st.CheckRollup, gf.cred.toProjectState())
 	})
 	if err != nil {
@@ -5597,8 +5597,8 @@ func (s *constructState) leaveHumanStage(ctx workflow.Context, taskID, activityT
 
 // openActivity births the activity's execution row and pins the lifecycle in force.
 func (wf *csWorkflows) openActivity(ctx workflow.Context, in constructActivityInput, state *constructState, cred railCredEnvelope, headVersion *projectstate.Version) error {
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID), in.Activity.Type, in.Activity.Variant, lifecyclePinFor(in.Activity), cred.toProjectState())
 	})
 	if err != nil {
@@ -5620,8 +5620,8 @@ func (wf *csWorkflows) recordAttempt(
 	cred railCredEnvelope,
 	attempt projectstate.TaskAttemptInput,
 ) error {
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionRecordAttemptOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionRecordAttemptOutcome(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID), attempt, cred.toProjectState())
 	})
 	if err != nil {
@@ -5703,8 +5703,8 @@ func (wf *csWorkflows) appendVerdict(
 	if gate.roundID == "" {
 		return nil
 	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID), gate.roundID, verdict, comments, nil, cred.toProjectState())
 	})
 	if err != nil {
@@ -5735,8 +5735,8 @@ func (wf *csWorkflows) decideRound(
 	if decidedBy == decidedByOperator {
 		gate.actor = projectstate.ActorHuman
 	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID), gate.roundID, outcome, decidedBy, cred.toProjectState())
 	})
 	if err != nil {
@@ -5851,8 +5851,8 @@ func (wf *csWorkflows) recordExecutionOutcome(
 	reason projectstate.FailureReason,
 	detail string,
 ) error {
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionRecordActivityOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionRecordActivityOutcome(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID), outcome, reason, detail, cred.toProjectState())
 	})
 	if err != nil {
@@ -5936,8 +5936,8 @@ func (wf *csWorkflows) recordOperatorNote(
 		Text:     fb.text,
 		Comments: noteComments(fb.comments),
 	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID), note, "", cred.toProjectState())
 	})
 	if err != nil {
@@ -6035,8 +6035,8 @@ func (wf *csWorkflows) stampNoteDelivered(ctx workflow.Context, in constructActi
 	noteID := n.NoteID
 	note := projectstate.OperatorNoteInput{NoteID: n.NoteID, Kind: n.Kind, Gate: n.Gate, Text: n.Text, Comments: n.Comments}
 	acts := wf.stampActs()
-	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRowRecovering(ctx, in.ProjectID, func() (projectstate.Version, error) {
+		return acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID),
 			state.activityVersion, string(in.ActivityID), note, attemptID, gf.cred.toProjectState())
 	})
 	if err == nil {
@@ -6218,6 +6218,67 @@ func (wf *csWorkflows) applyRecovering(
 		expected = next
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
+	}
+}
+
+// applyRowRecovering is applyRecovering for the ROW verbs (FIX-006): the eight
+// activityExecutionAccess mutators and the two gitActivityStatusAccess upserts, which assert
+// no project version. ITS TERMINAL RULE IS SELECTED BY THE VERB, NEVER BY WHETHER A ROW IS
+// BOUND: a child binds its row for the whole walk (bindRowAccessors) and sends its
+// CONDITIONAL writes — the slot commit, the phase advance, the SDP outcome — through
+// applyRecovering on the same context, and those still lose project-version CASes while
+// their row stands still. "Terminal on the row alone" applied to them would turn every such
+// loss into a non-retryable false terminal, so they keep applyRecovering's two-version rule
+// and only the callers of this function get the row-only one.
+//
+// The row-only rule is sound here, and only here, because the store classifies a row
+// verb's failures for it: CAS exhaustion inside the RA is a retryable Transient (the
+// Activity RetryPolicy's, never this loop's), so a Conflict reaching this loop is always
+// the ROW's refusal — stale when the row moved past what the call sent (re-seed and
+// retry), terminal when it did not (an exited row, a decided round). Under a busy sibling
+// set the project version always moves, which is why the two-version rule would retry a
+// genuine refusal to MutateConflictExhausted here instead of failing it terminally.
+//
+// The pump binds no row, so terminalAfterRowReread answers non-terminal for it, as before.
+func (wf *csWorkflows) applyRowRecovering(
+	ctx workflow.Context,
+	projectID ProjectID,
+	apply func() (projectstate.Version, error),
+) (projectstate.Version, error) {
+	for attempt := 0; ; attempt++ {
+		sent := heldRowVersion(ctx)
+		v, err := apply()
+		if err == nil {
+			return v, nil
+		}
+		if !isConflict(err) {
+			return 0, err
+		}
+		if attempt+1 >= maxMutateConflictAttempts {
+			return 0, temporal.NewNonRetryableApplicationError(
+				"head-state conflict did not converge within bounded attempts",
+				"MutateConflictExhausted", err)
+		}
+		projectMoved := false
+		if workflow.GetVersion(ctx, changeRowTerminalIgnoresProject, workflow.DefaultVersion, 1) < 1 {
+			// A history recorded before the fence keeps its recorded project-version read. The
+			// expectation the old arm compared it against is no longer carried, so the arm
+			// answers the conservative way — "the project moved", never a terminal — which
+			// cannot invent a false terminal. (Deploy drains in-flight executions anyway: the
+			// row verbs' Activity argument lists changed, which no fence covers.)
+			if _, rerr := wf.readVersionE(ctx, projectID); rerr != nil && !isReadNotFound(rerr) {
+				return 0, rerr
+			}
+			projectMoved = true
+		}
+		terminal, terr := terminalAfterRowReread(ctx, wf.Acts, projectID, projectMoved, sent)
+		if terr != nil {
+			return 0, terr
+		}
+		if terminal {
+			return 0, temporal.NewNonRetryableApplicationError(terminalConflictMessage, terminalConflictErrType, err)
+		}
+		workflow.GetLogger(ctx).Info("row conflict; re-read the row and retrying", "attempt", attempt+1)
 	}
 }
 

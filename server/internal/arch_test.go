@@ -1070,6 +1070,19 @@ var encapsulationAllowlistData = map[string][]string{
 		// the package cannot fill a generated parameter honestly without the name for its
 		// sentinel, and the alternative is every caller writing a bare 0.
 		"NoActivityVersionExpectation",
+		// FIX-006 WRITE-QUEUE PROBES. The row write path's behaviour that the contract
+		// cannot show is exactly what its regression must pin: that the per-project write
+		// queue spans read → commit (zero ref-CASes lost among in-process writers under a
+		// 48-sibling herd), that a CAS lost to an OUTSIDE writer is re-applied in the
+		// store, and that re-apply exhaustion is Transient, never Conflict. The black-box
+		// hooks file (access_hooks_test.go, the only test file the file-layout gate admits)
+		// cannot reach an unexported counter or bound, so these three are exported:
+		// StateWriteCASLosses is also an operational counter; SetStateWriteTestHooks /
+		// StateWriteTestHooks are TEST-ONLY levers production never calls (their zero value
+		// is the shipped bounds). Callers: the FIX-006 tests in access_hooks_test.go.
+		"SetStateWriteTestHooks",
+		"StateWriteCASLosses",
+		"StateWriteTestHooks",
 		"NewGitStore",
 		"NewGlossary",
 		"NewMissionStatement",

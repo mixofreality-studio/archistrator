@@ -11,23 +11,23 @@ import (
 // FakeActivityExecutionAccess is a generated test double for projectstate.ActivityExecutionAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeActivityExecutionAccess struct {
-	OpenActivityFn           func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	OpenActivityFn           func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	StageTaskOutputFn        func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, taskID string, branch string, model projectstate.ModelEnvelope, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.StagedRef, error)
-	RecordAttemptOutcomeFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, attempt projectstate.TaskAttemptInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	OpenReviewRoundFn        func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, round projectstate.ReviewRoundInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	AppendReviewVerdictFn    func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	SetReviewCommentStatusFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	DecideReviewRoundFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityOutcomeFn  func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordOperatorNoteFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordAttemptOutcomeFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, attempt projectstate.TaskAttemptInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	OpenReviewRoundFn        func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, round projectstate.ReviewRoundInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	AppendReviewVerdictFn    func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	SetReviewCommentStatusFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	DecideReviewRoundFn      func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityOutcomeFn  func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordOperatorNoteFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	ReadActivityExecutionFn  func(rc fwra.Context, projectID projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error)
 }
 
-func (f *FakeActivityExecutionAccess) OpenActivity(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) OpenActivity(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.OpenActivityFn == nil {
 		panic("FakeActivityExecutionAccess.OpenActivityFn not set")
 	}
-	return f.OpenActivityFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, typ, variant, pin, cred, idempotencyKey)
+	return f.OpenActivityFn(rc, projectID, expectedActivityVersion, activityID, typ, variant, pin, cred, idempotencyKey)
 }
 
 func (f *FakeActivityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, taskID string, branch string, model projectstate.ModelEnvelope, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.StagedRef, error) {
@@ -37,53 +37,53 @@ func (f *FakeActivityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID
 	return f.StageTaskOutputFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, taskID, branch, model, cred, idempotencyKey)
 }
 
-func (f *FakeActivityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, attempt projectstate.TaskAttemptInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, attempt projectstate.TaskAttemptInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.RecordAttemptOutcomeFn == nil {
 		panic("FakeActivityExecutionAccess.RecordAttemptOutcomeFn not set")
 	}
-	return f.RecordAttemptOutcomeFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, attempt, cred, idempotencyKey)
+	return f.RecordAttemptOutcomeFn(rc, projectID, expectedActivityVersion, activityID, attempt, cred, idempotencyKey)
 }
 
-func (f *FakeActivityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, round projectstate.ReviewRoundInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, round projectstate.ReviewRoundInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.OpenReviewRoundFn == nil {
 		panic("FakeActivityExecutionAccess.OpenReviewRoundFn not set")
 	}
-	return f.OpenReviewRoundFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, round, cred, idempotencyKey)
+	return f.OpenReviewRoundFn(rc, projectID, expectedActivityVersion, activityID, round, cred, idempotencyKey)
 }
 
-func (f *FakeActivityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.AppendReviewVerdictFn == nil {
 		panic("FakeActivityExecutionAccess.AppendReviewVerdictFn not set")
 	}
-	return f.AppendReviewVerdictFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, roundID, verdict, comments, replies, cred, idempotencyKey)
+	return f.AppendReviewVerdictFn(rc, projectID, expectedActivityVersion, activityID, roundID, verdict, comments, replies, cred, idempotencyKey)
 }
 
-func (f *FakeActivityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.SetReviewCommentStatusFn == nil {
 		panic("FakeActivityExecutionAccess.SetReviewCommentStatusFn not set")
 	}
-	return f.SetReviewCommentStatusFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, roundID, commentID, status, cred, idempotencyKey)
+	return f.SetReviewCommentStatusFn(rc, projectID, expectedActivityVersion, activityID, roundID, commentID, status, cred, idempotencyKey)
 }
 
-func (f *FakeActivityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.DecideReviewRoundFn == nil {
 		panic("FakeActivityExecutionAccess.DecideReviewRoundFn not set")
 	}
-	return f.DecideReviewRoundFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, roundID, outcome, decidedBy, cred, idempotencyKey)
+	return f.DecideReviewRoundFn(rc, projectID, expectedActivityVersion, activityID, roundID, outcome, decidedBy, cred, idempotencyKey)
 }
 
-func (f *FakeActivityExecutionAccess) RecordActivityOutcome(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) RecordActivityOutcome(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.RecordActivityOutcomeFn == nil {
 		panic("FakeActivityExecutionAccess.RecordActivityOutcomeFn not set")
 	}
-	return f.RecordActivityOutcomeFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, outcome, reason, detail, cred, idempotencyKey)
+	return f.RecordActivityOutcomeFn(rc, projectID, expectedActivityVersion, activityID, outcome, reason, detail, cred, idempotencyKey)
 }
 
-func (f *FakeActivityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeActivityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID projectstate.ProjectID, expectedActivityVersion int64, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.RecordOperatorNoteFn == nil {
 		panic("FakeActivityExecutionAccess.RecordOperatorNoteFn not set")
 	}
-	return f.RecordOperatorNoteFn(rc, projectID, expectedVersion, expectedActivityVersion, activityID, note, deliveredToAttemptID, cred, idempotencyKey)
+	return f.RecordOperatorNoteFn(rc, projectID, expectedActivityVersion, activityID, note, deliveredToAttemptID, cred, idempotencyKey)
 }
 
 func (f *FakeActivityExecutionAccess) ReadActivityExecution(rc fwra.Context, projectID projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
@@ -145,22 +145,22 @@ var _ projectstate.DesignSessionAccess = (*FakeDesignSessionAccess)(nil)
 // FakeGitActivityStatusAccess is a generated test double for projectstate.GitActivityStatusAccess: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeGitActivityStatusAccess struct {
-	RecordActivityBranchOpenedFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	RecordActivityCIObservedFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityBranchOpenedFn func(rc fwra.Context, projectID projectstate.ProjectID, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordActivityCIObservedFn   func(rc fwra.Context, projectID projectstate.ProjectID, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
-func (f *FakeGitActivityStatusAccess) RecordActivityBranchOpened(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeGitActivityStatusAccess) RecordActivityBranchOpened(rc fwra.Context, projectID projectstate.ProjectID, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.RecordActivityBranchOpenedFn == nil {
 		panic("FakeGitActivityStatusAccess.RecordActivityBranchOpenedFn not set")
 	}
-	return f.RecordActivityBranchOpenedFn(rc, projectID, expectedVersion, activityID, branch, branchRef, prRef, crLabel, isRevert, cred, idempotencyKey)
+	return f.RecordActivityBranchOpenedFn(rc, projectID, activityID, branch, branchRef, prRef, crLabel, isRevert, cred, idempotencyKey)
 }
 
-func (f *FakeGitActivityStatusAccess) RecordActivityCIObserved(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeGitActivityStatusAccess) RecordActivityCIObserved(rc fwra.Context, projectID projectstate.ProjectID, activityID string, ci projectstate.CICheckState, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.RecordActivityCIObservedFn == nil {
 		panic("FakeGitActivityStatusAccess.RecordActivityCIObservedFn not set")
 	}
-	return f.RecordActivityCIObservedFn(rc, projectID, expectedVersion, activityID, ci, cred, idempotencyKey)
+	return f.RecordActivityCIObservedFn(rc, projectID, activityID, ci, cred, idempotencyKey)
 }
 
 var _ projectstate.GitActivityStatusAccess = (*FakeGitActivityStatusAccess)(nil)

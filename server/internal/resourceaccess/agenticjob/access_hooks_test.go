@@ -1748,8 +1748,8 @@ const raceRounds = 40
 // keep main moving for the whole of the merge's clone → merge → push window.
 const birthsPerRound = 4
 
-// maxBirthAttempts bounds one birth's re-read-and-retry loop, the shape the delivery
-// manager's applyRecovering has: a lost version CAS re-reads the head and tries again.
+// maxBirthAttempts bounds one birth's retry loop (a Conflict retries; since FIX-006 a birth
+// asserts no project version, so none is expected).
 const maxBirthAttempts = 20
 
 // TestLocalStateRepoSurvivesConcurrentBirthsAndAMerge is the FIX-002 regression on
@@ -1822,17 +1822,15 @@ func newRaceRig(t *testing.T) *raceRig {
 		state:      projectstate.NewGitLocalProjectStateAccess(repo.URL)}
 }
 
-// birth opens activityID as the delivery manager's child does: read the head, open the
-// row from that version, and on a lost version CAS re-read and try again.
+// birth opens activityID as the delivery manager's child does. OpenActivity is a ROW write
+// (FIX-006): it asserts no project version, so a racing merge or sibling birth cannot make it
+// stale; a lost ref-CAS is re-applied inside the store. The loop stays for a Conflict, which
+// a birth with no row expectation cannot get, so one attempt is the expected count.
 func (r *raceRig) birth(activityID string) error {
 	rc := callContext(r.t, r.h, "open-"+activityID)
 	var last error
 	for range maxBirthAttempts {
-		head, err := r.state.ReadProject(rc, raceProject)
-		if err != nil {
-			return fmt.Errorf("read head: %w", err)
-		}
-		_, last = r.executions.OpenActivity(rc, raceProject, head.Version, projectstate.NoActivityVersionExpectation, activityID,
+		_, last = r.executions.OpenActivity(rc, raceProject, projectstate.NoActivityVersionExpectation, activityID,
 			projectstate.ActivityTypeService, 0, projectstate.LifecyclePin{TypeKey: "service", AssetsVersion: "v0.10.1"},
 			projectstate.RepoCredential{}, rc.IdempotencyKey)
 		if last == nil {

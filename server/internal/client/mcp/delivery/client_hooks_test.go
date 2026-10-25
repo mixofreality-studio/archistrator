@@ -48,6 +48,7 @@ package delivery_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1582,6 +1583,7 @@ func settleCommitment(t *testing.T, s *stack) {
 	for time.Now().Before(deadline) {
 		v, err := s.mgr.QueryProjectView(s.h.ManagerContext(t), mgr.ProjectViewQuery{Kind: mgr.ProjectViewSummary, ProjectID: &pid})
 		if err == nil && v.Summary != nil && v.Summary.PhaseName == "construction" {
+			s.awaitFrontierBorn(t)
 			return
 		}
 		time.Sleep(250 * time.Millisecond)
@@ -1914,6 +1916,157 @@ var settlers = map[string]settler{
 func (s *stack) startWorker(t *testing.T) {
 	t.Helper()
 	s.h.StartWorker(t, mgr.TaskQueue, func(w scenariohost.Worker) { mgr.RegisterManagerWorker(w, s.mgr) })
+	// Registered AFTER the worker's own cleanup so that it runs BEFORE it (cleanups are
+	// LIFO): the halt is answered by a Query only a live worker serves.
+	t.Cleanup(func() { s.assertNotHalted(t) })
+}
+
+// expectHalt is every scenario that ENDS with the construction pump halted BY DESIGN, with
+// the reason (FIX-006 guard part c). It is measured, not guessed: both suites were run with
+// assertNotHalted active and every scenario that ended halted is either here, with the
+// arrangement that fails a walk on purpose, or was a finding. A halt not listed here fails
+// the scenario.
+var expectHalt = map[string]string{}
+
+// assertNotHalted is FIX-006's guard part (a): a scenario must not end with its project's
+// pump HALTED unless expectHalt says why. No wait — a halt is durable, so one read at
+// teardown sees every halt the scenario reached. It exists because awaitPumpIdle accepts a
+// halted pump as idle (FIX-003, 57c73c28): without it a pump halted by store contention
+// passes every scenario.
+//
+// IT READS THE PUMP'S OWN EXECUTION, NOT THE PROJECT VIEW, and that was measured: the host
+// terminates every workflow the scenario started before any t.Cleanup runs (RunScenario's
+// deferred endScenarioWorkflows), and the view reads a halt only off a RUNNING pump. The halt
+// Query still answers on the terminated run — the worker replays its history — and this
+// cleanup runs while the worker is alive (it is registered after it).
+func (s *stack) assertNotHalted(t *testing.T) {
+	t.Helper()
+	halt, err := s.recordedPumpHalt()
+	if err != nil {
+		t.Errorf("hooks: scenario %s: the pump's halt could not be read at teardown: %v", s.scenario, err)
+		return
+	}
+	if halt == nil {
+		return
+	}
+	detail := "(no halt detail)"
+	if b, merr := json.Marshal(halt); merr == nil {
+		detail = string(b)
+	}
+	if reason, ok := expectHalt[s.scenario]; ok {
+		t.Logf("hooks: scenario %s ended with the pump halted, by design (%s): %s", s.scenario, reason, detail)
+		return
+	}
+	t.Errorf("hooks: scenario %s ended with the construction pump HALTED, which no scenario expects unless expectHalt names it: %s", s.scenario, detail)
+}
+
+// recordedPumpHalt answers the project pump's halt Query on its LATEST run, running or not:
+// nil when the project never had a pump or its pump is not halted. The workflow id and the
+// Query name are the pump's registered ones (deliverymanager.go pumpWorkflowID and
+// queryPumpHalt).
+func (s *stack) recordedPumpHalt() (*mgr.PumpHalt, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	wfID := s.project + ":nextActivity"
+	d, err := s.h.TemporalClient().DescribeWorkflowExecution(ctx, wfID, "")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("describe %s: %w", wfID, err)
+	}
+	enc, err := s.h.TemporalClient().QueryWorkflow(ctx, wfID, d.GetWorkflowExecutionInfo().GetExecution().GetRunId(), "pumpHaltState")
+	if err != nil {
+		return nil, fmt.Errorf("query %s: %w", wfID, err)
+	}
+	var halt *mgr.PumpHalt
+	if err := enc.Get(&halt); err != nil {
+		return nil, fmt.Errorf("decode %s's halt: %w", wfID, err)
+	}
+	return halt, nil
+}
+
+// awaitFrontierBorn is FIX-006's deterministic reach (guard part b): it waits, bounded by
+// walkWindow, until every activity of the post-seal construction frontier has a row, or the
+// pump has halted (which assertNotHalted then reports). Without it most runs tore down
+// before one sibling was born, and the contended fan-out was exercised by timing alone.
+func (s *stack) awaitFrontierBorn(t *testing.T) {
+	t.Helper()
+	pid := projectstate.ProjectID(s.project)
+	// THE FRONTIER IS RE-COMPUTED ON EVERY POLL, and it must hold a CONSTRUCTION activity:
+	// read once at the seal it is only the design activities already born (the M0
+	// milestone resolves for construction a beat after the phase reads construction), and
+	// the wait returned before the fan-out it exists to reach.
+	eventually(t, walkWindow, "the post-seal construction frontier being born", func() (bool, string) {
+		if sum, serr := s.summary(t); serr == nil && sum.RunState == mgr.ProjectHalted {
+			t.Logf("hooks: the pump halted before the frontier was born")
+			return true, ""
+		}
+		p, rerr := s.ps.ReadProject(s.h.ResourceAccessContext(t, s.nextKey("frontier-poll")), pid)
+		if rerr != nil {
+			return false, rerr.Error()
+		}
+		frontier := constructionFrontier(p)
+		built := withoutDesign(frontier)
+		if len(built) == 0 {
+			return false, fmt.Sprintf("no construction activity eligible yet (%d design)", len(frontier))
+		}
+		unborn := unbornOf(frontier, p)
+		if len(unborn) == 0 {
+			t.Logf("hooks: construction frontier born: %d rows (%d construction)", len(frontier), len(built))
+		}
+		return len(unborn) == 0, fmt.Sprintf("%d of %d unborn (e.g. %v)", len(unborn), len(frontier), unborn[:min(3, len(unborn))])
+	})
+}
+
+// withoutDesign is frontier minus the design activities (designOrder).
+func withoutDesign(frontier []string) []string {
+	var out []string
+	for _, id := range frontier {
+		if !slices.Contains(designOrder, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// constructionFrontier is every activity of the committed plan whose dependencies resolve
+// (satisfied, or a defect the pump records as a blocked row) — born or not: the read can land
+// after some of the fan-out's births, and those belong to the frontier as much as the rest.
+func constructionFrontier(proj projectstate.Project) []string {
+	network, nok := proj.Network.Model.(*projectstate.Network)
+	list, lok := proj.ActivityList.Model.(*projectstate.ActivityList)
+	if !nok || !lok || network == nil || list == nil {
+		return nil
+	}
+	itemByName := make(map[string]projectstate.ActivityItem, len(list.Activities))
+	for _, item := range list.Activities {
+		itemByName[item.Name] = item
+	}
+	deps := make(map[string][]string, len(network.Dependencies))
+	for _, d := range network.Dependencies {
+		deps[d.Activity] = d.DependsOn
+	}
+	milestones := projectstate.MilestonesByID(network)
+	var frontier []string
+	for _, item := range list.Activities {
+		res := projectstate.AllDepsSatisfied(deps[item.Name], itemByName, proj.ActivityExecution, milestones)
+		if res.Satisfied || res.ProblemReason != "" {
+			frontier = append(frontier, item.Name)
+		}
+	}
+	return frontier
+}
+
+// unbornOf is the members of frontier that hold no row on p yet.
+func unbornOf(frontier []string, p projectstate.Project) []string {
+	var unborn []string
+	for _, id := range frontier {
+		if _, ok := p.ActivityExecution[id]; !ok {
+			unborn = append(unborn, id)
+		}
+	}
+	return unborn
 }
 
 // workerDeferred names the scenarios whose arrangement owns the worker's lifetime

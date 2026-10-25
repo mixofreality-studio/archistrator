@@ -1088,15 +1088,15 @@ type WorkerRateSpec struct {
 
 // ActivityExecutionAccess is the generated service-contract interface for this component.
 type ActivityExecutionAccess interface {
-	OpenActivity(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	OpenActivity(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	StageTaskOutput(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, taskID string, branch string, model ModelEnvelope, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (StagedRef, error)
-	RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	OpenReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, round ReviewRoundInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	OpenReviewRound(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, round ReviewRoundInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReadActivityExecution(rc fwra.Context, projectID ProjectID, activityID string) (ActivityExecution, error)
 }
 
@@ -1111,8 +1111,8 @@ type DesignSessionAccess interface {
 
 // GitActivityStatusAccess is the generated service-contract interface for this component.
 type GitActivityStatusAccess interface {
-	RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityBranchOpened(rc fwra.Context, projectID ProjectID, activityID string, branch string, branchRef string, prRef string, crLabel string, isRevert bool, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityCIObserved(rc fwra.Context, projectID ProjectID, activityID string, ci CICheckState, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // ProjectStateAccess is the generated service-contract interface for this component.
