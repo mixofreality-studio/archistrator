@@ -430,6 +430,18 @@ func stepActivityExecutionAccessResumePausedConstructionP1S1(t *testing.T, h *sc
 	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
 }
 
+// stepActivityExecutionAccessResumePausedConstructionP3S1 — Resume Paused Construction — [yes], step 1: OpenActivity
+// Projected stimulus (JSON): {"seq":1,"node":"continue","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"OpenActivity","call":"resume-paused-construction/continue/0"},"expectedOutputs":null,"expectedStates":[{"node":"activity-started","object":"Project activity","inState":"[started]"}],"hints":null}
+// Binding (JSON): {"seq":1,"operation":"OpenActivity","inputs":[{"name":"projectID","value":"stp-aea-rs-p3"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-ARCH"},{"name":"typ","value":"8"},{"name":"variant","value":"0"},{"name":"pin","value":"{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-rs-p3:open"}],"expect":{"errorExpected":false},"probes":[{"for":"activity-started","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-rs-p3"},{"name":"activityID","value":"D-ARCH"}],"expect":{"result":"{\"activityID\":\"D-ARCH\",\"type\":\"architecture\",\"lifecyclePin\":{\"typeKey\":\"architecture\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}}],"unobservable":null,"hook":true}
+// Arranges the state in which guards halt-check=[yes] hold — the project as a halted pump left
+// it: the activity's earlier birth was refused, so the store holds no row for it — then calls
+// the operation exactly as its caller does and returns its result.
+func stepActivityExecutionAccessResumePausedConstructionP3S1(t *testing.T, h *scenariohost.Host, subject projectstate.ActivityExecutionAccess, in inputActivityExecutionAccessResumePausedConstructionP3S1) (any, error) {
+	t.Helper()
+	seedMain(t, haltReleased(in.ProjectID, in.ExpectedVersion))
+	return subject.OpenActivity(callContext(t, h, "1"), in.ProjectID, in.ExpectedVersion, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+}
+
 // stepActivityExecutionAccessSendBackChangeRequestsForARedraftP1S1 — Send Back Change Requests for a Redraft — [yes], step 1: AppendReviewVerdict
 // Projected stimulus (JSON): {"seq":1,"node":"retain-thread","input":{"kind":"call","from":"delivery-manager","to":"activityexecutionaccess","op":"AppendReviewVerdict","call":"send-back-change-requests-for-a-redraft/retain-thread/0"},"expectedOutputs":null,"expectedStates":[{"node":"obj-thread-open","object":"Review thread","inState":"[change requests open, retained on session branch]"}],"hints":null}
 // Binding (JSON): {"seq":1,"operation":"AppendReviewVerdict","inputs":[{"name":"projectID","value":"stp-aea-sb-p1"},{"name":"expectedVersion","value":"0"},{"name":"expectedActivityVersion","value":"0"},{"name":"activityID","value":"D-REQ"},{"name":"roundID","value":"D-REQ:missionReview:mission:1"},{"name":"verdict","value":"{\"reviewerRole\":\"architect\",\"actor\":\"architect-user\",\"verdict\":\"sendBack\",\"summary\":\"Change requests attached.\",\"attemptId\":\"D-REQ:missionDraft:1\",\"at\":\"\"}"},{"name":"comments","value":"[{\"id\":\"cr-1\",\"anchor\":\"$.mission\",\"anchorText\":\"operated on the customer's behalf\",\"text\":\"Name the customer outcome the mission commits to.\",\"authorRole\":\"architect\",\"round\":1,\"status\":\"open\",\"response\":\"\",\"replies\":[],\"reopened\":false,\"type\":\"changeRequest\",\"addressee\":\"system-architect\"}]"},{"name":"replies","value":"[]"},{"name":"cred","value":"{\"Bytes\":\"\",\"ExpiresAt\":\"2027-01-01T00:00:00Z\"}"},{"name":"idempotencyKey","value":"stp-aea-sb-p1:verdict:1"}],"expect":{"errorExpected":false},"probes":[{"for":"obj-thread-open","component":"activityExecutionAccess","operation":"ReadActivityExecution","inputs":[{"name":"projectID","value":"stp-aea-sb-p1"},{"name":"activityID","value":"D-REQ"}],"expect":{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"outcome\":\"pending\",\"verdicts\":[{\"verdict\":\"sendBack\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"changeRequest\",\"status\":\"open\"}]}]}","errorExpected":false}}],"unobservable":null,"hook":true}
@@ -1599,6 +1611,18 @@ func stepProjectStateAccessResumePausedConstructionP2S1(t *testing.T, h *scenari
 	return subject.ReadProject(callContext(t, h, "1"), in.ProjectID)
 }
 
+// stepProjectStateAccessResumePausedConstructionP3S1 — Resume Paused Construction — [yes], step 1: ReadProject
+// Projected stimulus (JSON): {"seq":1,"node":"pump-fires","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"ReadProject","call":"resume-paused-construction/pump-fires/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
+// Binding (JSON): {"seq":1,"operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-rs-p3"}],"expect":{"result":"{\"ID\":\"stp-psa-rs-p3\",\"Version\":9,\"Phase\":2,\"OperatorPaused\":false}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
+// Arranges a project in construction whose pump halted and was resumed — no pause was
+// recorded and the resume wrote nothing, so the version is the one the halt found — then
+// reads it as the resumed pump does.
+func stepProjectStateAccessResumePausedConstructionP3S1(t *testing.T, h *scenariohost.Host, subject projectstate.ProjectStateAccess, in inputProjectStateAccessResumePausedConstructionP3S1) (any, error) {
+	t.Helper()
+	seedMain(t, baseProject(in.ProjectID, 9, projectstate.PhaseConstruction))
+	return subject.ReadProject(callContext(t, h, "1"), in.ProjectID)
+}
+
 // stepProjectStateAccessTrackWeeklyProjectProgressP1S1 — Track Weekly Project Progress — [no] · [yes], step 1: ReadProject
 // Projected stimulus (JSON): {"seq":1,"node":"read-exits","input":{"kind":"call","from":"delivery-manager","to":"projectstateaccess","op":"ReadProject","call":"track-weekly-project-progress/read-exits/0"},"expectedOutputs":null,"expectedStates":null,"hints":null}
 // Binding (JSON): {"seq":1,"operation":"ReadProject","inputs":[{"name":"projectID","value":"stp-psa-twp-p1"}],"expect":{"result":"{\"ID\":\"stp-psa-twp-p1\",\"Version\":60,\"Phase\":2,\"ConstructionProgress\":{\"Week\":3,\"points\":[{\"week\":1},{\"week\":2}]}}","errorExpected":false},"probes":[],"unobservable":[],"hook":true}
@@ -2042,6 +2066,14 @@ func resumedAfterPause(id projectstate.ProjectID, v projectstate.Version) projec
 	p.Mission = committed(missionStatement("Deliver predictably engineered software."))
 	p.ActivityExecution = rows(doneRow("D-REQ", projectstate.ActivityTypeRequirements, "requirements"))
 	return p
+}
+
+// haltReleased: the project as a halted pump leaves it once resumed (FIX-003) — the
+// architecture activity's birth was refused before the halt, so the store holds no row for
+// it. The store cannot tell that from a resumed pause, and neither can this seed: it is
+// resumedAfterPause's project.
+func haltReleased(id projectstate.ProjectID, v projectstate.Version) projectstate.Project {
+	return resumedAfterPause(id, v)
 }
 
 // constructionDispatching: a service activity in construction whose task is being

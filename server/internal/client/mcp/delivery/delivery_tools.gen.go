@@ -448,9 +448,17 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"constructionStarted": "True iff construction has started for this project: some stored .activityExecution row carries a head fact only the construction pump writes (a start stamp, an exit stamp, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume.",
 		"operatorPaused":      "True while an operator's pause of this project's construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead.",
 		"pauseReason":         "The reason the operator gave when pausing construction. Omitted when construction is not paused.",
+		"pumpHalt":            "Why construction is halted, read from the project's construction pump. Omitted when the pump is not halted.",
+		"runState":            "The project's construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator's pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike.",
+	},
+	reflect.TypeFor[mgr.PumpHalt](): {
+		"activityId": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade.",
+		"cause":      "The failure as the pump saw it: the activity execution's error, or the reason its row records.",
+		"haltedAt":   "When the pump halted.",
 	},
 	reflect.TypeFor[mgr.PumpResult](): {
-		"activityIds": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, or an activity already in flight).",
+		"activityIds": "Every activity this pump tick dispatched, in the order the frontier pass selected them. Empty when the tick dispatched nothing (a quiescent frontier, a recorded pause, a halted pump, or an activity already in flight).",
+		"halt":        "Set when the project's pump is halted on a failed activity: the tick dispatched nothing and will not until ResumeProject.",
 	},
 	reflect.TypeFor[mgr.PumpStatus](): {
 		"open":         "True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed).",
@@ -566,8 +574,8 @@ func jsonFieldName(f reflect.StructField) string {
 func enumSchemaProjectRunState() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:        "string",
-		Enum:        []any{"running", "paused"},
-		Description: "ProjectRunState. Allowed values: \"running\"=ProjectRunning, \"paused\"=ProjectPaused.",
+		Enum:        []any{"running", "paused", "halted"},
+		Description: "ProjectRunState. Allowed values: \"running\"=ProjectRunning, \"paused\"=ProjectPaused, \"halted\"=ProjectHalted.",
 	}
 }
 

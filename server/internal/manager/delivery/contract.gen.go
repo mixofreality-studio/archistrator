@@ -160,11 +160,12 @@ type ActivityView struct {
 type ActivityViewState string
 
 const (
-	ActivityViewNotStarted    ActivityViewState = "notStarted"
-	ActivityViewRunning       ActivityViewState = "running"
-	ActivityViewAwaitingHuman ActivityViewState = "awaitingHuman"
-	ActivityViewDone          ActivityViewState = "done"
-	ActivityViewFailed        ActivityViewState = "failed"
+	ActivityViewNotStarted      ActivityViewState = "notStarted"
+	ActivityViewRunning         ActivityViewState = "running"
+	ActivityViewAwaitingHuman   ActivityViewState = "awaitingHuman"
+	ActivityViewDone            ActivityViewState = "done"
+	ActivityViewFailed          ActivityViewState = "failed"
+	ActivityViewHaltedByFailure ActivityViewState = "haltedByFailure"
 )
 
 type AnchoredComment struct {
@@ -627,6 +628,7 @@ type ProjectRunState string
 const (
 	ProjectRunning ProjectRunState = "running"
 	ProjectPaused  ProjectRunState = "paused"
+	ProjectHalted  ProjectRunState = "halted"
 )
 
 type ProjectState struct {
@@ -648,6 +650,8 @@ type ProjectState struct {
 	ConstructionStarted  bool                                  `json:"constructionStarted"`
 	OperatorPaused       bool                                  `json:"operatorPaused"`
 	PauseReason          *string                               `json:"pauseReason,omitempty"`
+	RunState             ProjectRunState                       `json:"runState"`
+	PumpHalt             *PumpHalt                             `json:"pumpHalt,omitempty"`
 }
 
 type ProjectSummary struct {
@@ -706,9 +710,16 @@ type ProjectViewQuery struct {
 	Revision     *int            `json:"revision,omitempty"`
 }
 
+type PumpHalt struct {
+	ActivityID ActivityID `json:"activityId"`
+	Cause      string     `json:"cause"`
+	HaltedAt   time.Time  `json:"haltedAt"`
+}
+
 type PumpResult struct {
 	Dispatched  bool         `json:"dispatched"`
 	ActivityIDs []ActivityID `json:"activityIds,omitempty"`
+	Halt        *PumpHalt    `json:"halt,omitempty"`
 }
 
 type PumpStatus struct {
