@@ -440,42 +440,55 @@ func TestRig_FreshSystemReachesRecordServiceContract(t *testing.T) {
 				t.Fatalf("published System slot holds no System: %+v", published.SystemDesign)
 			}
 			for _, c := range sys.Components {
-				got := ""
-				if c.ContractKey != nil {
-					got = *c.ContractKey
-				}
-				want := lowerCamelOfID(c.ID)
-				if c.Kind == projectstate.CompResource {
-					want = ""
-				}
-				if got != want {
-					t.Errorf("published component %q (%s) has contractKey %q, want %q", c.ID, c.Kind, got, want)
-				}
+				assertPublishedKey(t, c)
 			}
 			for _, c := range sys.Components {
 				branch := "activity/C-" + c.ID
 				mustGit(t, repo, "checkout", "-q", "-b", branch, draftBranch)
 				mustGit(t, repo, "push", "-q", "-u", "origin", branch)
 				res, contracts := rigRecordContract(t, bin, repo, branch, c)
-				if c.Kind == projectstate.CompResource {
-					if !res.IsError || !strings.Contains(contentText(res), c.ID) {
-						t.Errorf("recordServiceContract for the Resource %q: want a refusal naming it, got error=%v %q", c.ID, res.IsError, contentText(res))
-					}
-					continue
-				}
-				if res.IsError {
-					t.Errorf("recordServiceContract for %q (%s) refused: %s", c.ID, c.Kind, contentText(res))
-					continue
-				}
-				key := lowerCamelOfID(c.ID)
-				if contracts[key].Component != key {
-					t.Errorf("component %q: contract not filed at .serviceContracts[%q]: %v", c.ID, key, keysOfContracts(contracts))
-				}
-				if _, wrong := contracts[c.ID]; wrong && c.ID != key {
-					t.Errorf("component %q: contract filed under the kebab id", c.ID)
-				}
+				assertContractRecorded(t, c, res, contracts)
 			}
 		})
+	}
+}
+
+// assertPublishedKey fails t unless the published component carries the key the test
+// states independently: lowerCamel(id), none for a Resource.
+func assertPublishedKey(t *testing.T, c projectstate.Component) {
+	t.Helper()
+	got, want := "", lowerCamelOfID(c.ID)
+	if c.ContractKey != nil {
+		got = *c.ContractKey
+	}
+	if c.Kind == projectstate.CompResource {
+		want = ""
+	}
+	if got != want {
+		t.Errorf("published component %q (%s) has contractKey %q, want %q", c.ID, c.Kind, got, want)
+	}
+}
+
+// assertContractRecorded fails t unless recordServiceContract refused the Resource c by
+// name, or filed c's contract at .serviceContracts[lowerCamel(id)] and not under its id.
+func assertContractRecorded(t *testing.T, c projectstate.Component, res *mcp.CallToolResult, contracts map[string]projectstate.ServiceContract) {
+	t.Helper()
+	if c.Kind == projectstate.CompResource {
+		if !res.IsError || !strings.Contains(contentText(res), c.ID) {
+			t.Errorf("recordServiceContract for the Resource %q: want a refusal naming it, got error=%v %q", c.ID, res.IsError, contentText(res))
+		}
+		return
+	}
+	if res.IsError {
+		t.Errorf("recordServiceContract for %q (%s) refused: %s", c.ID, c.Kind, contentText(res))
+		return
+	}
+	key := lowerCamelOfID(c.ID)
+	if contracts[key].Component != key {
+		t.Errorf("component %q: contract not filed at .serviceContracts[%q]: %v", c.ID, key, keysOfContracts(contracts))
+	}
+	if _, wrong := contracts[c.ID]; wrong && c.ID != key {
+		t.Errorf("component %q: contract filed under the kebab id", c.ID)
 	}
 }
 

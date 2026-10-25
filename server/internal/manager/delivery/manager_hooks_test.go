@@ -3618,74 +3618,14 @@ func TestFreshSystem_EveryPlannedActivityResolvesItsContracts(t *testing.T) {
 		}
 		fixtures++
 		t.Run(strings.TrimSuffix(filepath.Base(path), ".json"), func(t *testing.T) {
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var sys projectstate.System
-			if err := json.Unmarshal(raw, &sys); err != nil {
-				t.Fatalf("decode System: %v", err)
-			}
-			if err := projectstate.FinalizeDraftModel(&sys); err != nil {
-				t.Fatalf("FinalizeDraftModel: %v", err)
-			}
-			list, _, _, err := delivery.MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
-			if err != nil {
-				t.Fatalf("derive the plan: %v", err)
-			}
-			// The run's committed Phase-1 predecessors: the use cases the scenario checks
-			// are projected from.
-			pre, err := os.ReadFile(strings.TrimSuffix(path, ".json") + ".predecessors.json")
-			if err != nil {
-				t.Fatal(err)
-			}
-			p, ok, err := projectstate.DecodeProjectJSON(pre, "fresh")
-			if err != nil || !ok {
-				t.Fatalf("decode the predecessors: ok=%v err=%v", ok, err)
-			}
-			p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &sys}
-			p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &list}
+			p, list := freshPlannedProject(t, path)
 			built, scenarios := 0, 0
 			for _, a := range list.Activities {
 				if !strings.HasPrefix(a.Name, "C-") && !strings.HasPrefix(a.Name, "U-SPA") {
 					continue
 				}
 				built++
-				key, ok := projectstate.ContractKeyOf(&p, a.ComponentID)
-				if !ok {
-					t.Errorf("activity %s: component %q resolves to no contract key — its detailed design cannot record a contract, its testing gate holds, and its review floor finds none", a.Name, a.ComponentID)
-					continue
-				}
-				pkg := "internal/fresh/" + strings.ToLower(key)
-				if p.ServiceContracts == nil {
-					p.ServiceContracts = map[string]projectstate.ServiceContract{}
-				}
-				p.ServiceContracts[key] = projectstate.ServiceContract{Component: key, Layer: "Engine", GoPackage: pkg}
-				for _, task := range []string{"construction", "integration"} {
-					spec, err := projectstate.TaskSpecFor(&p, a.Name, task)
-					if err != nil {
-						t.Errorf("activity %s task %s: %v", a.Name, task, err)
-						continue
-					}
-					assertComponentScoped(t, a.Name, task, pkg, spec)
-					if task != "integration" {
-						continue
-					}
-					projected, err := projectstate.ComponentScenarios(&p, key)
-					if err != nil {
-						t.Fatalf("project %s's scenarios: %v", key, err)
-					}
-					got := 0
-					for _, c := range spec.Checks {
-						if c.Kind == projectstate.CheckKindScenario && c.Source.Contract == key {
-							got++
-						}
-					}
-					if got != len(projected) {
-						t.Errorf("activity %s integration: %d scenario checks under %s, want the %d its use cases project", a.Name, got, key, len(projected))
-					}
-					scenarios += got
-				}
+				scenarios += assertActivityResolvesItsContract(t, &p, a)
 			}
 			if built == 0 {
 				t.Fatal("the plan derived no C-*/U-SPA-* activity from the fresh System")
@@ -3698,6 +3638,89 @@ func TestFreshSystem_EveryPlannedActivityResolvesItsContracts(t *testing.T) {
 	if fixtures == 0 {
 		t.Fatalf("no fresh-system fixtures under %s", dir)
 	}
+}
+
+// freshPlannedProject is the fixture's System after the server's FinalizeDraftModel,
+// committed over the run's Phase-1 predecessors (the use cases the scenario checks are
+// projected from), with the plan the Manager derives from it committed beside it.
+func freshPlannedProject(t *testing.T, path string) (projectstate.Project, projectstate.ActivityList) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sys projectstate.System
+	if err := json.Unmarshal(raw, &sys); err != nil {
+		t.Fatalf("decode System: %v", err)
+	}
+	if err := projectstate.FinalizeDraftModel(&sys); err != nil {
+		t.Fatalf("FinalizeDraftModel: %v", err)
+	}
+	list, _, _, err := delivery.MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("derive the plan: %v", err)
+	}
+	pre, err := os.ReadFile(strings.TrimSuffix(path, ".json") + ".predecessors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok, err := projectstate.DecodeProjectJSON(pre, "fresh")
+	if err != nil || !ok {
+		t.Fatalf("decode the predecessors: ok=%v err=%v", ok, err)
+	}
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &sys}
+	p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &list}
+	return p, list
+}
+
+// assertActivityResolvesItsContract fails t unless activity a's component resolves to a
+// contract key and, once a contract with a Go package is recorded under it (into p), its
+// construction and integration specs are component-scoped and integration carries every
+// scenario check the use cases project for the key. It returns that scenario count.
+func assertActivityResolvesItsContract(t *testing.T, p *projectstate.Project, a projectstate.ActivityItem) int {
+	t.Helper()
+	key, ok := projectstate.ContractKeyOf(p, a.ComponentID)
+	if !ok {
+		t.Errorf("activity %s: component %q resolves to no contract key — its detailed design cannot record a contract, its testing gate holds, and its review floor finds none", a.Name, a.ComponentID)
+		return 0
+	}
+	pkg := "internal/fresh/" + strings.ToLower(key)
+	if p.ServiceContracts == nil {
+		p.ServiceContracts = map[string]projectstate.ServiceContract{}
+	}
+	p.ServiceContracts[key] = projectstate.ServiceContract{Component: key, Layer: "Engine", GoPackage: pkg}
+	for _, task := range []string{"construction", "integration"} {
+		spec, err := projectstate.TaskSpecFor(p, a.Name, task)
+		if err != nil {
+			t.Errorf("activity %s task %s: %v", a.Name, task, err)
+			return 0
+		}
+		assertComponentScoped(t, a.Name, task, pkg, spec)
+		if task == "integration" {
+			return assertScenarioChecks(t, p, a.Name, key, spec)
+		}
+	}
+	return 0
+}
+
+// assertScenarioChecks fails t unless spec carries one scenario check under key for every
+// scenario the use cases project for it, and returns how many it carries.
+func assertScenarioChecks(t *testing.T, p *projectstate.Project, activity, key string, spec projectstate.TaskSpec) int {
+	t.Helper()
+	projected, err := projectstate.ComponentScenarios(p, key)
+	if err != nil {
+		t.Fatalf("project %s's scenarios: %v", key, err)
+	}
+	got := 0
+	for _, c := range spec.Checks {
+		if c.Kind == projectstate.CheckKindScenario && c.Source.Contract == key {
+			got++
+		}
+	}
+	if got != len(projected) {
+		t.Errorf("activity %s integration: %d scenario checks under %s, want the %d its use cases project", activity, got, key, len(projected))
+	}
+	return got
 }
 
 // assertComponentScoped fails t unless spec is a component-scoped task spec: a service
