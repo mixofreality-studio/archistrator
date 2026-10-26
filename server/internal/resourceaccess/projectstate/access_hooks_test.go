@@ -2269,7 +2269,7 @@ func useCaseModel(id, name, rationale string) *projectstate.CoreUseCases {
 // least one component, its layer matching its kind).
 func systemModel() *projectstate.System {
 	return &projectstate.System{Components: []projectstate.Component{{
-		ID: "project-state-access", Name: "projectStateAccess", Kind: projectstate.CompResourceAccess,
+		ID: "project-state-access", Name: "projectStateAccess", Kind: projectstate.CompResourceAccess, ContractKey: fix007Key("projectStateAccess"),
 		Layer: projectstate.LayerResourceAccess, Encapsulates: "Project state storage", AtomicBusinessVerbs: []string{"ReadProject"},
 	}}}
 }
