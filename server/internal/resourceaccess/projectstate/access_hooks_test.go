@@ -3435,3 +3435,36 @@ func TestContractKeyOf_HoldsTheStoredKeyToTheDerivation(t *testing.T) {
 		}
 	}
 }
+
+// TestStageArtifactForReview_RefusesASystemOffTheContractKeyDerivation: the stage write
+// holds a System to the SAME contract-key invariant the read-back does, so a writer that
+// bypasses FinalizeDraftModel is refused at the write (ContractMisuse, every offender
+// named) instead of landing a branch no reader can decode. A stamped System stages.
+func TestStageArtifactForReview_RefusesASystemOffTheContractKeyDerivation(t *testing.T) {
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	const id, v = projectstate.ProjectID("fix007-stage"), projectstate.Version(3)
+	seedRepoDoc(t, repo.Dir, baseProject(id, v, projectstate.PhaseSystemDesign))
+	dsa := projectstate.NewGitLocalDesignSessionAccess(repo.URL)
+	stage := func(sys *projectstate.System) (projectstate.Version, error) {
+		env, err := projectstate.EncodeModel(sys)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		return dsa.StageArtifactForReviewOnBranch(callContext(t, h, "1"), id, v, "", env, "fix007-stage")
+	}
+	keyless := &projectstate.System{Components: []projectstate.Component{
+		fix007Component("billing-engine", projectstate.CompEngine, nil),
+		fix007Component("billing-store", projectstate.CompResource, fix007Key("billingStore")),
+	}}
+	_, err := stage(keyless)
+	if err == nil || raKind(err) != "ContractMisuse" || !strings.Contains(err.Error(), `"billing-engine"`) || !strings.Contains(err.Error(), `"billing-store"`) {
+		t.Fatalf("staging a System off the derivation: want ContractMisuse naming both components, got %v (kind %s)", err, raKind(err))
+	}
+	if err := projectstate.FinalizeDraftModel(keyless); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stage(keyless); err != nil {
+		t.Fatalf("staging the finalized System: %v", err)
+	}
+}

@@ -3890,6 +3890,11 @@ func requireStagedModel(verb string, model ModelEnvelope) (ArtifactModel, error)
 	if err != nil {
 		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": undecodable model envelope: "+err.Error())
 	}
+	// FIX-007: the contract-key invariant the read-back enforces, held at the stage too —
+	// a System staged off the derivation would otherwise land and leave the branch unreadable.
+	if err := requireSystemContractKeys(decoded); err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": "+err.Error())
+	}
 	return decoded, nil
 }
 
@@ -5357,6 +5362,22 @@ func systemContractKeyProblems(s *System) []string {
 		}
 	}
 	return problems
+}
+
+// requireSystemContractKeys is the contract-key invariant as one error, shared by the
+// read-back codec (decodeSlotsMap) and the stage writes (requireStagedModel) so the two
+// refuse exactly the same Systems: nil for any other model kind.
+func requireSystemContractKeys(model ArtifactModel) error {
+	sys, ok := model.(*System)
+	if !ok || sys == nil {
+		return nil
+	}
+	problems := systemContractKeyProblems(sys)
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d component contractKey(s) off the server derivation (lowerCamel(id) for every non-Resource component, none for a Resource; FinalizeDraftModel stamps it):\n  - %s",
+		len(problems), strings.Join(problems, "\n  - "))
 }
 
 // finalizeCoreUseCasesIdentities assigns UseCase.ID = Slug(Name), Actor.ID =
@@ -7177,11 +7198,8 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 			// FIX-007 CONTRACT-KEY INVARIANT: the read-back half of the stamp
 			// FinalizeDraftModel applies — a stored System whose keys are not exactly
 			// ContractKeyFor's is refused, with the SAME strictness the write path applies.
-			if sys, isSys := model.(*System); isSys {
-				if problems := systemContractKeyProblems(sys); len(problems) > 0 {
-					return fmt.Errorf("decode slot %s model: %d component contractKey(s) off the server derivation (lowerCamel(id) for every non-Resource component, none for a Resource; FinalizeDraftModel stamps it):\n  - %s",
-						kind, len(problems), strings.Join(problems, "\n  - "))
-				}
+			if err := requireSystemContractKeys(model); err != nil {
+				return fmt.Errorf("decode slot %s model: %w", kind, err)
 			}
 			// Restore Solution SlotKind: the four share one concrete type; the
 			// destination slot's kind is authoritative.
