@@ -3414,3 +3414,24 @@ func TestContractKeyFor(t *testing.T) {
 		}
 	}
 }
+
+// TestContractKeyOf_HoldsTheStoredKeyToTheDerivation: ContractKeyOf resolves a
+// component to ContractKeyFor's key only when the stored key agrees with it. An
+// in-memory System the codec would refuse (a missing or disagreeing stored key) resolves
+// to no key rather than to either spelling; a Resource and an unnamed component have none.
+func TestContractKeyOf_HoldsTheStoredKeyToTheDerivation(t *testing.T) {
+	p := &projectstate.Project{SystemDesign: projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.System{Components: []projectstate.Component{
+		fix007Component("billing-engine", projectstate.CompEngine, fix007Key("billingEngine")),
+		fix007Component("review-engine", projectstate.CompEngine, fix007Key("reviews")),
+		fix007Component("audit-engine", projectstate.CompEngine, nil),
+		fix007Component("billing-store", projectstate.CompResource, nil),
+	}}}}
+	if key, ok := projectstate.ContractKeyOf(p, "billing-engine"); !ok || key != "billingEngine" {
+		t.Errorf("ContractKeyOf(billing-engine) = %q, %v; want billingEngine, true", key, ok)
+	}
+	for _, id := range []string{"review-engine", "audit-engine", "billing-store", "no-such-component"} {
+		if key, ok := projectstate.ContractKeyOf(p, id); ok || key != "" {
+			t.Errorf("ContractKeyOf(%s) = %q, %v; want no key", id, key, ok)
+		}
+	}
+}
