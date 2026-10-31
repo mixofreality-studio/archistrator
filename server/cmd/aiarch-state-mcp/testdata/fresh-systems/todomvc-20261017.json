@@ -1,0 +1,1270 @@
+{
+  "components": [
+    {
+      "id": "todo-web-app",
+      "name": "TodoWebApp",
+      "kind": "client",
+      "layer": "client",
+      "encapsulates": "Presentation-host volatility: the browser host. Renders a team member's list; routes to TodoListManager.",
+      "encapsulatesVolatilities": [
+        "Presentation-host volatility"
+      ],
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "mcp-apps-surface",
+      "name": "McpAppsSurface",
+      "kind": "client",
+      "layer": "client",
+      "encapsulates": "Presentation-host volatility: the MCP Apps host. Renders the list inside agent hosts; routes to TodoListManager.",
+      "encapsulatesVolatilities": [
+        "Presentation-host volatility"
+      ],
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "agent-gateway",
+      "name": "AgentGateway",
+      "kind": "client",
+      "layer": "client",
+      "encapsulates": "Agent-access protocol volatility. Web API and MCP tools for agent tooling; routes to TodoListManager.",
+      "encapsulatesVolatilities": [
+        "Agent-access protocol volatility"
+      ],
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "todo-list-manager",
+      "name": "TodoListManager",
+      "kind": "manager",
+      "layer": "manager",
+      "encapsulates": "Channel-neutral list workflow. Applies and recalls list-of-record changes identically for every host and protocol.",
+      "encapsulatesVolatilities": [
+        "Presentation-host volatility",
+        "Agent-access protocol volatility"
+      ],
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "member-identity-access",
+      "name": "MemberIdentityAccess",
+      "kind": "resourceAccess",
+      "layer": "resourceAccess",
+      "encapsulates": "Encapsulates Member-identification volatility. Recognises whose list is worked, whatever the channel's identity scheme.",
+      "encapsulatesVolatilities": [
+        "Member-identification volatility"
+      ],
+      "atomicBusinessVerbs": [
+        "recognizeMember"
+      ]
+    },
+    {
+      "id": "todo-list-access",
+      "name": "TodoListAccess",
+      "kind": "resourceAccess",
+      "layer": "resourceAccess",
+      "encapsulates": "Encapsulates List-of-record storage volatility and Hosting-environment volatility. Atomic verbs over each member's durable list.",
+      "encapsulatesVolatilities": [
+        "List-of-record storage volatility",
+        "Hosting-environment volatility"
+      ],
+      "atomicBusinessVerbs": [
+        "recordTodo",
+        "retitleTodo",
+        "discardTodo",
+        "markTodo",
+        "markEveryTodo",
+        "sweepCompleted",
+        "recallTodos",
+        "tallyItemsLeft"
+      ]
+    },
+    {
+      "id": "identity-provider",
+      "name": "IdentityProvider",
+      "kind": "resource",
+      "layer": "resource",
+      "encapsulates": "",
+      "atomicBusinessVerbs": null
+    },
+    {
+      "id": "todo-list-store",
+      "name": "TodoListStore",
+      "kind": "resource",
+      "layer": "resource",
+      "encapsulates": "",
+      "atomicBusinessVerbs": null
+    }
+  ],
+  "relationships": [
+    {
+      "from": "todo-web-app",
+      "to": "todo-list-manager",
+      "mode": "sync",
+      "label": "addTodo | correctTitle | removeTodo | markTodo | markEveryTodo | clearCompleted | reviewList"
+    },
+    {
+      "from": "mcp-apps-surface",
+      "to": "todo-list-manager",
+      "mode": "sync",
+      "label": "addTodo | correctTitle | removeTodo | markTodo | markEveryTodo | clearCompleted | reviewList"
+    },
+    {
+      "from": "agent-gateway",
+      "to": "todo-list-manager",
+      "mode": "sync",
+      "label": "addTodo | correctTitle | removeTodo | markTodo | markEveryTodo | clearCompleted | reviewList"
+    },
+    {
+      "from": "todo-list-manager",
+      "to": "member-identity-access",
+      "mode": "sync",
+      "label": "recognizeMember(credential) → member"
+    },
+    {
+      "from": "todo-list-manager",
+      "to": "todo-list-access",
+      "mode": "sync",
+      "label": "recordTodo / retitleTodo / discardTodo / markTodo / markEveryTodo / sweepCompleted / recallTodos / tallyItemsLeft"
+    },
+    {
+      "from": "member-identity-access",
+      "to": "identity-provider",
+      "mode": "sync",
+      "label": "verify credential and resolve member"
+    },
+    {
+      "from": "todo-list-access",
+      "to": "todo-list-store",
+      "mode": "sync",
+      "label": "write / read the member's todos (idempotency: todo id)"
+    }
+  ],
+  "dynamicViews": [
+    {
+      "useCaseId": "change-the-list-of-record",
+      "key": "change-the-list-of-record",
+      "title": "Change the List of Record",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "make a change to the list",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "make a change to the list",
+              "alt": "s1"
+            },
+            {
+              "from": "agent-tooling",
+              "to": "agent-gateway",
+              "mode": "sync",
+              "label": "invoke a list-changing action",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "addTodo | correctTitle | removeTodo | markTodo | markEveryTodo | clearCompleted",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "addTodo | correctTitle | removeTodo | markTodo | markEveryTodo | clearCompleted",
+              "alt": "s2"
+            },
+            {
+              "from": "agent-gateway",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "addTodo | correctTitle | removeTodo | markTodo | markEveryTodo | clearCompleted",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recordTodo(member, title) | retitleTodo(member, todoId, title)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "write the todo (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "discardTodo(member, todoId)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "remove the todo (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a4",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "markTodo(member, todoId, completed) | markEveryTodo(member, completed) | discardTodo(member, todoId) | sweepCompleted(member)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "write the affected todos (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a5",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "review-the-list-of-record",
+      "key": "review-the-list-of-record",
+      "title": "Review the List of Record",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "view the list under a filter",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "view the list under a filter",
+              "alt": "s1"
+            },
+            {
+              "from": "agent-tooling",
+              "to": "agent-gateway",
+              "mode": "sync",
+              "label": "invoke the list-recall action",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "agent-gateway",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recallTodos(member, filter) → todos"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read the member's todos in insertion order"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "add-a-todo",
+      "key": "add-a-todo",
+      "title": "Add a Todo",
+      "steps": [
+        {
+          "activityNodeId": "d1",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "enter a new todo title",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "enter a new todo title",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "addTodo(credential, title) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "addTodo(credential, title) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recordTodo(member, title)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "append the active todo (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "correct-a-todo-s-title",
+      "key": "correct-a-todo-s-title",
+      "title": "Correct a Todo's Title",
+      "steps": [
+        {
+          "activityNodeId": "d2",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "commit the edited title",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "commit the edited title",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "correctTitle(credential, todoId, title) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "correctTitle(credential, todoId, title) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "retitleTodo(member, todoId, title)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "write the new title (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "discardTodo(member, todoId)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "remove the todo (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "remove-a-todo",
+      "key": "remove-a-todo",
+      "title": "Remove a Todo",
+      "steps": [
+        {
+          "activityNodeId": "x0",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "remove a todo",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "remove a todo",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "removeTodo(credential, todoId) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "removeTodo(credential, todoId) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "discardTodo(member, todoId)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "remove the todo (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "x1",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "mark-a-todo-done-or-not-done",
+      "key": "mark-a-todo-done-or-not-done",
+      "title": "Mark a Todo Done or Not Done",
+      "steps": [
+        {
+          "activityNodeId": "x0",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "toggle a todo's completion",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "toggle a todo's completion",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "markTodo(credential, todoId, completed) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "markTodo(credential, todoId, completed) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "markTodo(member, todoId, completed)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "write the completion state (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "x1",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "mark-every-todo-done-or-not-done",
+      "key": "mark-every-todo-done-or-not-done",
+      "title": "Mark Every Todo Done or Not Done",
+      "steps": [
+        {
+          "activityNodeId": "d1",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "toggle all todos",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "toggle all todos",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "markEveryTodo(credential) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "markEveryTodo(credential) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "markEveryTodo(member, active)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "write every todo's completion state (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "markEveryTodo(member, completed)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "write every todo's completion state (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "clear-completed-todos",
+      "key": "clear-completed-todos",
+      "title": "Clear Completed Todos",
+      "steps": [
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "clear completed todos",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "clear completed todos",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "clearCompleted(credential) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "clearCompleted(credential) → itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "sweepCompleted(member)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "remove every completed todo (idempotency: todo id)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "switch-the-filter",
+      "key": "switch-the-filter",
+      "title": "Switch the Filter",
+      "steps": [
+        {
+          "activityNodeId": "x0",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "choose a filter",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "choose a filter",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recallTodos(member, filter) → todos"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read the member's todos in insertion order"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "see-items-left",
+      "key": "see-items-left",
+      "title": "See Items Left",
+      "steps": [
+        {
+          "activityNodeId": "x0",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "view the list",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "view the list",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "come-back-to-the-list",
+      "key": "come-back-to-the-list",
+      "title": "Come Back to the List",
+      "steps": [
+        {
+          "activityNodeId": "x1",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "todo-web-app",
+              "mode": "sync",
+              "label": "reopen the app",
+              "alt": "s1"
+            },
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "reopen the app",
+              "alt": "s1"
+            },
+            {
+              "from": "todo-web-app",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft",
+              "alt": "s2"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recallTodos(member, filter) → todos"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read the member's todos in insertion order"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "x2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "agent-tooling-works-the-list",
+      "key": "agent-tooling-works-the-list",
+      "title": "Agent Tooling Works the List",
+      "steps": [
+        {
+          "activityNodeId": "a0",
+          "calls": [
+            {
+              "from": "agent-tooling",
+              "to": "agent-gateway",
+              "mode": "sync",
+              "label": "invoke an everyday list action"
+            },
+            {
+              "from": "agent-gateway",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "addTodo | correctTitle | removeTodo | markTodo | markEveryTodo | clearCompleted | reviewList"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify delegated credential and resolve member"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a1",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recordTodo | retitleTodo | discardTodo | markTodo | markEveryTodo | sweepCompleted (member, …)"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "write the affected todos (idempotency: todo id)"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recallTodos(member, filter) → todos"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read the member's todos in insertion order"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "a3",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "useCaseId": "work-the-list-inside-an-mcp-hosted-ui",
+      "key": "work-the-list-inside-an-mcp-hosted-ui",
+      "title": "Work the List Inside an MCP-Hosted UI",
+      "steps": [
+        {
+          "activityNodeId": "x1",
+          "calls": [
+            {
+              "from": "team-member",
+              "to": "mcp-apps-surface",
+              "mode": "sync",
+              "label": "open the embedded list under a filter"
+            },
+            {
+              "from": "mcp-apps-surface",
+              "to": "todo-list-manager",
+              "mode": "sync",
+              "label": "reviewList(credential, filter) → todos, itemsLeft"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "member-identity-access",
+              "mode": "sync",
+              "label": "recognizeMember(credential) → member"
+            },
+            {
+              "from": "member-identity-access",
+              "to": "identity-provider",
+              "mode": "sync",
+              "label": "verify credential and resolve member"
+            },
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "recallTodos(member, filter) → todos"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read the member's todos in insertion order"
+            }
+          ]
+        },
+        {
+          "activityNodeId": "x2",
+          "calls": [
+            {
+              "from": "todo-list-manager",
+              "to": "todo-list-access",
+              "mode": "sync",
+              "label": "tallyItemsLeft(member) → count"
+            },
+            {
+              "from": "todo-list-access",
+              "to": "todo-list-store",
+              "mode": "sync",
+              "label": "read completion states of the member's todos"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

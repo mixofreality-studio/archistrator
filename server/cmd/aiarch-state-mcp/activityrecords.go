@@ -166,18 +166,24 @@ func committedActivityPlan(proj projectstate.Project) (*projectstate.ActivityLis
 
 // builtUnrecorded is the REC-BUILT-UNRECORDED message for one activity, "" when the rule
 // holds. Only an activity that builds a Go component is in its reach: the component's own
-// contract names the package the implementation and generated scenarios live in. A
-// Resource is provisioned, not built; a client with no goPackage is a UI app whose code
+// contract (filed under projectstate.ContractKeyFor) names the package the implementation
+// and generated scenarios live in. A Resource is provisioned, not built — skipped by its
+// KIND; every other component has a key, so a fresh project's components are in reach the
+// moment their contract is recorded. A client with no goPackage is a UI app whose code
 // this arm does not read.
 func builtUnrecorded(
 	proj projectstate.Project, item projectstate.ActivityItem, components map[string]projectstate.Component,
 	row projectstate.ActivityExecution, hasRow bool, resolved []projectstate.PhaseCompletion, repo checkout,
 ) (string, error) {
 	component, ok := components[item.ComponentID]
-	if !ok || component.ContractKey == nil || *component.ContractKey == "" {
+	if !ok {
 		return "", nil
 	}
-	own, ok := proj.ServiceContracts[*component.ContractKey]
+	key, keyed := projectstate.ContractKeyFor(component)
+	if !keyed {
+		return "", nil
+	}
+	own, ok := proj.ServiceContracts[key]
 	if !ok || own.GoPackage == "" || own.Interface.Name == "" {
 		return "", nil
 	}

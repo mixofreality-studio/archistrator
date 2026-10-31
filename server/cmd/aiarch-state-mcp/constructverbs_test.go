@@ -7,16 +7,24 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// projectWithComponent is minimalProject with a System naming one component: the
-// architecture id the construct job carries (kebab) and the contract key its service
-// contract is recorded under.
-func projectWithComponent(id, contractKey string) projectstate.Project {
+// projectWithComponent is minimalProject with a System naming one component of kind
+// (an Engine when none is given) by the architecture id the construct job carries
+// (kebab). The System is built the way the server stores a draft — through
+// FinalizeDraftModel — so its contract key is the one the server derives, never a key a
+// test hand-supplies (FIX-007: every keyed fixture used to be hand-keyed, which hid that
+// a fresh project's System carried none).
+func projectWithComponent(t *testing.T, id string, kind ...projectstate.ComponentKind) projectstate.Project {
+	t.Helper()
 	p := minimalProject()
 	c := projectstate.Component{ID: id, Name: "Billing Engine", Kind: projectstate.CompEngine, Layer: projectstate.LayerEngine, Encapsulates: "Billing rules volatility"}
-	if contractKey != "" {
-		c.ContractKey = &contractKey
+	if len(kind) > 0 && kind[0] == projectstate.CompResource {
+		c.Kind, c.Layer = projectstate.CompResource, projectstate.LayerResource
 	}
-	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.System{Components: []projectstate.Component{c}}}
+	sys := &projectstate.System{Components: []projectstate.Component{c}}
+	if err := projectstate.FinalizeDraftModel(sys); err != nil {
+		t.Fatalf("finalize the fixture System: %v", err)
+	}
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: sys}
 	return p
 }
 
@@ -24,7 +32,7 @@ func projectWithComponent(id, contractKey string) projectstate.Project {
 // in .serviceContracts under the AMBIENT component's contract key (not its architecture
 // id) and passes the codec + methodcheck.
 func TestRecordServiceContract_WritesAndValidates(t *testing.T) {
-	s, _ := seedProject(t, projectWithComponent("billing-engine", "billingEngine"), jobModeConstruct, 0)
+	s, _ := seedProject(t, projectWithComponent(t, "billing-engine"), jobModeConstruct, 0)
 	s.ComponentID = "billing-engine"
 	if err := s.recordServiceContract(map[string]any{
 		"component": "billingEngine",
@@ -58,12 +66,12 @@ func TestRecordServiceContract_MissingAmbientComponent(t *testing.T) {
 	}
 }
 
-// TestRecordServiceContract_RefusesComponentWithoutContractKey proves a component the
-// System gives no contract key (or does not name) has nothing recorded for it.
-func TestRecordServiceContract_RefusesComponentWithoutContractKey(t *testing.T) {
+// TestRecordServiceContract_RefusesAResource proves a Resource (provisioned, never
+// contracted) and a component the System does not name have nothing recorded for them.
+func TestRecordServiceContract_RefusesAResource(t *testing.T) {
 	for name, p := range map[string]projectstate.Project{
-		"no contract key":   projectWithComponent("billing-engine", ""),
-		"unknown component": projectWithComponent("other-engine", "otherEngine"),
+		"resource":          projectWithComponent(t, "billing-engine", projectstate.CompResource),
+		"unknown component": projectWithComponent(t, "other-engine"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, _ := seedProject(t, p, jobModeConstruct, 0)
@@ -82,7 +90,7 @@ func TestRecordServiceContract_RefusesComponentWithoutContractKey(t *testing.T) 
 // TestRecordServiceContract_RejectsMalformed proves a type-mismatched contract is
 // rejected by the strict codec with nothing written.
 func TestRecordServiceContract_RejectsMalformed(t *testing.T) {
-	s, _ := seedProject(t, projectWithComponent("billing-engine", "billingEngine"), jobModeConstruct, 0)
+	s, _ := seedProject(t, projectWithComponent(t, "billing-engine"), jobModeConstruct, 0)
 	s.ComponentID = "billing-engine"
 	// component must be a string; a number fails the strict decode.
 	err := s.recordServiceContract(map[string]any{"component": 123})

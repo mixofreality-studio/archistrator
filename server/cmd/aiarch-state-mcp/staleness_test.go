@@ -12,6 +12,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,9 +54,10 @@ func deadlockFixtureProject(staleOpConcepts bool) projectstate.Project {
 
 // amendedSystemModel is the post-amendment System: the original chain (WebClient →
 // GtdManager → TaskAccess → TaskDB) PLUS the added AgentAccess the deployment topology
-// does not yet package — the DEP-COVERAGE / DEP-GRAPH-IDENTITY trigger.
+// does not yet package — the DEP-COVERAGE / DEP-GRAPH-IDENTITY trigger. It is built the
+// way the server stores a draft (finalizedSystem), so its contract keys are derived.
 func amendedSystemModel() *projectstate.System {
-	return &projectstate.System{
+	return finalizedSystem(&projectstate.System{
 		Components: []projectstate.Component{
 			{ID: "c1", Name: "WebClient", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, Encapsulates: "presentation volatility"},
 			{ID: "m1", Name: "GtdManager", Kind: projectstate.CompManager, Layer: projectstate.LayerManager, Encapsulates: "workflow volatility"},
@@ -70,7 +72,17 @@ func amendedSystemModel() *projectstate.System {
 			{From: "ra1", To: "r1", Mode: projectstate.CallSync, Label: "persist"},
 			{From: "ra2", To: "r1", Mode: projectstate.CallSync, Label: "persist"},
 		},
+	})
+}
+
+// finalizedSystem is sys after the server's draft finalize pass (FinalizeDraftModel),
+// which stamps every component's contract key — the only System shape the codec reads
+// back, so a fixture never carries a key the server would not produce.
+func finalizedSystem(sys *projectstate.System) *projectstate.System {
+	if err := projectstate.FinalizeDraftModel(sys); err != nil {
+		panic(fmt.Sprintf("finalize the fixture System: %v", err))
 	}
+	return sys
 }
 
 // originalDeployment covers the PRE-amendment component set only: one container

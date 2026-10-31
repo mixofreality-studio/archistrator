@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -350,7 +351,7 @@ func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
 		t.Skip("git not available")
 	}
 	bin := buildBinary(t)
-	repo := initGitRepoWithProject(t, projectWithComponent("billing-engine", "billingEngine"), "activity/C-BE")
+	repo := initGitRepoWithProject(t, projectWithComponent(t, "billing-engine"), "activity/C-BE")
 
 	cmd := exec.Command(bin)
 	cmd.Dir = repo
@@ -409,6 +410,225 @@ func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
 	if proj.ServiceContracts["billingEngine"].Component != "billingEngine" {
 		t.Fatalf("committed contract not present for the ambient component: %+v", proj.ServiceContracts)
 	}
+}
+
+// TestRig_FreshSystemReachesRecordServiceContract replays, at $0, the wall the
+// 2026-10-25 paid run hit (FIX-007): a System AS THE ARCHITECTURE AGENT DRAFTED IT (the
+// fresh-project corpus, testdata/fresh-systems — no contractKey anywhere) goes through
+// the production draft path (putDraftModel → publishDraft over stdio), and then every
+// non-Resource component's detailed design records its contract through the construct
+// verb. Before FIX-007 the server stored the System key-less and every
+// recordServiceContract was refused ("the System gives component … no contractKey").
+//
+// Asserted: the published System stamps every non-Resource component's key as
+// lowerCamel(id) and gives a Resource none; each component's contract lands at
+// .serviceContracts[lowerCamel(id)] (never under the kebab id); a Resource is refused,
+// named.
+func TestRig_FreshSystemReachesRecordServiceContract(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin := buildBinary(t)
+	for name, fx := range freshSystems(t) {
+		t.Run(name, func(t *testing.T) {
+			const draftBranch = "aiarch-design/rigproj/5"
+			repo := initGitRepoWithProject(t, fx.base, draftBranch)
+			published := rigDraftSystem(t, bin, repo, draftBranch, fx.system)
+
+			sys, ok := published.SystemDesign.Model.(*projectstate.System)
+			if !ok || sys == nil {
+				t.Fatalf("published System slot holds no System: %+v", published.SystemDesign)
+			}
+			for _, c := range sys.Components {
+				assertPublishedKey(t, c)
+			}
+			for _, c := range sys.Components {
+				branch := "activity/C-" + c.ID
+				mustGit(t, repo, "checkout", "-q", "-b", branch, draftBranch)
+				mustGit(t, repo, "push", "-q", "-u", "origin", branch)
+				res, contracts := rigRecordContract(t, bin, repo, branch, c)
+				assertContractRecorded(t, c, res, contracts)
+			}
+		})
+	}
+}
+
+// assertPublishedKey fails t unless the published component carries the key the test
+// states independently: lowerCamel(id), none for a Resource.
+func assertPublishedKey(t *testing.T, c projectstate.Component) {
+	t.Helper()
+	got, want := "", lowerCamelOfID(c.ID)
+	if c.ContractKey != nil {
+		got = *c.ContractKey
+	}
+	if c.Kind == projectstate.CompResource {
+		want = ""
+	}
+	if got != want {
+		t.Errorf("published component %q (%s) has contractKey %q, want %q", c.ID, c.Kind, got, want)
+	}
+}
+
+// assertContractRecorded fails t unless recordServiceContract refused the Resource c by
+// name, or filed c's contract at .serviceContracts[lowerCamel(id)] and not under its id.
+func assertContractRecorded(t *testing.T, c projectstate.Component, res *mcp.CallToolResult, contracts map[string]projectstate.ServiceContract) {
+	t.Helper()
+	if c.Kind == projectstate.CompResource {
+		if !res.IsError || !strings.Contains(contentText(res), c.ID) {
+			t.Errorf("recordServiceContract for the Resource %q: want a refusal naming it, got error=%v %q", c.ID, res.IsError, contentText(res))
+		}
+		return
+	}
+	if res.IsError {
+		t.Errorf("recordServiceContract for %q (%s) refused: %s", c.ID, c.Kind, contentText(res))
+		return
+	}
+	key := lowerCamelOfID(c.ID)
+	if contracts[key].Component != key {
+		t.Errorf("component %q: contract not filed at .serviceContracts[%q]: %v", c.ID, key, keysOfContracts(contracts))
+	}
+	if _, wrong := contracts[c.ID]; wrong && c.ID != key {
+		t.Errorf("component %q: contract filed under the kebab id", c.ID)
+	}
+}
+
+// freshSystem is one fresh-project fixture: the System model exactly as the run's
+// architecture agent drafted it, and the committed Phase-1 predecessors (slots 0-4) it
+// was drafted against, which the draft gate's call-chain rules resolve it through.
+type freshSystem struct {
+	system json.RawMessage
+	base   projectstate.Project
+}
+
+// freshSystems is the fresh-project corpus (testdata/fresh-systems/README.md).
+func freshSystems(t *testing.T) map[string]freshSystem {
+	t.Helper()
+	const predecessors = ".predecessors.json"
+	paths, err := filepath.Glob(filepath.Join("testdata", "fresh-systems", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]freshSystem{}
+	for _, p := range paths {
+		if strings.HasSuffix(p, predecessors) {
+			continue
+		}
+		name := strings.TrimSuffix(filepath.Base(p), ".json")
+		sys, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(strings.TrimSuffix(p, ".json") + predecessors)
+		if err != nil {
+			t.Fatalf("fixture %s has no predecessors file: %v", name, err)
+		}
+		base, ok, err := projectstate.DecodeProjectJSON(raw, "rigproj")
+		if err != nil || !ok {
+			t.Fatalf("fixture %s predecessors do not decode: ok=%v err=%v", name, ok, err)
+		}
+		out[name] = freshSystem{system: sys, base: base}
+	}
+	if len(out) == 0 {
+		t.Fatal("no fresh-system fixtures")
+	}
+	return out
+}
+
+// lowerCamelOfID is the test's own statement of the key a kebab id files its contract
+// under — written out here, not borrowed from the code under test.
+func lowerCamelOfID(id string) string {
+	parts := strings.Split(id, "-")
+	for i := 1; i < len(parts); i++ {
+		if parts[i] != "" {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+func keysOfContracts(m map[string]projectstate.ServiceContract) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// rigConnect starts the binary in repo under env and returns a connected MCP session.
+func rigConnect(t *testing.T, bin, repo string, env ...string) (context.Context, *mcp.ClientSession) {
+	t.Helper()
+	cmd := exec.Command(bin)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), env...)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "rig", Version: "0"}, nil).Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return ctx, session
+}
+
+// rigDraftSystem drafts system into the System slot in draft mode and publishes it,
+// returning the project as the pushed branch carries it.
+func rigDraftSystem(t *testing.T, bin, repo, branch string, system json.RawMessage) projectstate.Project {
+	t.Helper()
+	ctx, session := rigConnect(t, bin, repo,
+		envArtifactKind+"=System", envJobMode+"=draft", envTargetBranch+"="+branch,
+		envProjectID+"=rigproj", envStateRoot+"="+repo)
+	var model map[string]any
+	if err := json.Unmarshal(system, &model); err != nil {
+		t.Fatal(err)
+	}
+	if res := callTool(ctx, t, session, "putDraftModel", map[string]any{"model": model}); res.IsError {
+		t.Fatalf("putDraftModel(System) refused the drafted System: %s", contentText(res))
+	}
+	if res := callTool(ctx, t, session, "publishDraft", map[string]any{"message": "draft system"}); res.IsError {
+		t.Fatalf("publishDraft failed: %s", contentText(res))
+	}
+	_ = session.Close()
+	mustGit(t, repo, "fetch", "-q", "origin")
+	mustGit(t, repo, "checkout", "-q", branch)
+	mustGit(t, repo, "reset", "-q", "--hard", "origin/"+branch)
+	proj, ok, err := projectstate.DecodeProjectJSON(gitShow(t, repo, branch, ".aiarch/state/project.json"), "rigproj")
+	if err != nil || !ok {
+		t.Fatalf("published project.json does not decode: ok=%v err=%v", ok, err)
+	}
+	return proj
+}
+
+// rigRecordContract runs construct mode on branch for component c, records a minimal
+// contract and (on success) publishes it, returning the tool result and the contracts
+// the pushed branch carries.
+func rigRecordContract(t *testing.T, bin, repo, branch string, c projectstate.Component) (*mcp.CallToolResult, map[string]projectstate.ServiceContract) {
+	t.Helper()
+	ctx, session := rigConnect(t, bin, repo,
+		envJobMode+"="+jobModeConstruct, envComponentID+"="+c.ID, envActivityID+"=C-"+c.ID,
+		envTargetBranch+"="+branch, envProjectID+"=rigproj", envStateRoot+"="+repo)
+	key := lowerCamelOfID(c.ID)
+	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
+		"contract": map[string]any{"component": key, "layer": contractLayerOf(c.Kind), "title": c.Name},
+	})
+	if res.IsError {
+		return res, nil
+	}
+	if pub := callTool(ctx, t, session, "publishDraft", map[string]any{"message": "record " + key + " contract"}); pub.IsError {
+		t.Fatalf("publishDraft for %q failed: %s", c.ID, contentText(pub))
+	}
+	proj, ok, err := projectstate.DecodeProjectJSON(gitShow(t, repo, "origin/"+branch, ".aiarch/state/project.json"), "rigproj")
+	if err != nil || !ok {
+		t.Fatalf("published project.json does not decode: ok=%v err=%v", ok, err)
+	}
+	return res, proj.ServiceContracts
+}
+
+// contractLayerOf is a ServiceContract's Layer word for a component kind.
+func contractLayerOf(k projectstate.ComponentKind) string {
+	return map[projectstate.ComponentKind]string{
+		projectstate.CompClient: "Client", projectstate.CompManager: "Manager", projectstate.CompEngine: "Engine",
+		projectstate.CompResourceAccess: "ResourceAccess", projectstate.CompResource: "Resource", projectstate.CompUtility: "Utility",
+	}[k]
 }
 
 func keysOfTools(m map[string]*mcp.Tool) []string {

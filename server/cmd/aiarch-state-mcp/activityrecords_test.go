@@ -22,7 +22,7 @@ import (
 const (
 	recActivity  = "C-task-access"
 	recComponent = "ra1"
-	recContract  = "taskAccess"
+	recContract  = "ra1" // projectstate.ContractKeyFor of recComponent
 	recPackage   = "internal/resourceaccess/task"
 )
 
@@ -30,14 +30,7 @@ const (
 // recPackage and a committed plan holding its coding activity, rows and runs empty.
 func recProject() projectstate.Project {
 	p := driftFixtureProject(false)
-	sys := amendedSystemModel()
-	key := recContract
-	for i := range sys.Components {
-		if sys.Components[i].ID == recComponent {
-			sys.Components[i].ContractKey = &key
-		}
-	}
-	p.SystemDesign.Model = sys
+	p.SystemDesign.Model = amendedSystemModel()
 	list := coveringActivityList()
 	list.Activities = append(list.Activities, projectstate.ActivityItem{
 		Name: recActivity, Title: "Build TaskAccess", Coding: true, WorkerClass: "junior-developer",
@@ -220,10 +213,17 @@ func TestRECBuiltUnrecorded_ModuleAtTheRoot(t *testing.T) {
 }
 
 func TestRECBuiltUnrecorded_OutOfReach(t *testing.T) {
-	// No contract key on the component, an uncommitted plan, and a contract with no goPackage
-	// each leave nothing to read.
+	// A Resource (provisioned, never built — skipped by its kind, even with a contract
+	// filed under the key its id would derive), an uncommitted plan, and a contract with
+	// no goPackage each leave nothing to read.
 	p := recProject()
-	p.SystemDesign.Model = amendedSystemModel()
+	sys := amendedSystemModel()
+	for i := range sys.Components {
+		if sys.Components[i].ID == recComponent {
+			sys.Components[i].Kind, sys.Components[i].Layer = projectstate.CompResource, projectstate.LayerResource
+		}
+	}
+	p.SystemDesign.Model = finalizedSystem(sys)
 	noFinding(t, p, builtTaskAccess(), ruleBuiltUnrecorded)
 
 	p = recProject()

@@ -1875,7 +1875,7 @@ func recordedPumpHalt(h *scenariohost.Host, project string) (*delivery.PumpHalt,
 	d, err := h.TemporalClient().DescribeWorkflowExecution(ctx, wfID, "")
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			return nil, nil
+			return nil, nil //nolint:nilnil // nil means no pump, as documented above
 		}
 		return nil, fmt.Errorf("describe %s: %w", wfID, err)
 	}
@@ -3587,4 +3587,160 @@ func endHeldWorkflows(t *testing.T, h *scenariohost.Host, held ...string) {
 			_ = h.TemporalClient().TerminateWorkflow(ctx, id, "", "test ended")
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Fresh-project contract coverage (FIX-007)
+// ---------------------------------------------------------------------------
+
+// TestFreshSystem_EveryPlannedActivityResolvesItsContracts is the cross-layer property
+// FIX-007 rests on, over the fresh-project corpus (cmd/aiarch-state-mcp/testdata/
+// fresh-systems — each paid run's System exactly as its agent drafted it, after the
+// server's FinalizeDraftModel): every C-* and U-SPA-* activity the plan derives from the
+// System resolves its component to a contract key (projectstate.ContractKeyOf, which the
+// testing gate's gateContracts and the review floor both read), and once a contract with
+// a Go package is recorded under that key, its construction and integration task specs
+// are scoped to that package with the package's checks — never the underivable
+// "any path" fallback — and integration carries every scenario check the run's use
+// cases project for that key. The key set (projectstate) and the activity set (estimation) are
+// derived by two layers that share no predicate; this test is what holds one to cover
+// the other.
+func TestFreshSystem_EveryPlannedActivityResolvesItsContracts(t *testing.T) {
+	dir := filepath.Join("..", "..", "..", "cmd", "aiarch-state-mcp", "testdata", "fresh-systems")
+	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtures := 0
+	for _, path := range paths {
+		if strings.HasSuffix(path, ".predecessors.json") {
+			continue
+		}
+		fixtures++
+		t.Run(strings.TrimSuffix(filepath.Base(path), ".json"), func(t *testing.T) {
+			p, list := freshPlannedProject(t, path)
+			built, scenarios := 0, 0
+			for _, a := range list.Activities {
+				if !strings.HasPrefix(a.Name, "C-") && !strings.HasPrefix(a.Name, "U-SPA") {
+					continue
+				}
+				built++
+				scenarios += assertActivityResolvesItsContract(t, &p, a)
+			}
+			if built == 0 {
+				t.Fatal("the plan derived no C-*/U-SPA-* activity from the fresh System")
+			}
+			if scenarios == 0 {
+				t.Error("no integration task carries a scenario check: the contract keys join no projected scenario")
+			}
+		})
+	}
+	if fixtures == 0 {
+		t.Fatalf("no fresh-system fixtures under %s", dir)
+	}
+}
+
+// freshPlannedProject is the fixture's System after the server's FinalizeDraftModel,
+// committed over the run's Phase-1 predecessors (the use cases the scenario checks are
+// projected from), with the plan the Manager derives from it committed beside it.
+func freshPlannedProject(t *testing.T, path string) (projectstate.Project, projectstate.ActivityList) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sys projectstate.System
+	if err := json.Unmarshal(raw, &sys); err != nil {
+		t.Fatalf("decode System: %v", err)
+	}
+	if err := projectstate.FinalizeDraftModel(&sys); err != nil {
+		t.Fatalf("FinalizeDraftModel: %v", err)
+	}
+	list, _, _, err := delivery.MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("derive the plan: %v", err)
+	}
+	pre, err := os.ReadFile(strings.TrimSuffix(path, ".json") + ".predecessors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok, err := projectstate.DecodeProjectJSON(pre, "fresh")
+	if err != nil || !ok {
+		t.Fatalf("decode the predecessors: ok=%v err=%v", ok, err)
+	}
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &sys}
+	p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &list}
+	return p, list
+}
+
+// assertActivityResolvesItsContract fails t unless activity a's component resolves to a
+// contract key and, once a contract with a Go package is recorded under it (into p), its
+// construction and integration specs are component-scoped and integration carries every
+// scenario check the use cases project for the key. It returns that scenario count.
+func assertActivityResolvesItsContract(t *testing.T, p *projectstate.Project, a projectstate.ActivityItem) int {
+	t.Helper()
+	key, ok := projectstate.ContractKeyOf(p, a.ComponentID)
+	if !ok {
+		t.Errorf("activity %s: component %q resolves to no contract key — its detailed design cannot record a contract, its testing gate holds, and its review floor finds none", a.Name, a.ComponentID)
+		return 0
+	}
+	pkg := "internal/fresh/" + strings.ToLower(key)
+	if p.ServiceContracts == nil {
+		p.ServiceContracts = map[string]projectstate.ServiceContract{}
+	}
+	p.ServiceContracts[key] = projectstate.ServiceContract{Component: key, Layer: "Engine", GoPackage: pkg}
+	for _, task := range []string{"construction", "integration"} {
+		spec, err := projectstate.TaskSpecFor(p, a.Name, task)
+		if err != nil {
+			t.Errorf("activity %s task %s: %v", a.Name, task, err)
+			return 0
+		}
+		assertComponentScoped(t, a.Name, task, pkg, spec)
+		if task == "integration" {
+			return assertScenarioChecks(t, p, a.Name, key, spec)
+		}
+	}
+	return 0
+}
+
+// assertScenarioChecks fails t unless spec carries one scenario check under key for every
+// scenario the use cases project for it, and returns how many it carries.
+func assertScenarioChecks(t *testing.T, p *projectstate.Project, activity, key string, spec projectstate.TaskSpec) int {
+	t.Helper()
+	projected, err := projectstate.ComponentScenarios(p, key)
+	if err != nil {
+		t.Fatalf("project %s's scenarios: %v", key, err)
+	}
+	got := 0
+	for _, c := range spec.Checks {
+		if c.Kind == projectstate.CheckKindScenario && c.Source.Contract == key {
+			got++
+		}
+	}
+	if got != len(projected) {
+		t.Errorf("activity %s integration: %d scenario checks under %s, want the %d its use cases project", activity, got, key, len(projected))
+	}
+	return got
+}
+
+// assertComponentScoped fails t unless spec is a component-scoped task spec: a service
+// task scoped to exactly its contract's package with that package's build check, a
+// frontend task scoped to the web app — never the underivable "any path" scope.
+func assertComponentScoped(t *testing.T, activity, task, pkg string, spec projectstate.TaskSpec) {
+	t.Helper()
+	if slices.Contains(spec.EditScope.Extra, "**") || len(spec.EditScope.Components) == 0 {
+		t.Errorf("activity %s task %s (%s) fell back to the underivable posture: scope %+v", activity, task, spec.Identity.Command, spec.EditScope)
+		return
+	}
+	if !strings.HasPrefix(spec.Identity.Command, "service-") {
+		return
+	}
+	if paths := spec.EditScope.Components[0].Paths; !slices.Contains(paths, pkg+"/**") {
+		t.Errorf("activity %s task %s: scope %v, want the contract's package %s/**", activity, task, paths, pkg)
+	}
+	if !slices.ContainsFunc(spec.Checks, func(c projectstate.SpecCheck) bool {
+		return c.ID == "command:build" && slices.Contains(c.Source.Argv, "./"+pkg+"/...")
+	}) {
+		t.Errorf("activity %s task %s: no build check over %s among %d checks", activity, task, pkg, len(spec.Checks))
+	}
 }

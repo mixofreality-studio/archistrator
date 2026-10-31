@@ -50,6 +50,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
@@ -3888,6 +3890,11 @@ func requireStagedModel(verb string, model ModelEnvelope) (ArtifactModel, error)
 	if err != nil {
 		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": undecodable model envelope: "+err.Error())
 	}
+	// FIX-007: the contract-key invariant the read-back enforces, held at the stage too —
+	// a System staged off the derivation would otherwise land and leave the branch unreadable.
+	if err := requireSystemContractKeys(decoded); err != nil {
+		return nil, fwra.New(fwra.ContractMisuse, "projectstate."+verb+": "+err.Error())
+	}
 	return decoded, nil
 }
 
@@ -5288,10 +5295,89 @@ func NewUseCase(uc UseCase) (*UseCase, error) {
 // Idempotent: Slug is a fixed point on its own output, and an already-normalized
 // reference re-resolves to itself. Kinds without identity assignment pass through.
 func FinalizeDraftModel(model ArtifactModel) error {
-	if c, ok := model.(*CoreUseCases); ok {
-		return finalizeCoreUseCasesIdentities(c)
+	switch m := model.(type) {
+	case *CoreUseCases:
+		return finalizeCoreUseCasesIdentities(m)
+	case *System:
+		finalizeSystemContractKeys(m)
 	}
 	return nil
+}
+
+// ContractKeyFor is the ONE derivation of a component's contract key: the name its
+// service contract is filed under in .serviceContracts. It is lowerCamel(c.ID) — the
+// first kebab segment as is, each later segment with its first rune upper-cased
+// ("billing-engine" → "billingEngine") — for every component that is not a Resource,
+// and none ("", false) for a Resource, which is provisioned and never contracted.
+//
+// The key NAMES where the contract is filed; it does not claim that one exists — that
+// is .serviceContracts[key]'s presence, which every reader already judges (FIX-007: the
+// key used to mark "owns a recorded contract", while recording the contract required
+// the key, so a fresh project could never record one). It is defined over a slug id
+// only; the identity gate (ValidateModelIdentities) refuses any other id at draft time.
+func ContractKeyFor(c Component) (string, bool) {
+	if c.Kind == CompResource {
+		return "", false
+	}
+	parts := strings.Split(c.ID, "-")
+	for i := 1; i < len(parts); i++ {
+		if parts[i] == "" {
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(parts[i])
+		parts[i] = string(unicode.ToUpper(r)) + parts[i][size:]
+	}
+	return strings.Join(parts, ""), true
+}
+
+// finalizeSystemContractKeys stamps every component's ContractKey from ContractKeyFor
+// (nil for a Resource), overwriting any drafted value: the key is derived from the
+// identity, so — like UseCase.ID — the server assigns it and never takes the agent's.
+func finalizeSystemContractKeys(s *System) {
+	for i := range s.Components {
+		c := &s.Components[i]
+		c.ContractKey = nil
+		if key, ok := ContractKeyFor(*c); ok && c.ID != "" {
+			c.ContractKey = &key
+		}
+	}
+}
+
+// systemContractKeyProblems is the read-back invariant over a stored System: every
+// non-Resource component carries exactly ContractKeyFor's key and a Resource carries
+// none. Every offender is reported. It is the codec's half of the stamp
+// FinalizeDraftModel applies on the write path, so a writer that bypasses Finalize (a
+// hand edit, a future server-side System writer) is refused at the next read.
+func systemContractKeyProblems(s *System) []string {
+	var problems []string
+	for _, c := range s.Components {
+		want, keyed := ContractKeyFor(c)
+		switch {
+		case !keyed && c.ContractKey != nil:
+			problems = append(problems, fmt.Sprintf("component %q is a Resource but carries contractKey %q — a Resource is provisioned, it has no service contract", c.ID, *c.ContractKey))
+		case keyed && (c.ContractKey == nil || *c.ContractKey == ""):
+			problems = append(problems, fmt.Sprintf("component %q has no contractKey, want %q", c.ID, want))
+		case keyed && *c.ContractKey != want:
+			problems = append(problems, fmt.Sprintf("component %q has contractKey %q, want %q", c.ID, *c.ContractKey, want))
+		}
+	}
+	return problems
+}
+
+// requireSystemContractKeys is the contract-key invariant as one error, shared by the
+// read-back codec (decodeSlotsMap) and the stage writes (requireStagedModel) so the two
+// refuse exactly the same Systems: nil for any other model kind.
+func requireSystemContractKeys(model ArtifactModel) error {
+	sys, ok := model.(*System)
+	if !ok || sys == nil {
+		return nil
+	}
+	problems := systemContractKeyProblems(sys)
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d component contractKey(s) off the server derivation (lowerCamel(id) for every non-Resource component, none for a Resource; FinalizeDraftModel stamps it):\n  - %s",
+		len(problems), strings.Join(problems, "\n  - "))
 }
 
 // finalizeCoreUseCasesIdentities assigns UseCase.ID = Slug(Name), Actor.ID =
@@ -5390,7 +5476,7 @@ func ValidateModelIdentities(model ArtifactModel) error {
 	if len(problems) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%d identity field(s) are present but EMPTY — an id that is \"\" satisfies the schema and then breaks every consumer that resolves it:\n  - %s",
+	return fmt.Errorf("%d identity problem(s) — an id must be non-EMPTY (\"\" satisfies the schema and then breaks every consumer that resolves it), and a component id must be its own kebab slug (its contract key is derived from it):\n  - %s",
 		len(problems), strings.Join(problems, "\n  - "))
 }
 
@@ -5460,6 +5546,9 @@ func systemIdentityProblems(s *System) []string {
 			name = fmt.Sprintf("(unnamed component %d)", i+1)
 		}
 		problems = nonEmptyID(problems, c.ID, fmt.Sprintf("component %q: id", name))
+		if c.ID != "" && Slug(c.ID) != c.ID {
+			problems = append(problems, fmt.Sprintf("component %q: id %q is not a kebab slug (lowercase letters and digits joined by single hyphens) — use %q", name, c.ID, Slug(c.ID)))
+		}
 	}
 	for i, r := range s.Relationships {
 		problems = nonEmptyID(problems, r.From, fmt.Sprintf("relationship %d (label %q): from", i+1, r.Label))
@@ -7104,6 +7193,12 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 			// with the SAME strictness the write path (putDraftModel) applies, so the two
 			// never disagree. Only enforced for populated slots (len(entry.Model) > 0).
 			if err := RequireModelFields(kind, entry.Model); err != nil {
+				return fmt.Errorf("decode slot %s model: %w", kind, err)
+			}
+			// FIX-007 CONTRACT-KEY INVARIANT: the read-back half of the stamp
+			// FinalizeDraftModel applies — a stored System whose keys are not exactly
+			// ContractKeyFor's is refused, with the SAME strictness the write path applies.
+			if err := requireSystemContractKeys(model); err != nil {
 				return fmt.Errorf("decode slot %s model: %w", kind, err)
 			}
 			// Restore Solution SlotKind: the four share one concrete type; the
@@ -11640,8 +11735,10 @@ func RateForSpec(spec WorkerRateSpec) Money {
 }
 
 // ContractKeyOf is the .serviceContracts key of the committed System's component
-// componentID — its contractKey — and false when the System is not committed, does not
-// name the component, or gives it no key.
+// componentID — ContractKeyFor of it — and false when the System is not committed, does
+// not name the component, or names a Resource (which has no contract). The stored key is
+// read and held to the derivation: an in-memory System whose stored key disagrees (one
+// the codec would refuse) resolves to no key rather than to either spelling.
 func ContractKeyOf(p *Project, componentID string) (string, bool) {
 	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
 	if !ok {
@@ -11652,10 +11749,11 @@ func ContractKeyOf(p *Project, componentID string) (string, bool) {
 		if c.ID != componentID {
 			continue
 		}
-		if c.ContractKey == nil || *c.ContractKey == "" {
+		key, keyed := ContractKeyFor(c)
+		if !keyed || c.ContractKey == nil || *c.ContractKey != key {
 			return "", false
 		}
-		return *c.ContractKey, true
+		return key, true
 	}
 	return "", false
 }

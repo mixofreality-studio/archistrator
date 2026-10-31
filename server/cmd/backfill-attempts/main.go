@@ -747,10 +747,10 @@ func fullyImplemented(activityID string, component projectstate.Component, in in
 	fail := func(format string, args ...any) verdict {
 		return verdict{ActivityID: activityID, Reason: fmt.Sprintf(format, args...)}
 	}
-	if component.ContractKey == nil || *component.ContractKey == "" {
-		return fail("condition 1: component %q names no contractKey, so no .serviceContracts entry is grouped under it", component.ID)
+	key, keyed := projectstate.ContractKeyFor(component)
+	if !keyed {
+		return fail("condition 1: component %q is a Resource, so no .serviceContracts entry is grouped under it", component.ID)
 	}
-	key := *component.ContractKey
 	entries := contractsOf(in.Project.ServiceContracts, key)
 	if len(entries) == 0 {
 		return fail("condition 1: no .serviceContracts entry has component %q", key)
@@ -1097,10 +1097,7 @@ func clientAppBuilt(activityID string, component projectstate.Component, in inpu
 	if component.UiSurface == nil || !*component.UiSurface {
 		return fail("condition 1: client %q has no UI surface, so there is no client app to build", component.ID)
 	}
-	if component.ContractKey == nil || *component.ContractKey == "" {
-		return fail("condition 2: client %q names no contractKey", component.ID)
-	}
-	key := *component.ContractKey
+	key, _ := projectstate.ContractKeyFor(component) // a client is never a Resource: always keyed
 	if own, ok := in.Project.ServiceContracts[key]; !ok || own.Component != key {
 		return fail("condition 2: .serviceContracts has no entry for the client's own contract (key %q)", key)
 	}

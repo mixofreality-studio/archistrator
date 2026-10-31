@@ -24,7 +24,7 @@ import (
 //
 //	U-SPA-web-client  client app, no SPA tree (fixture default)     -> client app condition 3
 //	C-alpha-manager   manager, implemented                          -> qualifies (code)
-//	C-beta-engine     engine, no contractKey                        -> condition 1
+//	C-beta-engine     engine, no contract under its key             -> condition 1
 //	C-gamma-access    RA with a facet, own interface implemented    -> qualifies (code, facet rule)
 //	C-delta-access    RA, stub: true                                -> condition 2
 //	R-gamma-store     resource reached by gamma-access              -> qualifies (inferred)
@@ -59,7 +59,7 @@ func fixtureProject() projectstate.Project {
 		Components: []projectstate.Component{
 			{ID: "web-client", Name: "WebClient", Encapsulates: "a fixture volatility", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, ContractKey: strp("webClient"), UiSurface: boolp(true)},
 			{ID: "alpha-manager", Name: "AlphaManager", Encapsulates: "a fixture volatility", Kind: projectstate.CompManager, Layer: projectstate.LayerManager, ContractKey: strp("alphaManager")},
-			{ID: "beta-engine", Name: "BetaEngine", Encapsulates: "a fixture volatility", Kind: projectstate.CompEngine, Layer: projectstate.LayerEngine},
+			{ID: "beta-engine", Name: "BetaEngine", Encapsulates: "a fixture volatility", Kind: projectstate.CompEngine, Layer: projectstate.LayerEngine, ContractKey: strp("betaEngine")},
 			{ID: "gamma-access", Name: "GammaAccess", Encapsulates: "a fixture volatility", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess, ContractKey: strp("gammaAccess")},
 			{ID: "delta-access", Name: "DeltaAccess", Encapsulates: "a fixture volatility", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess, ContractKey: strp("deltaAccess")},
 			{ID: "gamma-store", Name: "GammaStore", Encapsulates: "a fixture volatility", Kind: projectstate.CompResource, Layer: projectstate.LayerResource},
@@ -366,13 +366,6 @@ func TestFullyImplemented_EachConditionFailsTheComponent(t *testing.T) {
 				writeFile(t, root, "internal/manager/alpha/alphamanager.go", "package alpha\n\ntype AlphaManagerImpl struct{}\n")
 			},
 			subject: "C-alpha-manager", want: "declares no method for any of the 2 contract operations",
-		},
-		{
-			name: "condition 1 — an empty contractKey names nothing",
-			mutate: func(p *projectstate.Project, _ string) {
-				componentOf(t, p, "alpha-manager").ContractKey = strp("")
-			},
-			subject: "C-alpha-manager", want: "condition 1: component \"alpha-manager\" names no contractKey",
 		},
 		{
 			// The entry filed under the component's key belongs to another component; only
@@ -1944,8 +1937,6 @@ func TestClientApp_EachConditionFailsTheClientApp(t *testing.T) {
 	}{
 		{"no UI surface", func(p *projectstate.Project) { componentOf(t, p, "web-client").UiSurface = boolp(false) }, nil,
 			"client app: condition 1: client \"web-client\" has no UI surface"},
-		{"no contractKey", func(p *projectstate.Project) { componentOf(t, p, "web-client").ContractKey = nil }, nil,
-			"client app: condition 2: client \"web-client\" names no contractKey"},
 		{"a stub contract", func(p *projectstate.Project) {
 			sc := p.ServiceContracts["webClient"]
 			sc.Stub = true
