@@ -5105,6 +5105,12 @@ const mergeTidyTimeout = 3 * time.Minute
 // graph is an honest conflict: nothing is pushed, so the shared repo is untouched. The
 // return value is the failure diagnostic, or "".
 func tidyMergedModule(cloneDir, branch string) string {
+	// The merge commit is the truth. When the state document's bookkeeping conflict was
+	// resolved through the index, the working copy still holds the conflict markers, so bring
+	// it to the commit before reading the module dir from it or building in it.
+	if _, err := gitExec(cloneDir, exec.Command("git", "reset", "--quiet", "--hard")); err != nil {
+		return "local merge: sync the clone to the merge: " + err.Error()
+	}
 	moduleDir, err := projectModuleDir(cloneDir)
 	if err != nil {
 		return "local merge: read the module dir: " + err.Error()
