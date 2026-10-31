@@ -3169,7 +3169,7 @@ func TestConditionalWrite_OutsideWriterFallsBackToTheExactGuard(t *testing.T) {
 	// (2) An outside writer moves the Version: every member reads as changed at the tip.
 	stale = read("r3")
 	pushOutsideStateEdit(t, repo.Dir, "project.json", func(b []byte) []byte {
-		return bytes.Replace(b, []byte(fmt.Sprintf(`"version": %d,`, stale)), []byte(fmt.Sprintf(`"version": %d,`, stale+1)), 1)
+		return bytes.Replace(b, fmt.Appendf(nil, `"version": %d,`, stale), fmt.Appendf(nil, `"version": %d,`, stale+1), 1)
 	})
 	if _, err := ps.RecordReviewPolicy(callContext(t, h, "policy-2"), fix006Project, stale, projectstate.ReviewPolicy{Preset: &full},
 		callContext(t, h, "policy-2").IdempotencyKey); raKind(err) != "Conflict" {
