@@ -1959,3 +1959,68 @@ func TestLocalRailFingerprintsARedRun(t *testing.T) {
 		t.Error("a different failure must fingerprint differently")
 	}
 }
+
+// moduleBranch commits a go module to main and hands back a branch of the given activity
+// whose go.mod and go.sum differ from it.
+func moduleBranch(t *testing.T, rig *raceRig, activity, gomod, gosum, source string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "module")
+	runGit(t, "", "clone", "--quiet", rig.repo.Dir, work)
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(work, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit := func(msg string) {
+		t.Helper()
+		runGit(t, work, "add", "-A")
+		runGit(t, work, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", msg)
+	}
+	write("go.mod", "module example.com/m\n\ngo 1.25\n")
+	commit("module")
+	runGit(t, work, "push", "--quiet", "origin", "HEAD:main")
+	runGit(t, work, "checkout", "--quiet", "-B", "activity/"+activity)
+	write("go.mod", gomod)
+	write("go.sum", gosum)
+	if source != "" {
+		write("x.go", source)
+	}
+	commit("touch the module")
+	runGit(t, work, "push", "--quiet", "origin", "activity/"+activity)
+}
+
+// TestLocalMergeTidiesTheModuleInsideTheMerge: main always passes `go mod tidy -diff`, so a
+// merge that touched the module files lands tidied, in the merge commit itself.
+func TestLocalMergeTidiesTheModuleInsideTheMerge(t *testing.T) {
+	rig := newRaceRig(t)
+	moduleBranch(t, rig, "C-tidy", "module example.com/m\n\n\n\ngo 1.25\n", "example.com/unused v1.0.0 h1:AAAA=\n", "")
+	if err := rig.merge("C-tidy"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOut(t, rig.repo.Dir, "show", "main:go.mod"); got != "module example.com/m\n\ngo 1.25" {
+		t.Errorf("the merged go.mod was not tidied: %q", got)
+	}
+	if got := gitOut(t, rig.repo.Dir, "ls-tree", "--name-only", "main", "go.sum"); got != "" {
+		t.Errorf("a stale go.sum line survived the merge: tree holds %q", got)
+	}
+	if parents := strings.Fields(gitOut(t, rig.repo.Dir, "log", "-1", "--format=%P", "main")); len(parents) != 2 {
+		t.Errorf("the tidy must fold into the merge commit, parents %v", parents)
+	}
+}
+
+// TestLocalMergeRefusesAModuleThatCannotTidy: nothing lands on main when the merged module
+// cannot settle. It is an honest conflict.
+func TestLocalMergeRefusesAModuleThatCannotTidy(t *testing.T) {
+	rig := newRaceRig(t)
+	t.Setenv("GOPROXY", "off")
+	moduleBranch(t, rig, "C-untidy", "module example.com/m\n\n\ngo 1.25\n", "", "package m\n\nimport _ \"example.invalid/nothing\"\n")
+	before := gitOut(t, rig.repo.Dir, "rev-parse", "main")
+	err := rig.merge("C-untidy")
+	if err == nil || !strings.Contains(err.Error(), "does not tidy") {
+		t.Fatalf("got %v, want the merge refused because the module does not tidy", err)
+	}
+	if after := gitOut(t, rig.repo.Dir, "rev-parse", "main"); after != before {
+		t.Errorf("main moved from %s to %s on a refused merge", before, after)
+	}
+}

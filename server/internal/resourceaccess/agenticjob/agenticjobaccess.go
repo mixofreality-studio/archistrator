@@ -2350,6 +2350,7 @@ func localResultsDir(repoPath string) string {
 var gateEnvAllowlist = []string{
 	"PATH", "HOME", "TERM", "USER", "LOGNAME", "TMPDIR", "LANG",
 	"GOPATH", "GOCACHE", "GOMODCACHE", "GOFLAGS", "GOWORK", "GOTOOLCHAIN",
+	"GOPROXY", "GOPRIVATE", "GONOPROXY", "GOSUMDB", "GONOSUMDB",
 }
 
 // gateEnv is the gate subprocesses' env: the allowlisted part of this process's env with
@@ -5132,8 +5133,16 @@ func tidyMergedModule(cloneDir, branch string) string {
 		return "local merge: merge conflict merging " + branch + " into " + localMainBranch +
 			": the merged module does not tidy: " + err.Error() + ": " + outputTail(string(out), 500)
 	}
-	if _, err := gitExec(cloneDir, exec.Command("git", append([]string{"add", "--"}, files...)...)); err != nil {
-		return "local merge: stage the tidied module: " + err.Error()
+	for _, f := range files {
+		// A module with no dependencies has no go.sum after tidy, and `git add` refuses a path
+		// that neither exists nor is tracked.
+		stage := exec.Command("git", "add", "--", f)
+		if _, err := os.Stat(filepath.Join(cloneDir, filepath.FromSlash(f))); errors.Is(err, os.ErrNotExist) {
+			stage = exec.Command("git", "rm", "-q", "--cached", "--ignore-unmatch", "--", f)
+		}
+		if _, err := gitExec(cloneDir, stage); err != nil {
+			return "local merge: stage the tidied module: " + err.Error()
+		}
 	}
 	// --allow-empty: tidy usually changes nothing, and the amend must not fail for it.
 	if _, err := gitExec(cloneDir, exec.Command("git",
