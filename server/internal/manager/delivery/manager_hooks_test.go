@@ -1875,7 +1875,7 @@ func recordedPumpHalt(h *scenariohost.Host, project string) (*delivery.PumpHalt,
 	d, err := h.TemporalClient().DescribeWorkflowExecution(ctx, wfID, "")
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			return nil, nil
+			return nil, nil //nolint:nilnil // nil means no pump, as documented above
 		}
 		return nil, fmt.Errorf("describe %s: %w", wfID, err)
 	}

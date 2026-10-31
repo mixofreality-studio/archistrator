@@ -1000,7 +1000,7 @@ func (wf *csWorkflows) pumpStartFrontier(
 				// rather than record it again.
 				return started, false, nil
 			}
-			if err := wf.pumpRecordBlocked(ctx, in, *proj, sel); err != nil {
+			if err := wf.pumpRecordBlocked(ctx, in, sel); err != nil {
 				return started, false, err
 			}
 			st.blocked[sel.BlockedActivityID] = true
@@ -1086,7 +1086,7 @@ func markRowBlocked(proj *projectstate.Project, activityID string, reason projec
 // FailureReason covers one repair class; FailureDetail discriminates instances WITHIN a
 // class, never between classes.
 func (wf *csWorkflows) pumpRecordBlocked(
-	ctx workflow.Context, in pumpInput, proj projectstate.Project, sel pumpSelection,
+	ctx workflow.Context, in pumpInput, sel pumpSelection,
 ) error {
 	workflow.GetLogger(ctx).Error("construction pump: activity cannot be dispatched",
 		"projectId", string(in.ProjectID),
