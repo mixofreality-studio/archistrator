@@ -804,7 +804,7 @@ export interface components {
       preset: string;
     };
     /** @enum {integer} */
-    DeliveryFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+    DeliveryFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     DeliveryFinding: {
       location?: components['schemas']['DeliveryLocation'];
       message: string;

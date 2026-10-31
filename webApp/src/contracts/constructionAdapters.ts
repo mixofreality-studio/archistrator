@@ -71,6 +71,7 @@ export const FAILURE_REASON_LABEL: Record<FailureReason, string> = {
   dependencyUnresolved: 'Dependency unresolved',
   dependencyCycle: 'Dependency cycle',
   activityUnclassifiable: 'Activity unclassifiable',
+  noProgress: 'No progress',
 };
 
 /**

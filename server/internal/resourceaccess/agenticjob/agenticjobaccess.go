@@ -5110,6 +5110,7 @@ func tidyMergedModule(cloneDir, branch string) string {
 		return "local merge: read the module dir: " + err.Error()
 	}
 	files := []string{path.Join(moduleDir, "go.mod"), path.Join(moduleDir, "go.sum")}
+	//nolint:gosec // G204: git is the fixed binary; files are the module dir's go.mod and go.sum.
 	changed, err := gitExec(cloneDir, exec.Command("git", append([]string{"diff", "--name-only", "HEAD^1", "HEAD", "--"}, files...)...))
 	if err != nil {
 		return "local merge: diff the merged module files: " + err.Error()
@@ -5136,9 +5137,9 @@ func tidyMergedModule(cloneDir, branch string) string {
 	for _, f := range files {
 		// A module with no dependencies has no go.sum after tidy, and `git add` refuses a path
 		// that neither exists nor is tracked.
-		stage := exec.Command("git", "add", "--", f)
+		stage := exec.Command("git", "add", "--", f) //nolint:gosec // G204: as above
 		if _, err := os.Stat(filepath.Join(cloneDir, filepath.FromSlash(f))); errors.Is(err, os.ErrNotExist) {
-			stage = exec.Command("git", "rm", "-q", "--cached", "--ignore-unmatch", "--", f)
+			stage = exec.Command("git", "rm", "-q", "--cached", "--ignore-unmatch", "--", f) //nolint:gosec // G204: as above
 		}
 		if _, err := gitExec(cloneDir, stage); err != nil {
 			return "local merge: stage the tidied module: " + err.Error()

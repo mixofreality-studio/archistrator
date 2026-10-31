@@ -328,6 +328,7 @@ const FAILURE_CAUSE: Readonly<Record<FailureReason, string>> = {
   escalationTimedOut: 'No one answered the escalation in time',
   componentUnresolved: 'The plan names a component that isn’t in the design',
   activityUnclassifiable: 'The plan gives this activity no buildable type',
+  noProgress: 'No progress: two attempts changed nothing and failed the same way',
   dependencyUnresolved: 'The plan depends on an activity that doesn’t exist',
   dependencyCycle: 'The plan has a dependency loop',
 };
