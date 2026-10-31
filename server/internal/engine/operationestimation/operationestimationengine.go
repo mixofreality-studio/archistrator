@@ -46,7 +46,7 @@ import (
 // names are load-bearing: projectDesignManager and operationsManager depend on
 // them.
 
-// OperationEstimationEngineImpl and NewOperationEstimationEngine are generated
+// operationEstimationEngineImpl and NewOperationEstimationEngine are generated
 // (contract.gen.go); the behaviour below is hand-written on that generated
 // struct.
 
@@ -146,7 +146,7 @@ const defaultCurrency = "USD"
 // option, the customer's declared usage assumptions, and the chosen
 // infrastructure kind, produce the usage→operating-cost curve and the
 // payout-vs-shortfall forecast. Called by projectDesignManager.
-func (OperationEstimationEngineImpl) EstimateForOption(
+func (operationEstimationEngineImpl) EstimateForOption(
 	_ fweng.Context,
 	option ProjectOption,
 	declaredUsage UsageAssumption,
@@ -230,7 +230,7 @@ func (OperationEstimationEngineImpl) EstimateForOption(
 // usage on an already-operated app and a set of scale what-if points, produce
 // the current run-rate, projected monthly cost, and the what-if curve. Called
 // by operationsManager.
-func (OperationEstimationEngineImpl) ProjectForOperatedApp(
+func (operationEstimationEngineImpl) ProjectForOperatedApp(
 	_ fweng.Context,
 	observedUsage ObservedUsage,
 	infrastructureKind InfrastructureKind,
@@ -367,3 +367,9 @@ func dedupeFloats(xs []float64) []float64 {
 	}
 	return out
 }
+
+// operationEstimationEngineImpl is the concrete OperationEstimationEngine. Engines are pure: it carries no fields.
+type operationEstimationEngineImpl struct{}
+
+// newOperationEstimationEngine is the hand-written builder the generated NewOperationEstimationEngine delegates to.
+func newOperationEstimationEngine() OperationEstimationEngine { return operationEstimationEngineImpl{} }

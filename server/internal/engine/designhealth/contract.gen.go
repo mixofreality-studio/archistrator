@@ -34,12 +34,9 @@ type DesignHealthEngine interface {
 	EvaluateDesignHealth(rc fweng.Context, project string) ([]Finding, error)
 }
 
-// DesignHealthEngineImpl is the generated concrete DesignHealthEngine. Engines are pure (no
-// dependencies), so the impl carries no fields and the constructor takes none.
-// The interface methods are hand-written on this struct.
-type DesignHealthEngineImpl struct{}
-
-// NewDesignHealthEngine returns the production DesignHealthEngine.
-func NewDesignHealthEngine() DesignHealthEngine { return DesignHealthEngineImpl{} }
-
-var _ DesignHealthEngine = DesignHealthEngineImpl{}
+// NewDesignHealthEngine constructs the DesignHealthEngine, delegating to the hand-written, unexported
+// builder newDesignHealthEngine in this package. The constructor returns the interface, so
+// the concrete impl stays unexported.
+func NewDesignHealthEngine() DesignHealthEngine {
+	return newDesignHealthEngine()
+}

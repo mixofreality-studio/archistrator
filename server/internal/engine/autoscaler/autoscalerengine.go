@@ -46,7 +46,7 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
-// AutoscalerEngineImpl and NewAutoscalerEngine are generated (contract.gen.go);
+// autoscalerEngineImpl and NewAutoscalerEngine are generated (contract.gen.go);
 // the behaviour below is hand-written on that generated struct.
 
 // ProposeDesiredState answers, deterministically, what the platform should do to
@@ -66,7 +66,7 @@ import (
 // The two policy-universal short-circuits (ManualMode, Pinned) live here, not in
 // each strategy: they are operator overrides, not infrastructure-specific
 // (autoscalerEngine.md §6).
-func (AutoscalerEngineImpl) ProposeDesiredState(
+func (autoscalerEngineImpl) ProposeDesiredState(
 	_ fweng.Context,
 	telemetry Telemetry,
 	currentDesired DesiredState,
@@ -387,3 +387,9 @@ func clampReplicas(n int64, p AutoscalerPolicy) int64 {
 	}
 	return n
 }
+
+// autoscalerEngineImpl is the concrete AutoscalerEngine. Engines are pure: it carries no fields.
+type autoscalerEngineImpl struct{}
+
+// newAutoscalerEngine is the hand-written builder the generated NewAutoscalerEngine delegates to.
+func newAutoscalerEngine() AutoscalerEngine { return autoscalerEngineImpl{} }

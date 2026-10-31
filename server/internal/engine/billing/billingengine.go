@@ -49,7 +49,7 @@ import (
 // read. Exact integer arithmetic only; no float money.
 const computeCostCentsPerComputeUnitSecond int64 = 1
 
-// BillingEngineImpl and NewBillingEngine are generated (contract.gen.go); the
+// billingEngineImpl and NewBillingEngine are generated (contract.gen.go); the
 // behaviour below is hand-written on that generated struct.
 
 // termsKnown reports whether the pivot regime is registered. An unknown regime is a
@@ -75,7 +75,7 @@ func termsKnown(terms BillingTerms) bool {
 //
 // It was projectCommitTimeRevenueShareAndComputeCost until stage 4b2. The name named two
 // things and it now does one.
-func (BillingEngineImpl) ProjectCommitTimeComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
+func (billingEngineImpl) ProjectCommitTimeComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
 	terms := option.Terms
 	if !termsKnown(terms) {
 		return Projection{}, fweng.New(fweng.InvalidInput, "unknown terms")
@@ -88,7 +88,7 @@ func (BillingEngineImpl) ProjectCommitTimeComputeCost(_ fweng.Context, option Pr
 
 // ComputeNet computes the signed net for an actual closed cycle and the routing
 // directive. All money math is exact int64 minor units. (billingEngine.md §2.1)
-func (BillingEngineImpl) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error) {
+func (billingEngineImpl) ComputeNet(_ fweng.Context, revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error) {
 	return computeNet(revenue, usage, terms)
 }
 
@@ -178,3 +178,9 @@ func roundToInt64(f float64) int64 {
 	}
 	return int64(f - 0.5)
 }
+
+// billingEngineImpl is the concrete BillingEngine. Engines are pure: it carries no fields.
+type billingEngineImpl struct{}
+
+// newBillingEngine is the hand-written builder the generated NewBillingEngine delegates to.
+func newBillingEngine() BillingEngine { return billingEngineImpl{} }

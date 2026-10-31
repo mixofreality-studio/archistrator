@@ -18,25 +18,25 @@ claude-assets:
 # tags (framework-go v0.3.0 + the framework-go-{http,mcp}-generator modules), so
 # the Go workspace is no longer required for server build/codegen/test.
 #   gen-models  — generate contract.gen.go from project.json .serviceContracts
-#                 (cmd/modelgen). project.json is the source of truth.
+#                 (go tool modelgen). project.json is the source of truth.
 #   gen-fakes   — generate each contract's Fake<Iface> test double
 #                 (<goPackage>/fake/fake.gen.go). Alias of gen-models — same
-#                 cmd/modelgen run emits both outputs.
+#                 `go tool modelgen` run emits both outputs.
 #   gen         — steady-state regen (idempotent); gen-models + gen-fakes + …
 #                 + gen-tests (the scenario tests; Makefile.scenarios.mk)
 gen-models:
-	GOWORK=off go run ./cmd/modelgen
+	GOWORK=off go tool modelgen -project ../.aiarch/state/project.json -root .
 
 # gen-models-check — drift gate for the generated model/interface layer
-# (cmd/modelgen, driving the published framework-go-app-generator/modelgen), same
+# (`go tool modelgen`, driving the published framework-go-app-generator/modelgen), same
 # shape as gen-temporal-check: regenerate, then fail on any diff. GOWORK=off-safe
 # (see gen-models above), so it runs in CI (server-checks.yml).
 gen-models-check: gen-models
 	git diff --exit-code -- 'internal/**/contract.gen.go'
 
 # gen-fakes — generate each contract's Fake<Iface> test double
-# (<goPackage>/fake/fake.gen.go, cmd/modelgen driving the published
-# framework-go-app-generator/modelgen's GenerateFakes). cmd/modelgen emits BOTH
+# (<goPackage>/fake/fake.gen.go, `go tool modelgen` driving the published
+# framework-go-app-generator/modelgen's GenerateFakes). `go tool modelgen` emits BOTH
 # contract.gen.go and fake.gen.go from a single project.json read, so gen-fakes
 # is an ALIAS of gen-models rather than a second invocation. Kept as its own
 # target (not silently folded into gen-models) so gen-fakes-check can scope its
@@ -81,7 +81,7 @@ gen-internal-tools-check: gen-internal-tools
 
 gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-config gen-lifecycles gen-tests
 
-# gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
+# gen-temporal — ONE appgen run (`go tool appgen`, driving framework-go-app-generator's
 # temporalgen + configgen + composegen) that emits, from a single project.json
 # read:
 #   1. the per-manager Temporal layer (activities/invokers/worker .gen.go) for
@@ -94,13 +94,15 @@ gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-config 
 # than invoking appgen again; the three -check targets keep their distinct diff
 # scopes. Release-backed and GOWORK=off like the other gen targets:
 # framework-go-app-generator + framework-go-projectmodel are published platform
-# tags pinned in go.mod, so cmd/appgen builds from the module cache with no
+# tags pinned in go.mod, so `go tool appgen` builds from the module cache with no
 # build tag and no ../archistrator-platform workspace checkout. Folded into the
 # `gen` aggregate so `make gen` regenerates the whole codegen surface.
 # (The stdlib-only client SDK appgen once emitted into a sibling systemtests
 # module went with that module — deterministic component testing, spec §7.)
 gen-temporal:
-	GOWORK=off go run ./cmd/appgen
+	GOWORK=off go tool appgen temporal -project ../.aiarch/state/project.json -root .
+	GOWORK=off go tool appgen config -project ../.aiarch/state/project.json -root .
+	GOWORK=off go tool appgen compose -project ../.aiarch/state/project.json -root .
 
 # gen-temporal-check — drift gate for the generated Temporal layer, same shape
 # as the other gen-*-check gates (regenerate, then fail on any diff). Now
@@ -109,10 +111,10 @@ gen-temporal-check: gen-temporal
 	git diff --exit-code -- 'internal/manager/**/*.gen.go'
 
 # gen-config — the archistrator-server container config (cmd/server/config.gen.go)
-# from project.json's deployment model (cmd/appgen, driving the published
+# from project.json's deployment model (`go tool appgen`, driving the published
 # framework-go-app-generator/configgen — v0.4.0 shipped it, so the former
-# workspace-only cmd/configgen bridge is folded into cmd/appgen tag-free and this
-# is GOWORK=off like every other gen target). cmd/appgen emits it in the SAME run
+# workspace-only cmd/configgen bridge is folded into `go tool appgen` tag-free and this
+# is GOWORK=off like every other gen target). `go tool appgen` emits it in the SAME run
 # as the Temporal layer (one project.json read), so gen-config shares the
 # gen-temporal prerequisite rather than invoking appgen a second time.
 gen-config: gen-temporal
@@ -124,9 +126,9 @@ gen-config-check: gen-temporal
 	git diff --exit-code -- cmd/server/config.gen.go
 
 # gen-main — the archistrator-server composition root (cmd/server/main.gen.go)
-# from project.json's deployment model + service contracts (cmd/appgen, driving
+# from project.json's deployment model + service contracts (`go tool appgen`, driving
 # the published framework-go-app-generator/composegen — v0.5.0 shipped it, so this
-# is GOWORK=off like every other gen target). cmd/appgen emits it in the SAME run
+# is GOWORK=off like every other gen target). `go tool appgen` emits it in the SAME run
 # as the Temporal layer + SDK + config (one project.json read), so gen-main shares
 # the gen-temporal prerequisite rather than invoking appgen a second time.
 gen-main: gen-temporal
@@ -209,7 +211,7 @@ lint:
 	golangci-lint run ./...
 
 # Exhaustiveness check over generated sealed sum types (the //sumtype:decl
-# interfaces emitted by cmd/modelgen). Runs the pinned go-check-sumtype tool
+# interfaces emitted by `go tool modelgen`). Runs the pinned go-check-sumtype tool
 # dependency (go.mod `tool` directive) in workspace mode. golangci-lint also runs
 # this as its bundled `gochecksumtype` linter (.golangci.yml).
 sumtype-check:

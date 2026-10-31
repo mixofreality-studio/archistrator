@@ -360,10 +360,7 @@ func stringConstsInFile(file *ast.File) map[string]string {
 // divergent ways). It is arch.MethodSpec plus the two app-specific relaxations: the
 // durable-execution Temporal exemption and the operator-curated dependency allowlist.
 func appArchSpec() arch.Spec {
-	spec := arch.MethodSpec(
-		"..", // module root relative to internal/
-		modulePrefix,
-	)
+	spec := arch.MethodSpec("..") // module root relative to internal/
 	// There is no sideways escape hatch to configure. The typed-models rework
 	// eliminated every sideways RA→RA import: worker is the generic typed LLM
 	// worker that imports neither projectstate nor artifact; the Engines'
@@ -372,19 +369,6 @@ func appArchSpec() arch.Spec {
 	// classify into client/manager/engine/resourceaccess, so an out-of-band
 	// package (e.g. a "domain" dir) fails the build outright.
 
-	// Dependency allowlist — the FIXED, operator-curated infrastructure menu for
-	// any system built with archistrator (the CustomerAppInfrastructure volatility made
-	// executable). Production code may import only:
-	//   - the Go standard library (auto-allowed; not listed),
-	//   - the mixofreality-studio archistrator-platform framework family + this app's own module,
-	//   - the sanctioned infrastructure drivers carried by the framework-go
-	//     infrastructure modules: Postgres (pgx), Git/Gitea (go-git), and the
-	//     durable-execution substrate (Temporal).
-	// An unsanctioned dependency (e.g. a MongoDB driver) fails this test. Only an
-	// archistrator operator may widen the menu by adding a prefix here; that is the one
-	// and only place the menu is defined (no parallel doc to drift out of sync).
-	// Test-only deps (testcontainers, the Gitea SDK) are NOT scanned — Check loads
-	// with Tests:false — so they need no entry.
 	// Temporal-isolation exemption — the single architecturally-sanctioned
 	// exception to "Temporal lives only in the Manager layer". messageBus is the
 	// component whose fronted substrate IS the durable-execution runtime (Temporal)
@@ -406,16 +390,12 @@ func appArchSpec() arch.Spec {
 	// coverage: a generated fake imports only its contract package.
 	spec.TemporalExemptPackages = []string{"utility/messagebus"}
 
-	spec.AllowedImportPrefixes = []string{
-		"github.com/mixofreality-studio/",        // archistrator-platform framework family + this app's own module
-		"github.com/google/uuid",                 // sanctioned identity type (projectstate.ProjectID = uuid.UUID)
-		"github.com/invopop/jsonschema",          // typed-output JSON Schema derivation for LLM prompts (manager/systemdesign/schema.go)
-		"github.com/jackc/pgx",                   // sanctioned Postgres driver
-		"github.com/go-git/",                     // sanctioned Git/Gitea client (go-git + go-billy)
-		"go.temporal.io/",                        // sanctioned durable-execution substrate
-		"github.com/modelcontextprotocol/go-sdk", // sanctioned MCP substrate for the generated mcpClient tool surface (internal/client/mcp/*, framework-go-mcp-generator output)
-		"github.com/google/jsonschema-go",        // the MCP SDK's own JSON Schema type; the generated mcpClient tools carry explicit InputSchema (enum values/meanings + REST-matching optionality) built from it (internal/client/mcp/*, cmd/clientgen mcpemit output)
-	}
+	// The dependency menu is the framework's (arch.DefaultAllowedImportPrefixes, which
+	// MethodSpec starts from), and every app gets the same one. The one app-specific extra:
+	// typed-output JSON Schema derivation for LLM prompts (manager/systemdesign/schema.go).
+	// An unsanctioned dependency (e.g. a MongoDB driver) fails this test. Test-only deps
+	// (testcontainers, the Gitea SDK) are not scanned: Check loads with Tests:false.
+	spec.AllowedImportPrefixes = append(spec.AllowedImportPrefixes, "github.com/invopop/jsonschema")
 
 	// Hooks-file import allowlist — what a component's ONE hand-written test
 	// file (<stereotype>_hooks_test.go) may import beyond the built-in set

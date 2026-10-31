@@ -406,6 +406,13 @@ jobs:
             echo "::error::could not read origin's main (git ls-remote exit ${rc})"; exit 1
           fi
           echo "main_sha=${main_sha}" >> "$GITHUB_OUTPUT"
+          # The component's contracts, for the model generation step. Contract keys are
+          # identifiers, so anything else in the spec is refused before it reaches make.
+          contracts="$(jq -r '(.contracts // []) | join(" ")' "${RUNNER_TEMP}/spec.json")"
+          case "${contracts}" in
+            *[!A-Za-z0-9_\ ]*) echo "::error::the spec's contracts are not identifiers: ${contracts}"; exit 1 ;;
+          esac
+          echo "contracts=${contracts}" >> "$GITHUB_OUTPUT"
           # The integration TASK (not the optional phase input) seeds the scenario tests.
           if [ "${AIARCH_TASK_ID}" = integration ]; then
             echo "integration=true" >> "$GITHUB_OUTPUT"
@@ -559,6 +566,21 @@ jobs:
             [ -d "${mod}" ] || { echo "::error::moduleDir is not a directory in this checkout: ${mod}"; exit 1; }
             make -C "${mod}" gen-tests
           fi
+
+      # The generated half of a component is the job's as well: the agent builds against
+      # contract.gen.go and never writes a generator of its own. Only this task's contracts:
+      # a sibling's delegating constructor needs a builder that does not exist yet.
+      - name: Generate the component's models
+        if: ${{ steps.spec.outputs.contracts != '' }}
+        env:
+          GOWORK: "off"
+          CONTRACTS: ${{ steps.spec.outputs.contracts }}
+        run: |
+          mod="$(jq -r '.moduleDir // ""' .aiarch/state/project.json)" || { echo "::error::cannot read moduleDir from .aiarch/state/project.json"; exit 1; }
+          case "${mod}" in
+            /*|..|../*|*/..|*/../*) echo "::error::moduleDir must be a relative path without '..': ${mod}"; exit 1 ;;
+          esac
+          make -C "${mod:-.}" gen-models CONTRACTS="${CONTRACTS}"
 
       - name: Run construction step (claude-code-action)
         # The agent's bound — claude must implement + publish within this window or

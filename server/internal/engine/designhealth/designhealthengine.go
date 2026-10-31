@@ -249,7 +249,7 @@ func evaluate(in input) []methodcheck.Finding {
 // STRUCTURAL failure owned by the framework gate, which runs on the same bytes at
 // every seam — this engine stays silent rather than double-reporting it, and
 // returns no findings. The call Context carries nothing this pure computation needs.
-func (DesignHealthEngineImpl) EvaluateDesignHealth(_ fweng.Context, project string) ([]Finding, error) {
+func (designHealthEngineImpl) EvaluateDesignHealth(_ fweng.Context, project string) ([]Finding, error) {
 	live := evaluateRaw([]byte(project))
 	out := make([]Finding, 0, len(live))
 	for _, f := range live {
@@ -3375,3 +3375,9 @@ func normalizeNameToken(s string) string {
 	}
 	return b.String()
 }
+
+// designHealthEngineImpl is the concrete DesignHealthEngine. Engines are pure: it carries no fields.
+type designHealthEngineImpl struct{}
+
+// newDesignHealthEngine is the hand-written builder the generated NewDesignHealthEngine delegates to.
+func newDesignHealthEngine() DesignHealthEngine { return designHealthEngineImpl{} }

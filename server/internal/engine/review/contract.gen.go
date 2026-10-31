@@ -63,12 +63,9 @@ type ReviewEngine interface {
 	ProposeReviews(rc fweng.Context, change ReviewChange, activityType ActivityType, lifecyclePhase string, componentID string, policy ReviewPolicy, floorTouched bool, contracts []string) (ReviewSet, error)
 }
 
-// ReviewEngineImpl is the generated concrete ReviewEngine. Engines are pure (no
-// dependencies), so the impl carries no fields and the constructor takes none.
-// The interface methods are hand-written on this struct.
-type ReviewEngineImpl struct{}
-
-// NewReviewEngine returns the production ReviewEngine.
-func NewReviewEngine() ReviewEngine { return ReviewEngineImpl{} }
-
-var _ ReviewEngine = ReviewEngineImpl{}
+// NewReviewEngine constructs the ReviewEngine, delegating to the hand-written, unexported
+// builder newReviewEngine in this package. The constructor returns the interface, so
+// the concrete impl stays unexported.
+func NewReviewEngine() ReviewEngine {
+	return newReviewEngine()
+}

@@ -77,12 +77,9 @@ type BillingEngine interface {
 	ProjectCommitTimeComputeCost(rc fweng.Context, option ProjectOption) (Projection, error)
 }
 
-// BillingEngineImpl is the generated concrete BillingEngine. Engines are pure (no
-// dependencies), so the impl carries no fields and the constructor takes none.
-// The interface methods are hand-written on this struct.
-type BillingEngineImpl struct{}
-
-// NewBillingEngine returns the production BillingEngine.
-func NewBillingEngine() BillingEngine { return BillingEngineImpl{} }
-
-var _ BillingEngine = BillingEngineImpl{}
+// NewBillingEngine constructs the BillingEngine, delegating to the hand-written, unexported
+// builder newBillingEngine in this package. The constructor returns the interface, so
+// the concrete impl stays unexported.
+func NewBillingEngine() BillingEngine {
+	return newBillingEngine()
+}

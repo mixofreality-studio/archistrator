@@ -198,12 +198,9 @@ type EstimationEngine interface {
 	DerivePlan(rc fweng.Context, system SystemView, deltas ActivityListDeltas) (DerivedPlan, error)
 }
 
-// EstimationEngineImpl is the generated concrete EstimationEngine. Engines are pure (no
-// dependencies), so the impl carries no fields and the constructor takes none.
-// The interface methods are hand-written on this struct.
-type EstimationEngineImpl struct{}
-
-// NewEstimationEngine returns the production EstimationEngine.
-func NewEstimationEngine() EstimationEngine { return EstimationEngineImpl{} }
-
-var _ EstimationEngine = EstimationEngineImpl{}
+// NewEstimationEngine constructs the EstimationEngine, delegating to the hand-written, unexported
+// builder newEstimationEngine in this package. The constructor returns the interface, so
+// the concrete impl stays unexported.
+func NewEstimationEngine() EstimationEngine {
+	return newEstimationEngine()
+}

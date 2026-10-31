@@ -1,0 +1,174 @@
+{
+  "container": "archistrator-server",
+  "envPrefix": "ARCHISTRATOR",
+  "managers": [
+    "deliveryManager",
+    "operationsManager",
+    "billingManager"
+  ],
+  "callerKeyedOps": {
+    "billingManager": {
+      "merchantGateway": [
+        "ChargeCustomer",
+        "ValidateStoredInstrument"
+      ]
+    }
+  },
+  "webExposedManagers": [
+    "billingManager",
+    "deliveryManager",
+    "operationsManager"
+  ],
+  "variantConstructorNoError": {
+    "messageBus/Temporal": true
+  },
+  "scheduleRegistrarComponent": "messageBus",
+  "variantHookArgs": {
+    "projectStateAccess/GitHub": [
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "projectstate.ProjectCatalog",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      },
+      {
+        "GoType": "projectstate.CredentialMinter",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      }
+    ],
+    "gitActivityStatusAccess/GitLocal": [
+      {
+        "GoType": "string"
+      }
+    ],
+    "gitActivityStatusAccess/GitHub": [
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "projectstate.ProjectCatalog",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      },
+      {
+        "GoType": "projectstate.CredentialMinter",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      }
+    ],
+    "designSessionAccess/GitLocal": [
+      {
+        "GoType": "string"
+      }
+    ],
+    "designSessionAccess/GitHub": [
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "projectstate.ProjectCatalog",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      },
+      {
+        "GoType": "projectstate.CredentialMinter",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      }
+    ],
+    "activityExecutionAccess/GitLocal": [
+      {
+        "GoType": "string"
+      }
+    ],
+    "activityExecutionAccess/GitHub": [
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "projectstate.ProjectCatalog",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      },
+      {
+        "GoType": "projectstate.CredentialMinter",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+      }
+    ],
+    "episodeAccess/LocalFS": [
+      {
+        "GoType": "string"
+      }
+    ],
+    "artifactAccess/GitHubCloud": [
+      {
+        "GoType": "*github.AppClient",
+        "GoImport": "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "int64"
+      }
+    ],
+    "sourceControlAccess/GitHub": [
+      {
+        "GoType": "*github.AppClient",
+        "GoImport": "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "bool"
+      }
+    ],
+    "sourceControlAccess/GitLocal": [
+      {
+        "GoType": "string"
+      }
+    ],
+    "agenticJobAccess/GitHubActions": [
+      {
+        "GoType": "*github.AppClient",
+        "GoImport": "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "string"
+      },
+      {
+        "GoType": "int64"
+      }
+    ],
+    "messageBus/Temporal": [
+      {
+        "GoType": "map[messagebus.ExecutionKind]messagebus.KindBinding",
+        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
+      }
+    ]
+  }
+}

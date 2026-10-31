@@ -105,7 +105,7 @@ func (p bandPolicy) nearCritical(onCriticalPath bool, totalFloat float64) bool {
 // input the Manager should never assemble): an InternalInvariant guard catches a
 // computed negative duration. An empty network is a normal DOMAIN result (an empty
 // solution), NOT an error — a project may be read before its network is authored.
-func (EstimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityList, network Network) (NetworkSolution, error) {
+func (estimationEngineImpl) ComputeNetwork(_ fweng.Context, activities ActivityList, network Network) (NetworkSolution, error) {
 	effortByName := make(map[string]ActivityItem, len(activities.Activities))
 	for _, a := range activities.Activities {
 		effortByName[a.Name] = a
@@ -573,7 +573,7 @@ const maxCalendarStretch = 7.0
 // RiskScore is exposed as a decomposition (Criticality + ActivityRisk, not folded
 // into one number) because the SDP review renders them separately (risk.md 81-83).
 
-// EstimationEngineImpl and NewEstimationEngine are generated (contract.gen.go); the
+// estimationEngineImpl and NewEstimationEngine are generated (contract.gen.go); the
 // behaviour below is hand-written on that generated struct.
 
 // EstimateForOption implements EstimationEngine. It runs in one pass over the
@@ -587,7 +587,7 @@ const maxCalendarStretch = 7.0
 //     assemble a valid option before calling.)
 //   - InternalInvariant: a computed risk component fell outside [0,1] or the
 //     duration came out negative (an engine bug — a guard).
-func (EstimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOption) (ConstructionEstimate, error) {
+func (estimationEngineImpl) EstimateForOption(_ fweng.Context, option ProjectOption) (ConstructionEstimate, error) {
 	activities := option.Network.Activities
 
 	// --- ContractMisuse pre-conditions (programmer error, not a domain result) ---
@@ -942,7 +942,7 @@ const defaultCalendarDaysPerWeek = 5
 // by week index, never by input ordering). An empty activity list yields zero-valued
 // curves with a single week-0 sample — a normal DOMAIN result, not an error. The error is
 // *fweng.Error and is reserved for contract misuse; this computation never raises one.
-func (EstimationEngineImpl) ComputeEarnedValue(_ fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error) {
+func (estimationEngineImpl) ComputeEarnedValue(_ fweng.Context, activities ActivityList, network Network, integrated []string, totalWeeks int64, calendarDaysPerWeek int64) (EVCurve, error) {
 	calDaysPerWeek := int(calendarDaysPerWeek)
 	if calDaysPerWeek <= 0 {
 		calDaysPerWeek = defaultCalendarDaysPerWeek
@@ -1316,7 +1316,7 @@ func backwardFloat(idSet map[string]struct{}, deps []NetworkDependency, mileston
 // project may be read before its architecture is committed. The *fweng.Error channel is
 // reserved for contract misuse: a delta that the vocabulary forbids (an override naming
 // no derived activity, an additive carrying a componentId, a missing justification).
-func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, deltas ActivityListDeltas) (DerivedPlan, error) {
+func (estimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, deltas ActivityListDeltas) (DerivedPlan, error) {
 	if len(system.Components) == 0 {
 		// A project before its architecture is committed still owes its design: the
 		// prefix and M0 are not a function of the System, they are what produces it. The
@@ -2268,3 +2268,9 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 
 	return DerivedPlan{Activities: acts, Dependencies: allDeps, Milestones: milestones}, nil
 }
+
+// estimationEngineImpl is the concrete EstimationEngine. Engines are pure: it carries no fields.
+type estimationEngineImpl struct{}
+
+// newEstimationEngine is the hand-written builder the generated NewEstimationEngine delegates to.
+func newEstimationEngine() EstimationEngine { return estimationEngineImpl{} }

@@ -129,12 +129,9 @@ type AutoscalerEngine interface {
 	ProposeDesiredState(rc fweng.Context, telemetry Telemetry, currentDesired DesiredState, policy AutoscalerPolicy, infrastructureKind InfrastructureKind) (Decision, error)
 }
 
-// AutoscalerEngineImpl is the generated concrete AutoscalerEngine. Engines are pure (no
-// dependencies), so the impl carries no fields and the constructor takes none.
-// The interface methods are hand-written on this struct.
-type AutoscalerEngineImpl struct{}
-
-// NewAutoscalerEngine returns the production AutoscalerEngine.
-func NewAutoscalerEngine() AutoscalerEngine { return AutoscalerEngineImpl{} }
-
-var _ AutoscalerEngine = AutoscalerEngineImpl{}
+// NewAutoscalerEngine constructs the AutoscalerEngine, delegating to the hand-written, unexported
+// builder newAutoscalerEngine in this package. The constructor returns the interface, so
+// the concrete impl stays unexported.
+func NewAutoscalerEngine() AutoscalerEngine {
+	return newAutoscalerEngine()
+}

@@ -14,7 +14,7 @@
 # Unlike the construction file (which the operator installs by hand into the
 # construction repo), archistrator-server COMMITS THIS FILE into each user
 # project repo at project birth, bundled with the go-test gate scaffold (go.mod +
-# aiarch_method_test.go), via
+# internal/aiarch_arch_test.go), via
 #   sourceControlAccess.CommitManagedFiles(repo, ManagedScaffoldFiles(repo, slug), ...)
 # (the C-PM-Δ caller threads the accessor), and KEEPS IT CURRENT after birth via the
 # design Managers' MANAGED-SCAFFOLD SYNC: before every design-job dispatch the server
@@ -109,7 +109,7 @@
 #   file installs, and the managed-scaffold sync refreshes this file whenever the pin
 #   moves; the seated go.mod route needed a platform release + a product go.mod bump
 #   per rule change (the drift class the sync exists to kill). The seated scaffold
-#   (go.mod + aiarch_method_test.go) REMAINS for the product repo's own CI once it
+#   (go.mod + internal/aiarch_arch_test.go) REMAINS for the product repo's own CI once it
 #   has Go code: the arch layer rules + design↔code alignment need go/packages over
 #   the product module, which an installed binary cannot run.
 #
@@ -898,7 +898,7 @@ jobs:
   # boundary. This REPLACED the seated go-test steps (tidy + test over the seated
   # scaffold) so the gate self-updates with the state-MCP pin (managed-scaffold sync)
   # instead of requiring a platform release + product go.mod bump per rule change;
-  # the seated go.mod / aiarch_method_test.go scaffold remains for the product
+  # the seated go.mod / internal/aiarch_arch_test.go scaffold remains for the product
   # repo's own CI (arch layer rules + design↔code alignment over product Go code,
   # which an installed binary cannot run).
   # ---------------------------------------------------------------------------

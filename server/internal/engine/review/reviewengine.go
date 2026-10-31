@@ -148,7 +148,7 @@ const (
 //     Preset a plain string ("" is the legacy/explicit mode) where projectstate stores
 //     a *string; each caller dereferences in its own five-line adapter.
 
-// The concrete ReviewEngine — the empty, stateless ReviewEngineImpl — and its
+// The concrete ReviewEngine — the empty, stateless reviewEngineImpl — and its
 // constructor NewReviewEngine() are GENERATED into contract.gen.go (an engine is
 // pure: no fields => no mutable state => trivially deterministic and reentrant).
 // The behaviour below is hand-written on the generated struct.
@@ -164,7 +164,7 @@ const (
 // platform-fixed data into a wire contract that "never renumber" then binds forever —
 // or force a caller to lie. The tables below are TOTAL over the string instead, and the
 // callers' parity tests are what keep the strings honest.
-func (ReviewEngineImpl) ProposeReviews(
+func (reviewEngineImpl) ProposeReviews(
 	_ fweng.Context, // pure engine: carries identity/cancellation, ignored by v1 policy
 	change ReviewChange,
 	activityType ActivityType,
@@ -481,3 +481,9 @@ func constructionGate(t ActivityType, p string, policy ReviewPolicy) (bool, stri
 // quote wraps s in double quotes for readable error detail (the same minimal idiom
 // the handoff Engine uses, keeping the import set to fweng only).
 func quote(s string) string { return "\"" + s + "\"" }
+
+// reviewEngineImpl is the concrete ReviewEngine. Engines are pure: it carries no fields.
+type reviewEngineImpl struct{}
+
+// newReviewEngine is the hand-written builder the generated NewReviewEngine delegates to.
+func newReviewEngine() ReviewEngine { return reviewEngineImpl{} }

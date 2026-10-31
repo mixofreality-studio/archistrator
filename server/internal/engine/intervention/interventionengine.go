@@ -57,12 +57,12 @@ import (
 // values, are load-bearing (senior freeze-time note, contract §3). Nothing in
 // this package or its callers may depend on the numeric values.
 
-// InterventionEngineImpl and NewInterventionEngine are generated
+// interventionEngineImpl and NewInterventionEngine are generated
 // (contract.gen.go); the behaviour below is hand-written on that generated
 // struct.
 
 // DecideOnVariance maps a construction variance to a remediation directive.
-func (InterventionEngineImpl) DecideOnVariance(_ fweng.Context, variance ConstructionVariance) (VarianceDirective, error) {
+func (interventionEngineImpl) DecideOnVariance(_ fweng.Context, variance ConstructionVariance) (VarianceDirective, error) {
 	if variance.ProjectID == "" || variance.ActivityID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnVariance: empty ProjectID/ActivityID (Manager failed to assemble a valid ConstructionVariance)")
@@ -88,7 +88,7 @@ func (InterventionEngineImpl) DecideOnVariance(_ fweng.Context, variance Constru
 }
 
 // DecideOnHealth maps an operated-app health transition to a remediation directive.
-func (InterventionEngineImpl) DecideOnHealth(_ fweng.Context, healthChange HealthChange) (HealthDirective, error) {
+func (interventionEngineImpl) DecideOnHealth(_ fweng.Context, healthChange HealthChange) (HealthDirective, error) {
 	if healthChange.OperatedAppID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnHealth: empty OperatedAppID (Manager failed to assemble a valid HealthChange)")
@@ -107,7 +107,7 @@ func (InterventionEngineImpl) DecideOnHealth(_ fweng.Context, healthChange Healt
 
 // DecideOnSettlementFailure maps a failed settlement action to a remediation
 // directive (retry now / back off to the next sweep / escalate to delinquency).
-func (InterventionEngineImpl) DecideOnSettlementFailure(_ fweng.Context, failure SettlementFailure) (SettlementFailureDirective, error) {
+func (interventionEngineImpl) DecideOnSettlementFailure(_ fweng.Context, failure SettlementFailure) (SettlementFailureDirective, error) {
 	if failure.CustomerID == "" || failure.CycleID == "" {
 		return 0, fweng.New(fweng.ContractMisuse,
 			"DecideOnSettlementFailure: empty CustomerID/CycleID (Manager failed to assemble a valid SettlementFailure)")
@@ -134,7 +134,7 @@ func (InterventionEngineImpl) DecideOnSettlementFailure(_ fweng.Context, failure
 
 // ApplyPausePolicy computes the pause plan the policy prescribes for an operator
 // pause request. The Manager executes the plan; the Engine returns the plan.
-func (InterventionEngineImpl) ApplyPausePolicy(_ fweng.Context, ctx PauseRequestContext) (PausePlan, error) {
+func (interventionEngineImpl) ApplyPausePolicy(_ fweng.Context, ctx PauseRequestContext) (PausePlan, error) {
 	if ctx.ProjectID == "" {
 		return PausePlan{}, fweng.New(fweng.ContractMisuse,
 			"ApplyPausePolicy: empty ProjectID (Manager failed to assemble a valid PauseRequestContext)")
@@ -331,3 +331,9 @@ func (s tieredStrategy) applyPausePolicy(PauseRequestContext) PausePlan {
 	}
 	return PausePlan{RecordPaused: true, NotifyTargets: targets}
 }
+
+// interventionEngineImpl is the concrete InterventionEngine. Engines are pure: it carries no fields.
+type interventionEngineImpl struct{}
+
+// newInterventionEngine is the hand-written builder the generated NewInterventionEngine delegates to.
+func newInterventionEngine() InterventionEngine { return interventionEngineImpl{} }

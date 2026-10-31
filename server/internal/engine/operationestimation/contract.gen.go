@@ -108,12 +108,9 @@ type OperationEstimationEngine interface {
 	ProjectForOperatedApp(rc fweng.Context, observedUsage ObservedUsage, infrastructureKind InfrastructureKind, scaleWhatIfPoints []ScalePoint) (CostProjection, error)
 }
 
-// OperationEstimationEngineImpl is the generated concrete OperationEstimationEngine. Engines are pure (no
-// dependencies), so the impl carries no fields and the constructor takes none.
-// The interface methods are hand-written on this struct.
-type OperationEstimationEngineImpl struct{}
-
-// NewOperationEstimationEngine returns the production OperationEstimationEngine.
-func NewOperationEstimationEngine() OperationEstimationEngine { return OperationEstimationEngineImpl{} }
-
-var _ OperationEstimationEngine = OperationEstimationEngineImpl{}
+// NewOperationEstimationEngine constructs the OperationEstimationEngine, delegating to the hand-written, unexported
+// builder newOperationEstimationEngine in this package. The constructor returns the interface, so
+// the concrete impl stays unexported.
+func NewOperationEstimationEngine() OperationEstimationEngine {
+	return newOperationEstimationEngine()
+}
