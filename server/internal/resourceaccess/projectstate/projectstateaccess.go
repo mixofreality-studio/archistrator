@@ -11843,7 +11843,12 @@ type TaskSpec struct {
 	Tools     SpecTools     `json:"tools"`
 	EditScope SpecEditScope `json:"editScope"`
 	Checks    []SpecCheck   `json:"checks"`
-	Hash      string        `json:"hash"`
+	// Contracts names the contracts whose generated Go the job writes before the agent runs
+	// (`make gen-models CONTRACTS=...`): this component's own, never a sibling's, whose
+	// delegating constructor needs a builder that does not exist yet. Empty for a task that
+	// changes no Go package.
+	Contracts []string `json:"contracts,omitempty"`
+	Hash      string   `json:"hash"`
 }
 
 // SpecIdentity is what the method assets say the task is.
@@ -11921,6 +11926,10 @@ type SpecCheckSource struct {
 	Scenario     string   `json:"scenario,omitempty"`
 	Contract     string   `json:"contract,omitempty"`
 	UseCase      string   `json:"useCase,omitempty"`
+	// RequireTests fails a command check whose run executed no test. `go test -run X` exits
+	// 0 on no match and on "no test files", so a gate named after its tests could otherwise
+	// pass without running any of them. The argv carries -v so the runs are visible.
+	RequireTests bool `json:"requireTests,omitempty"`
 }
 
 // TaskSpecFor resolves the agent task spec of one lifecycle task of one committed
@@ -11972,6 +11981,7 @@ func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
 	if err := validateEditScope(s.EditScope); err != nil {
 		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: %s/%s: %w", activityID, taskID, err)
 	}
+	s.Contracts = generatedContractsOf(p, ms.Command, item.ComponentID)
 	s = s.normalized()
 	s.Hash = s.ComputeHash()
 	return s, nil
@@ -12286,6 +12296,30 @@ func componentContracts(p *Project, componentID string) []string {
 	return out
 }
 
+// generatedContractsOf is the contracts a service task's job generates, sorted: the
+// component's own recorded contracts that have a Go package to land in.
+func generatedContractsOf(p *Project, command, componentID string) []string {
+	if command != "service-construction" && command != "service-integration" {
+		return nil
+	}
+	var out []string
+	for _, c := range componentContracts(p, componentID) {
+		if p.ServiceContracts[c].GoPackage != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// statePathFromModule is the state document's path from the module dir.
+func statePathFromModule(p *Project) string {
+	const doc = ".aiarch/state/project.json"
+	if p.ModuleDir == "" {
+		return doc
+	}
+	return strings.Repeat("../", strings.Count(strings.Trim(p.ModuleDir, "/"), "/")+1) + doc
+}
+
 // goPackagesOf is the contracts' Go packages (module-relative), sorted and unique.
 func goPackagesOf(p *Project, contracts []string) []string {
 	var out []string
@@ -12336,8 +12370,9 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 		commandCheck("build", "go build", append([]string{"go", "build"}, trees...), dir, commandCheckTimeoutSec),
 		commandCheck("vet", "go vet", append([]string{"go", "vet"}, trees...), dir, commandCheckTimeoutSec),
 		commandCheck("lint", "golangci-lint", append([]string{"golangci-lint", "run"}, trees...), dir, lintCheckTimeoutSec),
-		commandCheck("arch", "Architecture gates (file layout, generated-only public surface)",
-			[]string{"go", "test", "-count=1", "-run", "^(TestFileLayout|TestGeneratedOnlyPublic)$", "./internal/"}, dir, commandCheckTimeoutSec),
+		archCheck(dir),
+		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
+		genModelsCheck(p, contracts, dir),
 	}
 	if integration {
 		scope.Extra = append(scope.Extra, inModule(p, "cmd/server/hooks.go"))
@@ -12353,6 +12388,29 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 	scope.Extra = slices.Compact(scope.Extra)
 	sortChecks(checks)
 	return scope, checks, nil
+}
+
+// archCheck is the seated gate, the same argv in every app (internal/aiarch_arch_test.go):
+// file layout, the generated-only public surface, layering and the dependency menu, and the
+// design rules with design-to-code alignment.
+func archCheck(dir string) SpecCheck {
+	c := commandCheck("arch", "Architecture gates (file layout, public surface, layering, design alignment)",
+		[]string{"go", "test", "-count=1", "-v", "-run", "^(TestFileLayout|TestGeneratedOnlyPublic|TestMethodLayering|TestMethod)$", "./internal/"}, dir, commandCheckTimeoutSec)
+	c.Source.RequireTests = true
+	return c
+}
+
+// genModelsCheck holds the component's generated Go to its contract. The drift gate names
+// the component's own contracts, so a package with no contract.gen.go is red rather than
+// skipped by the surface gate.
+func genModelsCheck(p *Project, contracts []string, dir string) SpecCheck {
+	argv := []string{"go", "tool", "modelgen", "-project", statePathFromModule(p), "-root", ".", "-check"}
+	for _, c := range contracts {
+		if p.ServiceContracts[c].GoPackage != "" {
+			argv = append(argv, "-contract", c)
+		}
+	}
+	return commandCheck("gen-models-check", "Generated models are current", argv, dir, commandCheckTimeoutSec)
 }
 
 // frontendScopeAndChecks is the web client's construction (integration adds the UI tests

@@ -98,33 +98,30 @@ const workflowPathPrefix = ".github/workflows/"
 // 2026-07-13). Files under it are aiarch-managed method-assets content.
 const claudePathPrefix = ".claude/"
 
-// scaffoldRootPaths is the exact set of non-workflow repo-root files CommitManagedFiles
-// is permitted to seat — the go-test gate scaffold. Together with workflowPathPrefix
-// and claudePathPrefix these form the managed-file ALLOWLIST: the verb seats ONLY
-// aiarch-managed files (the workflows + the methodassets .claude tree + the go.mod and
-// method-test that make `go test ./...` the merge gate + the internal/.gitkeep that
-// keeps the method gate's `./internal/...` load pattern from hard-erroring on a fresh
-// repo), never arbitrary content (§2.6, Non-goal #2). A path that is neither under
-// .github/workflows/ NOR a clean .claude/ path NOR one of these roots is a
-// ContractMisuse.
+// scaffoldRootPaths is the exact set of non-workflow files CommitManagedFiles is permitted
+// to seat. Together with workflowPathPrefix and claudePathPrefix these form the managed-file
+// ALLOWLIST: the verb seats ONLY aiarch-managed files, never arbitrary content (§2.6,
+// Non-goal #2). A path that is none of these is a ContractMisuse.
 //
-// internal/.gitkeep is listed as a LITERAL path (not an internal/ prefix) to keep the
-// allowlist tight: only the single seeded placeholder is permitted, never arbitrary
-// files under internal/.
-//
-// .golangci.yml is the shared lint baseline the seated go-checks workflow runs
-// against (method-assets scaffold, 2026-07-19); it seats at birth and is server-owned
-// policy, so it also rides the sync (see managedSyncFiles). Makefile.scenarios.mk
-// is the same case (method-assets v0.10.0, deterministic component testing): the
-// gen-tests / gen-tests-check / test-scenarios targets the construction commands
-// and the local venue call, server-owned with no app-local edits, so it seats at
-// birth AND rides the sync.
+// go.mod, go.sum and Makefile are birth-only: the app evolves them. The gate, the scenario
+// make include, the lint baseline and .gitattributes are server-owned policy with no
+// app-local edits, so they seat at birth AND ride the sync (managedSyncFiles).
 var scaffoldRootPaths = map[string]bool{
-	"go.mod":                true,
-	"aiarch_method_test.go": true,
-	"internal/.gitkeep":     true,
-	".golangci.yml":         true,
-	scenarioMakefilePath:    true,
+	"go.mod":                  true,
+	"go.sum":                  true,
+	"Makefile":                true,
+	methodassets.ArchGatePath: true,
+	".golangci.yml":           true,
+	".gitattributes":          true,
+	scenarioMakefilePath:      true,
+}
+
+// syncedScaffoldRoots is the part of scaffoldRootPaths the managed sync converges.
+var syncedScaffoldRoots = map[string]bool{
+	methodassets.ArchGatePath: true,
+	".golangci.yml":           true,
+	".gitattributes":          true,
+	scenarioMakefilePath:      true,
 }
 
 // scenarioMakefilePath is the scaffold's scenario-test make include, rendered
@@ -1080,24 +1077,10 @@ func itoa(n int) string { return strconv.Itoa(n) }
 //      adopted RepoRef) + a go directive + `require github.com/mixofreality-studio/archistrator-platform/framework-go`
 //      pinned to methodassets.FrameworkGoVersion, so a `go test` in the repo
 //      resolves methodcheck.
-//   3. aiarch_method_test.go — the single test calling methodcheck.Check (the
-//      all-in-one Method gate). Since 2026-07-06 the DESIGN workflow's REQUIRED
-//      `validate` job runs `aiarch-state-mcp validate` (the pinned, self-updating
-//      binary carrying the same design rules + the staleness-aware cross-artifact
-//      severity policy) INSTEAD of this test; the scaffold remains seated for the
-//      product repo's OWN CI once it has Go code (arch layer rules + design↔code
-//      alignment need go/packages over the product module, which an installed
-//      binary cannot run).
-//   4. internal/.gitkeep — a placeholder that keeps the internal/ directory PRESENT
-//      in a fresh repo. The seated method test (3) runs methodcheck.Check, whose
-//      arch.MethodSpec loads the `./internal/...` package pattern; on an empty birth
-//      repo that pattern HARD-ERRORS ("lstat ./internal/: no such file or directory")
-//      and reddens the required check on every fresh project until the directory is
-//      hand-added. Seating an empty-ish internal/.gitkeep makes internal/ exist at
-//      birth so the load pattern resolves (to zero packages, a valid no-op) and the
-//      gate is green from the first commit. It is a static one-liner (not templated):
-//      git needs a non-empty tracked file, and CommitManagedFiles rejects empty
-//      content, so it carries a single explanatory comment line.
+//   3. internal/aiarch_arch_test.go, the Method gate: file layout, the public surface,
+//      layering, and methodcheck.Check. It is a test file under internal/ so that
+//      `go test ./internal/` and the `./internal/...` load pattern resolve from the first
+//      commit (methodassets.ArchGatePath).
 //   5. (REMOVED from the committed set — runtime materialization, founder-ratified
 //      2026-07-17.) The full .claude agents/commands/skills tree + its seat manifest
 //      — the PROMPT SURFACE the seated workflows' thin slash-command dispatch routes
@@ -1148,27 +1131,12 @@ const DesignWorkflowPath = ".github/workflows/aiarch-design.yml"
 // content files did not land with it.
 const scaffoldManifestPath = ".claude/.method-assets-manifest.json"
 
-// GoModPath / MethodTestPath are the repo-root scaffold paths the go-test gate is
-// seated to. They MUST match the sourcecontrol managed-file allowlist scaffold roots
-// (github.go scaffoldRootPaths) so CommitManagedFiles accepts them.
+// GoModPath / MethodTestPath are the scaffold paths of the module and the Method gate. They
+// MUST be on the managed-file allowlist (scaffoldRootPaths) so CommitManagedFiles accepts them.
 const (
 	GoModPath      = "go.mod"
-	MethodTestPath = "aiarch_method_test.go"
+	MethodTestPath = methodassets.ArchGatePath
 )
-
-// internalGitkeepPath is the repo-root placeholder that keeps the internal/ directory
-// present at project birth so the seated method test's arch.MethodSpec `./internal/...`
-// load pattern resolves (to zero packages) instead of hard-erroring on a missing dir.
-// It MUST match the sourcecontrol managed-file allowlist scaffold roots (github.go
-// scaffoldRootPaths) so CommitManagedFiles accepts it — the allowlist lists this
-// LITERAL path, not an internal/ prefix, so it stays tight.
-const internalGitkeepPath = "internal/.gitkeep"
-
-// internalGitkeepContent is the static, non-empty content of the internal/.gitkeep
-// placeholder. git needs a tracked file (a bare empty directory cannot be committed)
-// and CommitManagedFiles rejects empty content, so the file carries a single comment
-// line explaining why it exists.
-const internalGitkeepContent = "# keeps internal/ present for the Method arch gate (./internal/... load pattern)\n"
 
 // (The former GoVersion / FrameworkGoVersion consts were DELETED with the B4
 // delegation: the seated go.mod's language + framework-go pins are owned by the
@@ -1250,9 +1218,8 @@ func managedScaffoldData(repo RepoRef, appSlug string) (methodassets.ScaffoldDat
 }
 
 // renderManagedScaffold renders the REPO-COMMITTED managed scaffold via
-// methodassets.ScaffoldFiles as a path-sorted []ManagedFile: both workflows +
-// go.mod + method test + internal/.gitkeep. Two deviations from the module's full
-// rendering:
+// methodassets.ScaffoldFiles as a path-sorted []ManagedFile: the workflows, the tidied
+// module, the Makefile and the Method gate. One deviation from the module's full rendering:
 //
 //   - the .claude tree + its seat manifest are EXCLUDED (runtime materialization,
 //     founder-ratified 2026-07-17): operated repos do not commit the prompt
@@ -1262,9 +1229,6 @@ func managedScaffoldData(repo RepoRef, appSlug string) (methodassets.ScaffoldDat
 //     committed copy cannot drift. (Legacy repos' already-committed .claude trees
 //     are left in place — cleanup is a follow-up — and are force-overwritten in
 //     the checkout by the workflow's post-checkout seat-assets step.)
-//   - the module emits internal/.gitkeep EMPTY (a plain git placeholder), but the
-//     managed-file write path rejects empty content, so the seat carries the
-//     explanatory one-liner instead — same placeholder, non-empty bytes.
 func renderManagedScaffold(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	data, err := managedScaffoldData(repo, appSlug)
 	if err != nil {
@@ -1274,7 +1238,6 @@ func renderManagedScaffold(repo RepoRef, appSlug string) ([]ManagedFile, error) 
 	if err != nil {
 		return nil, fmt.Errorf("sourcecontrol: render managed scaffold: %w", err)
 	}
-	rendered[internalGitkeepPath] = []byte(internalGitkeepContent)
 
 	files := make([]ManagedFile, 0, len(rendered))
 	for p, b := range rendered {
@@ -1314,9 +1277,7 @@ func DesignWorkflowFile(appSlug string) (ManagedFile, error) {
 
 // ManagedScaffoldFiles returns the FULL aiarch-managed project scaffold bundle to
 // seat at project birth: both agentic workflows (design + construct), the go-test
-// gate (go.mod + aiarch_method_test.go), and the internal/.gitkeep placeholder (the
-// method gate's arch.MethodSpec `./internal/...` load pattern hard-errors on a
-// missing internal/ dir, so the placeholder makes it exist at birth). The C-PM-Δ
+// module (go.mod + go.sum), the Makefile, and the Method gate under internal/. The C-PM-Δ
 // caller hands the returned slice to CommitManagedFiles, which seats the whole set
 // in one birth seat. (It deliberately does NOT include .aiarch/state/project.json —
 // projectStateAccess.CreateProject owns seeding that. Nor, since the 2026-07-17
@@ -1338,10 +1299,10 @@ func ManagedScaffoldFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 
 // managedSyncFiles returns the SYNC-SCOPED subset of the managed scaffold — the
 // seated workflows plus the server-owned policy roots (.golangci.yml lint
-// baseline, Makefile.scenarios.mk scenario-test targets). go.mod /
-// aiarch_method_test.go / internal/.gitkeep are BIRTH-ONLY: go.mod is
-// user-evolved after birth (their requires) and re-seating it would destroy
-// user content, so the sync never touches those roots. .golangci.yml is the
+// baseline, Makefile.scenarios.mk scenario-test targets, the Method gate). go.mod /
+// go.sum / Makefile are BIRTH-ONLY: they are user-evolved after birth (their
+// requires) and re-seating them would destroy user content, so the sync never
+// touches those roots. .golangci.yml is the
 // opposite case — server-owned lint policy the seated go-checks workflow runs
 // against, with no legitimate app-local edits — so it converges like the
 // workflows do. The .claude prompt surface left this set with the 2026-07-17
@@ -1355,7 +1316,7 @@ func managedSyncFiles(repo RepoRef, appSlug string) ([]ManagedFile, error) {
 	}
 	out := make([]ManagedFile, 0, len(all))
 	for _, f := range all {
-		if strings.HasPrefix(f.Path, workflowPathPrefix) || f.Path == ".golangci.yml" || f.Path == scenarioMakefilePath {
+		if strings.HasPrefix(f.Path, workflowPathPrefix) || syncedScaffoldRoots[f.Path] {
 			out = append(out, f)
 		}
 	}

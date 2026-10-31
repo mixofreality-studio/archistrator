@@ -210,9 +210,12 @@ func (r checkRunner) runCommand(ctx context.Context, c projectstate.SpecCheck) C
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
 	defer cancel()
-	out, err := r.exec(ctx, filepath.Join(r.root, c.Source.Dir), commandEnv(c.Source.Argv[0]), c.Source.Argv...)
+	out, err := r.exec(ctx, filepath.Join(r.root, c.Source.Dir), commandEnv(c.Source.Argv[0], moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
 	status := checkPass
 	switch {
+	case err == nil && c.Source.RequireTests && !ranATest(out):
+		status = checkFail
+		out = append(out, []byte("\n[no test ran: this check names the tests it requires, and none of them exists here]\n")...)
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		status = checkTimeout
 		out = append(out, fmt.Appendf(nil, "\n[timed out after %ds]\n", int(timeoutOf(c, defaultCheckTimeoutSec)/time.Second))...)
@@ -221,6 +224,21 @@ func (r checkRunner) runCommand(ctx context.Context, c projectstate.SpecCheck) C
 		out = append(out, []byte("\n["+err.Error()+"]\n")...)
 	}
 	return r.finish(c, status, r.since(start), out)
+}
+
+// moduleGraphEnv pins the go command for `go mod ...`: tidying must not move the go line or
+// add a toolchain line, because the module builds with the job's toolchain.
+func moduleGraphEnv(argv []string) []string {
+	if len(argv) >= 2 && argv[0] == "go" && argv[1] == "mod" {
+		return []string{"GOTOOLCHAIN=local"}
+	}
+	return nil
+}
+
+// ranATest reports whether go test -v output shows a test starting. `go test -run X` exits 0
+// on no match and on "no test files", so the exit code alone cannot say so.
+func ranATest(out []byte) bool {
+	return bytes.Contains(out, []byte("=== RUN "))
 }
 
 // commandEnv is the process env, plus GOWORK=off for the Go toolchain (go, make): a

@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -149,12 +150,37 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		if err != nil {
 			return err
 		}
+		if err := canonicalizeContract(key, &sc); err != nil {
+			return err
+		}
 		if p.ServiceContracts == nil {
 			p.ServiceContracts = make(map[string]projectstate.ServiceContract)
 		}
 		p.ServiceContracts[key] = sc
 		return nil
 	})
+}
+
+// canonicalizeContract lowercases the contract's interface layer and holds it to what the
+// generator can build, using the generator's own menu. A contract that gets past here but not
+// past modelgen would abort generation for the whole project much later, far from the agent
+// that can fix it; a capitalised layer used to silently emit a package with no call Context
+// and no constructor.
+func canonicalizeContract(key string, sc *projectstate.ServiceContract) error {
+	if sc.Interface.Layer == "" {
+		sc.Interface.Layer = sc.Layer
+	}
+	if layer, ok := modelgen.CanonicalLayer(sc.Interface.Layer); ok {
+		sc.Interface.Layer = layer
+	}
+	raw, err := json.Marshal(sc)
+	if err != nil {
+		return fmt.Errorf("recordServiceContract: encode the contract: %w", err)
+	}
+	if err := modelgen.ValidateContract(key, raw); err != nil {
+		return fmt.Errorf("recordServiceContract: %w — fix the field and call recordServiceContract again", err)
+	}
+	return nil
 }
 
 // contractKeyFor resolves the System component componentID to the key its contract is

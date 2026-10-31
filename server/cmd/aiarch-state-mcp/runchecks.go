@@ -44,6 +44,8 @@ const (
 	// tailLines / tailBytes cap the log tail the verb returns per failure.
 	tailLines = 40
 	tailBytes = 4 << 10
+	// tidyCheckID is the check that holds a task to a tidy module.
+	tidyCheckID = projectstate.CheckKindCommand + ":tidy"
 )
 
 // checkExecFunc runs one check process (checkRunner.exec's shape).
@@ -246,6 +248,7 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	if err := ignoreScratchDir(filepath.Join(s.StateRoot, filepath.Dir(checksOutDir))); err != nil {
 		return runChecksOutput{}, err
 	}
+	note = joinNotes(note, s.tidyModuleGraph(ctx, spec))
 	out := filepath.Join(s.StateRoot, checksOutDir)
 	r := checkRunner{root: s.StateRoot, outDir: out, exec: s.checkExec}
 	results := runSpecChecks(ctx, r, spec.Checks, s.checks.last, onlyFailed)
@@ -267,6 +270,45 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 		res.Results = append(res.Results, runChecksFailure{ID: c.CheckId, Title: titles[c.CheckId], Status: c.Status, Tail: s.checkLog(c)})
 	}
 	return res, nil
+}
+
+// tidyModuleGraph runs `go mod tidy` for a task the spec holds to a tidy module, and says
+// what the agent must do about the result. The job owns the module graph: the agent's sandbox
+// cannot reach a module proxy or write the module cache, while this process runs outside
+// it. Only the verb tidies. The venue's gate never does: it checks `go mod tidy -diff` on the
+// committed tree, which would prove nothing if the gate could repair it first. A tidy failure
+// is reported rather than fatal: the checks still run, and the tidy check goes red with it.
+func (s *Session) tidyModuleGraph(ctx context.Context, spec projectstate.TaskSpec) string {
+	for _, c := range spec.Checks {
+		if c.ID != tidyCheckID {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
+		defer cancel()
+		exec := s.checkExec
+		if exec == nil {
+			exec = execCommand
+		}
+		dir := filepath.Join(s.StateRoot, c.Source.Dir)
+		argv := []string{"go", "mod", "tidy"}
+		out, err := exec(ctx, dir, commandEnv(argv[0], moduleGraphEnv(argv)...), argv...)
+		if err != nil {
+			return "go mod tidy failed; fix the import it names and call run_checks again: " + err.Error() + "\n" + checkLogTail(string(out))
+		}
+		return "The module graph was tidied. If go.mod or go.sum changed, commit them with your code."
+	}
+	return ""
+}
+
+// joinNotes joins the non-empty notes into one paragraph-separated note.
+func joinNotes(notes ...string) string {
+	kept := make([]string, 0, len(notes))
+	for _, n := range notes {
+		if n != "" {
+			kept = append(kept, n)
+		}
+	}
+	return strings.Join(kept, "\n\n")
 }
 
 // ignoreScratchDir creates dir with a self-ignoring .gitignore ("*"), the way the

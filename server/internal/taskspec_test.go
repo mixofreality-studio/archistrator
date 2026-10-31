@@ -84,8 +84,19 @@ func TestTaskSpecForServiceConstructionCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(checkIDs(s), []string{"command:arch", "command:build", "command:gofmt", "command:lint", "command:vet"}) {
+	if !slices.Equal(checkIDs(s), []string{"command:arch", "command:build", "command:gen-models-check", "command:gofmt", "command:lint", "command:tidy", "command:vet"}) {
 		t.Fatalf("construction checks %v", checkIDs(s))
+	}
+	arch := checkByID(t, s, "command:arch")
+	if !arch.Source.RequireTests || !slices.Contains(arch.Source.Argv, "-v") {
+		t.Fatalf("a gate named after its tests must fail when none ran: %+v", arch)
+	}
+	models := checkByID(t, s, "command:gen-models-check")
+	if !slices.Contains(models.Source.Argv, "../.aiarch/state/project.json") || !slices.Contains(models.Source.Argv, "agenticJobAccess") {
+		t.Fatalf("the drift gate must name the component's own contract, from the module dir: %+v", models)
+	}
+	if !slices.Equal(s.Contracts, []string{"agenticJobAccess"}) {
+		t.Fatalf("the job generates the component's own contracts, got %v", s.Contracts)
 	}
 	build := checkByID(t, s, "command:build")
 	if !slices.Equal(build.Source.Argv, []string{"go", "build", "./internal/resourceaccess/agenticjob/..."}) ||

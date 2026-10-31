@@ -68,6 +68,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -1893,7 +1894,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	settings := claudeSettings{
 		sandboxed:       !allowUnsandboxedFromEnv(),
 		allowedDomains:  sandboxAllowedDomains(a.repoURL),
-		allowWritePaths: []string{workDir, gitDir},
+		allowWritePaths: []string{workDir, gitDir, buildCacheDir(parentDir)},
 		disallowedTools: gate.deniedTools(plan.command),
 	}
 	if err := writeClaudeSettings(parentDir, settings); err != nil {
@@ -1920,7 +1921,10 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	runCtx, runCancel := context.WithTimeout(context.Background(), a.runTimeout)
 	cmd := claudeCommand(runCtx, a.claudeBin, gate.agentModel(), gate.agentTools())
 	cmd.Dir = workDir
-	cmd.Env = claudeSubprocessEnv(rig)
+	// The agent's Bash tool can build: GOCACHE points inside the write allowlist, where the
+	// default cache would be denied. Only this process gets it, so the gate keeps the warm
+	// host cache. The module graph stays the job's (run_checks tidies outside the sandbox).
+	cmd.Env = append(claudeSubprocessEnv(rig), "GOCACHE="+buildCacheDir(parentDir))
 	// The prompt rides stdin, never argv (claudeCommand says why).
 	cmd.Stdin = strings.NewReader(plan.prompt)
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
@@ -1996,6 +2000,9 @@ type localGate struct {
 	// generation failed ("" when it did not run or succeeded).
 	integration bool
 	genFailure  string
+	// contracts are the contracts whose generated Go the job writes before the agent runs
+	// (the spec's contracts): this component's own, on construction and integration alike.
+	contracts []string
 	// branch is the branch the run is gated on — the activity (or session) branch the
 	// check gate and the record always land on, whatever the agent left checked out.
 	branch string
@@ -2057,6 +2064,7 @@ type resolvedTaskSpec struct {
 	Tools struct {
 		Builtin *[]string `json:"builtin"`
 	} `json:"tools"`
+	Contracts []string `json:"contracts"`
 }
 
 // excludeCheckOutput keeps the check output out of every commit (ruling R28): it
@@ -2299,9 +2307,17 @@ func (g *localGate) readSpec() string {
 	}) {
 		return "the task spec's built-in tools are not a tool list"
 	}
-	g.model, g.builtin = spec.Model.ID, *spec.Tools.Builtin
+	for _, c := range spec.Contracts {
+		if !specContractShape.MatchString(c) {
+			return "the task spec's contracts are not contract keys"
+		}
+	}
+	g.model, g.builtin, g.contracts = spec.Model.ID, *spec.Tools.Builtin, spec.Contracts
 	return ""
 }
+
+// specContractShape is a contract key: an identifier, so it is safe on make's argv.
+var specContractShape = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // localResultsDir is where this executor keeps local CheckRun results: the shared repo's
 // checkout under .aiarch/test-results (absolute here, for the copy; the CheckRun records
@@ -2415,29 +2431,48 @@ func filterDriverOverrides(configDir string) ([]string, error) {
 	return overrides, nil
 }
 
-// generateScenarioTests is step 3: for the integration task the JOB generates the
-// black-box scenario tests from the reviewed plan before the agent runs (the agent
-// wires the component, fills the hooks and commits the generated tests with its
-// wiring). It returns why the generation failed (the agent then never starts, the gates
-// still run), or "".
+// buildCacheDir is the agent's Go build cache, beside the worktree.
+func buildCacheDir(parentDir string) string { return filepath.Join(parentDir, "gocache") }
+
+// generateScenarioTests is step 3: the generated half of a component is the JOB's. It writes
+// the component's own contract.gen.go and fakes before the agent runs, so the agent builds
+// against the real generated surface and never improvises a generator. For the integration
+// task it also generates the black-box scenario tests from the reviewed plan (the agent wires
+// the component, fills the hooks and commits the generated tests with its wiring). It returns
+// why generation failed (the agent then never starts, the gates still run), or "".
 func generateScenarioTests(g *localGate, workDir string) string {
+	if !g.integration && len(g.contracts) == 0 {
+		return ""
+	}
+	moduleDir, err := projectModuleDir(workDir)
+	if err != nil {
+		return "the component's generated code could not be written: " + err.Error()
+	}
+	dir := filepath.Join(workDir, moduleDir) // the project's module dir (ruling R43)
+	if len(g.contracts) > 0 {
+		if out, err := runMakeTarget(g, dir, "gen-models", "CONTRACTS="+strings.Join(g.contracts, " ")); err != nil {
+			return "the component's models could not be generated (make gen-models): " + singleLine(outputTail(err.Error()+": "+out, 600))
+		}
+	}
 	if !g.integration {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gateStepTimeout)
-	defer cancel()
-	moduleDir, err := projectModuleDir(workDir)
-	if err != nil {
-		return "the scenario tests could not be generated: " + err.Error()
-	}
-	cmd := exec.CommandContext(ctx, "make", "gen-tests")
-	cmd.Dir = filepath.Join(workDir, moduleDir) // the project's module dir (ruling R43)
-	cmd.Env = append(slices.Clone(g.env), "GOWORK=off")
-	cmd.WaitDelay = localExecWaitDelay
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "the scenario tests could not be generated (make gen-tests): " + singleLine(outputTail(err.Error()+": "+string(out), 600))
+	if out, err := runMakeTarget(g, dir, "gen-tests"); err != nil {
+		return "the scenario tests could not be generated (make gen-tests): " + singleLine(outputTail(err.Error()+": "+out, 600))
 	}
 	return ""
+}
+
+// runMakeTarget runs one generation target in dir under the gate's env and step timeout.
+func runMakeTarget(g *localGate, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gateStepTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "make", args...) // #nosec G204 -- fixed target; contracts were shape-checked in readSpec
+	cmd.Dir = dir
+	cmd.Env = append(slices.Clone(g.env), "GOWORK=off")
+	cmd.WaitDelay = localExecWaitDelay
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 // projectModuleDir is the project's Go module dir as the worktree's state document names
@@ -4991,6 +5026,9 @@ func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic 
 	if diag, merged := mergePinnedHead(cloneDir, branch); !merged {
 		return diag, false
 	}
+	if diag := tidyMergedModule(cloneDir, branch); diag != "" {
+		return diag, false
+	}
 	if out, err := gitExec(cloneDir, exec.Command("git", "push", localMergeRemote, localMainBranch)); err != nil {
 		// THE REJECTION LINE IS KEPT WHOLE, and that is load-bearing rather than cosmetic:
 		// outputTail keeps the LAST 500 bytes, and git prints `! [rejected] … (fetch first)`
@@ -5006,6 +5044,56 @@ func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic 
 		return "local merge: merged but branch " + branch + " could not be deleted: " + err.Error(), false
 	}
 	return "", true
+}
+
+// mergeTidyTimeout bounds the merge tail's tidy, which runs inside the repo's push lock.
+const mergeTidyTimeout = 3 * time.Minute
+
+// tidyMergedModule holds main's invariant, that it always passes `go mod tidy -diff`, across a
+// merge. Siblings each add their own requires and .gitattributes unions the text, which is
+// not the same as a tidy module. So when the merge touched the module files, tidy in the
+// throwaway clone and fold the result into the merge commit. A tidy that cannot settle the
+// graph is an honest conflict: nothing is pushed, so the shared repo is untouched. The
+// return value is the failure diagnostic, or "".
+func tidyMergedModule(cloneDir, branch string) string {
+	moduleDir, err := projectModuleDir(cloneDir)
+	if err != nil {
+		return "local merge: read the module dir: " + err.Error()
+	}
+	files := []string{path.Join(moduleDir, "go.mod"), path.Join(moduleDir, "go.sum")}
+	changed, err := gitExec(cloneDir, exec.Command("git", append([]string{"diff", "--name-only", "HEAD^1", "HEAD", "--"}, files...)...))
+	if err != nil {
+		return "local merge: diff the merged module files: " + err.Error()
+	}
+	if strings.TrimSpace(changed) == "" {
+		return ""
+	}
+	// go.sum goes first: `go mod tidy` leaves the file alone when its SET of lines is right,
+	// so a union merge's unsorted lines would survive it and fail the -diff check. Rebuilding
+	// it gives the canonical order.
+	if err := os.Remove(filepath.Join(cloneDir, moduleDir, "go.sum")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "local merge: clear the merged go.sum: " + err.Error()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), mergeTidyTimeout)
+	defer cancel()
+	tidy := exec.CommandContext(ctx, "go", "mod", "tidy")
+	tidy.Dir = filepath.Join(cloneDir, moduleDir)
+	tidy.Env = append(allowlistedEnv(), "GOWORK=off", "GOTOOLCHAIN=local")
+	tidy.WaitDelay = localExecWaitDelay
+	if out, err := tidy.CombinedOutput(); err != nil {
+		return "local merge: merge conflict merging " + branch + " into " + localMainBranch +
+			": the merged module does not tidy: " + err.Error() + ": " + outputTail(string(out), 500)
+	}
+	if _, err := gitExec(cloneDir, exec.Command("git", append([]string{"add", "--"}, files...)...)); err != nil {
+		return "local merge: stage the tidied module: " + err.Error()
+	}
+	// --allow-empty: tidy usually changes nothing, and the amend must not fail for it.
+	if _, err := gitExec(cloneDir, exec.Command("git",
+		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"commit", "--amend", "--no-edit", "--allow-empty")); err != nil {
+		return "local merge: fold the tidied module into the merge: " + err.Error()
+	}
+	return ""
 }
 
 // mergePinnedHead runs the real --no-ff merge of the pinned activity-branch tip into the
