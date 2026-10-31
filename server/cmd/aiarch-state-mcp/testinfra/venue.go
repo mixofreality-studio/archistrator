@@ -135,15 +135,17 @@ func RunChecksDouble(args []string, stdout io.Writer) int {
 	return 0
 }
 
-// RunMakeDouble is the venues' `make`: the executor runs `make gen-tests` before an
-// integration agent, which regenerates the app's scenario tests from its plan — a toolchain
-// step a scenario venue has no module for. The double accepts exactly that target.
+// RunMakeDouble is the venues' `make`: the executor runs `make gen-models CONTRACTS=...`
+// before a construction or integration agent, and `make gen-tests` before an integration one,
+// which regenerate the app's generated code from its contracts and plan — toolchain steps a
+// scenario venue has no module for. The double accepts exactly those targets.
 func RunMakeDouble(args []string) int {
-	if !slices.Equal(args, []string{"gen-tests"}) {
-		_, _ = fmt.Fprintf(os.Stderr, "venue make: no target %q (the venue runs only gen-tests)\n", strings.Join(args, " "))
-		return 2
+	if len(args) > 0 && (slices.Equal(args, []string{"gen-tests"}) ||
+		(args[0] == "gen-models" && len(args) == 2 && strings.HasPrefix(args[1], "CONTRACTS="))) {
+		return 0
 	}
-	return 0
+	_, _ = fmt.Fprintf(os.Stderr, "venue make: no target %q (the venue runs only gen-models and gen-tests)\n", strings.Join(args, " "))
+	return 2
 }
 
 // WorkPath is where a scripted construction step commits its work: inside the task's edit
