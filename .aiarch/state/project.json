@@ -17287,7 +17287,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -17299,7 +17300,8 @@
             "ComponentUnresolved",
             "DependencyUnresolved",
             "DependencyCycle",
-            "ActivityUnclassifiable"
+            "ActivityUnclassifiable",
+            "NoProgress"
           ],
           "x-go-base": "int"
         },
@@ -18594,6 +18596,9 @@
               "items": {
                 "$ref": "#/$defs/StepObservation"
               }
+            },
+            "ProgressFingerprint": {
+              "type": "string"
             },
             "FailedStep": {
               "type": "string"
@@ -22100,7 +22105,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -22112,7 +22118,8 @@
             "FailureReasonComponentUnresolved",
             "FailureReasonDependencyUnresolved",
             "FailureReasonDependencyCycle",
-            "FailureReasonActivityUnclassifiable"
+            "FailureReasonActivityUnclassifiable",
+            "FailureReasonNoProgress"
           ],
           "x-go-base": "int"
         },
@@ -27141,12 +27148,14 @@
           "enum": [
             0,
             1,
-            2
+            2,
+            3
           ],
           "x-enum-varnames": [
             "VarianceRetry",
             "VarianceEscalate",
-            "VarianceTakeover"
+            "VarianceTakeover",
+            "VarianceGiveUp"
           ],
           "x-go-base": "int"
         },
@@ -27156,13 +27165,15 @@
             0,
             1,
             2,
-            3
+            3,
+            4
           ],
           "x-enum-varnames": [
             "VarianceKindUnknown",
             "ReviewFailedUnresolvable",
             "WorkerMiss",
-            "EstimateOverrun"
+            "EstimateOverrun",
+            "NoProgress"
           ],
           "x-go-base": "int"
         }
@@ -28918,7 +28929,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -28930,7 +28942,8 @@
             "FailureReasonComponentUnresolved",
             "FailureReasonDependencyUnresolved",
             "FailureReasonDependencyCycle",
-            "FailureReasonActivityUnclassifiable"
+            "FailureReasonActivityUnclassifiable",
+            "FailureReasonNoProgress"
           ],
           "x-go-base": "int"
         },
@@ -36403,7 +36416,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -36415,7 +36429,8 @@
             "ComponentUnresolved",
             "DependencyUnresolved",
             "DependencyCycle",
-            "ActivityUnclassifiable"
+            "ActivityUnclassifiable",
+            "NoProgress"
           ],
           "x-go-base": "int"
         },

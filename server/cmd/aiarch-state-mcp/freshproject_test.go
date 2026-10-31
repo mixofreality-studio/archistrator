@@ -474,3 +474,48 @@ func TestDetailedDesignPromptNamesTheApprovedMenu(t *testing.T) {
 func modelgenMenuInPrompt() (string, error) {
 	return methodassets.RenderCommand("service-detailed-design", []string{freshComponent, freshActivity})
 }
+
+// RUN-007's attempts 7 and 8 of one task failed identically in two different temp worktrees.
+// The fingerprint exists to see that, so the digest must not be fooled by the temp path; and a
+// different failure must still read as different.
+func TestFailureDigestSeesThroughRunNoise(t *testing.T) {
+	logsOf := func(dir string) ([]CheckResult, func(CheckResult) string) {
+		entries, err := os.ReadDir(filepath.Join("testdata", "fresh", "run007-logs", dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		logs := map[string]string{}
+		var results []CheckResult
+		for _, e := range entries {
+			b, err := os.ReadFile(filepath.Join("testdata", "fresh", "run007-logs", dir, e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := strings.TrimSuffix(e.Name(), ".log")
+			logs[id] = string(b)
+			results = append(results, CheckResult{CheckId: id, Status: checkFail})
+		}
+		return results, func(r CheckResult) string { return logs[r.CheckId] }
+	}
+	r7, log7 := logsOf("attempt7")
+	r8, log8 := logsOf("attempt8")
+	d7, d8 := failureDigest(r7, log7), failureDigest(r8, log8)
+	if d7 == "" || d7 != d8 {
+		t.Fatalf("RUN-007's identical failures must digest alike: %q vs %q", d7, d8)
+	}
+	different := func(r CheckResult) string { return log7(r) + "\nundefined: somethingNew\n" }
+	if failureDigest(r7, different) == d7 {
+		t.Error("a different failure must digest differently")
+	}
+	if got := failureDigest([]CheckResult{{CheckId: "a", Status: checkPass}}, log7); got != "" {
+		t.Errorf("a green run has no digest, got %q", got)
+	}
+}
+
+func TestScrubLogRemovesRunNoise(t *testing.T) {
+	a := scrubLog("FAIL pkg (1.234s) at 2026-10-31T17:34:48Z /tmp/x/wt/a.go:3 0xc000123 127.0.0.1:5432 took 12ms")
+	b := scrubLog("FAIL pkg (9.1s) at 2026-11-01T01:02:03Z /var/y/wt/a.go:3 0xc000abc 127.0.0.1:60000 took 3ms")
+	if a != b {
+		t.Fatalf("scrubbed logs differ:\n%s\n%s", a, b)
+	}
+}

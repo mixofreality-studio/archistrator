@@ -12603,6 +12603,11 @@ type pipelineSpec struct {
 type csPipelineObservation struct {
 	Phase      PipelinePhase
 	Diagnostic string
+	// ProgressFingerprint says what a red local attempt amounted to (the job's tree, spec and
+	// failures). Empty on the cloud venue and for any failure other than red checks, and an
+	// empty value never compares equal, so it can only ever stop a local attempt that changed
+	// nothing.
+	ProgressFingerprint string
 	// RunURL is the dispatched run's URL when the bound agenticJobAccess realisation
 	// resolved one. It is carried for ONE reason here (construction has no run-link
 	// view): it is the only VENUE signal a workflow ever sees — the GitHub-Actions arm
@@ -13559,6 +13564,15 @@ func snapshotContractKeys(p projectstate.Project) []string {
 	return keys
 }
 
+// progressRepeated reports whether this red attempt repeats the previous one of the same
+// task, and remembers it. An empty fingerprint means the gate did not finish (or this is the
+// cloud venue): it matches nothing and clears the comparison.
+func (s *constructState) progressRepeated(task, fingerprint string) bool {
+	repeated := fingerprint != "" && task == s.lastFingerprintTask && fingerprint == s.lastFingerprint
+	s.lastFingerprint, s.lastFingerprintTask = fingerprint, task
+	return repeated
+}
+
 // deriveFailureReason maps a terminal pipeline phase + neutral diagnostic to the
 // head-state FailureReason: a cancelled run → PipelineCancelled; a timed-out
 // diagnostic (the RA's neutralDiagnostic for timed_out / the poll-budget exhaustion
@@ -14019,6 +14033,14 @@ func (s *constructState) awaitingTasks() []string {
 // ---------------------------------------------------------------------------
 // constructState is the live technical state backing the sessionState Query.
 type constructState struct {
+	// lastFingerprint / lastFingerprintTask are the previous red attempt's progress fingerprint
+	// and its task. A task's supervision loop runs inside one workflow run (ContinueAsNew waits
+	// for no task in flight), so this needs no carrying across a continue: a send-back re-enters
+	// produceConstructionChange, whose carried feedback resets it.
+	lastFingerprint, lastFingerprintTask string
+	// branchJobs serialises this activity's jobs on its one branch (lockBranchJobs).
+	branchJobs workflow.Mutex
+
 	projectID  ProjectID
 	activityID ActivityID
 	// stage / pipelinePhase / variance / attempt are WHOLE-ACTIVITY facts and stay single

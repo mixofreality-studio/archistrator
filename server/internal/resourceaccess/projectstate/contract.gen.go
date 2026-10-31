@@ -466,6 +466,7 @@ const (
 	DependencyUnresolved   FailureReason = 7
 	DependencyCycle        FailureReason = 8
 	ActivityUnclassifiable FailureReason = 9
+	NoProgress             FailureReason = 10
 )
 
 type Glossary struct {

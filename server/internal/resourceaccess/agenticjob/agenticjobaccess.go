@@ -1155,6 +1155,8 @@ type localRun struct {
 	mu         sync.Mutex
 	status     localRunStatus
 	diagnostic string
+	// fingerprint is the gated run's progress fingerprint, "" unless its checks went red.
+	fingerprint string
 
 	// traceTruncated records that this run's per-episode trace file is
 	// INCOMPLETE — a write to it failed part-way through (see traceSink), so the
@@ -2003,6 +2005,10 @@ type localGate struct {
 	// contracts are the contracts whose generated Go the job writes before the agent runs
 	// (the spec's contracts): this component's own, on construction and integration alike.
 	contracts []string
+	// fingerprint is the red run's progress fingerprint (progressFingerprint), "" otherwise.
+	fingerprint string
+	// specHash is the dispatched spec's hash, which the job held the resolved spec to.
+	specHash string
 	// branch is the branch the run is gated on — the activity (or session) branch the
 	// check gate and the record always land on, whatever the agent left checked out.
 	branch string
@@ -2218,6 +2224,7 @@ func (a *localExecAccess) resolveTaskSpec(s dispatchedTaskSpec, parentDir, workD
 		specPath:    filepath.Join(parentDir, localSpecFile),
 		env:         gateEnv(rig),
 		integration: s.taskID == localTaskIntegration,
+		specHash:    s.hash,
 		attempt:     firstNonEmpty(rig[rigRevisionKey], s.activityID+":"+s.taskID),
 		revision:    rig[rigRevisionKey],
 		resultsRoot: localResultsDir(a.repoPath),
@@ -2577,7 +2584,8 @@ func runGates(g *localGate, workDir, headSHA string) string {
 	switch res.code {
 	case 0:
 	case 1:
-		failures = append(failures, firstFailingCheck(workDir, res))
+		failures = append(failures, failingChecks(workDir, res))
+		g.fingerprint = progressFingerprint(g, workDir, headSHA)
 	default:
 		// An internal error (or a killed run) leaves no results to record.
 		return strings.Join(append(failures, "the checks could not run: "+res.detail()), "; ")
@@ -2607,9 +2615,9 @@ func resetToBranchTip(workDir, branch string) error {
 	return err
 }
 
-// firstFailingCheck names the first check in run-checks' results that did not pass —
-// the red run's reason.
-func firstFailingCheck(workDir string, res gateToolResult) string {
+// failingChecks names every check in run-checks' results that did not pass: the red run's
+// reason. Naming only the first would hide what changed between two attempts.
+func failingChecks(workDir string, res gateToolResult) string {
 	raw, err := readFileInDir(filepath.Join(workDir, checkResultsDir), "results.json")
 	if err == nil {
 		var results []struct {
@@ -2617,14 +2625,48 @@ func firstFailingCheck(workDir string, res gateToolResult) string {
 			Status  string `json:"status"`
 		}
 		if json.Unmarshal(raw, &results) == nil {
+			var red []string
 			for _, r := range results {
 				if r.Status != "pass" {
-					return "check " + r.CheckID + " did not pass (" + r.Status + ")"
+					red = append(red, r.CheckID+" ("+r.Status+")")
 				}
+			}
+			switch len(red) {
+			case 0:
+			case 1:
+				id, status, _ := strings.Cut(red[0], " ")
+				return "check " + id + " did not pass " + status
+			default:
+				return "checks did not pass: " + strings.Join(red, ", ")
 			}
 		}
 	}
 	return "the checks did not pass: " + res.detail()
+}
+
+// progressFingerprint says what this red attempt amounted to: the tree it left (excluding the
+// state directory, whose bookkeeping changes on every attempt), the task spec it ran under,
+// and the digest of how it failed. Two consecutive attempts with the same fingerprint changed
+// nothing and failed the same way, so a third cannot do better. It is set only when the gate
+// ran to completion with red checks: infrastructure deaths and cancellations must never
+// count, so an empty fingerprint never compares equal. Any failure to compute it is empty too.
+func progressFingerprint(g *localGate, workDir, headSHA string) string {
+	digest, err := readFileInDir(filepath.Join(workDir, checkResultsDir), "failure-digest")
+	if err != nil || len(digest) == 0 {
+		return ""
+	}
+	listing, err := gitExec(workDir, gateGit("ls-tree", "-r", headSHA))
+	if err != nil {
+		return ""
+	}
+	var tree strings.Builder
+	for line := range strings.Lines(listing) {
+		if _, entry, ok := strings.Cut(line, "\t"); ok && !strings.HasPrefix(entry, ".aiarch/") {
+			tree.WriteString(line)
+		}
+	}
+	sum := sha256.Sum256([]byte(tree.String() + "\x00" + g.specHash + "\x00" + string(digest)))
+	return hex.EncodeToString(sum[:])
 }
 
 // recordCheckRun is step 7: the gate's results become the task's CheckRun on the state
@@ -3744,6 +3786,9 @@ func (a *localExecAccess) awaitCompletion(
 	run.status = status
 	run.diagnostic = diagnostic
 	run.episode = episode
+	if scope.gate != nil {
+		run.fingerprint = scope.gate.fingerprint
+	}
 	run.mu.Unlock()
 }
 
@@ -3856,6 +3901,9 @@ func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandl
 	if run.status == localRunFailed {
 		obs.Diagnostic = run.diagnostic
 		obs.FailedStep = run.agentStep
+		if run.fingerprint != "" {
+			obs.ProgressFingerprint = &run.fingerprint
+		}
 	}
 	obs.Episode = copyEpisodeSummary(run.episode)
 	return obs, nil

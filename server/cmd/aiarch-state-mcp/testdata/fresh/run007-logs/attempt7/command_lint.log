@@ -1,0 +1,54 @@
+internal/resourceaccess/todolist/todolistaccess.go:17:2: could not import github.com/jackc/pgx/v5 (internal/resourceaccess/todolist/todolistaccess.go:17:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go) (typecheck)
+	"github.com/jackc/pgx/v5"
+	^
+internal/resourceaccess/todolist/todolistaccess.go:18:2: could not import github.com/jackc/pgx/v5/pgconn (internal/resourceaccess/todolist/todolistaccess.go:18:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go) (typecheck)
+	"github.com/jackc/pgx/v5/pgconn"
+	^
+internal/resourceaccess/todolist/todolistaccess.go:19:2: could not import github.com/jackc/pgx/v5/pgxpool (internal/resourceaccess/todolist/todolistaccess.go:19:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go) (typecheck)
+	"github.com/jackc/pgx/v5/pgxpool"
+	^
+internal/resourceaccess/todolist/todolistaccess.go:21:7: could not import github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres (internal/resourceaccess/todolist/todolistaccess.go:21:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go) (typecheck)
+	fwpg "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres"
+	     ^
+internal/resourceaccess/todolist/todolistaccess.go:22:7: could not import github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess (internal/resourceaccess/todolist/todolistaccess.go:22:2: missing go.sum entry for module providing package github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess (imported by github.com/local/todomvc-run-20261031T164151Z-81991e45/internal/resourceaccess/todolist); to add:
+	go get github.com/local/todomvc-run-20261031T164151Z-81991e45/internal/resourceaccess/todolist) (typecheck)
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	     ^
+internal/resourceaccess/todolist/todolistaccess.go:125:81: undefined: pgx (typecheck)
+	out, err := a.change(op, listOwner, changeId, fp, func(ctx context.Context, tx pgx.Tx) (string, error) {
+	                                                                               ^
+internal/resourceaccess/todolist/todolistaccess.go:156:80: undefined: pgx (typecheck)
+	return a.keptChange(op, listOwner, changeId, fp, func(ctx context.Context, tx pgx.Tx) (int64, error) {
+	                                                                              ^
+internal/resourceaccess/todolist/todolistaccess.go:184:80: undefined: pgx (typecheck)
+	return a.keptChange(op, listOwner, changeId, fp, func(ctx context.Context, tx pgx.Tx) (int64, error) {
+	                                                                              ^
+internal/resourceaccess/todolist/todolistaccess.go:208:80: undefined: pgx (typecheck)
+	return a.keptChange(op, listOwner, changeId, fp, func(ctx context.Context, tx pgx.Tx) (int64, error) {
+	                                                                              ^
+internal/resourceaccess/todolist/todolistaccess.go:223:106: undefined: pgx (typecheck)
+	_, err := a.change(op, listOwner, changeId, fingerprint("SweepCompleted"), func(ctx context.Context, tx pgx.Tx) (string, error) {
+	                                                                                                        ^
+internal/resourceaccess/todolist/todolistaccess.go:264:117: undefined: pgx (typecheck)
+func (a *postgresAccess) keptChange(op string, owner ListOwner, id ChangeID, fp []byte, apply func(context.Context, pgx.Tx) (int64, error)) (ChangeOutcome, error) {
+                                                                                                                    ^
+internal/resourceaccess/todolist/todolistaccess.go:265:71: undefined: pgx (typecheck)
+	out, err := a.change(op, owner, id, fp, func(ctx context.Context, tx pgx.Tx) (string, error) {
+	                                                                     ^
+internal/resourceaccess/todolist/todolistaccess.go:289:113: undefined: pgx (typecheck)
+func (a *postgresAccess) change(op string, owner ListOwner, id ChangeID, fp []byte, apply func(context.Context, pgx.Tx) (string, error)) (string, error) {
+                                                                                                                ^
+internal/resourceaccess/todolist/todolistaccess.go:308:61: undefined: pgx (typecheck)
+func (a *postgresAccess) changeInTx(ctx context.Context, tx pgx.Tx, op, owner, id string, fp []byte, apply func(context.Context, pgx.Tx) (string, error)) (string, error) {
+                                                            ^
+internal/resourceaccess/todolist/todolistaccess.go:325:23: undefined: pgx (typecheck)
+	case !errors.Is(err, pgx.ErrNoRows):
+	                     ^
+15 issues:
+* typecheck: 15
+
+[exit status 1]

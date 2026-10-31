@@ -1145,6 +1145,7 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 	// carrySendBackFeedback appends a note per call, and the pending-note queue is what carries
 	// it into every retry that follows.
 	carryWalkFeedback(ctx, tc)
+	tc.State.lastFingerprint = "" // a send-back's feedback changed the inputs
 	var deferred []routedSignal
 	for attempt := 0; ; attempt++ {
 		if attempt >= maxVarianceAttempts {
@@ -1183,6 +1184,13 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 				Detail: verr.Error(), EpisodeID: episodeIDOf(obs), AttemptRecorded: true}, verr
 		case verdict == varianceRedispatch:
 			continue
+		case verdict == varianceNoProgress:
+			subject, gerr := wf.constructionGaveUp(ctx, tc, deferred,
+				projectstate.ActivityOutcomeUnknown, projectstate.NoProgress,
+				"two consecutive attempts left the same tree and failed the same way, so another cannot change the result: "+
+					dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs))
+			subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
+			return subject, gerr
 		default:
 			return wf.constructionExited(ctx, tc, deferred, attemptID, obs, verdict)
 		}
@@ -1202,6 +1210,11 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 ) (string, csPipelineObservation, error) {
 	in := tc.In.csIn()
 	task := projectstate.MethodTask(tc.Task.ID)
+	unlock, lerr := lockBranchJobs(ctx, tc.State)
+	if lerr != nil {
+		return "", csPipelineObservation{}, lerr
+	}
+	defer unlock() // covers the error paths; the normal path releases at the terminal observation
 	n := tc.State.nextTaskAttempt(task)
 	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), task, n)
 	tc.State.workAttemptID = attemptID
@@ -1228,6 +1241,7 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 	if ok {
 		obs = wf.observeDispatchedJob(ctx, tc, dispatch.handle, task, n, jobLabelConstruction, &tc.State.walk.gf)
 	}
+	unlock()
 	// A scaffold-sync refusal dispatched NOTHING, so there is no episode to capture and no run
 	// to observe — but the attempt still resolves, as a failure, because an attempt left pending
 	// is indistinguishable from a run that died.
@@ -1236,6 +1250,38 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 		return attemptID, obs, rerr
 	}
 	return attemptID, obs, nil
+}
+
+// changeBranchJobMutex versions lockBranchJobs: a new Lock would be a new coroutine block in
+// a recorded history.
+const changeBranchJobMutex = "delivery-activity-branch-job-mutex"
+
+// lockBranchJobs serialises an activity's jobs on its one branch. Its tasks run as coroutines
+// in this workflow, and the Method keeps stp and construction as parallel branches, but
+// one branch has one writer: the second job would otherwise hit "already checked out in another
+// worktree" (31 such retries in RUN-007, reported as Infrastructure errors) and then work from
+// a stale view. The lock spans one dispatch, submit to terminal observation, and never a
+// variance loop, an escalation wait or a review gate, so a human never holds up the sibling.
+// ContinueAsNew happens only with no task in flight, so a held lock never has to survive it.
+// It belongs here rather than in the RA because an atomic verb cannot own a span from submit
+// to observe. refuseBranchCheckedOut stays as the backstop; hitting it now means a defect.
+func lockBranchJobs(ctx workflow.Context, state *constructState) (func(), error) {
+	if workflow.GetVersion(ctx, changeBranchJobMutex, workflow.DefaultVersion, 1) < 1 {
+		return func() {}, nil
+	}
+	if state.branchJobs == nil {
+		state.branchJobs = workflow.NewMutex(ctx)
+	}
+	if err := state.branchJobs.Lock(ctx); err != nil {
+		return nil, err
+	}
+	held := true
+	return func() {
+		if held {
+			held = false
+			state.branchJobs.Unlock()
+		}
+	}, nil
 }
 
 // varianceVerdict is what the variance machinery decided about a failed dispatch.
@@ -1250,6 +1296,8 @@ const (
 	varianceSkipped
 	// varianceEscalationTimedOut: nobody answered the escalation inside EscalationWaitTimeout.
 	varianceEscalationTimedOut
+	// varianceNoProgress: two consecutive attempts changed nothing and failed identically.
+	varianceNoProgress
 )
 
 // runTaskVariance is handleVariance and executeOverride, through the child, for ONE task.
@@ -1290,6 +1338,10 @@ func (wf *csWorkflows) runTaskVariance(
 		"failureReason", int(deriveFailureReason(obs.Phase, obs.Diagnostic)),
 		"detail", detail)
 
+	kind := intervention.WorkerMiss
+	if tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint) {
+		kind = intervention.NoProgress
+	}
 	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()},
 		intervention.ConstructionVariance{
 			// ProjectID is deliberately fed from the ACTIVITY id, not the project id: the retired
@@ -1297,7 +1349,7 @@ func (wf *csWorkflows) runTaskVariance(
 			// Do not "fix" it here — it would change what the Engine is asked about mid-wave.
 			ProjectID:    intervention.ProjectID(tc.In.ActivityID),
 			ActivityID:   intervention.ActivityID(tc.In.ActivityID),
-			Kind:         intervention.WorkerMiss,
+			Kind:         kind,
 			AttemptCount: int64(attempt),
 			Policy:       wf.InterventionPolicy,
 		})
@@ -1310,7 +1362,11 @@ func (wf *csWorkflows) runTaskVariance(
 		// before intervention was consulted, so there is nothing in flight to abandon.
 		tc.State.stage = StageDispatching
 		return varianceRedispatch, deferred, nil
+	case intervention.VarianceGiveUp:
+		return varianceNoProgress, deferred, nil
 	case intervention.VarianceEscalate:
+		// An operator's answer changes the attempt's inputs, so the next red run starts over.
+		tc.State.lastFingerprint = ""
 		return wf.escalateTaskVariance(ctx, tc, detail, deferred)
 	}
 	// VarianceDirective has no Unknown sentinel (VarianceRetry is its zero value), so anything
@@ -4734,10 +4790,11 @@ func (wf *csWorkflows) observePipeline(ctx workflow.Context, handle pipelineHand
 		return csPipelineObservation{}, err
 	}
 	return csPipelineObservation{
-		Phase:      managerPipelinePhase(obs.Phase),
-		Diagnostic: obs.Diagnostic,
-		RunURL:     obs.RunURL,
-		Episode:    obs.Episode,
+		Phase:               managerPipelinePhase(obs.Phase),
+		Diagnostic:          obs.Diagnostic,
+		RunURL:              obs.RunURL,
+		ProgressFingerprint: derefString(obs.ProgressFingerprint, ""),
+		Episode:             obs.Episode,
 	}, nil
 }
 

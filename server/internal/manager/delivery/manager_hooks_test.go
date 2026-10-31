@@ -68,6 +68,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -802,6 +803,10 @@ func (j agentJob) isConstruction() bool {
 // venue is one scenario's view of the venue: the runs it started and the script
 // they follow.
 type venue struct {
+	redChecks atomic.Bool
+	// branchJobs / branchJobsMax count the jobs running on each activity's branch, now and at
+	// most (noteBranchJob), guarded by mu.
+	branchJobs, branchJobsMax map[string]int
 	t         *testing.T
 	repo      workingRepo
 	stateTool string // what the venue is configured with: the double on PATH
@@ -861,6 +866,26 @@ func (v *venue) awaitWorktreesRemoved() {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// noteBranchJob counts the jobs running on an activity's branch and keeps the high-water
+// mark. It returns the job's release.
+func (v *venue) noteBranchJob(activity string) func() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.branchJobs == nil {
+		v.branchJobs, v.branchJobsMax = map[string]int{}, map[string]int{}
+	}
+	v.branchJobs[activity]++
+	v.branchJobsMax[activity] = max(v.branchJobsMax[activity], v.branchJobs[activity])
+	return func() {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		v.branchJobs[activity]--
+	}
+}
+
+// setRedChecks makes every run's check gate red, failing the same way each time.
+func (v *venue) setRedChecks(red bool) { v.redChecks.Store(red) }
 
 func (v *venue) script(f func(n int, j agentJob) runOutcome) {
 	v.mu.Lock()
@@ -928,6 +953,8 @@ type checksRequest struct {
 
 type checksResponse struct {
 	Error string `json:"error"`
+	// Red makes the run a red gate that always fails the same way (setRedChecks).
+	Red bool `json:"red"`
 }
 
 func serveChecks(w http.ResponseWriter, r *http.Request) {
@@ -941,6 +968,7 @@ func serveChecks(w http.ResponseWriter, r *http.Request) {
 		if err := v.narrowSpec(req.Spec); err != nil {
 			resp.Error = err.Error()
 		}
+		resp.Red = v.redChecks.Load()
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -972,6 +1000,7 @@ func (v *venue) run(req agentRequest) agentResponse {
 		Activity: req.Env["AIARCH_ACTIVITY_ID"], Component: req.Env["AIARCH_COMPONENT_ID"],
 		Kind: req.Env["AIARCH_ARTIFACT_KIND"], dir: req.Dir, env: req.Env,
 	}
+	defer v.noteBranchJob(j.Activity)()
 	v.mu.Lock()
 	n := len(v.submitted)
 	v.submitted = append(v.submitted, j)
@@ -1445,7 +1474,34 @@ func runVenueChecks(r venueRig) int {
 		fmt.Fprintln(os.Stderr, "venue:", resp.Error)
 		return 2
 	}
+	if resp.Red {
+		return writeRedChecks()
+	}
 	return testinfra.RunChecksDouble(os.Args[2:], os.Stdout)
+}
+
+// writeRedChecks is a red gate that always fails the same way: the same check, the same digest.
+func writeRedChecks() int {
+	for i, a := range os.Args {
+		if a != "--out" || i+1 >= len(os.Args) {
+			continue
+		}
+		out := os.Args[i+1]
+		if err := os.MkdirAll(out, 0o750); err != nil {
+			fmt.Fprintln(os.Stderr, "venue:", err)
+			return 2
+		}
+		for name, body := range map[string]string{
+			"results.json":   `[{"checkId":"command:build","status":"fail"}]`,
+			"failure-digest": "the-same-failure\n",
+		} {
+			if err := os.WriteFile(filepath.Join(out, name), []byte(body), 0o600); err != nil {
+				fmt.Fprintln(os.Stderr, "venue:", err)
+				return 2
+			}
+		}
+	}
+	return 1
 }
 
 func readVenueRig(dir string) (venueRig, error) {
@@ -3743,4 +3799,75 @@ func assertComponentScoped(t *testing.T, activity, task, pkg string, spec projec
 	}) {
 		t.Errorf("activity %s task %s: no build check over %s among %d checks", activity, task, pkg, len(spec.Checks))
 	}
+}
+
+// TestARedAttemptThatChangesNothingGivesUp: an agent that keeps leaving the same tree to fail
+// the same check is stopped on the second identical attempt, not re-paid for ten. RUN-007 spent
+// about $5 on attempts 2 to 10 this way.
+func TestARedAttemptThatChangesNothingGivesUp(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.setRedChecks(true)
+	t.Cleanup(func() { s.venue.setRedChecks(false) })
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-no-progress-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
+	byCommand := map[string]int{}
+	for _, j := range s.venue.jobs() {
+		if j.Activity == string(drivenActivity) {
+			byCommand[j.Command]++
+		}
+	}
+	repeated := 0
+	for command, n := range byCommand {
+		if n > 2 {
+			t.Errorf("%s ran %d times: the second identical attempt must end the task (%v)", command, n, byCommand)
+		}
+		if n == 2 {
+			repeated++
+		}
+	}
+	if repeated == 0 {
+		t.Fatalf("no task reached its second attempt, so this proved nothing: %v", byCommand)
+	}
+	awaitPumpIdle(t, h, subject)
+}
+
+// TestAnActivitysJobsTakeItsBranchOneAtATime: the Method runs a service's test plan and its
+// construction as parallel branches, but one activity has one git branch and one writer. Both
+// must complete without ever overlapping, so neither sees "already checked out".
+func TestAnActivitysJobsTakeItsBranchOneAtATime(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-one-writer-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	commands := map[string]bool{}
+	for _, j := range s.venue.jobs() {
+		if j.Activity == string(drivenActivity) {
+			commands[j.Command] = true
+		}
+	}
+	if !commands["service-test-plan"] || !commands["service-construction"] {
+		t.Fatalf("this activity must run the parallel pair, ran %v", commands)
+	}
+	s.venue.mu.Lock()
+	most := s.venue.branchJobsMax[string(drivenActivity)]
+	s.venue.mu.Unlock()
+	if most != 1 {
+		t.Errorf("%d jobs overlapped on the activity's branch, want 1", most)
+	}
+	awaitPumpIdle(t, h, subject)
 }

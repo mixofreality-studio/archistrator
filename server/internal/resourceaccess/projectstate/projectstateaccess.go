@@ -7830,6 +7830,10 @@ func (p ActivityConstructionPhase) String() string {
 // break the cycle by removing an edge. Same terminal/non-intervention treatment
 // as ComponentUnresolved.
 
+// NoProgress — two consecutive attempts of a task left an identical tree and failed
+// identically, so more budget cannot help. The repair is a changed input: a note, a
+// send-back, or a fix to the platform. Appended, because stored values are integers.
+//
 // ActivityUnclassifiable — an eligible activity could not be dispatched because its
 // authored (workerClass, coding) pair matches no ClassifyActivity rule, so no
 // ActivityType — and therefore no phase profile and no slash command — can be
@@ -7857,12 +7861,14 @@ func (r FailureReason) String() string {
 		return "dependencyUnresolved"
 	case DependencyCycle:
 		return "dependencyCycle"
+	case NoProgress:
+		return "NoProgress"
 	case ActivityUnclassifiable:
 		return "activityUnclassifiable"
 	case FailureReasonUnknown:
 		return "unknown"
 	}
-	// Unreachable for the ten defined FailureReason values above (the exhaustive
+	// Unreachable for the eleven defined FailureReason values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "unknown"

@@ -492,6 +492,7 @@ const (
 	FailureReasonDependencyUnresolved   FailureReason = 7
 	FailureReasonDependencyCycle        FailureReason = 8
 	FailureReasonActivityUnclassifiable FailureReason = 9
+	FailureReasonNoProgress             FailureReason = 10
 )
 
 type Finding struct {

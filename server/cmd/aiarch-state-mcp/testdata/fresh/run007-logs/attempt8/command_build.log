@@ -1,0 +1,12 @@
+internal/resourceaccess/todolist/todolistaccess.go:17:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go
+internal/resourceaccess/todolist/todolistaccess.go:18:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go
+internal/resourceaccess/todolist/todolistaccess.go:19:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go
+internal/resourceaccess/todolist/todolistaccess.go:21:2: github.com/mixofreality-studio/archistrator-platform/framework-go@v0.16.0: missing go.sum entry for go.mod file; to add it:
+	go mod download github.com/mixofreality-studio/archistrator-platform/framework-go
+internal/resourceaccess/todolist/todolistaccess.go:22:2: missing go.sum entry for module providing package github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess (imported by github.com/local/todomvc-run-20261031T164151Z-81991e45/internal/resourceaccess/todolist); to add:
+	go get github.com/local/todomvc-run-20261031T164151Z-81991e45/internal/resourceaccess/todolist
+
+[exit status 1]

@@ -1041,6 +1041,7 @@ edit-scope)
 run-checks)
   git symbolic-ref HEAD > "$ctl/checked-ref"
   mkdir -p "$out" && cp "$ctl/results.json" "$out/results.json" || exit 2
+  if [ -f "$ctl/failure-digest" ]; then cp "$ctl/failure-digest" "$out/failure-digest"; fi
   exit "$(cat "$ctl/run-checks-rc")" ;;
 record-check-run)
   mkdir -p .aiarch/state && printf '{"recorded":"%%s"}\n' "$run" > .aiarch/state/project.json || exit 2
@@ -1926,5 +1927,35 @@ func seedActivityBranches(t *testing.T, repoDir string, count int) {
 		runGit(t, work, "-c", "user.name=arrange", "-c", "user.email=arrange@example.invalid",
 			"-c", "commit.gpgsign=false", "commit", "--no-verify", "--quiet", "-m", "arrange: "+branch)
 		runGit(t, work, "push", "--quiet", "origin", branch)
+	}
+}
+
+// TestLocalRailFingerprintsARedRun: a red gate surfaces a progress fingerprint, the same tree
+// and the same failure give the same one, a different failure gives another, and a green run
+// gives none, so nothing but a repeated red gate can ever match.
+func TestLocalRailFingerprintsARedRun(t *testing.T) {
+	run := func(digest string) agenticjob.PipelineObservation {
+		t.Helper()
+		h := scenariohost.Start(t)
+		v := newGateVenue(t, h)
+		if digest != "" {
+			v.set(t, "results.json", stpRedResults)
+			v.set(t, "run-checks-rc", "1")
+			v.set(t, "failure-digest", digest)
+		}
+		return v.runToEnd(t, h, constructSpec("construction"))
+	}
+	if obs := run(""); obs.ProgressFingerprint != nil {
+		t.Fatalf("a green run has no fingerprint, got %q", *obs.ProgressFingerprint)
+	}
+	first, second, third := run("one-way\n"), run("one-way\n"), run("another-way\n")
+	if first.ProgressFingerprint == nil || second.ProgressFingerprint == nil || third.ProgressFingerprint == nil {
+		t.Fatalf("a red gate must fingerprint: %+v, %+v, %+v", first, second, third)
+	}
+	if *first.ProgressFingerprint != *second.ProgressFingerprint {
+		t.Errorf("the same tree and failure must fingerprint alike: %q vs %q", *first.ProgressFingerprint, *second.ProgressFingerprint)
+	}
+	if *third.ProgressFingerprint == *first.ProgressFingerprint {
+		t.Error("a different failure must fingerprint differently")
 	}
 }

@@ -141,6 +141,7 @@ const (
 	VarianceRetry    VarianceDirective = 0
 	VarianceEscalate VarianceDirective = 1
 	VarianceTakeover VarianceDirective = 2
+	VarianceGiveUp   VarianceDirective = 3
 )
 
 type VarianceKind int
@@ -150,6 +151,7 @@ const (
 	ReviewFailedUnresolvable VarianceKind = 1
 	WorkerMiss               VarianceKind = 2
 	EstimateOverrun          VarianceKind = 3
+	NoProgress               VarianceKind = 4
 )
 
 // InterventionEngine is the generated service-contract interface for this component.

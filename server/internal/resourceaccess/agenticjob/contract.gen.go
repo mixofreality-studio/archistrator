@@ -47,15 +47,16 @@ type EpisodeUsage struct {
 type PipelineHandle string
 
 type PipelineObservation struct {
-	Handle     PipelineHandle    `json:"Handle"`
-	Phase      PipelinePhase     `json:"Phase"`
-	Steps      []StepObservation `json:"Steps"`
-	FailedStep string            `json:"FailedStep"`
-	Diagnostic string            `json:"Diagnostic"`
-	RunURL     string            `json:"RunURL"`
-	StartedAt  time.Time         `json:"StartedAt"`
-	FinishedAt *time.Time        `json:"FinishedAt,omitempty"`
-	Episode    *EpisodeSummary   `json:"Episode,omitempty"`
+	Handle              PipelineHandle    `json:"Handle"`
+	Phase               PipelinePhase     `json:"Phase"`
+	Steps               []StepObservation `json:"Steps"`
+	ProgressFingerprint *string           `json:"ProgressFingerprint,omitempty"`
+	FailedStep          string            `json:"FailedStep"`
+	Diagnostic          string            `json:"Diagnostic"`
+	RunURL              string            `json:"RunURL"`
+	StartedAt           time.Time         `json:"StartedAt"`
+	FinishedAt          *time.Time        `json:"FinishedAt,omitempty"`
+	Episode             *EpisodeSummary   `json:"Episode,omitempty"`
 }
 
 type PipelinePhase int

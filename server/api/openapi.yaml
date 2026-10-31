@@ -1300,6 +1300,7 @@ components:
                 - 7
                 - 8
                 - 9
+                - 10
             type: integer
             x-enum-varnames:
                 - FailureReasonUnknown
@@ -1312,6 +1313,7 @@ components:
                 - FailureReasonDependencyUnresolved
                 - FailureReasonDependencyCycle
                 - FailureReasonActivityUnclassifiable
+                - FailureReasonNoProgress
             x-go-base: int
         DeliveryFinding:
             additionalProperties: false

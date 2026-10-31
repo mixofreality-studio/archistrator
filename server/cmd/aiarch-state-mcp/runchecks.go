@@ -22,6 +22,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -29,6 +31,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -89,6 +93,65 @@ func writeCheckResults(dir string, results []CheckResult) error {
 	}
 	return os.WriteFile(filepath.Join(dir, resultsFile), append(b, '\n'), 0o600)
 }
+
+// failureDigestFile holds the digest of a red run's failures, beside results.json. The venue
+// folds it with the tree and spec hashes into the run's progress fingerprint.
+const failureDigestFile = "failure-digest"
+
+// Volatile parts of a check log. Two runs failing the same way differ in all of these: the
+// job's temp worktree, how long the check took, when it ran, and pointers and ports.
+var (
+	logPathRe      = regexp.MustCompile(`(?:/[\w.@+\-]+){2,}`)
+	logTimestampRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\S*`)
+	logDurationRe  = regexp.MustCompile(`\b\d+(?:\.\d+)?(?:ns|µs|us|ms|s|m|h)\b`)
+	logAddressRe   = regexp.MustCompile(`0x[0-9a-fA-F]+|\b\d{1,3}(?:\.\d{1,3}){3}:\d+|\[::1?\]:\d+`)
+)
+
+// scrubLog removes what differs between two runs that failed identically.
+func scrubLog(log string) string {
+	for _, re := range []*regexp.Regexp{logTimestampRe, logPathRe, logAddressRe, logDurationRe} {
+		log = re.ReplaceAllString(log, "_")
+	}
+	return log
+}
+
+// failureDigest hashes the failing check ids and their scrubbed log tails, sorted, so a
+// reordered run reads the same. "" when every check passed.
+func failureDigest(results []CheckResult, logOf func(CheckResult) string) string {
+	var lines []string
+	for _, r := range results {
+		if r.Status != checkPass && r.Status != checkSkip {
+			lines = append(lines, r.CheckId+"\x00"+r.Status+"\x00"+scrubLog(checkLogTail(logOf(r))))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\x01")))
+	return hex.EncodeToString(sum[:])
+}
+
+// writeFailureDigest writes the digest of a red run, and nothing for a green one.
+func writeFailureDigest(dir string, results []CheckResult) error {
+	digest := failureDigest(results, func(r CheckResult) string {
+		if r.OutputRef == nil {
+			return ""
+		}
+		b, err := os.ReadFile(filepath.Join(dir, checksLogDir, sanitizeCheckID(r.CheckId)+".log")) // #nosec G304 -- our own results dir
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	})
+	if digest == "" {
+		return nil
+	}
+	return os.WriteFile(filepath.Join(dir, failureDigestFile), []byte(digest+"\n"), 0o600)
+}
+
+// checksLogDir is where a run's per-check logs sit under the results dir.
+const checksLogDir = "checks"
 
 // readPrevResults reads dir/results.json; no file is nil.
 func readPrevResults(dir string) ([]CheckResult, error) {
@@ -162,6 +225,9 @@ func runRunChecks(args []string, stdout io.Writer) error {
 	results := runSpecChecks(context.Background(), checkRunner{root: root, outDir: a.out}, a.spec.Checks, prev, a.onlyFailed)
 	if err := writeCheckResults(a.out, results); err != nil {
 		return exitError{2, fmt.Errorf("write the results: %w", err)}
+	}
+	if err := writeFailureDigest(a.out, results); err != nil {
+		return exitError{2, fmt.Errorf("write the failure digest: %w", err)}
 	}
 	return reportCheckResults(stdout, results, a.out)
 }

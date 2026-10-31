@@ -82,7 +82,7 @@ func (interventionEngineImpl) DecideOnVariance(_ fweng.Context, variance Constru
 	d := s.decideOnVariance(variance)
 	if !varianceDirectiveValid(d) {
 		return 0, fweng.New(fweng.InternalInvariant,
-			"DecideOnVariance: strategy returned a directive outside the closed set {Retry|Escalate|Takeover}")
+			"DecideOnVariance: strategy returned a directive outside the closed set {Retry|Escalate|Takeover|GiveUp}")
 	}
 	return d, nil
 }
@@ -150,7 +150,7 @@ func (interventionEngineImpl) ApplyPausePolicy(_ fweng.Context, ctx PauseRequest
 
 func varianceDirectiveValid(d VarianceDirective) bool {
 	switch d {
-	case VarianceRetry, VarianceEscalate, VarianceTakeover:
+	case VarianceRetry, VarianceEscalate, VarianceTakeover, VarianceGiveUp:
 		return true
 	default:
 		return false
@@ -275,6 +275,11 @@ func (s tieredStrategy) effectiveRetryBudget() int64 {
 }
 
 func (s tieredStrategy) decideOnVariance(v ConstructionVariance) VarianceDirective {
+	// Identical tree, identical failure: another attempt cannot change the result, and more
+	// budget would only re-pay for it. An operator may still reopen the task.
+	if v.Kind == NoProgress {
+		return VarianceGiveUp
+	}
 	// Within the retry budget AND not high-severity: retry.
 	if v.AttemptCount < s.effectiveRetryBudget() && v.Severity != SeverityHigh {
 		return VarianceRetry
