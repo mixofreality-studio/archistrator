@@ -13568,8 +13568,11 @@ func snapshotContractKeys(p projectstate.Project) []string {
 // task, and remembers it. An empty fingerprint means the gate did not finish (or this is the
 // cloud venue): it matches nothing and clears the comparison.
 func (s *constructState) progressRepeated(task, fingerprint string) bool {
-	repeated := fingerprint != "" && task == s.lastFingerprintTask && fingerprint == s.lastFingerprint
-	s.lastFingerprint, s.lastFingerprintTask = fingerprint, task
+	if s.lastFingerprint == nil {
+		s.lastFingerprint = map[string]string{}
+	}
+	repeated := fingerprint != "" && fingerprint == s.lastFingerprint[task]
+	s.lastFingerprint[task] = fingerprint
 	return repeated
 }
 
@@ -14033,11 +14036,12 @@ func (s *constructState) awaitingTasks() []string {
 // ---------------------------------------------------------------------------
 // constructState is the live technical state backing the sessionState Query.
 type constructState struct {
-	// lastFingerprint / lastFingerprintTask are the previous red attempt's progress fingerprint
-	// and its task. A task's supervision loop runs inside one workflow run (ContinueAsNew waits
-	// for no task in flight), so this needs no carrying across a continue: a send-back re-enters
-	// produceConstructionChange, whose carried feedback resets it.
-	lastFingerprint, lastFingerprintTask string
+	// lastFingerprint is each task's previous red attempt's progress fingerprint. Per task,
+	// because parallel siblings fail in between each other's attempts. A task's supervision
+	// loop runs inside one workflow run (ContinueAsNew waits for no task in flight), so this
+	// needs no carrying across a continue: a send-back re-enters produceConstructionChange,
+	// whose carried feedback resets it.
+	lastFingerprint map[string]string
 	// branchJobs serialises this activity's jobs on its one branch (lockBranchJobs).
 	branchJobs workflow.Mutex
 
