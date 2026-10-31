@@ -7,14 +7,12 @@
 package intervention_test
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres/testinfra"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
@@ -247,10 +245,11 @@ func probeOperateADeliveredSystemP5S1N2(t *testing.T, h *scenariohost.Host, subj
 // TestNoProgressStopsUnderTiers: more budget cannot help a task that changed nothing, so the
 // tiered policy gives up however much budget is left, while a human-first policy still asks.
 func TestNoProgressStopsUnderTiers(t *testing.T) {
+	h := scenariohost.Start(t)
 	engine := intervention.NewInterventionEngine()
 	ask := func(mode intervention.InterventionMode, kind intervention.VarianceKind) intervention.VarianceDirective {
 		t.Helper()
-		d, err := engine.DecideOnVariance(fweng.Context{Context: context.Background()}, intervention.ConstructionVariance{
+		d, err := engine.DecideOnVariance(h.EngineContext(t), intervention.ConstructionVariance{
 			ProjectID: "p", ActivityID: "a", Kind: kind, AttemptCount: 1,
 			Policy: intervention.InterventionPolicy{Mode: mode, RetryBudget: 5},
 		})
