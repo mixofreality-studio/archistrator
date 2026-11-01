@@ -1278,7 +1278,7 @@ func (v *gateVenue) assertRunRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hooks: %v", err)
 	}
-	for _, line := range []string{"/test-results/", "/check-results/"} {
+	for _, line := range []string{"/test-results/", "/check-results/", ".temporal/"} {
 		if strings.Count(string(exclude), line+"\n") != 1 {
 			t.Errorf("info/exclude %q, want %s exactly once", exclude, line)
 		}

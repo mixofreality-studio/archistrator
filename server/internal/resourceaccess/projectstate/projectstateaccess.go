@@ -12438,8 +12438,10 @@ func compositionPaths(p *Project) []string {
 }
 
 // compositionChecks hold the generated composition root to the design and require it to build.
+// The build discards its binary: `go build` of one main package writes it to the working
+// directory, where an agent's `git add -A` would commit it and fail its own edit scope.
 func compositionChecks(p *Project, dir string) []SpecCheck {
-	out := []SpecCheck{commandCheck("build-server", "The composition root builds", []string{"go", "build", "./cmd/server/"}, dir, commandCheckTimeoutSec)}
+	out := []SpecCheck{commandCheck("build-server", "The composition root builds", []string{"go", "build", "-o", "/dev/null", "./cmd/server/"}, dir, commandCheckTimeoutSec)}
 	for _, sub := range compositionGenerators {
 		if sub == "temporal" {
 			continue // a Manager's task already checks it; a Client has no Temporal layer of its own

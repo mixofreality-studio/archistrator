@@ -2036,6 +2036,9 @@ const (
 	// two roots). Both are kept out of commits (excludeCheckOutput).
 	checkResultsDir = "check-results"
 	testResultsDir  = "test-results"
+	// scenarioTemporalDir is where the scenario host keeps its Temporal database, at the
+	// module root: unanchored, because the module root need not be the repo root.
+	scenarioTemporalDir = ".temporal/"
 	// localResultsRoot is the repo-relative dir, in the shared repo's own checkout, a
 	// local CheckRun's results are kept under: the CheckRun's artifact is
 	// `.aiarch/test-results/<run>`, which the artifact access's local test-run store
@@ -2081,8 +2084,8 @@ type resolvedTaskSpec struct {
 }
 
 // excludeCheckOutput keeps the check output out of every commit (ruling R28): it
-// appends /test-results/ and /check-results/ to the repository's info/exclude, each
-// once, so an agent's `git add -A` cannot stage them. A linked worktree shares its
+// appends /test-results/, /check-results/ and the scenario host's Temporal database dir to
+// the repository's info/exclude, each once, so an agent's `git add -A` cannot stage them. A linked worktree shares its
 // repository's exclude file, so this is the same file the cloud runner's clone uses.
 func excludeCheckOutput(workDir string) error {
 	out, err := gitExec(workDir, gateGit("rev-parse", "--git-path", "info/exclude"))
@@ -2101,7 +2104,7 @@ func excludeCheckOutput(workDir string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	add := excludeLinesMissing(string(existing), "/"+testResultsDir+"/", "/"+checkResultsDir+"/")
+	add := excludeLinesMissing(string(existing), "/"+testResultsDir+"/", "/"+checkResultsDir+"/", scenarioTemporalDir)
 	if add == "" {
 		return nil
 	}

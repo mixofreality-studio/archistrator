@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -142,6 +143,16 @@ func requireInScope(t *testing.T, repo string, spec projectstate.TaskSpec) {
 	}
 }
 
+// requireNothingLeftBehind holds a gate to leaving a clean checkout. Agents commit with
+// `git add -A`, so anything a check drops in the tree lands in their commit and fails their own
+// edit scope: a built server binary, a compiler's scratch.
+func requireNothingLeftBehind(t *testing.T, repo string) {
+	t.Helper()
+	if left := inRepo(t, repo, "git", "status", "--porcelain"); strings.TrimSpace(left) != "" {
+		t.Errorf("the gate left files in the checkout:\n%s", left)
+	}
+}
+
 // composedRepo has both resource accesses and the Manager built, committed as a passing
 // construction leaves them: the job generated each contract, the verb tidied.
 func composedRepo(t *testing.T) string {
@@ -186,6 +197,8 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 			t.Errorf("the integration gate has no %s: %v", want, statuses)
 		}
 	}
+
+	requireNothingLeftBehind(t, repo)
 
 	// The drift checks are real: a stale generated file is red.
 	writeRepoFile(t, repo, "cmd/server/main.gen.go", []byte("package main\n"))
@@ -314,6 +327,8 @@ func TestFreshBrowserSurfacePassesItsGate(t *testing.T) {
 		}
 	}
 
+	requireNothingLeftBehind(t, repo)
+
 	// A route reaching the transport directly breaks the layering.
 	writeRepoFile(t, repo, "webApp/src/web-app/routes/Bad.tsx", []byte("import type { JSX } from 'react';\nimport { useOpsClient } from '../../api/opsContext';\n\nexport function Bad(): JSX.Element {\n  useOpsClient();\n  return <main />;\n}\n"))
 	statuses, _ = gate(t, repo, commandChecks(t, spec, "command:lint"))
@@ -354,4 +369,50 @@ func TestFreshMachineClientLandsOnGeneratedCode(t *testing.T) {
 	inRepo(t, repo, "git", "commit", "-q", "--allow-empty", "-m", "integrate the machine client")
 	statuses, logs = gate(t, repo, commandChecks(t, integrate))
 	requirePassed(t, statuses, logs)
+}
+
+// Every lifecycle task of every planned activity resolves on a fresh project, including the ones
+// no other test here reaches.
+func TestFreshEveryPlannedTaskResolves(t *testing.T) {
+	repo := bornRepo(t, composedState(t))
+	raw, err := os.ReadFile(filepath.Join(repo, ".aiarch/state/project.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var anyProject projectstate.ProjectID
+	proj, _, err := projectstate.DecodeProjectJSON(raw, anyProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Slots map[string]struct {
+			Model struct {
+				Activities []projectstate.ActivityItem `json:"activities"`
+			} `json:"model"`
+		} `json:"slots"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	planned := doc.Slots["9"].Model.Activities
+	if len(planned) == 0 {
+		t.Fatal("the fixture plans no activity")
+	}
+	for _, a := range planned {
+		typ, variant, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.UISurface)
+		if err != nil {
+			t.Errorf("%s is unclassified: %v", a.Name, err)
+			continue
+		}
+		lc, ok := methodassets.LifecycleFor(projectstate.LifecycleKeyFor(typ, variant))
+		if !ok {
+			t.Errorf("%s has no lifecycle", a.Name)
+			continue
+		}
+		for _, task := range lc.Tasks {
+			if _, err := projectstate.TaskSpecFor(&proj, a.Name, task.ID); err != nil {
+				t.Errorf("%s/%s: %v", a.Name, task.ID, err)
+			}
+		}
+	}
 }
