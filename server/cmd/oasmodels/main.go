@@ -1,5 +1,5 @@
-// Command oasmodels types archistrator's OpenAPI document after go tool appgen clients writes
-// it: the contracts carry an artifact draft as an opaque raw message, and this splices the
+// Command oasmodels types archistrator's OpenAPI document from the one go tool appgen clients
+// writes: the contracts carry an artifact draft as an opaque raw message, and this splices the
 // projectstate slot models in and points those fields at them. It is the one archistrator-only
 // step in the client layer, since it reflects archistrator's own types; the wire is untouched.
 //
@@ -15,19 +15,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const oasPath = "api/openapi.yaml"
+const (
+	// generatedPath is where appgen clients writes the document (appgen.json clients.oas).
+	generatedPath = "api/openapi.generated.yaml"
+	// oasPath is the document everything else reads.
+	oasPath = "api/openapi.yaml"
+)
 
 // schemaRefPrefix is the JSON-pointer prefix every component schema $ref carries.
 const schemaRefPrefix = "#/components/schemas/"
 
 func main() {
-	if err := run(oasPath); err != nil {
+	if err := run(generatedPath, oasPath); err != nil {
 		fmt.Fprintln(os.Stderr, "oasmodels:", err)
 		os.Exit(1)
 	}
 }
 
-func run(path string) error {
+func run(path, dest string) error {
 	raw, err := os.ReadFile(path) // #nosec G304 -- this tool's own constant
 	if err != nil {
 		return err
@@ -53,5 +58,5 @@ func run(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, out, 0o600) // #nosec G306 G703 -- this tool's own constant
+	return os.WriteFile(dest, out, 0o600) // #nosec G306 G703 -- this tool's own constant
 }

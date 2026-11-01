@@ -103,7 +103,8 @@ const claudePathPrefix = ".claude/"
 // ALLOWLIST: the verb seats ONLY aiarch-managed files, never arbitrary content (§2.6,
 // Non-goal #2). A path that is none of these is a ContractMisuse.
 //
-// go.mod, go.sum and Makefile are birth-only: the app evolves them. The gate, the scenario
+// go.mod, go.sum, Makefile, the dependency pins and appgen.json are birth-only: the app evolves
+// them. The gate, the scenario
 // make include, the lint baseline and .gitattributes are server-owned policy with no
 // app-local edits, so they seat at birth AND ride the sync (managedSyncFiles).
 var scaffoldRootPaths = map[string]bool{
@@ -114,6 +115,8 @@ var scaffoldRootPaths = map[string]bool{
 	".golangci.yml":           true,
 	".gitattributes":          true,
 	scenarioMakefilePath:      true,
+	methodassets.DepsPinPath:  true,
+	"appgen.json":             true,
 }
 
 // syncedScaffoldRoots is the part of scaffoldRootPaths the managed sync converges.

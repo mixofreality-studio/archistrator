@@ -62,7 +62,7 @@ gen-client:
 # gen-client-check — drift gate for the generated CLIENT layer + merged OAS, same shape as gen-models-check/gen-temporal-check: regenerate, then fail on any
 # diff. GOWORK=off-safe (see gen-client above), so it runs in CI (server-checks.yml).
 gen-client-check: gen-client
-	git diff --exit-code -- api/openapi.yaml internal/client
+	git diff --exit-code -- api/openapi.yaml api/openapi.generated.yaml internal/client
 
 # gen-internal-tools — generate the INTERNAL MCP tool surface (one tool per
 # ResourceAccess/Engine contract operation) from project.json .serviceContracts

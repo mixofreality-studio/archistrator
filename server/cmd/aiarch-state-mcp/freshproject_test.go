@@ -178,7 +178,41 @@ func freshState(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	top["serviceContracts"] = contracts
+	top["slots"] = withClientSurfaces(t, top["slots"])
 	out, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// freshBrowserSurfaces are RUN-007's Clients a person uses in a browser.
+var freshBrowserSurfaces = map[string]bool{"web-app": true, "workspace-embed": true}
+
+// withClientSurfaces is RUN-007's slots as they now come out of the design: the agent left
+// uiSurface unset on every Client, which SYS-CLIENT-UISURFACE refuses, so each states it, and
+// the plan derives a browser surface's activity from it.
+func withClientSurfaces(t *testing.T, raw json.RawMessage) json.RawMessage {
+	t.Helper()
+	var slots map[string]map[string]any
+	if err := json.Unmarshal(raw, &slots); err != nil {
+		t.Fatal(err)
+	}
+	system := slots["5"]["model"].(map[string]any)
+	for _, c := range system["components"].([]any) {
+		comp := c.(map[string]any)
+		if comp["kind"] == "client" {
+			comp["uiSurface"] = freshBrowserSurfaces[comp["id"].(string)]
+		}
+	}
+	plan := slots["9"]["model"].(map[string]any)
+	for _, a := range plan["activities"].([]any) {
+		act := a.(map[string]any)
+		if id, _ := act["componentId"].(string); freshBrowserSurfaces[id] {
+			act["name"], act["uiSurface"] = "U-SPA-"+id, true
+		}
+	}
+	out, err := json.Marshal(slots)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +239,11 @@ func bornRepo(t *testing.T, state []byte) string {
 
 func taskSpec(t *testing.T, repo, task string) projectstate.TaskSpec {
 	t.Helper()
+	return activitySpec(t, repo, freshActivity, task)
+}
+
+func activitySpec(t *testing.T, repo, activity, task string) projectstate.TaskSpec {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(repo, ".aiarch/state/project.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -214,9 +253,9 @@ func taskSpec(t *testing.T, repo, task string) projectstate.TaskSpec {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	spec, err := projectstate.TaskSpecFor(&proj, freshActivity, task)
+	spec, err := projectstate.TaskSpecFor(&proj, activity, task)
 	if err != nil {
-		t.Fatalf("TaskSpecFor(%s): %v", task, err)
+		t.Fatalf("TaskSpecFor(%s, %s): %v", activity, task, err)
 	}
 	return spec
 }
@@ -315,7 +354,7 @@ func builtRepo(t *testing.T) string {
 // any component exists. An untidy birth would redden every project on its first commit.
 func TestFreshBirthIsGreen(t *testing.T) {
 	repo := bornRepo(t, freshState(t))
-	for _, seat := range []string{"go.mod", "go.sum", "Makefile", "Makefile.scenarios.mk", ".gitattributes", ".golangci.yml", "internal/aiarch_arch_test.go"} {
+	for _, seat := range []string{"go.mod", "go.sum", "Makefile", "Makefile.scenarios.mk", ".gitattributes", ".golangci.yml", "internal/aiarch_arch_test.go", "aiarch_deps.go", "appgen.json"} {
 		if _, err := os.Stat(filepath.Join(repo, seat)); err != nil {
 			t.Errorf("birth did not seat %s: %v", seat, err)
 		}

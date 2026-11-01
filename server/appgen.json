@@ -212,6 +212,7 @@
         "RegisterOperatedApp": "Onboard a new operated application by seeding its head-state row — the customer, project, and deployable-bundle reference it will deploy from. Must run once before the first DeployAfterConstruction. Returns the new head-state version.",
         "WithdrawSystem": "Withdraw and tear down an operated application (identified by its deploy changeID) for the given reason. Returns the withdrawal outcome."
       }
-    }
+    },
+    "oas": "api/openapi.generated.yaml"
   }
 }

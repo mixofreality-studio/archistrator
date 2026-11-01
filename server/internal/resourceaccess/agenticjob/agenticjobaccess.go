@@ -2005,6 +2005,9 @@ type localGate struct {
 	// contracts are the contracts whose generated Go the job writes before the agent runs
 	// (the spec's contracts): this component's own, on construction and integration alike.
 	contracts []string
+	// generators are the `go tool` runs the spec names for the task, after the contracts:
+	// the composition root at integration, the web project for a browser surface.
+	generators [][]string
 	// fingerprint is the red run's progress fingerprint (progressFingerprint), "" otherwise.
 	fingerprint string
 	// specHash is the dispatched spec's hash, which the job held the resolved spec to.
@@ -2071,6 +2074,10 @@ type resolvedTaskSpec struct {
 		Builtin *[]string `json:"builtin"`
 	} `json:"tools"`
 	Contracts []string `json:"contracts"`
+	Generate  []struct {
+		Title string   `json:"title"`
+		Argv  []string `json:"argv"`
+	} `json:"generate"`
 }
 
 // excludeCheckOutput keeps the check output out of every commit (ruling R28): it
@@ -2319,6 +2326,12 @@ func (g *localGate) readSpec() string {
 			return "the task spec's contracts are not contract keys"
 		}
 	}
+	for _, gen := range spec.Generate {
+		if len(gen.Argv) < 3 || gen.Argv[0] != "go" || gen.Argv[1] != "tool" {
+			return "the task spec's generators are not go tool runs"
+		}
+		g.generators = append(g.generators, gen.Argv)
+	}
 	g.model, g.builtin, g.contracts = spec.Model.ID, *spec.Tools.Builtin, spec.Contracts
 	return ""
 }
@@ -2449,7 +2462,7 @@ func buildCacheDir(parentDir string) string { return filepath.Join(parentDir, "g
 // the component, fills the hooks and commits the generated tests with its wiring). It returns
 // why generation failed (the agent then never starts, the gates still run), or "".
 func generateScenarioTests(g *localGate, workDir string) string {
-	if !g.integration && len(g.contracts) == 0 {
+	if !g.integration && len(g.contracts) == 0 && len(g.generators) == 0 {
 		return ""
 	}
 	moduleDir, err := projectModuleDir(workDir)
@@ -2462,6 +2475,11 @@ func generateScenarioTests(g *localGate, workDir string) string {
 			return "the component's models could not be generated (make gen-models): " + singleLine(outputTail(err.Error()+": "+out, 600))
 		}
 	}
+	for _, argv := range g.generators {
+		if out, err := runGenerator(g, dir, argv); err != nil {
+			return strings.Join(argv[:min(len(argv), 4)], " ") + " failed: " + singleLine(outputTail(err.Error()+": "+out, 600))
+		}
+	}
 	if !g.integration {
 		return ""
 	}
@@ -2469,6 +2487,18 @@ func generateScenarioTests(g *localGate, workDir string) string {
 		return "the scenario tests could not be generated (make gen-tests): " + singleLine(outputTail(err.Error()+": "+out, 600))
 	}
 	return ""
+}
+
+// runGenerator runs one spec generator in dir, the project's module dir.
+func runGenerator(g *localGate, dir string, argv []string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gateStepTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- readSpec held it to `go tool ...`; no shell
+	cmd.Dir = dir
+	cmd.Env = append(slices.Clone(g.env), "GOWORK=off")
+	cmd.WaitDelay = localExecWaitDelay
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 // runMakeTarget runs one generation target in dir under the gate's env and step timeout.

@@ -11780,7 +11780,7 @@ const (
 // encoding — so a stale state tool is named as stale, not reported as "task spec
 // drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
 // charters and lifecycles.
-const TaskSpecSchemaVersion = 1
+const TaskSpecSchemaVersion = 2
 
 // StateToolVersion is the generation of the task-spec code a binary carries: the
 // method-assets module version it was built with (from its own build info; a workspace
@@ -11823,7 +11823,17 @@ type TaskSpec struct {
 	// delegating constructor needs a builder that does not exist yet. Empty for a task that
 	// changes no Go package.
 	Contracts []string `json:"contracts,omitempty"`
-	Hash      string   `json:"hash"`
+	// Generate is the generators the job runs after those, before the agent: `go tool` argvs
+	// in the module dir, for the parts of the task the platform writes. A task with none has
+	// nothing generated beyond its contracts.
+	Generate []SpecGenerator `json:"generate,omitempty"`
+	Hash     string          `json:"hash"`
+}
+
+// SpecGenerator is one generator run. Argv is always `go tool <generator> ...`.
+type SpecGenerator struct {
+	Title string   `json:"title"`
+	Argv  []string `json:"argv"`
 }
 
 // SpecIdentity is what the method assets say the task is.
@@ -11957,6 +11967,7 @@ func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
 		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: %s/%s: %w", activityID, taskID, err)
 	}
 	s.Contracts = generatedContractsOf(p, ms.Command, item.ComponentID)
+	s.Generate = generatorsOf(p, ms.Command, item.ComponentID)
 	s = s.normalized()
 	s.Hash = s.ComputeHash()
 	return s, nil
@@ -12349,10 +12360,17 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
 		genModelsCheck(p, contracts, dir),
 	}
+	if isManagerComponent(p, componentID) {
+		checks = append(checks, commandCheck("gen-temporal-check", "appgen temporal output is current", appgenArgv(p, "temporal", "-check"), dir, commandCheckTimeoutSec))
+	}
 	if integration {
 		scope.Extra = append(scope.Extra, inModule(p, "cmd/server/hooks.go"))
 		scope.Extra = append(scope.Extra, generatedTestPaths(p, contracts)...)
 		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec))
+		if composesServer(p, contracts) {
+			scope.Extra = append(scope.Extra, compositionPaths(p)...)
+			checks = append(checks, compositionChecks(p, dir)...)
+		}
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
 			return SpecEditScope{}, nil, err
@@ -12363,6 +12381,100 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 	scope.Extra = slices.Compact(scope.Extra)
 	sortChecks(checks)
 	return scope, checks, nil
+}
+
+// isManagerComponent reports whether a component's contract is a Manager's. Its Temporal layer
+// is generated from construction on, because the hand-written Manager is built against it.
+func isManagerComponent(p *Project, componentID string) bool {
+	return slices.ContainsFunc(componentContracts(p, componentID), func(c string) bool {
+		return strings.EqualFold(contractLayer(p, c), "manager")
+	})
+}
+
+// contractLayer is a contract's Method layer, from either place a contract states it.
+func contractLayer(p *Project, contract string) string {
+	sc := p.ServiceContracts[contract]
+	if sc.Layer != "" {
+		return sc.Layer
+	}
+	return sc.Interface.Layer
+}
+
+// composesServer reports whether integrating these contracts builds the composition root: a
+// Manager's or a Client's does, since either changes what the server wires or serves. A
+// ResourceAccess or Engine integrates against its callers and leaves the server alone.
+func composesServer(p *Project, contracts []string) bool {
+	return slices.ContainsFunc(contracts, func(c string) bool {
+		layer := contractLayer(p, c)
+		return strings.EqualFold(layer, "manager") || strings.EqualFold(layer, "client")
+	})
+}
+
+// compositionGenerators are appgen's subcommands, in the order a composition root needs:
+// temporal and clients write what main.gen.go imports, config the Config it reads.
+var compositionGenerators = []string{"temporal", "clients", "config", "compose"}
+
+// appgenArgv is `go tool appgen <sub>` over this project's state document.
+func appgenArgv(p *Project, sub string, extra ...string) []string {
+	return append([]string{"go", "tool", "appgen", sub, "-project", statePathFromModule(p), "-root", "."}, extra...)
+}
+
+// compositionPaths is what appgen writes and the integrating task may therefore commit:
+// generated files only, plus the hooks file it seeds once.
+func compositionPaths(p *Project) []string {
+	return []string{
+		inModule(p, "cmd/server") + generatedFilesGlobSuffix,
+		inModule(p, "internal/client") + generatedFilesGlobSuffix,
+		inModule(p, "api/openapi.yaml"),
+	}
+}
+
+// compositionChecks hold the generated composition root to the design and require it to build.
+func compositionChecks(p *Project, dir string) []SpecCheck {
+	out := []SpecCheck{commandCheck("build-server", "The composition root builds", []string{"go", "build", "./cmd/server/"}, dir, commandCheckTimeoutSec)}
+	for _, sub := range compositionGenerators {
+		if sub == "temporal" {
+			continue // a Manager's task already checks it; a Client has no Temporal layer of its own
+		}
+		out = append(out, commandCheck("gen-"+sub+"-check", "appgen "+sub+" output is current", appgenArgv(p, sub, "-check"), dir, commandCheckTimeoutSec))
+	}
+	return out
+}
+
+// webProjectDir is the one web project every browser surface of an app shares, at the repo
+// root whatever the module dir is.
+const webProjectDir = "webApp"
+
+// webDirFromModule is the web project's path from the module dir.
+func webDirFromModule(p *Project) string {
+	if p.ModuleDir == "" {
+		return webProjectDir
+	}
+	return strings.Repeat("../", strings.Count(strings.Trim(p.ModuleDir, "/"), "/")+1) + webProjectDir
+}
+
+// generatorsOf is what the job generates before the agent runs a task, beyond its contracts.
+func generatorsOf(p *Project, command, componentID string) []SpecGenerator {
+	var out []SpecGenerator
+	switch command {
+	case "service-construction":
+		if isManagerComponent(p, componentID) {
+			out = append(out, SpecGenerator{Title: "appgen temporal", Argv: appgenArgv(p, "temporal")})
+		}
+	case "frontend-construction", "frontend-integration":
+		web := webDirFromModule(p)
+		out = append(out,
+			SpecGenerator{Title: "webgen bootstrap", Argv: []string{"go", "tool", "webgen", "bootstrap", "-C", web, "-surface", componentID}},
+			SpecGenerator{Title: "webgen generate", Argv: []string{"go", "tool", "webgen", "generate", "-C", web}},
+		)
+	case "service-integration":
+		if composesServer(p, componentContracts(p, componentID)) {
+			for _, sub := range compositionGenerators {
+				out = append(out, SpecGenerator{Title: "appgen " + sub, Argv: appgenArgv(p, sub)})
+			}
+		}
+	}
+	return out
 }
 
 // archCheck is the seated gate, the same argv in every app (internal/aiarch_arch_test.go):
@@ -12388,21 +12500,46 @@ func genModelsCheck(p *Project, contracts []string, dir string) SpecCheck {
 	return commandCheck("gen-models-check", "Generated models are current", argv, dir, commandCheckTimeoutSec)
 }
 
-// frontendScopeAndChecks is the web client's construction (integration adds the UI tests
-// — the purge step deletes hand-written specs, so all of uitests/ — the Go packages of any
-// of the component's contracts that has one (the MCP client), the generated-tests drift
-// check and the scenario checks).
+// webProjectSeats is the web project's own files, shared by every surface: what webgen
+// bootstrap writes outside src/, and the lockfile npm writes from it.
+var webProjectSeats = []string{
+	".gitignore", ".tool-versions", "eslint.config.js", "eslint.platform.config.js", "package.json",
+	"package-lock.json", "tsconfig.app.json", "tsconfig.json", "vite.config.ts", "webgen.json",
+}
+
+// uitestsSeats is the Playwright project's own files.
+var uitestsSeats = []string{"uitests/.gitignore", "uitests/.tool-versions", "uitests/package.json", "uitests/package-lock.json"}
+
+// frontendScopeAndChecks is a browser surface's construction. All surfaces share one web
+// project: each owns webApp/src/<id>/ and its entry, they share webApp/src/shared/, and the
+// transport seam under src/api and src/contracts is the generators'. Integration adds the UI
+// tests (the purge step deletes hand-written specs, so all of uitests/), the Go packages of any
+// of the component's contracts that has one, the generated-tests drift check and the scenario
+// checks.
 func frontendScopeAndChecks(p *Project, integration bool, componentID string, contracts []string) (SpecEditScope, []SpecCheck, error) {
+	surface := []string{path.Join(webProjectDir, "src", componentID) + "/**", path.Join(webProjectDir, "src", "shared") + "/**"}
+	slices.Sort(surface)
 	scope := SpecEditScope{
-		Components: []SpecScopeComponent{{ID: componentID, Paths: []string{"webApp/src/**"}}},
-		Extra:      []string{"webApp/package.json", "webApp/package-lock.json"},
+		Components: []SpecScopeComponent{{ID: componentID, Paths: surface}},
+		Extra: []string{
+			path.Join(webProjectDir, componentID+".html"),
+			path.Join(webProjectDir, "src", "api") + "/**",
+			path.Join(webProjectDir, "src", "contracts") + "/**",
+			path.Join(webProjectDir, "src", "vite-env.d.ts"),
+		},
 	}
+	for _, seat := range webProjectSeats {
+		scope.Extra = append(scope.Extra, path.Join(webProjectDir, seat))
+	}
+	scope.Extra = append(scope.Extra, uitestsSeats...)
 	checks := []SpecCheck{
-		commandCheck("typecheck", "TypeScript typecheck", []string{"npm", "run", "typecheck"}, "webApp", commandCheckTimeoutSec),
-		commandCheck("lint", "ESLint", []string{"npx", "eslint", "src"}, "webApp", commandCheckTimeoutSec),
+		commandCheck("install", "The web project installs from its lockfile", []string{"npm", "ci", "--ignore-scripts"}, webProjectDir, commandCheckTimeoutSec),
+		commandCheck("gen-ops-check", "The generated transport is current", []string{"go", "tool", "webgen", "check", "-C", webDirFromModule(p)}, p.ModuleDir, commandCheckTimeoutSec),
+		commandCheck("typecheck", "TypeScript typecheck", []string{"npm", "run", "typecheck"}, webProjectDir, commandCheckTimeoutSec),
+		commandCheck("lint", "ESLint", []string{"npx", "eslint", "src"}, webProjectDir, commandCheckTimeoutSec),
 	}
 	if integration {
-		paths := append([]string{"webApp/src/**"}, packageGlobs(p, goPackagesOf(p, contracts))...)
+		paths := append(slices.Clone(surface), packageGlobs(p, goPackagesOf(p, contracts))...)
 		slices.Sort(paths)
 		scope.Components[0].Paths = paths
 		for _, c := range contracts {
@@ -12410,7 +12547,9 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 		}
 		scope.Extra = append(scope.Extra, "uitests/**")
 		scope.Extra = append(scope.Extra, generatedTestPaths(p, contracts)...)
-		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, p.ModuleDir, commandCheckTimeoutSec))
+		checks = append(checks,
+			commandCheck(installUITestsCheck, "The UI tests install", []string{"sh", "-c", "npm ci --ignore-scripts && npx playwright install chromium"}, "uitests", commandCheckTimeoutSec),
+			commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, p.ModuleDir, commandCheckTimeoutSec))
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
 			return SpecEditScope{}, nil, err
@@ -12422,6 +12561,9 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 	sortChecks(checks)
 	return scope, checks, nil
 }
+
+// installUITestsCheck is the check id of the UI tests' install.
+const installUITestsCheck = "install-uitests"
 
 // generatedTestsUITestsDir is where testgen writes the web clients' Playwright output,
 // repo-relative: the scaffold Makefile passes `-uitests uitests/generated` from the repo

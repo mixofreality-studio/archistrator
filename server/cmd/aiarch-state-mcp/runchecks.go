@@ -314,7 +314,7 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	if err := ignoreScratchDir(filepath.Join(s.StateRoot, filepath.Dir(checksOutDir))); err != nil {
 		return runChecksOutput{}, err
 	}
-	note = joinNotes(note, s.tidyModuleGraph(ctx, spec))
+	note = joinNotes(note, s.tidyModuleGraph(ctx, spec), s.installWebProjects(ctx, spec))
 	out := filepath.Join(s.StateRoot, checksOutDir)
 	r := checkRunner{root: s.StateRoot, outDir: out, exec: s.checkExec}
 	results := runSpecChecks(ctx, r, spec.Checks, s.checks.last, onlyFailed)
@@ -364,6 +364,45 @@ func (s *Session) tidyModuleGraph(ctx context.Context, spec projectstate.TaskSpe
 		return "The module graph was tidied. If go.mod or go.sum changed, commit them with your code."
 	}
 	return ""
+}
+
+// Web install checks: the verb installs what the gate's checks hold to a lockfile.
+const (
+	webInstallCheckID     = projectstate.CheckKindCommand + ":install"
+	uitestsInstallCheckID = projectstate.CheckKindCommand + ":install-uitests"
+)
+
+// installWebProjects is the web counterpart of tidyModuleGraph. The agent's sandbox cannot reach
+// the npm registry, so this process installs and regenerates the OpenAPI types, and the agent
+// commits the lockfile and the types. Only the verb installs: the gate runs `npm ci` on the
+// committed lockfile, which would prove nothing if the gate could rewrite it. A failure is
+// reported rather than fatal, and the install check then goes red with it.
+func (s *Session) installWebProjects(ctx context.Context, spec projectstate.TaskSpec) string {
+	exec := s.checkExec
+	if exec == nil {
+		exec = execCommand
+	}
+	var note string
+	for _, c := range spec.Checks {
+		if c.ID != webInstallCheckID && c.ID != uitestsInstallCheckID {
+			continue
+		}
+		steps := [][]string{{"npm", "install", "--ignore-scripts"}}
+		if c.ID == webInstallCheckID {
+			steps = append(steps, []string{"npm", "run", "gen:api"})
+		}
+		dir := filepath.Join(s.StateRoot, c.Source.Dir)
+		for _, argv := range steps {
+			stepCtx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
+			out, err := exec(stepCtx, dir, commandEnv(argv[0]), argv...)
+			cancel()
+			if err != nil {
+				return joinNotes(note, strings.Join(argv, " ")+" failed in "+c.Source.Dir+": "+err.Error()+"\n"+checkLogTail(string(out)))
+			}
+		}
+		note = "The web project was installed. Commit its package.json, package-lock.json and src/contracts/schema.ts with your code."
+	}
+	return note
 }
 
 // joinNotes joins the non-empty notes into one paragraph-separated note.
