@@ -5410,7 +5410,7 @@
                   {
                     "id": "release-halt",
                     "kind": "action",
-                    "label": "Relay the resume onto the parked pump; nothing is written to the project store, which may still be refusing writes",
+                    "label": "Re-arm every activity holding a recorded give-up, then relay the resume onto the parked pump; a failure the store refused has no row, so that resume writes nothing and still lands",
                     "roleName": "",
                     "linkedActorId": null
                   },
@@ -10433,7 +10433,7 @@
                     "from": "delivery-manager",
                     "to": "message-bus",
                     "mode": "sync",
-                    "label": "deliverSignal(pump execution, operatorResumeRequested) — releases the pump parked on the failed activity; the halt lives only in the pump, so nothing is written to the project store"
+                    "label": "deliverSignal(pump execution, operatorResumeRequested) — releases the parked pump; the halt lives only in the pump, so the only store writes are the re-arms of recorded give-ups"
                   }
                 ]
               },
@@ -22901,12 +22901,12 @@
         },
         "PumpHalt": {
           "type": "object",
-          "description": "Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
+          "description": "Why the project's construction pump halted: an activity's execution failed, or the network drained with activities that gave up (nothing in flight, nothing eligible). The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
           "properties": {
             "activityId": {
               "$ref": "#/$defs/ActivityID",
               "x-go-name": "ActivityID",
-              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade."
+              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade, or the first activity that gave up when the network drained."
             },
             "cause": {
               "type": "string",
@@ -22918,6 +22918,13 @@
               "x-go-import": "time",
               "x-go-type": "time.Time",
               "description": "When the pump halted."
+            },
+            "failed": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ActivityID"
+              },
+              "description": "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them."
             }
           },
           "required": [
@@ -29690,12 +29697,12 @@
         },
         "PumpHalt": {
           "type": "object",
-          "description": "Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
+          "description": "Why the project's construction pump halted: an activity's execution failed, or the network drained with activities that gave up (nothing in flight, nothing eligible). The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it.",
           "properties": {
             "activityId": {
               "$ref": "#/$defs/ActivityID",
               "x-go-name": "ActivityID",
-              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade."
+              "description": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade, or the first activity that gave up when the network drained."
             },
             "cause": {
               "type": "string",
@@ -29707,6 +29714,13 @@
               "x-go-import": "time",
               "x-go-type": "time.Time",
               "description": "When the pump halted."
+            },
+            "failed": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ActivityID"
+              },
+              "description": "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them."
             }
           },
           "required": [

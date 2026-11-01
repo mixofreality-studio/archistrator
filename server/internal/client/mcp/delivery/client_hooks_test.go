@@ -1736,21 +1736,21 @@ func arrangeBuilt(t *testing.T, s *stack) {
 // ran, every construction dispatch failed until the supervision budget was spent, and
 // the activity exited failed. The venue keeps failing until the operator's requeue
 // (step 2), after which the re-dispatched job is still in progress when the operator
-// looks.
+// looks. A sibling stays at work throughout: a requeue is for a network that has not
+// drained. Once it drains the project halts, and only Resume brings anything back.
 func arrangeFailed(t *testing.T, s *stack) {
 	t.Helper()
 	s.venue.script(func(_ int, j agentJob) runOutcome {
 		switch {
 		case !j.isConstruction():
 			return runSucceeds
-		case s.arrangedStep(2):
+		case j.Activity != fixtureActivity, s.arrangedStep(2):
 			return runStaysRunning
 		}
 		return runFails
 	})
 	s.inFlight(t, vibes)
 	s.awaitActivity(t, fixtureActivity, mgr.ActivityViewFailed)
-	s.awaitPumpIdle(t)
 }
 
 // arrangePaused is the project in construction with the operator's pause recorded and

@@ -3,6 +3,7 @@ package delivery
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
@@ -165,7 +166,7 @@ func (h *pumpHalt) toContract() *PumpHalt {
 	if h == nil {
 		return nil
 	}
-	return &PumpHalt{ActivityID: h.ActivityID, Cause: h.Cause, HaltedAt: h.HaltedAt}
+	return &PumpHalt{ActivityID: h.ActivityID, Cause: h.Cause, HaltedAt: h.HaltedAt, Failed: append([]ActivityID(nil), h.Failed...)}
 }
 
 // The two kinds of signal a pump run can be holding when it continues as new. Plain
@@ -471,6 +472,14 @@ func (st *pumpState) markStarted(id ActivityID) {
 	}
 }
 
+// forgetStarted hands an activity back to the frontier.
+func (st *pumpState) forgetStarted(id ActivityID) {
+	drop := func(ids []ActivityID) []ActivityID {
+		return slices.DeleteFunc(ids, func(x ActivityID) bool { return x == id })
+	}
+	st.Started, st.Finished = drop(st.Started), drop(st.Finished)
+}
+
 // releaseLease frees whatever MAIN-WRITE ADMISSION this activity holds — the lease itself
 // and any request of its own still queued — without declaring the activity over. It is the
 // half of markFinished that a finish signal is allowed to do on its own; see applyFinish.
@@ -567,6 +576,157 @@ func (st *pumpState) haltOn(ctx workflow.Context, in pumpInput, id ActivityID, c
 	st.Halt = &pumpHalt{ActivityID: id, Cause: cause, HaltedAt: workflow.Now(ctx), HeadVersion: head, Failed: []ActivityID{id}}
 	logger.Error("pump: HALTED — the cascade stops on a failed activity and the pump parks until ResumeProject",
 		"projectId", string(in.ProjectID), "activityId", string(id), "headVersion", int64(head), "err", cause)
+}
+
+// changePumpDrainHalt fences the drain halt (FIX-016). Its DefaultVersion arm is the pump that
+// ended quiescent past an unresolved give-up.
+const changePumpDrainHalt = "delivery-pump-drain-halt"
+
+// pumpDrainVerdict is what an idle pump found when it asked whether the network has drained.
+type pumpDrainVerdict int
+
+const (
+	// pumpDrainQuiescent: nothing to do and nothing owed, or an execution this chain does not
+	// hold is still working. The run ends, as it always did; the sweep asks again.
+	pumpDrainQuiescent pumpDrainVerdict = iota
+	// pumpDrainMoved: the fresher read shows work this run can start.
+	pumpDrainMoved
+	// pumpDrainHalted: nothing in flight, nothing eligible, and a give-up unresolved.
+	pumpDrainHalted
+)
+
+// pumpDrain is the product ruling on a give-up (FIX-016), and the place it becomes a halt.
+//
+// A give-up does not stop the cascade: the activity shows its reason and its blocked dependents
+// the moment its row lands, and independent work carries on. What it must not do is leave the
+// project reading "running" once nothing can move, which cost RUN-007 ten idle minutes: a
+// give-up's dependents stay blocked, so "every activity terminal" never comes.
+//
+// THE VERDICT IS DERIVED FROM THE ROWS, so it survives everything that loses pump memory: a
+// continue-as-new, a pause that ended the chain, and a sweep's fresh chain all reach the same
+// answer. It reads again whenever this chain started anything, because the wake-up's read can
+// predate a child's last write. A fresh chain's own read is new enough.
+func (wf *csWorkflows) pumpDrain(
+	ctx workflow.Context, in pumpInput, st *pumpState, snapshot projectstate.Project, dispatch *pumpDispatch, decide *bool,
+) (pumpDrainVerdict, error) {
+	if workflow.GetVersion(ctx, changePumpDrainHalt, workflow.DefaultVersion, 1) < 1 {
+		return pumpDrainQuiescent, nil
+	}
+	proj := snapshot
+	if len(st.Started) > 0 {
+		fresh, err := wf.readProject(ctx, in.ProjectID)
+		if err != nil {
+			if isReadNotFound(err) {
+				return pumpDrainQuiescent, nil
+			}
+			return pumpDrainQuiescent, err
+		}
+		proj = fresh
+	}
+	if wf.pumpCanStartSomething(ctx, st, proj) {
+		return pumpDrainMoved, nil
+	}
+	giveUps := unresolvedGiveUps(proj)
+	if len(giveUps) == 0 || anyActivityLive(proj) {
+		return pumpDrainQuiescent, nil
+	}
+	first, row := giveUps[0], proj.ActivityExecution[string(giveUps[0])]
+	st.Halt = &pumpHalt{
+		ActivityID:  first,
+		Cause:       "activity " + string(first) + " gave up (" + row.FailureReason.String() + "): " + row.FailureDetail,
+		HaltedAt:    workflow.Now(ctx),
+		HeadVersion: proj.Version,
+		Failed:      giveUps,
+	}
+	*dispatch = pumpDispatch{Decided: true, Dispatched: false, Halt: st.Halt.toContract()}
+	*decide = false
+	workflow.GetLogger(ctx).Error("pump: HALTED — the network drained with activities that gave up; only ResumeProject returns them",
+		"projectId", string(in.ProjectID), "activityId", string(first), "failed", len(giveUps))
+	return pumpDrainHalted, nil
+}
+
+// pumpCanStartSomething asks the selection rule what pumpStartFrontier would do with proj.
+func (wf *csWorkflows) pumpCanStartSomething(ctx workflow.Context, st *pumpState, proj projectstate.Project) bool {
+	sel := wf.nextEligible(proj, pumpEligibilityRule())
+	switch sel.Verdict {
+	case verdictQuiescent:
+		return false
+	case verdictBlocked:
+		return !st.blocked[sel.BlockedActivityID]
+	case verdictDispatch:
+	}
+	id := ActivityID(sel.Activity.ActivityID)
+	return !st.isStarted(id) || pumpRedispatchesRequeue(ctx, st, id, proj)
+}
+
+// pumpRedispatchesRequeue reports whether a selected activity this chain already started is one
+// an operator re-armed after it finished. Reopening used to wait for the chain to end, and the
+// selection stopped at that activity, so independent work waited with it.
+func pumpRedispatchesRequeue(ctx workflow.Context, st *pumpState, id ActivityID, proj projectstate.Project) bool {
+	if !st.isFinished(id) || !projectstate.RequeuedAfterExit(proj.ActivityExecution[string(id)]) {
+		return false
+	}
+	return workflow.GetVersion(ctx, changePumpDrainHalt, workflow.DefaultVersion, 1) >= 1
+}
+
+// absorbGiveUps adds a give-up that landed after the halt to Failed: a sibling can still be
+// running when a failed child halts the pump, and the ruling has Failed list all of them.
+func (st *pumpState) absorbGiveUps(ctx workflow.Context, proj projectstate.Project) {
+	giveUps := unresolvedGiveUps(proj)
+	if len(giveUps) == 0 || workflow.GetVersion(ctx, changePumpDrainHalt, workflow.DefaultVersion, 1) < 1 {
+		return
+	}
+	for _, id := range giveUps {
+		if !pumpHolds(st.Halt.Failed, id) {
+			st.Halt.Failed = append(st.Halt.Failed, id)
+		}
+	}
+}
+
+// isGiveUpReason names the failures only an operator resolves. A Skip records no failure reason,
+// so it never counts. The plan-defect reasons do not count either: re-running changes nothing
+// until the plan is amended.
+func isGiveUpReason(r projectstate.FailureReason) bool {
+	return r == projectstate.VarianceExhausted || r == projectstate.NoProgress || r == projectstate.EscalationTimedOut
+}
+
+// unresolvedGiveUps is every activity of the committed plan whose row holds a give-up, earliest
+// exit first, ties by id, so the halt names the first one on every replay and every chain.
+func unresolvedGiveUps(proj projectstate.Project) []ActivityID {
+	var out []ActivityID
+	for id, row := range proj.ActivityExecution {
+		if !isGiveUpReason(row.FailureReason) {
+			continue
+		}
+		if _, planned := committedActivityItem(proj, id); planned {
+			out = append(out, ActivityID(id))
+		}
+	}
+	slices.SortFunc(out, func(a, b ActivityID) int {
+		ra, rb := proj.ActivityExecution[string(a)], proj.ActivityExecution[string(b)]
+		if ra.CompletedAt != nil && rb.CompletedAt != nil {
+			if c := ra.CompletedAt.Compare(*rb.CompletedAt); c != 0 {
+				return c
+			}
+		}
+		return strings.Compare(string(a), string(b))
+	})
+	return out
+}
+
+// anyActivityLive reports whether a planned row says an execution is still working: started, with
+// no exit and no failure. A chain the sweep started holds no future for it, so this is how "nothing
+// in flight" stays true to the ruling for a child that outlived the chain that started it.
+func anyActivityLive(proj projectstate.Project) bool {
+	for id, row := range proj.ActivityExecution {
+		if row.StartedAt == nil || row.CompletedAt != nil || row.FailureReason != projectstate.FailureReasonUnknown {
+			continue
+		}
+		if _, planned := committedActivityItem(proj, id); planned {
+			return true
+		}
+	}
+	return false
 }
 
 // clearHalt is a resume landing on a halted pump. Every activity the halt judged broken is
@@ -803,9 +963,20 @@ func (wf *csWorkflows) pumpLoop(
 		// run per second, per project, forever. A HALTED pump is never quiescent: its stop is
 		// the park below, which is what keeps the sweep from restarting it.
 		if st.Halt == nil && st.idle() {
-			logger.Info("no eligible activity and nothing in flight — cascade quiescent",
-				"projectId", string(in.ProjectID))
-			return pumpDispatchedResult(frontier), nil
+			verdict, err := wf.pumpDrain(ctx, in, st, wake.proj, dispatch, &decide)
+			if err != nil {
+				return PumpResult{}, err
+			}
+			switch verdict {
+			case pumpDrainQuiescent:
+				logger.Info("no eligible activity and nothing in flight — cascade quiescent",
+					"projectId", string(in.ProjectID))
+				return pumpDispatchedResult(frontier), nil
+			case pumpDrainMoved:
+				continue
+			case pumpDrainHalted:
+				// Parks below, exactly as a halt on a failed child does.
+			}
 		}
 
 		if res, can, err := wf.pumpContinueAsNew(ctx, in, st, chans, frontier); can || err != nil {
@@ -828,6 +999,7 @@ func (wf *csWorkflows) pumpAdvance(
 	dispatch *pumpDispatch, decide *bool,
 ) ([]ActivityID, bool, error) {
 	if st.Halt != nil {
+		st.absorbGiveUps(ctx, *proj)
 		*dispatch = pumpDispatch{Decided: true, Dispatched: false, Halt: st.Halt.toContract()}
 		*decide = false
 		return nil, false, nil
@@ -993,7 +1165,8 @@ func (wf *csWorkflows) pumpStartFrontier(
 		sel := wf.nextEligible(*proj, rule)
 		switch sel.Verdict {
 		case verdictQuiescent:
-			return started, st.idle(), nil
+			// Whether an idle pump ENDS or HALTS is pumpLoop's drain question, asked once below.
+			return started, false, nil
 		case verdictBlocked:
 			if st.blocked[sel.BlockedActivityID] {
 				// Already recorded by this run; the snapshot cannot show the write, so stop here
@@ -1013,9 +1186,14 @@ func (wf *csWorkflows) pumpStartFrontier(
 		}
 		id := ActivityID(sel.Activity.ActivityID)
 		if st.isStarted(id) {
-			// The selection rule handed back something already in flight — the frontier this
-			// pass can see is exhausted.
-			return started, false, nil
+			if !pumpRedispatchesRequeue(ctx, st, id, *proj) {
+				// The selection rule handed back something already in flight — the frontier this
+				// pass can see is exhausted.
+				return started, false, nil
+			}
+			// An operator re-armed an activity this chain already finished. "One chain, one
+			// dispatch" protects against a stale read; a requeue note is not one.
+			st.forgetStarted(id)
 		}
 		// PRE-DISPATCH RE-CHECK (signal check 2). A pause that landed while readProject ran
 		// must not dispatch a NEW activity: nothing would cancel it — the pause plan's
@@ -1410,10 +1588,10 @@ func (wf *csWorkflows) pumpSignalChild(ctx workflow.Context, projectID ProjectID
 //
 // WHY A TERMINAL FAILURE ROW ALONE IS NOT ENOUGH, and this is the distinction the rule
 // turns on: an activity that GIVES UP cleanly (constructionGaveUp / constructionExited)
-// also records a failure row, and stage 4b1 decided deliberately that such a child returns
-// nil so the cascade continues past it. failWalk is the one that returns the cause — and
-// it is the one that sends NO finish signal. So "terminal failure row, no finish reported"
-// is precisely "the child's own run broke", and nothing else is.
+// also records a failure row, and such a child returns nil so the cascade continues past it,
+// halting only when the network drains (pumpDrain, FIX-016). failWalk is the one that returns
+// the cause — and it is the one that sends NO finish signal. So "terminal failure row, no finish
+// reported" is precisely "the child's own run broke", and nothing else is.
 func (wf *csWorkflows) pumpReconcile(ctx workflow.Context, in pumpInput, st *pumpState, proj projectstate.Project) {
 	logger := workflow.GetLogger(ctx)
 	for _, id := range st.inFlight() {

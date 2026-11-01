@@ -1941,7 +1941,12 @@ func unbornOf(frontier []string, p projectstate.Project) []string {
 // assertNotHalted active and every scenario that ended halted is either here, with the
 // arrangement that fails a walk on purpose, or was a finding. A halt not listed here fails
 // the scenario.
-var expectHalt = map[string]string{}
+var expectHalt = map[string]string{
+	// These end on a give-up with the network drained, which is a halt by ruling (FIX-016).
+	"TestARedAttemptThatChangesNothingGivesUp":   "the activity gives up by design",
+	"TestAResumeGivesAFreshAttemptBudget":        "the second budget is spent too, by design",
+	"TestAnEscalationTimeoutCountsTowardTheHalt": "the seeded timeout stays unresolved, by design",
+}
 
 // recordedPumpHalt answers the project pump's halt Query on its LATEST run, running or not:
 // nil when the project never had a pump or its pump is not halted. The workflow id and the
@@ -2021,6 +2026,9 @@ func awaitPumpSettled(t *testing.T, h *scenariohost.Host, subject delivery.Deliv
 // and the activity exited failed. It is driven, not seeded — one pump tick, the same op
 // the sweep calls — and the venue keeps failing until the operator's requeue (step 3),
 // after which the re-dispatched job is still in progress when the operator looks.
+//
+// A sibling stays at work throughout: a requeue is for a network that has not drained. Once it
+// drains the project halts, and only Resume brings anything back (FIX-016).
 func arrangeFailedActivity(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, seq int) {
 	t.Helper()
 	if seq != 1 {
@@ -2032,7 +2040,7 @@ func arrangeFailedActivity(t *testing.T, h *scenariohost.Host, subject delivery.
 		switch {
 		case !j.isConstruction():
 			return runSucceeds
-		case s.arrangedStep(3):
+		case j.Activity != string(drivenActivity), s.arrangedStep(3):
 			return runStaysRunning
 		}
 		return runFails
@@ -2041,7 +2049,6 @@ func arrangeFailedActivity(t *testing.T, h *scenariohost.Host, subject delivery.
 		t.Fatalf("hooks: tick the pump: %v", err)
 	}
 	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
-	awaitPumpIdle(t, h, subject)
 }
 
 // settleActivityRuns waits until the requeued activity's walk is running again.
@@ -3898,6 +3905,233 @@ func TestARedAttemptThatChangesNothingGivesUp(t *testing.T) {
 		t.Errorf("the activity ended with reason %v, want noProgress", got)
 	}
 	awaitPumpIdle(t, h, subject)
+}
+
+// awaitPumpHalted waits for the project view to read halted, whichever activity it names.
+func awaitPumpHalted(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, since time.Time) delivery.PumpHalt {
+	t.Helper()
+	var halt delivery.PumpHalt
+	eventually(t, walkWindow, "the pump halting", func() (bool, string) {
+		v, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+		if err != nil {
+			return false, err.Error()
+		}
+		if v.Summary == nil || v.Summary.RunState != delivery.ProjectHalted || v.Summary.PumpHalt == nil {
+			return false, "not halted"
+		}
+		halt = *v.Summary.PumpHalt
+		return halt.HaltedAt.After(since), "an earlier halt"
+	})
+	return halt
+}
+
+// runStateOf reads the project's run state from its view.
+func runStateOf(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager) delivery.ProjectRunState {
+	t.Helper()
+	v, err := subject.QueryProjectView(callContext(t, h, ""), summaryQuery())
+	if err != nil || v.Summary == nil {
+		t.Fatalf("read the project summary: %v", err)
+	}
+	return v.Summary.RunState
+}
+
+// constructionJobs counts the driven activity's construction dispatches.
+func constructionJobs(s *stack) int {
+	n := 0
+	for _, j := range s.venue.jobs() {
+		if j.Activity == string(drivenActivity) && j.isConstruction() {
+			n++
+		}
+	}
+	return n
+}
+
+// TestAGiveUpHaltsOnlyWhenTheNetworkDrains is the product ruling on FIX-016, end to end. While a
+// sibling works the project still reads running and the cascade continues; once nothing is in
+// flight and nothing is eligible it reads halted, naming the give-up; Begin and a per-activity
+// requeue both point back at Resume; and Resume returns the activity carrying the operator's note.
+func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	release := make(chan struct{})
+	var letGo sync.Once
+	open := func() { letGo.Do(func() { close(release) }) }
+	t.Cleanup(open)
+	var repaired atomic.Bool
+	var sibling sync.Map
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		switch {
+		case !j.isConstruction():
+			return runSucceeds
+		case j.Activity == string(drivenActivity):
+			if repaired.Load() {
+				return runSucceeds
+			}
+			return runFails
+		}
+		sibling.Store(j.Activity, true)
+		<-release
+		return runSucceeds
+	})
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-drain-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
+
+	var witness string
+	sibling.Range(func(k, _ any) bool {
+		witness = k.(string)
+		return false
+	})
+	if witness == "" {
+		t.Fatal("no independent activity was working when the give-up landed, so this proved nothing")
+	}
+	if got := runStateOf(t, h, subject); got != delivery.ProjectRunning {
+		t.Fatalf("the project reads %s with a sibling still working, want running", got)
+	}
+
+	open()
+	halt := awaitHalt(t, h, subject)
+	if v := awaitActivityState(t, h, subject, delivery.ActivityID(witness), delivery.ActivityViewDone); v.State != delivery.ActivityViewDone {
+		t.Errorf("independent activity %s reads %s, want done: the cascade must continue past a give-up", witness, v.State)
+	}
+	if !slices.Contains(halt.Failed, drivenActivity) {
+		t.Errorf("the halt's Failed is %v, want it to list %s", halt.Failed, drivenActivity)
+	}
+	if v := awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed); v.State != delivery.ActivityViewFailed {
+		t.Errorf("the give-up reads %s, want its recorded failed terminal", v.State)
+	}
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-drain-0002"); err == nil || !strings.Contains(err.Error(), "ResumeProject") {
+		t.Errorf("Begin on the halted project answered %v, want a refusal naming ResumeProject", err)
+	}
+	err := subject.OverrideActivity(callContext(t, h, ""), planProject, drivenActivity,
+		delivery.ActivityOverride{Kind: delivery.OverrideRetry, Notes: "just this one"})
+	if err == nil || !strings.Contains(err.Error(), "ResumeProject") {
+		t.Errorf("a requeue on the halted project answered %v, want a refusal naming ResumeProject", err)
+	}
+
+	repaired.Store(true)
+	const note = "the import path was wrong; it is fixed in the plan now"
+	if err := subject.SetProjectRunState(callContext(t, h, ""), planProject, delivery.ProjectRunning, note); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	doc, err := runGit(s.venue.repo.Dir, "show", "main:.aiarch/state/project.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(doc, note) {
+		t.Errorf("the operator's note is not on the returned activity's row")
+	}
+	awaitPumpIdle(t, h, subject)
+	if got := runStateOf(t, h, subject); got == delivery.ProjectHalted {
+		t.Errorf("the project still reads halted after the give-up was resolved")
+	}
+}
+
+// TestAResumeGivesAFreshAttemptBudget: an activity whose budget is spent, resumed into the same
+// failure, runs its whole budget again and halts again. Without a re-arm the row would keep the
+// pump out and the resume would run nothing at all.
+func TestAResumeGivesAFreshAttemptBudget(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		if j.Activity == string(drivenActivity) && j.isConstruction() {
+			return runFails
+		}
+		return runSucceeds
+	})
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-budget-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	first := awaitHalt(t, h, subject)
+	spent := constructionJobs(s)
+	if spent < 2 {
+		t.Fatalf("the first walk dispatched construction %d times, so a budget was never spent", spent)
+	}
+	// An empty reason is legal, and the note on the row says so instead.
+	if err := subject.SetProjectRunState(callContext(t, h, ""), planProject, delivery.ProjectRunning, ""); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	second := awaitPumpHalted(t, h, subject, first.HaltedAt)
+	if second.ActivityID != drivenActivity {
+		t.Errorf("the second halt names %s, want %s", second.ActivityID, drivenActivity)
+	}
+	if got := constructionJobs(s); got != 2*spent {
+		t.Errorf("construction ran %d times in all, want %d: a resume must give the whole budget again", got, 2*spent)
+	}
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "budget-read"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := proj.ActivityExecution[drivenActivity].FailureReason; got != projectstate.VarianceExhausted {
+		t.Errorf("the second give-up reads %v, want varianceExhausted", got)
+	}
+}
+
+// seedOutcome records an activity's terminal directly, for the outcomes a run reaches only after
+// a long operator wait. The pump's chains read it as any other row.
+func seedOutcome(t *testing.T, h *scenariohost.Host, s *stack, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string) {
+	t.Helper()
+	access := projectstate.NewGitLocalActivityExecutionAccess(s.repo.URL)
+	if _, err := access.RecordActivityOutcome(h.ResourceAccessContext(t, "seed-outcome"), planProject,
+		projectstate.NoActivityVersionExpectation, drivenActivity, outcome, reason, detail, projectstate.RepoCredential{}); err != nil {
+		t.Fatalf("seed the outcome: %v", err)
+	}
+}
+
+// TestAnEscalationTimeoutCountsTowardTheHalt: an escalation nobody answered does not halt at once,
+// and does at drain. A chain that never saw the give-up reaches the same answer from the row.
+func TestAnEscalationTimeoutCountsTowardTheHalt(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.script(func(int, agentJob) runOutcome { return runSucceeds })
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	seedOutcome(t, h, s, projectstate.ActivityOutcomeUnknown, projectstate.EscalationTimedOut, "nobody answered")
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-timeout-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	halt := awaitHalt(t, h, subject)
+	if !strings.Contains(halt.Cause, "nobody answered") {
+		t.Errorf("the halt's cause is %q, want the give-up's own detail", halt.Cause)
+	}
+	if !slices.Equal(halt.Failed, []delivery.ActivityID{drivenActivity}) {
+		t.Errorf("the halt's Failed is %v, want only %s", halt.Failed, drivenActivity)
+	}
+}
+
+// TestASkipNeverHalts: a skip records no failure, so a network that drains past one simply ends.
+func TestASkipNeverHalts(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.script(func(int, agentJob) runOutcome { return runSucceeds })
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	seedOutcome(t, h, s, projectstate.ActivityOutcomeSkipped, projectstate.FailureReasonUnknown, "")
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-skip-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitPumpIdle(t, h, subject)
+	if got := runStateOf(t, h, subject); got == delivery.ProjectHalted {
+		t.Errorf("the project reads halted after draining past a skip")
+	}
 }
 
 // redOnly reddens one lifecycle task's gate.

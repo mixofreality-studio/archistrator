@@ -6003,7 +6003,7 @@ func (m *constructionManager) refuseWhileHalted(ctx context.Context, projectID P
 // haltedDetail is the refusal a halted project gets from Begin. It names ResumeProject — the
 // operator's resume, setProjectRunState(running) — because that is the one way back.
 func haltedDetail(h PumpHalt) string {
-	return fmt.Sprintf("construction is halted: activity %s failed (%s) — fix the cause, then resume construction (ResumeProject) to continue",
+	return fmt.Sprintf("construction is halted: activity %s failed (%s) — fix the cause, then resume construction (ResumeProject), which returns every activity that gave up",
 		h.ActivityID, h.Cause)
 }
 
@@ -6298,9 +6298,10 @@ func (m *constructionManager) PauseProject(rc fwmanager.Context, projectID Proje
 // exits. A halt is cleared by a signal to the pump, and by NOTHING ELSE: it lives in the
 // pump's execution, never in the store.
 //
-// Refusals, in a PINNED order: ContractMisuse (empty id) → NotFound (no project) →
-// FailedPrecondition, not in construction → Infrastructure, the pump's halt cannot be read →
-// FailedPrecondition, neither paused nor halted (never a silent no-op) → FailedPrecondition, a
+// Refusals, in a PINNED order: ContractMisuse (empty id, or an oversized note) → NotFound (no
+// project) → Infrastructure, the pump's halt cannot be read → FailedPrecondition, not in
+// construction and not halted (a design activity can halt the pump, and a halt must always have
+// a way back) → FailedPrecondition, neither paused nor halted (never a silent no-op) → FailedPrecondition, a
 // pause is still being applied (its supervision run {p}:construction is RUNNING: the pause is
 // recorded but not yet relayed, and a resume now could be followed by a relay that stops the
 // fresh pump). Nothing is written and nothing is relayed on any refusal.
@@ -6308,11 +6309,14 @@ func (m *constructionManager) PauseProject(rc fwmanager.Context, projectID Proje
 // PAUSED: the write (RecordOperatorResumed) is retried on a version Conflict up to
 // resumeConflictAttempts times, re-reading the version between tries.
 //
-// HALTED AND NOT PAUSED: NOTHING IS WRITTEN. The store may be the very thing that refused the
-// failure the pump halted on, and a resume that had to write first could never land. The
+// HALTED: every activity holding a recorded give-up is re-armed (returnGiveUps), carrying the
+// operator's note, and its next walk has a fresh attempt budget. Nothing else is written. The
+// store may be the very thing that refused the failure the pump halted on, and an activity whose
+// failure it refused has no row to re-arm, so that resume writes nothing and still lands. The
 // resume is relayed onto the pump id as signalOperatorResumeRequested through
 // messageBus.deliverSignal — the relay shape the pause uses — and the parked pump clears the
-// halt and re-enters its loop.
+// halt and re-enters its loop. A re-arm that fails leaves the pump parked: the operator resumes
+// again, and a row already re-armed is simply no longer a give-up.
 //
 // BOTH: the resume is recorded first and relayed second, so the pump the relay frees reads a
 // project with no recorded pause and does not go quiet on it.
@@ -6320,10 +6324,13 @@ func (m *constructionManager) PauseProject(rc fwmanager.Context, projectID Proje
 // Then the pump is started or joined WITHOUT awaiting its decision. If that start fails, the
 // resume has still landed: the record is clear, so the 30s sweep pumps the project. That is
 // logged, never returned as an error.
-func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID ProjectID) error {
+func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID ProjectID, note string) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if err := checkOperatorNoteSize("a resume's reason", note, nil); err != nil {
+		return err
 	}
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
@@ -6332,12 +6339,12 @@ func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID Proj
 		}
 		return newError(fwmanager.Infrastructure, err.Error())
 	}
-	if proj.Phase != projectstate.PhaseConstruction {
-		return newError(fwmanager.FailedPrecondition, fmt.Sprintf("project %s is not in construction, so there is no construction to resume", projectID))
-	}
 	halt, halted, err := m.pumpHaltOf(ctx, projectID)
 	if err != nil {
 		return newError(fwmanager.Infrastructure, "read the construction pump's halt: "+err.Error())
+	}
+	if proj.Phase != projectstate.PhaseConstruction && !halted {
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf("project %s is not in construction, so there is no construction to resume", projectID))
 	}
 	if !proj.OperatorPaused && !halted {
 		return newError(fwmanager.FailedPrecondition, "construction is neither paused nor halted — there is nothing to resume")
@@ -6351,6 +6358,9 @@ func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID Proj
 		}
 	}
 	if halted {
+		if err := m.returnGiveUps(ctx, projectID, proj, note); err != nil {
+			return err
+		}
 		if err := m.relayResumeToPump(ctx, projectID, halt); err != nil {
 			return err
 		}
@@ -6358,6 +6368,24 @@ func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID Proj
 	if _, err := m.startOrJoinPump(ctx, projectID); err != nil {
 		slog.Default().WarnContext(ctx, "construction resumed, but the pump did not start now; the 30-second sweep will start it",
 			"projectId", string(projectID), "error", err.Error())
+	}
+	return nil
+}
+
+// returnGiveUps re-arms every activity holding a give-up, which is what makes the resume a way
+// back rather than a release into the same drained network. The re-arm clears the terminal, so
+// the pump selects the activity again and starts a NEW execution: the variance loop's attempt
+// counter is local to that walk, so the budget is fresh, while the ledger keeps its history and
+// every task that passed stays passed.
+func (m *constructionManager) returnGiveUps(ctx context.Context, projectID ProjectID, proj projectstate.Project, note string) error {
+	for _, id := range unresolvedGiveUps(proj) {
+		text := strings.TrimSpace(note)
+		if text == "" {
+			text = "Construction was resumed with no operator note after this activity gave up (" + proj.ActivityExecution[string(id)].FailureReason.String() + ")."
+		}
+		if err := m.rearmActivity(ctx, projectID, id, ActivityOverride{Kind: OverrideRetry, Notes: text}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -6551,6 +6579,11 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 		return err
 	}
 	if !running {
+		// A HALTED PROJECT COMES BACK WHOLE, through ResumeProject (FIX-016): the pump is parked
+		// and would not dispatch this re-arm, so accepting it would be a promise nothing keeps.
+		if err := m.refuseWhileHalted(ctx, projectID); err != nil {
+			return err
+		}
 		return m.reopenActivity(ctx, projectID, activityID, override)
 	}
 	// THE OVERRIDE MUST NAME THE TASK IT STEERS (stage 4b1 Task 12; the Task-11 round-2
@@ -11786,14 +11819,15 @@ func (m *deliveryManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID 
 
 // SetProjectRunState is the operator's pause/resume, as one op over an enum rather than
 // two verbs. `paused` carries the reason; `running` is ResumeProject — it clears the recorded
-// pause and releases a halted pump (FIX-003). `halted` is a state the pump enters on its own
-// and is refused as a request.
+// pause and releases a halted pump (FIX-003), and its reason becomes the operator note on every
+// activity the resume returns (FIX-016). `halted` is a state the pump enters on its own and is
+// refused as a request.
 func (m *deliveryManager) SetProjectRunState(rc fwmanager.Context, projectID ProjectID, runState ProjectRunState, reason string) error {
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	// A pause is recorded WITH its reason (the construction rail's own precondition,
-	// hoisted); a resume clears the recorded pause and carries none.
+	// A pause is recorded WITH its reason (the construction rail's own precondition, hoisted);
+	// a resume's reason is optional and only reaches an activity it returns.
 	if runState == ProjectPaused && strings.TrimSpace(reason) == "" {
 		return newError(fwmanager.ContractMisuse, "pausing a project requires a reason")
 	}
@@ -11801,7 +11835,7 @@ func (m *deliveryManager) SetProjectRunState(rc fwmanager.Context, projectID Pro
 	case ProjectPaused:
 		return m.cs.PauseProject(rc, projectID, reason)
 	case ProjectRunning:
-		return m.cs.ResumeProject(rc, projectID)
+		return m.cs.ResumeProject(rc, projectID, reason)
 	case ProjectHalted:
 		// A halt is a FACT the pump establishes on a failed activity, never an instruction: an
 		// operator who wants construction stopped pauses it.

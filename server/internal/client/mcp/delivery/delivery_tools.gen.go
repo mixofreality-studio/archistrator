@@ -452,8 +452,9 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"runState":            "The project's construction run state: halted while its construction pump is parked on a failed activity (pumpHalt says which), else paused while an operator's pause is recorded, else running. Resume (setProjectRunState running) is the one way out of paused and halted alike.",
 	},
 	reflect.TypeFor[mgr.PumpHalt](): {
-		"activityId": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade.",
+		"activityId": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade, or the first activity that gave up when the network drained.",
 		"cause":      "The failure as the pump saw it: the activity execution's error, or the reason its row records.",
+		"failed":     "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them.",
 		"haltedAt":   "When the pump halted.",
 	},
 	reflect.TypeFor[mgr.PumpResult](): {

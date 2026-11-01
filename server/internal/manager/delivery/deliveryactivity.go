@@ -4316,8 +4316,8 @@ func (wf *csWorkflows) releaseMainWriteLease(
 // signalActivityFinished reports an activity's RECORDED terminal to the pump.
 //
 // IT IS NOT CALLED BY failWalk, and that is not an oversight: an activity that GIVES UP
-// cleanly records a failure row and returns nil so the cascade continues past it (stage
-// 4b1's deliberate decision), while failWalk returns the cause and FAILS the execution.
+// cleanly records a failure row and returns nil so the cascade continues past it until the
+// network drains (pumpDrain), while failWalk returns the cause and FAILS the execution.
 // The absence of this signal is therefore the only thing that distinguishes the two in
 // head-state, and pumpReconcile is what reads that distinction.
 func (wf *csWorkflows) signalActivityFinished(

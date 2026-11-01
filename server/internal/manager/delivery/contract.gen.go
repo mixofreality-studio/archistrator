@@ -712,9 +712,10 @@ type ProjectViewQuery struct {
 }
 
 type PumpHalt struct {
-	ActivityID ActivityID `json:"activityId"`
-	Cause      string     `json:"cause"`
-	HaltedAt   time.Time  `json:"haltedAt"`
+	ActivityID ActivityID   `json:"activityId"`
+	Cause      string       `json:"cause"`
+	HaltedAt   time.Time    `json:"haltedAt"`
+	Failed     []ActivityID `json:"failed,omitempty"`
 }
 
 type PumpResult struct {
