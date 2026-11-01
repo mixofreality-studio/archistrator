@@ -3889,6 +3889,14 @@ func TestARedAttemptThatChangesNothingGivesUp(t *testing.T) {
 	if repeated == 0 {
 		t.Fatalf("no task reached its second attempt, so this proved nothing: %v", byCommand)
 	}
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "no-progress-read"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The repair differs from a spent budget: more budget would not help.
+	if got := proj.ActivityExecution[drivenActivity].FailureReason; got != projectstate.NoProgress {
+		t.Errorf("the activity ended with reason %v, want noProgress", got)
+	}
 	awaitPumpIdle(t, h, subject)
 }
 

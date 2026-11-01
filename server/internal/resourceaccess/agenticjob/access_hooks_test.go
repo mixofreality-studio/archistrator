@@ -1338,6 +1338,41 @@ func TestLocalRailRefusesAStaleStateTool(t *testing.T) {
 	}
 }
 
+// A red gate names every failing check: naming only the first hides what changed between two
+// attempts, and it is all an operator sees of a give-up.
+func TestLocalRailNamesEveryFailingCheck(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "results.json", `[{"checkId":"command:vet","kind":"command","status":"fail","durationMs":1},{"checkId":"command:lint","kind":"command","status":"timeout","durationMs":1}]`)
+	v.set(t, "run-checks-rc", "1")
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	for _, want := range []string{"command:vet (fail)", "command:lint (timeout)"} {
+		if !strings.Contains(obs.Diagnostic, want) {
+			t.Errorf("diagnostic %q does not name %s", obs.Diagnostic, want)
+		}
+	}
+}
+
+// The gate's go runs tidy-diff and build against the host's module settings. Dropping the proxy
+// and private-module variables would send a host's own setup to the public proxy, or nowhere.
+func TestLocalRailForwardsTheHostsModuleEnv(t *testing.T) {
+	for _, k := range []string{"GOPROXY", "GOPRIVATE", "GONOPROXY", "GOSUMDB", "GONOSUMDB"} {
+		t.Setenv(k, "probe-"+strings.ToLower(k))
+	}
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.runToEnd(t, h, constructSpec("construction"))
+	raw, err := os.ReadFile(filepath.Join(v.ctl, "env-run-checks"))
+	if err != nil {
+		t.Fatalf("hooks: %v", err)
+	}
+	for _, k := range []string{"GOPROXY", "GOPRIVATE", "GONOPROXY", "GOSUMDB", "GONOSUMDB"} {
+		if !strings.Contains(string(raw), k+"=probe-"+strings.ToLower(k)+"\n") {
+			t.Errorf("the gate does not get %s:\n%s", k, raw)
+		}
+	}
+}
+
 // TestLocalRailRefusesADriftedTaskSpec: the spec the worktree resolves hashes to
 // something other than the dispatched spec_hash — the run fails before the agent starts
 // and no gate runs.
