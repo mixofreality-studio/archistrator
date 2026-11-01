@@ -1222,6 +1222,11 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 		task, n, attemptID); err != nil {
 		return "", csPipelineObservation{}, err
 	}
+	// A note riding this attempt changed its inputs, so the result it comes back with is not a
+	// repeat of the attempt before it (the comparison restarts, as for a send-back's feedback).
+	if len(tc.State.pendingNotes) > 0 {
+		delete(tc.State.lastFingerprint, tc.Task.ID)
+	}
 	dispatch, ok, err := wf.submitConstructionJob(ctx, tc, attemptID)
 	if err != nil {
 		// A REFUSED SUBMIT STILL RESOLVES ITS ATTEMPT (Task-11 round-2 defect D1). The attempt
@@ -1339,7 +1344,9 @@ func (wf *csWorkflows) runTaskVariance(
 		"detail", detail)
 
 	kind := intervention.WorkerMiss
-	if tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint) {
+	// A note waiting for the next attempt means that attempt's inputs differ, so this one is not
+	// the last word however it failed (dispatchConstructionOnce restarts the comparison).
+	if len(tc.State.pendingNotes) == 0 && tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint) {
 		kind = intervention.NoProgress
 	}
 	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()},

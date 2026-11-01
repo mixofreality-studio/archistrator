@@ -14,13 +14,13 @@ package main
 // for standalone use.
 //
 // WHY A SUBCOMMAND AND NOT THE SEATED go test: the enforcement stack must be
-// SELF-UPDATING. The seated aiarch_method_test.go resolves methodcheck through the
+// SELF-UPDATING. The seated internal/aiarch_arch_test.go resolves methodcheck through the
 // seated go.mod's framework-go pin, so every rule/severity change needed a platform
 // release + a product go.mod bump — the drift class the managed-scaffold sync exists to
 // kill. This binary already ships the whole app-side validation stack at the
 // StateMcpModulePin the workflow installs, and the sync-on-dispatch refreshes seated
 // workflows whenever that pin moves — one pin, one gate, no drift. (The seated
-// go.mod/aiarch_method_test.go scaffold remains for the product repo's OWN CI once it
+// go.mod/internal/aiarch_arch_test.go scaffold remains for the product repo's OWN CI once it
 // has Go code: the arch layer rules + design↔code alignment need go/packages over the
 // product module, which an installed binary cannot run.)
 //

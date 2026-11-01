@@ -804,13 +804,15 @@ func (j agentJob) isConstruction() bool {
 // they follow.
 type venue struct {
 	redChecks atomic.Bool
+	// redTask narrows setRedChecks to one lifecycle task's gate ("" is every gate), under mu.
+	redTask string
 	// branchJobs / branchJobsMax count the jobs running on each activity's branch, now and at
 	// most (noteBranchJob), guarded by mu.
 	branchJobs, branchJobsMax map[string]int
-	t         *testing.T
-	repo      workingRepo
-	stateTool string // what the venue is configured with: the double on PATH
-	tool      string // the real state tool
+	t                         *testing.T
+	repo                      workingRepo
+	stateTool                 string // what the venue is configured with: the double on PATH
+	tool                      string // the real state tool
 
 	mu        sync.Mutex
 	submitted []agentJob
@@ -886,6 +888,18 @@ func (v *venue) noteBranchJob(activity string) func() {
 
 // setRedChecks makes every run's check gate red, failing the same way each time.
 func (v *venue) setRedChecks(red bool) { v.redChecks.Store(red) }
+
+// gatesRed reports whether the spec's task is one setRedChecks covers.
+func (v *venue) gatesRed(specPath string) bool {
+	v.mu.Lock()
+	task := v.redTask
+	v.mu.Unlock()
+	if task == "" {
+		return true
+	}
+	spec, err := testinfra.ReadSpec(specPath)
+	return err == nil && spec.Task == task
+}
 
 func (v *venue) script(f func(n int, j agentJob) runOutcome) {
 	v.mu.Lock()
@@ -968,7 +982,7 @@ func serveChecks(w http.ResponseWriter, r *http.Request) {
 		if err := v.narrowSpec(req.Spec); err != nil {
 			resp.Error = err.Error()
 		}
-		resp.Red = v.redChecks.Load()
+		resp.Red = v.redChecks.Load() && v.gatesRed(req.Spec)
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -3835,6 +3849,73 @@ func TestARedAttemptThatChangesNothingGivesUp(t *testing.T) {
 	}
 	if repeated == 0 {
 		t.Fatalf("no task reached its second attempt, so this proved nothing: %v", byCommand)
+	}
+	awaitPumpIdle(t, h, subject)
+}
+
+// TestACarriedNoteRestartsTheNoProgressComparison: an operator's note changes the next attempt's
+// inputs. The attempt it arrived during is not given up on, however it failed, and the attempt
+// carrying it is not compared with what came before it. Only the one after that, with nothing
+// new, repeats. An override needs a failed attempt to name, so the test opens the one window
+// that has: the test plan failed once and waits for the branch while construction holds it.
+func TestACarriedNoteRestartsTheNoProgressComparison(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.setRedChecks(true)
+	s.venue.mu.Lock()
+	s.venue.redTask = "stp"
+	s.venue.mu.Unlock()
+	t.Cleanup(func() { s.venue.setRedChecks(false) })
+	failedOnce, overridden, noted := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var built, planned atomic.Int32
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		if j.Activity != string(drivenActivity) {
+			return runSucceeds
+		}
+		switch {
+		case j.Command == "service-construction" && built.Add(1) == 1:
+			close(failedOnce)
+			<-overridden
+		case j.Command == "service-test-plan" && planned.Add(1) == 2:
+			<-noted
+		}
+		return runSucceeds
+	})
+	var releaseOverridden, releaseNoted sync.Once
+	letBuild := func() { releaseOverridden.Do(func() { close(overridden) }) }
+	letPlan := func() { releaseNoted.Do(func() { close(noted) }) }
+	t.Cleanup(letBuild)
+	t.Cleanup(letPlan)
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-no-progress-note-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	select {
+	case <-failedOnce:
+	case <-time.After(walkWindow):
+		t.Fatal("construction never took the branch")
+	}
+	eventually(t, walkWindow, "the override being accepted", func() (bool, string) {
+		err := subject.OverrideActivity(callContext(t, h, ""), planProject, drivenActivity,
+			delivery.ActivityOverride{Kind: delivery.OverrideRetry, Notes: "the import path is wrong"})
+		if err != nil {
+			return false, err.Error()
+		}
+		return true, ""
+	})
+	letBuild()
+	eventually(t, walkWindow, "the note being recorded on the activity", func() (bool, string) {
+		doc, gerr := runGit(s.venue.repo.Dir, "show", "main:.aiarch/state/project.json")
+		return gerr == nil && strings.Contains(doc, "the import path is wrong"), "not on the row yet"
+	})
+	letPlan()
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
+	if got := planned.Load(); got != 4 {
+		t.Errorf("the test plan ran %d times, want 4: two red, the one carrying the note, and its repeat", got)
 	}
 	awaitPumpIdle(t, h, subject)
 }

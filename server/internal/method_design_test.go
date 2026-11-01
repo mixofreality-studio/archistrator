@@ -13,7 +13,7 @@ import (
 // TestMethodDesignArtifacts runs the platform methodcheck gate over archistrator's
 // OWN committed `.aiarch/state/project.json` — archistrator eats its own dog food
 // exactly as a downstream consumer repo would via the generated
-// aiarch_method_test.go.tmpl harness. methodcheck.Check is the all-in-one Method
+// aiarch_arch_test.go.tmpl harness. methodcheck.Check is the all-in-one Method
 // validator: in this configuration it runs the Method-invariant DESIGN rules over
 // the committed JSON (including the C4 deployment DEP-* rules), which are GREEN
 // against the published framework-go v0.4.0 that decodes the C4 container model.

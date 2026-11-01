@@ -564,8 +564,8 @@ func (a *access) GetInstallationToken(rc fwra.Context, repo RepoRef) (RepoCreden
 }
 
 // CommitManagedFiles seats the aiarch-MANAGED project scaffold — the
-// claude-code-action design workflow PLUS the go-test gate (go.mod +
-// aiarch_method_test.go) PLUS the internal/.gitkeep placeholder — at project birth.
+// claude-code-action design workflow PLUS the go-test gate (the tidied module, the
+// Makefile and internal/aiarch_arch_test.go) — at project birth.
 // Every file's path is enforced against
 // the managed-file ALLOWLIST (under .github/workflows/, OR a known scaffold root) so
 // this verb can never become a general "commit any file" smell (§2.6, Non-goal #2);
@@ -1432,7 +1432,7 @@ func recordScaffoldSynced(rail SourceControlAccess, repo RepoRef) {
 //     workflows are also current is exactly this)
 //
 // SCOPE: the prompt surface ONLY (spec §5 amendment, 2026-07-13). The rest of the
-// birth scaffold (go.mod / aiarch_method_test.go / internal/.gitkeep) is BIRTH-ONLY —
+// birth scaffold (go.mod / go.sum / Makefile) is BIRTH-ONLY —
 // go.mod is user-evolved after birth (their requires) and re-seating it would destroy
 // user content.
 //

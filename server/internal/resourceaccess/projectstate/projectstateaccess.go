@@ -7862,7 +7862,7 @@ func (r FailureReason) String() string {
 	case DependencyCycle:
 		return "dependencyCycle"
 	case NoProgress:
-		return "NoProgress"
+		return "noProgress"
 	case ActivityUnclassifiable:
 		return "activityUnclassifiable"
 	case FailureReasonUnknown:
