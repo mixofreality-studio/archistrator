@@ -412,6 +412,27 @@ func TestFreshGateCatchesBrokenConventions(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{"a completed activity whose package is missing", arch, regexp.MustCompile(`ALIGN-MISSING-PKG`), func(t *testing.T, repo string) {
+			// The real row shape: the sibling finished, and the design still names its package,
+			// so its code is owed. Until the row says so the same absence is tolerated.
+			p := filepath.Join(repo, ".aiarch/state/project.json")
+			raw, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]any
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			doc["activityExecution"].(map[string]any)["C-caller-access"].(map[string]any)["completedAt"] = "2026-10-31T17:34:48Z"
+			out, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, out, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{"a component that skipped generation", "command:gen-models-check", regexp.MustCompile(`missing:`), func(t *testing.T, repo string) {
 			inRepo(t, repo, "git", "rm", "-qf", freshPackage+"/contract.gen.go")
 		}},
