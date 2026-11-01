@@ -324,9 +324,10 @@ jobs:
             > "${RUNNER_TEMP}/aiarch-mcp.json"
 
       # The check output (test-results/ from the agent's run_checks, check-results/
-      # from the gate) never belongs in a commit. Ruling R28: ignore it in this
-      # runner's clone only (.git/info/exclude), not in a seated .gitignore, so an
-      # agent's `git add -A` cannot stage it. Idempotent: each line once.
+      # from the gate, the scenario host's .temporal/ database) never belongs in a
+      # commit. Ruling R28: ignore it in this runner's clone only (.git/info/exclude),
+      # not in a seated .gitignore, so an agent's `git add -A` cannot stage it.
+      # Idempotent: each line once.
       - name: Keep check output out of commits
         run: |
           exclude="$(git rev-parse --git-path info/exclude)"
@@ -335,7 +336,7 @@ jobs:
           if [ -s "${exclude}" ] && [ -n "$(tail -c 1 "${exclude}")" ]; then
             echo >> "${exclude}"
           fi
-          for line in /test-results/ /check-results/; do
+          for line in /test-results/ /check-results/ .temporal/; do
             grep -qxF -- "${line}" "${exclude}" || printf '%s\n' "${line}" >> "${exclude}"
           done
 
@@ -580,6 +581,29 @@ jobs:
             /*|..|../*|*/..|*/../*) echo "::error::moduleDir must be a relative path without '..': ${mod}"; exit 1 ;;
           esac
           make -C "${mod:-.}" gen-models CONTRACTS="${CONTRACTS}"
+
+      # The rest of the task's generated half: the composition root at a Manager's or
+      # Client's integration, the web project for a browser surface. The spec names them.
+      - name: Run the task's generators
+        shell: bash
+        env:
+          GOWORK: "off"
+        run: |
+          mod="$(jq -r '.moduleDir // ""' .aiarch/state/project.json)" || { echo "::error::cannot read moduleDir from .aiarch/state/project.json"; exit 1; }
+          case "${mod}" in
+            /*|..|../*|*/..|*/../*) echo "::error::moduleDir must be a relative path without '..': ${mod}"; exit 1 ;;
+          esac
+          spec="${RUNNER_TEMP}/spec.json"
+          count="$(jq '(.generate // []) | length' "${spec}")"
+          cd "${mod:-.}"
+          for ((i = 0; i < count; i++)); do
+            argv=()
+            while IFS= read -r word; do argv+=("${word}"); done < <(jq -r --argjson i "${i}" '.generate[$i].argv[]' "${spec}")
+            if [ "${argv[0]}" != go ] || [ "${argv[1]}" != tool ]; then
+              echo "::error::the spec's generators must be go tool runs: ${argv[*]}"; exit 1
+            fi
+            "${argv[@]}"
+          done
 
       - name: Run construction step (claude-code-action)
         # The agent's bound — claude must implement + publish within this window or
