@@ -3672,6 +3672,36 @@ func endHeldWorkflows(t *testing.T, h *scenariohost.Host, held ...string) {
 // Fresh-project contract coverage (FIX-007)
 // ---------------------------------------------------------------------------
 
+// A Client's uiSurface decides its lifecycle, and the plan is the only place dispatch reads it
+// from: the derived item must carry it, because a derived U-SPA activity has the same worker
+// class and coding flag as a service.
+func TestPlanCarriesABrowserSurfaceToItsLifecycle(t *testing.T) {
+	yes, no := true, false
+	sys := projectstate.System{Components: []projectstate.Component{
+		{ID: "web-app", Name: "WebApp", Kind: projectstate.CompClient, UiSurface: &yes},
+		{ID: "machine-api", Name: "MachineApi", Kind: projectstate.CompClient, UiSurface: &no},
+	}}
+	list, _, _, err := delivery.MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]projectstate.ActivityType{"U-SPA-web-app": projectstate.ActivityTypeFrontend, "C-machine-api": projectstate.ActivityTypeService}
+	for _, a := range list.Activities {
+		wantType, tracked := want[a.Name]
+		if !tracked {
+			continue
+		}
+		delete(want, a.Name)
+		got, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.UISurface)
+		if err != nil || got != wantType {
+			t.Errorf("%s classifies as %v (%v), want %v", a.Name, got, err, wantType)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("the plan did not derive %v", want)
+	}
+}
+
 // TestFreshSystem_EveryPlannedActivityResolvesItsContracts is the cross-layer property
 // FIX-007 rests on, over the fresh-project corpus (cmd/aiarch-state-mcp/testdata/
 // fresh-systems — each paid run's System exactly as its agent drafted it, after the
