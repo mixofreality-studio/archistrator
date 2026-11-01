@@ -135,7 +135,7 @@ func requireInScope(t *testing.T, repo string, spec projectstate.TaskSpec) {
 		globs = append(globs, c.Paths...)
 	}
 	inRepo(t, repo, "git", "add", "-A")
-	for _, p := range strings.Fields(inRepo(t, repo, "git", "diff", "--cached", "--name-only")) {
+	for p := range strings.FieldsSeq(inRepo(t, repo, "git", "diff", "--cached", "--name-only")) {
 		if !slices.ContainsFunc(globs, func(g string) bool { return projectstate.EditScopeGlobMatch(g, p) }) {
 			t.Errorf("%s/%s wrote %s, which its edit scope does not admit: %v", spec.Activity, spec.Task, p, globs)
 		}
@@ -147,7 +147,7 @@ func requireInScope(t *testing.T, repo string, spec projectstate.TaskSpec) {
 func composedRepo(t *testing.T) string {
 	t.Helper()
 	repo := bornRepo(t, composedState(t))
-	module := strings.TrimPrefix(strings.SplitN(inRepo(t, repo, "go", "list", "-m"), "\n", 2)[0], "")
+	module := strings.TrimSpace(inRepo(t, repo, "go", "list", "-m"))
 	inRepo(t, repo, "make", "gen-models", "CONTRACTS="+freshContract+" callerAccess listManager")
 	writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(todoListImpl))
 	writeRepoFile(t, repo, "internal/resourceaccess/caller/calleraccess.go", []byte(callerImpl))
