@@ -101,15 +101,28 @@ const failureDigestFile = "failure-digest"
 // Volatile parts of a check log. Two runs failing the same way differ in all of these: the
 // job's temp worktree, how long the check took, when it ran, and pointers and ports.
 var (
-	logPathRe      = regexp.MustCompile(`(?:/[\w.@+\-]+){2,}`)
-	logTimestampRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\S*`)
-	logDurationRe  = regexp.MustCompile(`\b\d+(?:\.\d+)?(?:ns|µs|us|ms|s|m|h)\b`)
-	logAddressRe   = regexp.MustCompile(`0x[0-9a-fA-F]+|\b\d{1,3}(?:\.\d{1,3}){3}:\d+|\[::1?\]:\d+`)
+	logPathRe = regexp.MustCompile(`(?:/[\w.@+\-]+){2,}`)
+	// Bounded at the zone: \S* would swallow the rest of a go test -json line, and the test
+	// and package it names with it, so two different failures could read the same.
+	logTimestampRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?`)
+	logClockRe     = regexp.MustCompile(`\b\d{2}:\d{2}:\d{2}\b`)
+	logPortFlagRe  = regexp.MustCompile(`--port[ =]\d+`)
+	// A substrate's own log lines (the scenario host's Temporal dev server) come and go between
+	// identical runs. Dropped outright: a line that sometimes exists changes the tail.
+	logInfraLineRe = regexp.MustCompile(`(?m)^.*(?:\blevel=(?:DEBUG|INFO|WARN|ERROR)\b|\bDevServer\b).*\n?`)
+	// No leading \b: in a go test -json stream a tab is the two characters \t, right before the number.
+	logDurationRe = regexp.MustCompile(`\d+(?:\.\d+)?(?:ns|µs|us|ms|s|m|h)\b`)
+	logAddressRe  = regexp.MustCompile(`0x[0-9a-fA-F]+|\b\d{1,3}(?:\.\d{1,3}){3}:\d+|\[::1?\]:\d+|\blocalhost:\d+`)
+	// A scenario log is a go test -json stream: its elapsed times carry no unit.
+	logElapsedRe = regexp.MustCompile(`"Elapsed":[0-9.]+`)
+	// Run and workflow ids minted afresh by each run.
+	logUUIDRe = regexp.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)
 )
 
 // scrubLog removes what differs between two runs that failed identically.
 func scrubLog(log string) string {
-	for _, re := range []*regexp.Regexp{logTimestampRe, logPathRe, logAddressRe, logDurationRe} {
+	log = logInfraLineRe.ReplaceAllString(log, "")
+	for _, re := range []*regexp.Regexp{logTimestampRe, logClockRe, logPathRe, logAddressRe, logPortFlagRe, logUUIDRe, logElapsedRe, logDurationRe} {
 		log = re.ReplaceAllString(log, "_")
 	}
 	return log
@@ -121,7 +134,7 @@ func failureDigest(results []CheckResult, logOf func(CheckResult) string) string
 	var lines []string
 	for _, r := range results {
 		if r.Status != checkPass && r.Status != checkSkip {
-			lines = append(lines, r.CheckId+"\x00"+r.Status+"\x00"+scrubLog(checkLogTail(logOf(r))))
+			lines = append(lines, r.CheckId+"\x00"+r.Status+"\x00"+checkLogTail(scrubLog(logOf(r))))
 		}
 	}
 	if len(lines) == 0 {

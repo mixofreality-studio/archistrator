@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
@@ -614,10 +615,97 @@ func TestFailureDigestSeesThroughRunNoise(t *testing.T) {
 	}
 }
 
+// A scenario check's log is a go test -json stream, whose timings are not the plain durations
+// other checks print. An integration task that repeats itself must still be recognised, or the
+// run pays for every attempt its budget allows.
+func TestFreshRedScenarioRunDigestsAlike(t *testing.T) {
+	repo := builtRepo(t)
+	spec := taskSpec(t, repo, "integration")
+	inRepo(t, repo, "make", "gen-tests")
+	inRepo(t, repo, "go", "mod", "tidy")
+	inRepo(t, repo, "git", "add", "-A")
+	inRepo(t, repo, "git", "commit", "-q", "-m", "seed the scenario tests")
+	kept := spec.Checks[:0:0]
+	for _, c := range spec.Checks {
+		if c.Kind == projectstate.CheckKindScenario {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		t.Fatal("the integration task has no scenario check")
+	}
+	spec.Checks = kept[:1]
+	spec.Hash = spec.ComputeHash()
+	body, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := func() string {
+		t.Helper()
+		out := t.TempDir()
+		specPath := filepath.Join(out, "spec.json")
+		if err := os.WriteFile(specPath, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(stateBinary(t), "run-checks", "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
+		cmd.Dir = repo
+		_, _ = cmd.CombinedOutput()
+		got, err := os.ReadFile(filepath.Join(out, "res", failureDigestFile))
+		if err != nil || len(got) == 0 {
+			t.Fatalf("the unfilled hooks must leave a red scenario with a digest: %v", err)
+		}
+		return string(got)
+	}
+	if one, again := digest(), digest(); one != again {
+		t.Errorf("a repeated scenario failure must digest alike: %q vs %q", one, again)
+	}
+	// The stream's test names must survive the scrub, or two different failures read the same.
+	line := `{"Time":"2026-10-31T17:34:48.1Z","Action":"fail","Package":"m/x","Test":"TestScenario_a"}`
+	if !strings.Contains(scrubLog(line), "TestScenario_a") {
+		t.Errorf("the scrub lost the failing test: %q", scrubLog(line))
+	}
+}
+
 func TestScrubLogRemovesRunNoise(t *testing.T) {
-	a := scrubLog("FAIL pkg (1.234s) at 2026-10-31T17:34:48Z /tmp/x/wt/a.go:3 0xc000123 127.0.0.1:5432 took 12ms")
-	b := scrubLog("FAIL pkg (9.1s) at 2026-11-01T01:02:03Z /var/y/wt/a.go:3 0xc000abc 127.0.0.1:60000 took 3ms")
+	if a, b := scrubLog(`"Output":"FAIL\tm/x\t3.553s\n"`), scrubLog(`"Output":"FAIL\tm/x\t4.1s\n"`); a != b {
+		t.Errorf("a go test -json timing survived the scrub: %q vs %q", a, b)
+	}
+	if got := scrubLog("kept\ntime=x level=ERROR msg=\"Queue reader\"\nINFO  DevServer ready\nalso kept\n"); got != "kept\nalso kept\n" {
+		t.Errorf("a substrate's own log lines must go, got %q", got)
+	}
+	a := scrubLog(`FAIL pkg (1.234s) at 2026-10-31T17:34:48Z /tmp/x/wt/a.go:3 0xc000123 127.0.0.1:5432 took 12ms {"Elapsed":3.553} localhost:51234 run 3f2a1b4c-9d8e-4f10-a2b3-c4d5e6f70812`)
+	b := scrubLog(`FAIL pkg (9.1s) at 2026-11-01T01:02:03Z /var/y/wt/a.go:3 0xc000abc 127.0.0.1:60000 took 3ms {"Elapsed":0} localhost:60001 run 00000000-1111-4222-8333-444444444444`)
 	if a != b {
 		t.Fatalf("scrubbed logs differ:\n%s\n%s", a, b)
+	}
+}
+
+// The job tidies under the local toolchain and so must the gate's -diff, or a tidy could add a
+// toolchain line the arch gate then refuses. Pinned on the env each is run with, since a machine
+// that already exports GOTOOLCHAIN=local would hide its loss.
+func TestModuleGraphRunsPinTheLocalToolchain(t *testing.T) {
+	t.Setenv("GOTOOLCHAIN", "auto")
+	envOf := map[string][]string{}
+	exec := func(_ context.Context, _ string, env []string, argv ...string) ([]byte, error) {
+		envOf[strings.Join(argv, " ")] = env
+		return nil, nil
+	}
+	check := projectstate.SpecCheck{
+		ID: tidyCheckID, Kind: projectstate.CheckKindCommand, TimeoutSec: 5,
+		Source: projectstate.SpecCheckSource{Argv: []string{"go", "mod", "tidy", "-diff"}},
+	}
+	root := t.TempDir()
+	r := checkRunner{root: root, outDir: t.TempDir(), now: time.Now, exec: exec}
+	r.runCommand(context.Background(), check)
+	s := &Session{StateRoot: root, checkExec: exec}
+	s.tidyModuleGraph(context.Background(), projectstate.TaskSpec{Checks: []projectstate.SpecCheck{check}})
+	for _, run := range []string{"go mod tidy -diff", "go mod tidy"} {
+		env, ran := envOf[run]
+		if !ran {
+			t.Fatalf("%q did not run: %v", run, envOf)
+		}
+		if i := slices.Index(env, "GOTOOLCHAIN=local"); i < 0 || slices.Contains(env[i+1:], "GOTOOLCHAIN=auto") {
+			t.Errorf("%q runs under %v, want GOTOOLCHAIN=local to win", run, env)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"strings"
 	"testing"
 
@@ -53,6 +54,33 @@ func TestRecordServiceContract_WritesAndValidates(t *testing.T) {
 	}
 	if !s.wroteState {
 		t.Fatal("wroteState must latch so publishDraft will not no-op")
+	}
+}
+
+// The verb is where a contract meets the generator's menu: RUN-007's agent recorded a capitalised
+// layer, which silently generated nothing, and an infra name that aborted generation for the
+// whole project much later.
+func TestRecordServiceContract_CanonicalizesAndRefusesAtTheVerb(t *testing.T) {
+	s, _ := seedProject(t, projectWithComponent(t, "billing-engine"), jobModeConstruct, 0)
+	s.ComponentID = "billing-engine"
+	contract := func(extra map[string]any) map[string]any {
+		c := map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine"}
+		maps.Copy(c, extra)
+		return c
+	}
+	err := s.recordServiceContract(contract(map[string]any{"infra": []any{"IdentityProvider"}}))
+	if err == nil || !strings.Contains(err.Error(), "ExternalHTTP") {
+		t.Fatalf("an unapproved infra must be refused, naming the menu: %v", err)
+	}
+	if err := s.recordServiceContract(contract(nil)); err != nil {
+		t.Fatalf("recordServiceContract: %v", err)
+	}
+	proj, _, err := s.readProject()
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if got := proj.ServiceContracts["billingEngine"].Interface.Layer; got != "engine" {
+		t.Fatalf("interface.layer = %q, want the canonical form", got)
 	}
 }
 
