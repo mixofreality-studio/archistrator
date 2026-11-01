@@ -998,12 +998,14 @@ export interface components {
       runId?: null | string;
       taskId?: null | string;
     };
-    /** @description Why the project's construction pump halted. The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it. */
+    /** @description Why the project's construction pump halted: an activity's execution failed, or the network drained with activities that gave up (nothing in flight, nothing eligible). The pump keeps it in its own execution, not in the project store, because the failure that halted it may be one the store refused to record; it survives the pump's continue-as-new and is cleared only by ResumeProject. A drain or termination of the pump execution loses it. */
     DeliveryPumpHalt: {
-      /** @description The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade. */
+      /** @description The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade, or the first activity that gave up when the network drained. */
       activityId: components['schemas']['DeliveryActivityID'];
       /** @description The failure as the pump saw it: the activity execution's error, or the reason its row records. */
       cause: string;
+      /** @description Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them. */
+      failed?: components['schemas']['DeliveryActivityID'][];
       /**
        * Format: date-time
        * @description When the pump halted.
@@ -1460,6 +1462,7 @@ export interface components {
       name: string;
       riskBucket: number;
       title?: string;
+      uiSurface?: boolean;
       workerClass: string;
     };
     ModelActivityList: {

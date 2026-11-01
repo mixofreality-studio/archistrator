@@ -4085,7 +4085,7 @@ func seedOutcome(t *testing.T, h *scenariohost.Host, s *stack, outcome projectst
 	t.Helper()
 	access := projectstate.NewGitLocalActivityExecutionAccess(s.repo.URL)
 	if _, err := access.RecordActivityOutcome(h.ResourceAccessContext(t, "seed-outcome"), planProject,
-		projectstate.NoActivityVersionExpectation, drivenActivity, outcome, reason, detail, projectstate.RepoCredential{}); err != nil {
+		projectstate.NoActivityVersionExpectation, drivenActivity, outcome, reason, detail, projectstate.RepoCredential{}, "seed-outcome"); err != nil {
 		t.Fatalf("seed the outcome: %v", err)
 	}
 }

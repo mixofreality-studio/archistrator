@@ -65,10 +65,16 @@ export const OVERRIDE_KIND = 'retry' as const;
  * TERMINAL IS CHECKED FIRST and that ordering is load-bearing: a failed activity has
  * a failed attempt too, so asking "is anything failed?" before "has it exited?" would
  * offer a steer with no child to reach.
+ *
+ * A HALTED PROJECT OFFERS NO RE-OPEN (FIX-016): its pump is parked, the server refuses the
+ * re-arm, and the project-level Resume is what returns every activity the halt holds.
  */
-export function overrideActionFor(view: ActivityViewWire | undefined): ActivityOverrideAction {
+export function overrideActionFor(
+  view: ActivityViewWire | undefined,
+  projectHalted = false
+): ActivityOverrideAction {
   if (view === undefined) return 'none';
-  if (view.state === 'done' || view.state === 'failed') return 'reopen';
+  if (view.state === 'done' || view.state === 'failed') return projectHalted ? 'none' : 'reopen';
   if (view.state === 'notStarted') return 'none';
   // A HALTED activity (FIX-003) has no live child to steer and no recorded terminal to
   // reopen: the project's pump is parked on it, and the project-level Resume is the way back.

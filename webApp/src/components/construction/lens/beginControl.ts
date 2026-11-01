@@ -445,12 +445,16 @@ export function notStartedActivities(
 export const PAUSED_LABEL = 'Paused — Resume to continue';
 
 /**
- * The status label a HALTED project carries (FIX-003): its construction pump stopped on
- * an activity that failed — possibly a failure the project store could not even record —
- * and dispatches nothing until the operator resumes it. The same Resume clears it.
+ * The status label a HALTED project carries: its construction pump stopped on an activity
+ * that failed (FIX-003), or the network drained with activities that gave up (FIX-016), and it
+ * dispatches nothing until the operator resumes it. The same Resume clears it, and returns every
+ * activity the halt holds.
  */
-export function haltedLabel(activityId: string): string {
-  return `Halted — ${activityId} failed; Resume to continue`;
+export function haltedLabel(halt: Pick<PumpHalt, 'activityId' | 'failed'>): string {
+  const others = (halt.failed ?? []).filter((id) => id !== halt.activityId).length;
+  return others > 0
+    ? `Halted — ${halt.activityId} and ${String(others)} more failed; Resume to return them`
+    : `Halted — ${halt.activityId} failed; Resume to continue`;
 }
 
 export interface PausedControl {
@@ -482,7 +486,7 @@ export function pausedControlFor(input: {
   if (input.runState === 'halted' && input.pumpHalt !== undefined) {
     return {
       label: 'Resume halted construction',
-      statusLabel: haltedLabel(input.pumpHalt.activityId),
+      statusLabel: haltedLabel(input.pumpHalt),
       reason: input.pumpHalt.cause,
       disabled: input.pending || input.projectLoading,
       busy: input.pending,
@@ -520,7 +524,8 @@ export function resumeOutcomeCopy(outcome: ResumeOutcome): { headline: string; d
     case 'resumed':
       return {
         headline: 'Resumed — construction continues within 30 seconds.',
-        detail: 'The pause or halt is cleared and the pump is continuing.',
+        detail:
+          'The pause or halt is cleared and the pump is continuing. Any activity that gave up is back in line with a fresh attempt budget.',
       };
     case 'rejected':
       return {

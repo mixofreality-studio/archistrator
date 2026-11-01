@@ -156,8 +156,8 @@ type pumpHalt struct {
 	HeadVersion projectstate.Version `json:"headVersion"`
 	// Failed is every activity the pump judged broken while halted, the halting one first. A
 	// resume hands each back to the frontier: an activity whose failure was never recorded
-	// has no row, so the frontier re-selects it, and one that was recorded is excluded by its
-	// row exactly as it always was.
+	// has no row, so the frontier re-selects it, and one that was recorded is re-armed by
+	// ResumeProject first.
 	Failed []ActivityID `json:"failed"`
 }
 
@@ -731,9 +731,9 @@ func anyActivityLive(proj projectstate.Project) bool {
 
 // clearHalt is a resume landing on a halted pump. Every activity the halt judged broken is
 // handed back to the frontier — removed from Started and Finished, so this chain may
-// dispatch it again — and the row decides, exactly as it does for a fresh chain: an activity
-// whose failure was recorded is excluded by its FailureReason, and one whose failure the
-// store refused has no row and is selected again. It reports whether there was a halt.
+// dispatch it again — and the row decides, exactly as it does for a fresh chain: ResumeProject
+// has already re-armed an activity whose give-up was recorded, and one whose failure the store
+// refused has no row, so both are selected again. It reports whether there was a halt.
 func (st *pumpState) clearHalt(ctx workflow.Context, in pumpInput) bool {
 	if st.Halt == nil {
 		workflow.GetLogger(ctx).Info("pump: a resume arrived at a pump that is not halted; nothing to clear",

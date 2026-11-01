@@ -641,7 +641,9 @@ export function ActivityExperienceContainer({
    * task, or re-open a finished activity. `overrideActionFor` decides which; the note
    * is required by the Manager and the bar will not submit without one.
    */
-  const overrideAction = historical ? 'none' : overrideActionFor(view);
+  const overrideAction = historical
+    ? 'none'
+    : overrideActionFor(view, project?.runState === 'halted');
   const applyOverride = (note: string): void => {
     overrideActivity.mutate({ activityId, kind: OVERRIDE_KIND, notes: note }, { onSuccess: owe });
   };
