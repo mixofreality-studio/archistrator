@@ -223,11 +223,10 @@ jobs:
       - name: Set up Go (for the aiarch-state MCP server)
         uses: actions/setup-go@v5
         with:
-          # Pin the toolchain INDEPENDENTLY of the seated app go.mod: `go install` of
-          # the archistrator state-MCP module needs a Go at least as new as that
-          # module's own `go` directive. Same rationale as the design workflow's
-          # setup-go step.
-          go-version: "1.25.x"
+          # The seated module's own Go. The job's checks run in that module, and `go mod
+          # tidy` runs under GOTOOLCHAIN=local so it cannot move the go line, which needs a
+          # local Go at least as new as go.mod says. The state-MCP module asks for less.
+          go-version: '1.26.0'
 
       # -----------------------------------------------------------------------
       # aiarch-state MCP server (agentic-managers spec §Construction application) — the
