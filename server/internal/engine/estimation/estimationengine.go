@@ -1722,6 +1722,7 @@ func clientAppActivityFor(c SystemComponent) (DerivedActivity, bool) {
 		Coding:      true,
 		ComponentID: c.ID,
 		Derived:     true,
+		UiSurface:   true,
 	}, true
 }
 

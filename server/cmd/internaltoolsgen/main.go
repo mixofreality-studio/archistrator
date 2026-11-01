@@ -12,7 +12,7 @@
 //     internal/resourceaccess/projectstate/toolcatalog.gen.go.
 //
 // This surface is INTERNAL: it is NEVER merged into api/openapi.yaml (that is
-// cmd/clientgen's public Manager surface). It is the catalog aiarch-state-mcp
+// appgen clients's public Manager surface). It is the catalog aiarch-state-mcp
 // registers — the non-hidden read-only + Engine tools in every per-mode set.
 //
 // Output is deterministic (contracts + operations visited in sorted order,

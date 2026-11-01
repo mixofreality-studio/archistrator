@@ -67,7 +67,6 @@ import (
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
-	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -4777,6 +4776,7 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 			WorkerClass: a.WorkerClass,
 			Coding:      a.Coding,
 			ComponentID: a.ComponentID,
+			UISurface:   a.UiSurface,
 		})
 	}
 	return projectstate.ActivityList{Activities: acts}
@@ -8399,7 +8399,7 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 // is where a plan defect becomes verdictBlocked with its repair named, and swallowing it here
 // would turn a reportable defect back into a silent quiet tick.
 func admissibleInPhase(phase projectstate.Phase, rule eligibilityRule, name string, item projectstate.ActivityItem) bool {
-	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding)
+	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding, item.UISurface)
 	if err != nil {
 		return true
 	}
@@ -8434,13 +8434,13 @@ func dispatchSelectionFor(proj projectstate.Project, chosen string, item project
 			}
 		}
 	}
-	// Classification is resolved HERE, once, from the three facts the committed plan
-	// authored (id, workerClass, coding) — and the resolved pair then rides the
+	// Classification is resolved HERE, once, from the facts the committed plan authored
+	// (id, workerClass, coding, uiSurface) — and the resolved pair then rides the
 	// dispatched constructionActivity to every consumer. An activity the rules cannot
 	// classify has no phase profile and no slash command, so dispatching it would mean
 	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
 	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
-	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding)
+	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding, item.UISurface)
 	// (A design activity used to take its own quiescent arm HERE, because rule 0 classified
 	// it and then refused it: reaching this line meant some path had chosen an activity the
 	// scan walks past, and going quiet was the only safe answer — verdictBlocked writes the
@@ -11168,7 +11168,7 @@ func (m *deliveryManager) activityLifecycle(rc fwmanager.Context, projectID Proj
 		return methodassets.Lifecycle{}, newError(fwmanager.NotFound,
 			"no activity "+id+" in the committed activity list")
 	}
-	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding)
+	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding, item.UISurface)
 	if err != nil {
 		return methodassets.Lifecycle{}, newError(fwmanager.FailedPrecondition, err.Error())
 	}
@@ -13863,18 +13863,6 @@ func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
 // ActiveRole wire naming ("productManager" / "architect") so both surfaces name the
 // role identically.
 const ()
-
-// RegisterManagerWorker registers the ONE delivery worker: the SIX surviving workflow types
-// under their existing registered names and the generated Activity set of the merged contract,
-// all on task queue "delivery". Stage 4a registered eleven across three rails; stage 4b1 Task
-// 13 deleted the seven per-kind ones.
-func RegisterManagerWorker(w worker.Worker, m DeliveryManager) {
-	impl, ok := m.(*deliveryManager)
-	if !ok {
-		panic("delivery: RegisterManagerWorker requires a *deliveryManager from NewDeliveryManager")
-	}
-	RegisterWorker(w, impl.WorkerManifest())
-}
 
 // RegisterSchedules registers (idempotently) the TWO platform-wide delivery
 // Temporal Schedules at startup via the messageBus utility (constructionManager.md

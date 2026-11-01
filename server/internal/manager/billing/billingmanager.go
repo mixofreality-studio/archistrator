@@ -45,7 +45,6 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
-	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -849,19 +848,6 @@ func (m *billingManager) WorkerManifest() genWorkerManifest {
 			ProjectState:    m.projectState,
 		},
 	}
-}
-
-// RegisterManagerWorker wires the billingManager onto a Temporal Worker polling the
-// billing task queue (billingManager.md §6.1). It preserves the external call shape the
-// composition root used before the generated-layer migration, asserting to the concrete
-// *billingManager the generated constructor returns and delegating to the generated
-// RegisterWorker with the impl's WorkerManifest.
-func RegisterManagerWorker(w worker.Worker, m BillingManager) {
-	impl, ok := m.(*billingManager)
-	if !ok {
-		panic("billing: RegisterManagerWorker requires a *billingManager from NewBillingManager")
-	}
-	RegisterWorker(w, impl.WorkerManifest())
 }
 
 // RegisterSchedules registers (idempotently) the platform-wide shortfallSweep (hourly)

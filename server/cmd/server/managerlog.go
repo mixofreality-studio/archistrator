@@ -165,7 +165,7 @@ func (m loggingOperationsManager) WithdrawSystem(rc fwmanager.Context, operatedA
 // --- Billing ---------------------------------------------------------------
 
 // loggingBillingManager wraps the three billing ops a client reaches (GetBillingCycle,
-// OnboardPaymentIntegration, RegisterCustomer — cmd/clientgen exposedManagers). The
+// OnboardPaymentIntegration, RegisterCustomer — appgen.json clients.exposed). The
 // scheduler-driven ops are never on a client surface; they pass through the embedded
 // Manager unwrapped.
 type loggingBillingManager struct {

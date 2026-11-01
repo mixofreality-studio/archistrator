@@ -334,7 +334,7 @@ var designPhaseArtifact = map[projectstate.ActivityMethodPhase]string{
 // TYPE, which is what it was always really about: a design activity's work product is a
 // committed artifact slot rather than code the corpus can read.
 func producesArtifactSlots(a projectstate.ActivityItem) bool {
-	typ, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding)
+	typ, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.UISurface)
 	if err != nil {
 		return false
 	}
@@ -1408,13 +1408,13 @@ func evidenceFor(task projectstate.MethodTask, v verdict) projectstate.EvidenceR
 // other signal. An unclassifiable activity has no profile, so it has no task
 // vocabulary, so there is nothing honest to write against it.
 func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.ActivityType, projectstate.TestingVariant, error) {
-	typ, ok := projectstate.ClassifyType(item.Name, item.WorkerClass, item.Coding, hasContract)
+	typ, ok := projectstate.ClassifyType(item.Name, item.WorkerClass, item.Coding, item.UISurface, hasContract)
 	if !ok {
 		return 0, 0, fmt.Errorf("%s: ClassifyType refused (workerClass %q, coding %v)", item.Name, item.WorkerClass, item.Coding)
 	}
 	var variant projectstate.TestingVariant // the zero value: no variant (non-testing)
 	if typ == projectstate.ActivityTypeTesting {
-		_, variant, _ = projectstate.ClassifyActivity(item.Name, item.WorkerClass, item.Coding)
+		_, variant, _ = projectstate.ClassifyActivity(item.Name, item.WorkerClass, item.Coding, item.UISurface)
 	}
 	return typ, variant, nil
 }

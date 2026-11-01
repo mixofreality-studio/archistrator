@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -519,5 +520,33 @@ func TestStringEnumTypesRegistryComplete(t *testing.T) {
 	sort.Strings(stale)
 	if len(stale) > 0 {
 		t.Errorf("stringEnumTypes() registers %d projectstate type(s) the source walk no longer finds as an int-backed type with a MarshalJSON method (renamed/removed?): %v", len(stale), stale)
+	}
+}
+
+// The committed knobs: billingManager reaches the client layer with exactly the ops a use case
+// draws from a client — GetBillingCycle (view-a-billing-cycle) and onboarding's
+// OnboardPaymentIntegration + RegisterCustomer (onboard-a-new-customer, spec §12 B7) — and the
+// scheduler-driven ops (close, sweep) stay off the web and MCP surfaces.
+func TestClientKnobs_BillingIsClientDrawnOnly(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "appgen.json")) // the test runs in cmd/oasmodels
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Clients struct {
+			Exposed map[string][]string `json:"exposed"`
+		} `json:"clients"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"GetBillingCycle", "OnboardPaymentIntegration", "RegisterCustomer"}
+	if got := cfg.Clients.Exposed["billingManager"]; !slices.Equal(got, want) {
+		t.Fatalf("billingManager exposes %v, want %v", got, want)
+	}
+	for _, key := range []string{"deliveryManager", "operationsManager"} {
+		if ops, ok := cfg.Clients.Exposed[key]; !ok || ops != nil {
+			t.Errorf("%s: want its whole interface exposed (null op list), got %v (exposed=%v)", key, ops, ok)
+		}
 	}
 }

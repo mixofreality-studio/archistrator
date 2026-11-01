@@ -51,15 +51,15 @@ gen-fakes-check: gen-fakes
 	git diff --exit-code -- 'internal/**/fake/fake.gen.go'
 
 # gen-client — generate the entire CLIENT layer (internal/client/{web,mcp}) +
-# the merged api/openapi.yaml from project.json .serviceContracts (cmd/clientgen,
-# driving the published framework-go-http-generator + framework-go-mcp-generator).
-# Reproducible + idempotent; internal/client carries ZERO hand-written Go.
+# the merged api/openapi.yaml from project.json .serviceContracts, with the knobs in
+# appgen.json (go tool appgen clients, as every app runs it), then archistrator's own
+# typed slot models spliced into the document (cmd/oasmodels). Reproducible + idempotent;
+# internal/client carries ZERO hand-written Go.
 gen-client:
-	GOWORK=off go run ./cmd/clientgen
+	GOWORK=off go tool appgen clients -project ../.aiarch/state/project.json
+	GOWORK=off go run ./cmd/oasmodels
 
-# gen-client-check — drift gate for the generated CLIENT layer + merged OAS
-# (cmd/clientgen, driving framework-go-http-generator + framework-go-mcp-generator),
-# same shape as gen-models-check/gen-temporal-check: regenerate, then fail on any
+# gen-client-check — drift gate for the generated CLIENT layer + merged OAS, same shape as gen-models-check/gen-temporal-check: regenerate, then fail on any
 # diff. GOWORK=off-safe (see gen-client above), so it runs in CI (server-checks.yml).
 gen-client-check: gen-client
 	git diff --exit-code -- api/openapi.yaml internal/client

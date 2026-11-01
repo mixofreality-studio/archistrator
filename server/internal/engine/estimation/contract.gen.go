@@ -70,6 +70,7 @@ type DerivedActivity struct {
 	Coding      bool    `json:"coding"`
 	ComponentID string  `json:"componentId"`
 	Derived     bool    `json:"derived"`
+	UiSurface   bool    `json:"uiSurface"`
 }
 
 type DerivedPlan struct {

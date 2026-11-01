@@ -25,7 +25,7 @@ import (
 //     actually carries those models.
 //
 // "Built" = a non-Client contract entry with a non-empty goPackage (stubs and non-built
-// entries have none and are skipped, and a Client contract's Go is cmd/clientgen's,
+// entries have none and are skipped, and a Client contract's Go is appgen clients's,
 // matching cmd/modelgen's selection).
 
 // contractEntry is the slice of a .serviceContracts entry this check reads.

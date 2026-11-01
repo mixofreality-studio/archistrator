@@ -131,9 +131,9 @@ func TestEveryBuiltContractJoinsAComponent(t *testing.T) {
 // TestEveryClientContractNamesItsSurface is the client half of the join (spec §12 B1:
 // a client surface is a contract whose ops are the web client's user actions or the MCP
 // client's generated tools). modelgen builds nothing for a Client contract — its Go is
-// cmd/clientgen's — so it is not a "built" contract above, but it must still JOIN a
+// appgen clients's — so it is not a "built" contract above, but it must still JOIN a
 // slot-5 client component (by its key, or as a facet through its `component` field),
-// and a goPackage on it must name a package cmd/clientgen generated (one holding a
+// and a goPackage on it must name a package appgen clients generated (one holding a
 // *_tools.gen.go file): that package is where testgen serves the tools in-process for
 // the client's scenario tests, so a goPackage naming anything else is a test surface
 // with nothing behind it.
@@ -180,7 +180,7 @@ func TestEveryClientContractNamesItsSurface(t *testing.T) {
 		}
 		tools, err := filepath.Glob(filepath.Join(repoRoot, "server", e.GoPackage, "*_tools.gen.go"))
 		if err != nil || len(tools) == 0 {
-			t.Errorf("%s: goPackage %q holds no cmd/clientgen *_tools.gen.go — a client contract's goPackage must name the generated tools package its scenario tests serve", k, e.GoPackage)
+			t.Errorf("%s: goPackage %q holds no appgen clients *_tools.gen.go — a client contract's goPackage must name the generated tools package its scenario tests serve", k, e.GoPackage)
 		}
 	}
 	if seen == 0 {

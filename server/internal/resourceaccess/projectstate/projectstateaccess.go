@@ -4827,6 +4827,9 @@ type ActivityItem struct {
 	// committed component. A noncoding provisioning activity (R-*) may name the
 	// Resource component it provisions.
 	ComponentID string `json:"componentId,omitempty"`
+	// UISurface marks the activity that builds a browser surface (the Client's uiSurface,
+	// carried by the derivation). It is what puts the activity on the frontend lifecycle.
+	UISurface bool `json:"uiSurface,omitempty"`
 }
 
 // ActivityList holds the Phase-2 activity list artifact — the coding + noncoding
@@ -6248,7 +6251,7 @@ func (r ResearchInput) IsZero() bool { return len(r.Sources) == 0 }
 // DOCTRINE (agentic-managers spec item 3 + rule 3). Every ResourceAccess/Engine
 // contract operation is TOOL-ELIGIBLE: it has a GENERATED internal MCP tool
 // (toolcatalog.gen.go, emitted from .serviceContracts by cmd/internaltoolsgen).
-// This surface is INTERNAL — it is NEVER part of the public OAS (cmd/clientgen);
+// This surface is INTERNAL — it is NEVER part of the public OAS (appgen clients);
 // it is the tool catalog aiarch-state-mcp registers inside a design/construction
 // GitHub job. aiarch-state-mcp exposes the non-hidden read-only + Engine tools in
 // every per-mode set on top of the composed verbs (AgentHidden ops stay refused).
@@ -8973,40 +8976,6 @@ type StaleCause struct {
 // a contracts/<component>.md exists
 // corpus-relative path to the contract, when HasContract
 
-// DeriveKind maps an activity to its kind from the activity-id family.
-// Only U-SPA* activities are "frontend" — SPA UI-design activities are the sole
-// frontend kind. N-* activities are testing. Everything else (including all
-// *Client / *Manager / *Engine / *Access components and infra/integration) is
-// service, because a Client component exposes a service contract just like any
-// other service-layer component.
-func DeriveKind(activityID, componentName string) ActivityType {
-	_ = componentName // caller passes it; classification is id-based only
-	id := strings.ToUpper(activityID)
-	switch {
-	case strings.HasPrefix(id, "U-SPA"):
-		return ActivityTypeFrontend
-	case strings.HasPrefix(id, "N-"):
-		return ActivityTypeTesting
-	default:
-		return ActivityTypeService
-	}
-}
-
-// DeriveType maps an activity id prefix to its canonical ActivityType. Mirrors
-// DeriveKind's prefix logic (U-SPA → Frontend, N- → Testing, else Service) but is
-// the forward-looking name (DeriveKind is retained for the legacy Kind field).
-func DeriveType(activityID string) ActivityType {
-	id := strings.ToUpper(activityID)
-	switch {
-	case strings.HasPrefix(id, "U-SPA"):
-		return ActivityTypeFrontend
-	case strings.HasPrefix(id, "N-"):
-		return ActivityTypeTesting
-	default:
-		return ActivityTypeService
-	}
-}
-
 // deriveVariant maps a testing activity id prefix to its TestingVariant. ok is false
 // for an id that is no testing variant at all — including N-STP and N-IT, whose
 // variants are retired (spec §7) — and ClassifyActivity then treats the activity as
@@ -9054,9 +9023,10 @@ func designActivityType(id string) (ActivityType, bool) {
 }
 
 // ClassifyActivity determines an activity's canonical (ActivityType, TestingVariant)
-// pair from the three facts that EXIST AT DISPATCH TIME: its id, the owning
-// workerClass, and the coding flag — all three authored into the committed Phase-2
-// activity list. It supersedes the id-prefix-only DeriveType, whose N-* prefix arm
+// pair from the facts that EXIST AT DISPATCH TIME: its id, the owning workerClass, the
+// coding flag, and whether it builds a browser surface — all authored into the committed
+// Phase-2 activity list. uiSurface is the Client's own design choice carried on the plan
+// (Component.uiSurface); it replaced a guess from the U-SPA id prefix. It supersedes the id-prefix-only DeriveType, whose N-* prefix arm
 // conflated genuine testing (N-IT/N-STP/N-PERF/N-QA/N-STH) with infra (N-ENV/N-SC/
 // N-CI), deployment (N-DEPLOY/N-HARD) and documentation (N-DOC/N-SCHEMA/N-ADR), and
 // so handed an infra activity a testing slash-command (the N-ENV defect: the agent
@@ -9078,7 +9048,7 @@ func designActivityType(id string) (ActivityType, bool) {
 //     testing variant (deriveVariant ok) → Testing with that variant; an id that names
 //     none (N-STP/N-IT are retired, spec §7) falls through to the rules below
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
-//  3. id prefix U-SPA                 → Frontend
+//  3. uiSurface                        → Frontend
 //  4. id prefix I-                    → Integration
 //  5. coding == true                  → Service
 //  6. workerClass ∈ {system-architect, project-manager, product-manager} → Documentation
@@ -9094,7 +9064,7 @@ func designActivityType(id string) (ActivityType, bool) {
 //
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
 // zero value (no variant) otherwise.
-func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
+func ClassifyActivity(id, workerClass string, coding, uiSurface bool) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
 		return typ, 0, nil
 	}
@@ -9109,11 +9079,10 @@ func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, Testin
 		}
 		return ActivityTypeUIDesign, 0, nil
 	}
-	upper := strings.ToUpper(id)
-	if strings.HasPrefix(upper, "U-SPA") {
+	if uiSurface {
 		return ActivityTypeFrontend, 0, nil
 	}
-	if strings.HasPrefix(upper, "I-") {
+	if strings.HasPrefix(strings.ToUpper(id), "I-") {
 		return ActivityTypeIntegration, 0, nil
 	}
 	if coding {
@@ -9145,11 +9114,11 @@ func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, Testin
 // of the construction list view. A wrong type therefore fabricates an entire lifecycle.
 // The second return value is ok: when false the caller MUST render the row as
 // Unclassified with NO lifecycle sub-rows at all. An honest blank beats a plausible lie.
-func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (ActivityType, bool) {
+func ClassifyType(id, workerClass string, coding, uiSurface, hasServiceContract bool) (ActivityType, bool) {
 	if hasServiceContract {
 		return ActivityTypeService, true
 	}
-	typ, _, err := ClassifyActivity(id, workerClass, coding)
+	typ, _, err := ClassifyActivity(id, workerClass, coding, uiSurface)
 	// A design activity needed a tolerance here until stage 4b1 Task 10: rule 0 handed back
 	// its type WITH ErrDesignActivityNotDispatchable, so this lens had to let that one error
 	// through or it would have refused to render a row that has a type, a lifecycle and
@@ -9191,7 +9160,7 @@ func ResolveConstructionRow(
 	// hasServiceContract is false: an execution row carries no produced-artifact record
 	// (the list and its only writer, CommitActivityArtifacts, were deleted in dct4), so a
 	// row is typed by the committed plan's item alone.
-	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, false)
+	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, meta.UISurface, false)
 	if !classified {
 		return typ, variant, nil, false
 	}

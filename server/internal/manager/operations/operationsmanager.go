@@ -55,7 +55,6 @@ import (
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
-	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
 	fwmgr "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
@@ -1360,19 +1359,6 @@ func (m *operationsManager) WorkerManifest() genWorkerManifest {
 			ProjectState:        m.projectState,
 		},
 	}
-}
-
-// RegisterManagerWorker wires the operationsManager onto a Temporal Worker polling the
-// operations task queue (operationsManager.md §6.1). It preserves the external call
-// shape the composition root used before the generated-layer migration, asserting to
-// the concrete *operationsManager the generated constructor returns and delegating to
-// the generated RegisterWorker with the impl's WorkerManifest.
-func RegisterManagerWorker(w worker.Worker, m OperationsManager) {
-	impl, ok := m.(*operationsManager)
-	if !ok {
-		panic("operations: RegisterManagerWorker requires a *operationsManager from NewOperationsManager")
-	}
-	RegisterWorker(w, impl.WorkerManifest())
 }
 
 // RegisterSchedules registers (idempotently) the operatedStateReconcile (30s) Temporal

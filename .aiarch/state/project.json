@@ -13155,7 +13155,8 @@
             "coding": true,
             "riskBucket": 5,
             "title": "Build Web Client (SPA)",
-            "componentId": "web-client"
+            "componentId": "web-client",
+            "uiSurface": true
           }
         ]
       },
@@ -26024,6 +26025,9 @@
             },
             "derived": {
               "type": "boolean"
+            },
+            "uiSurface": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -26034,7 +26038,8 @@
             "workerClass",
             "coding",
             "componentId",
-            "derived"
+            "derived",
+            "uiSurface"
           ],
           "additionalProperties": false
         },

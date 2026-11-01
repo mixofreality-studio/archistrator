@@ -851,8 +851,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"DeploymentProfile.UnmarshalJSON",
 		"DeploymentTopology",
 		"DeriveBuildStatus",
-		"DeriveKind",
-		"DeriveType",
 		"DynamicView",
 		"EdgeControlFlow",
 		"EdgeGuardedFlow",

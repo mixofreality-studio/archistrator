@@ -12,7 +12,7 @@ package main
 // would make modelgen emit duplicate structs — see schemagen's projectstate
 // bindByName note). Typing is a gen-client READ concern: we reflect the Go
 // structs (projectstate stays the schema authority) and splice the result into
-// the merged OAS at clientgen time only. Wire bytes are untouched.
+// the merged OAS after appgen clients. Wire bytes are untouched.
 //
 // TECHNIQUE (schemagen's proven jsonschema-go approach, minimal helpers copied
 // here rather than importing cmd/schemagen): every struct in the transitive

@@ -117,7 +117,7 @@ jobs:
       - name: Generated fakes drift check
         run: make gen-fakes-check
 
-      # Drift gate for the generated CLIENT layer + merged OAS (cmd/clientgen,
+      # Drift gate for the generated CLIENT layer + merged OAS (go tool appgen clients,
       # driving framework-go-http-generator + framework-go-mcp-generator). Same
       # GOWORK=off-safe shape.
       - name: Generated client layer drift check

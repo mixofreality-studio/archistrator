@@ -71,3 +71,18 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.UsageReadRange, activity.RegisterOptions{Name: "usageAccess.readRange"})
 	w.RegisterActivityWithOptions(acts.UsageRecordComputeUsage, activity.RegisterOptions{Name: "usageAccess.recordComputeUsage"})
 }
+
+// workerManifestSource is what the hand-written manager implements to supply its workflows.
+type workerManifestSource interface {
+	WorkerManifest() genWorkerManifest
+}
+
+// RegisterManagerWorker registers the manager built by NewOperationsManager on w. It panics when the
+// manager does not supply a manifest: a boot-time programming error, like a missing workflow.
+func RegisterManagerWorker(w worker.Worker, m OperationsManager) {
+	src, ok := m.(workerManifestSource)
+	if !ok {
+		panic("RegisterManagerWorker: OperationsManager must implement WorkerManifest() genWorkerManifest")
+	}
+	RegisterWorker(w, src.WorkerManifest())
+}

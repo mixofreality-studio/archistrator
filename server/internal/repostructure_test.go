@@ -40,14 +40,12 @@ var allowedTopLevel = map[string]bool{
 // server/cmd/.
 var allowedCmd = map[string]bool{
 	"aiarch-state-mcp":           true,
-	"appgen":                     true,
 	"archistrator":               true,
 	"backfill-attempts":          true,
-	"clientgen":                  true,
 	"gen-lifecycles":             true,
 	"internaltoolsgen":           true,
 	"migrate-activity-execution": true,
-	"modelgen":                   true,
+	"oasmodels":                  true,
 	"server":                     true,
 }
 

@@ -1712,7 +1712,7 @@ func TestDesignSlotEvidence_CoversExactlyTheClassifiersDesignActivities(t *testi
 func TestDesignPhaseArtifact_NamesOneSlotOfItsOwnActivityForEveryDesignPhase(t *testing.T) {
 	covered := map[projectstate.ActivityMethodPhase]bool{}
 	for id, slots := range designActivitySlots {
-		typ, _, _ := projectstate.ClassifyActivity(id, "system-architect", false)
+		typ, _, _ := projectstate.ClassifyActivity(id, "system-architect", false, false)
 		refs := map[string]bool{}
 		for _, s := range slots {
 			refs[s.Ref] = true
