@@ -978,6 +978,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"SpecScopeComponent",
 		"SpecCheck",
 		"SpecCheckSource",
+		"SpecGenerator",
 		"CheckKindRule",
 		"CheckKindCommand",
 		"CheckKindScenario",

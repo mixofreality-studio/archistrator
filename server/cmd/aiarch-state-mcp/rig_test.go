@@ -433,7 +433,7 @@ func TestRig_FreshSystemReachesRecordServiceContract(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			const draftBranch = "aiarch-design/rigproj/5"
 			repo := initGitRepoWithProject(t, fx.base, draftBranch)
-			published := rigDraftSystem(t, bin, repo, draftBranch, fx.system)
+			published := rigDraftSystem(t, bin, repo, draftBranch, statingClientSurfaces(t, fx.system))
 
 			sys, ok := published.SystemDesign.Model.(*projectstate.System)
 			if !ok || sys == nil {
@@ -498,6 +498,54 @@ func assertContractRecorded(t *testing.T, c projectstate.Component, res *mcp.Cal
 type freshSystem struct {
 	system json.RawMessage
 	base   projectstate.Project
+}
+
+// statingClientSurfaces is a corpus System with each Client's uiSurface stated, as
+// SYS-CLIENT-UISURFACE now makes an agent do. The corpus stays verbatim: no run recorded the
+// field, which is the defect the rule closes.
+func statingClientSurfaces(t *testing.T, system json.RawMessage) json.RawMessage {
+	t.Helper()
+	var model map[string]any
+	if err := json.Unmarshal(system, &model); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range model["components"].([]any) {
+		if comp := c.(map[string]any); comp["kind"] == "client" {
+			comp["uiSurface"] = false
+		}
+	}
+	out, err := json.Marshal(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// A System whose Clients leave uiSurface out is refused, naming the field: it decides whether
+// a Client is planned as a browser surface or a Go service, so it cannot default.
+func TestRig_DraftRefusesAClientWithNoStatedSurface(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin := buildBinary(t)
+	for name, fx := range freshSystems(t) {
+		t.Run(name, func(t *testing.T) {
+			const draftBranch = "aiarch-design/rigproj/5"
+			repo := initGitRepoWithProject(t, fx.base, draftBranch)
+			ctx, session := rigConnect(t, bin, repo,
+				envArtifactKind+"=System", envJobMode+"=draft", envTargetBranch+"="+draftBranch,
+				envProjectID+"=rigproj", envStateRoot+"="+repo)
+			defer func() { _ = session.Close() }()
+			var model map[string]any
+			if err := json.Unmarshal(fx.system, &model); err != nil {
+				t.Fatal(err)
+			}
+			res := callTool(ctx, t, session, "putDraftModel", map[string]any{"model": model})
+			if !res.IsError || !strings.Contains(contentText(res), "SYS-CLIENT-UISURFACE") {
+				t.Fatalf("got error=%v: %s", res.IsError, contentText(res))
+			}
+		})
+	}
 }
 
 // freshSystems is the fresh-project corpus (testdata/fresh-systems/README.md).

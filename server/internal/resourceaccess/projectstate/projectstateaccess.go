@@ -12290,11 +12290,17 @@ func generatedContractsOf(p *Project, command, componentID string) []string {
 	}
 	var out []string
 	for _, c := range componentContracts(p, componentID) {
-		if p.ServiceContracts[c].GoPackage != "" {
+		if modelgenGenerates(p, c) {
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// modelgenGenerates reports a contract modelgen writes Go for: one with a package, unless it is
+// a Client's, whose Go comes from appgen clients.
+func modelgenGenerates(p *Project, contract string) bool {
+	return p.ServiceContracts[contract].GoPackage != "" && !strings.EqualFold(contractLayer(p, contract), "client")
 }
 
 // statePathFromModule is the state document's path from the module dir.
@@ -12358,7 +12364,9 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 		commandCheck("lint", "golangci-lint", append([]string{"golangci-lint", "run"}, trees...), dir, lintCheckTimeoutSec),
 		archCheck(dir),
 		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
-		genModelsCheck(p, contracts, dir),
+	}
+	if slices.ContainsFunc(contracts, func(c string) bool { return modelgenGenerates(p, c) }) {
+		checks = append(checks, genModelsCheck(p, contracts, dir))
 	}
 	if isManagerComponent(p, componentID) {
 		checks = append(checks, commandCheck("gen-temporal-check", "appgen temporal output is current", appgenArgv(p, "temporal", "-check"), dir, commandCheckTimeoutSec))
@@ -12493,7 +12501,7 @@ func archCheck(dir string) SpecCheck {
 func genModelsCheck(p *Project, contracts []string, dir string) SpecCheck {
 	argv := []string{"go", "tool", "modelgen", "-project", statePathFromModule(p), "-root", ".", "-check"}
 	for _, c := range contracts {
-		if p.ServiceContracts[c].GoPackage != "" {
+		if modelgenGenerates(p, c) {
 			argv = append(argv, "-contract", c)
 		}
 	}

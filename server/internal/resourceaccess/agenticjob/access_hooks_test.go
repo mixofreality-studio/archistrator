@@ -2019,6 +2019,66 @@ func TestLocalRailGeneratesTheContractBeforeTheAgent(t *testing.T) {
 	}
 }
 
+// goDouble puts a go double on PATH that logs its argv and exits rc, and returns the log's path.
+func (v *gateVenue) goDouble(t *testing.T, rc int) string {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "go.log")
+	script := fmt.Sprintf("#!/bin/sh\necho \"$* GOWORK=$GOWORK\" >> %q\nexit %d\n", log, rc)
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o700); err != nil { // #nosec G306 -- an executable test double
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+// TestLocalRailRunsTheSpecsGeneratorsBeforeTheAgent: what the spec names the platform as writing,
+// the job writes, so a fresh project's agent starts with a composition root that compiles.
+func TestLocalRailRunsTheSpecsGeneratorsBeforeTheAgent(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "spec.json", strings.Replace(stpTaskSpec, `"hash":`,
+		`"generate": [{"title": "appgen temporal", "argv": ["go", "tool", "appgen", "temporal"]}, {"title": "appgen compose", "argv": ["go", "tool", "appgen", "compose"]}], "hash":`, 1))
+	goLog := v.goDouble(t, 0)
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	got, err := os.ReadFile(goLog)
+	if err != nil {
+		t.Fatalf("the generators never ran: %v", err)
+	}
+	if want := "tool appgen temporal GOWORK=off\ntool appgen compose GOWORK=off"; strings.TrimSpace(string(got)) != want {
+		t.Errorf("go ran as %q, want %q", got, want)
+	}
+}
+
+// TestLocalRailFailsAGeneratorBeforeTheAgent: an agent must never start on a tree its generators
+// could not write. The gates still run and the run fails naming the generator.
+func TestLocalRailFailsAGeneratorBeforeTheAgent(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "spec.json", strings.Replace(stpTaskSpec, `"hash":`,
+		`"generate": [{"title": "appgen compose", "argv": ["go", "tool", "appgen", "compose"]}], "hash":`, 1))
+	v.goDouble(t, 1)
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase == agenticjob.PhaseSucceeded || !strings.Contains(obs.Diagnostic, "go tool appgen compose failed") {
+		t.Fatalf("run ended %s (%s), want failed naming the generator", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+}
+
+// TestLocalRailRefusesAGeneratorThatIsNotAGoTool: the spec names generators, not commands.
+func TestLocalRailRefusesAGeneratorThatIsNotAGoTool(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "spec.json", strings.Replace(stpTaskSpec, `"hash":`,
+		`"generate": [{"title": "x", "argv": ["sh", "-c", "true"]}], "hash":`, 1))
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase == agenticjob.PhaseSucceeded || !strings.Contains(obs.Diagnostic, "not go tool runs") {
+		t.Fatalf("run ended %s (%s), want refused", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+}
+
 // TestLocalRailRefusesAContractThatIsNotAKey: contract keys reach make's argv.
 func TestLocalRailRefusesAContractThatIsNotAKey(t *testing.T) {
 	h := scenariohost.Start(t)

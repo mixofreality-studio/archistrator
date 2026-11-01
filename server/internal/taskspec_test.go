@@ -162,7 +162,7 @@ func TestTaskSpecForFrontendIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s.EditScope.StateOnly || len(s.EditScope.Components) != 1 ||
-		!slices.Equal(s.EditScope.Components[0].Paths, []string{"webApp/src/**"}) {
+		!slices.Equal(s.EditScope.Components[0].Paths, []string{"webApp/src/shared/**", "webApp/src/web-client/**"}) {
 		t.Fatalf("frontend scope: %+v", s.EditScope)
 	}
 	for _, want := range []string{"webApp/package.json", "webApp/package-lock.json", "uitests/generated/webClient/**", "uitests/**"} {
@@ -170,7 +170,7 @@ func TestTaskSpecForFrontendIntegration(t *testing.T) {
 			t.Errorf("frontend integration extras %v lack %s", s.EditScope.Extra, want)
 		}
 	}
-	for _, id := range []string{"command:typecheck", "command:lint", "command:gen-tests-check"} {
+	for _, id := range []string{"command:install", "command:install-uitests", "command:gen-ops-check", "command:typecheck", "command:lint", "command:gen-tests-check"} {
 		if !hasCheck(s, id) {
 			t.Errorf("frontend integration lacks %s: %v", id, checkIDs(s))
 		}
@@ -197,7 +197,7 @@ func TestTaskSpecFrontendScopeCarriesContractPackagesAndManifests(t *testing.T) 
 		t.Fatal(err)
 	}
 	if !slices.Contains(integ.EditScope.Components[0].Paths, "server/internal/client/mcp/webclient/**") ||
-		!slices.Contains(integ.EditScope.Components[0].Paths, "webApp/src/**") {
+		!slices.Contains(integ.EditScope.Components[0].Paths, "webApp/src/web-client/**") {
 		t.Fatalf("frontend integration paths %v", integ.EditScope.Components[0].Paths)
 	}
 	if !slices.Contains(integ.EditScope.Extra, "uitests/generated/webClientMcp/**") {

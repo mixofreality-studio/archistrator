@@ -26,4 +26,7 @@ To add a run's System (do it for every paid run that commits an architecture):
       > todomvc-<yyyymmdd>.predecessors.json
 
 Keep it verbatim: do not add `contractKey` or any other server-derived field —
-the point of the corpus is what the agent writes, not what the server stores.
+the point of the corpus is what the agent writes, not what the server stores. These runs
+predate `SYS-CLIENT-UISURFACE`, so their Clients state no `uiSurface` and the draft gate now
+refuses them as they stand: `TestRig_DraftRefusesAClientWithNoStatedSurface` proves that, and the
+tests that need to get past the gate state the field first (`statingClientSurfaces`).

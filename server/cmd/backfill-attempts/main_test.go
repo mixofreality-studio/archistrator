@@ -76,7 +76,7 @@ func fixtureProject() projectstate.Project {
 		},
 	}
 	list := &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
-		{Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client"},
+		{Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client", UISurface: true},
 		{Name: "C-alpha-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "alpha-manager"},
 		{Name: "C-beta-engine", WorkerClass: "junior-developer", Coding: true, ComponentID: "beta-engine"},
 		{Name: "C-gamma-access", WorkerClass: "junior-developer", Coding: true, ComponentID: "gamma-access"},

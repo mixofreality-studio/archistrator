@@ -334,6 +334,9 @@ func builtRepo(t *testing.T) string {
 	repo := bornRepo(t, freshState(t))
 	inRepo(t, repo, "make", "gen-models", "CONTRACTS="+freshContract)
 	writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(todoListImpl))
+	// The composition seat pins pgx from birth, so drop the require: the verb's tidy is what
+	// must bring it back from the component's import.
+	inRepo(t, repo, "go", "mod", "edit", "-droprequire=github.com/jackc/pgx/v5")
 	s := &Session{Mode: jobModeConstruct, StateRoot: repo, ActivityID: freshActivity, TaskID: "construction", ComponentID: freshComponent, git: runGit}
 	res, err := s.runChecks(context.Background(), false)
 	if err != nil {
@@ -342,8 +345,8 @@ func builtRepo(t *testing.T) string {
 	if !strings.Contains(res.Note, "module graph was tidied") {
 		t.Errorf("the verb must tidy and tell the agent to commit, note = %q", res.Note)
 	}
-	if !strings.Contains(inRepo(t, repo, "git", "status", "--short"), "go.mod") {
-		t.Error("a pgx import must have moved go.mod: the verb did not tidy")
+	if mod, err := os.ReadFile(filepath.Join(repo, "go.mod")); err != nil || !strings.Contains(string(mod), "github.com/jackc/pgx/v5") {
+		t.Errorf("the verb did not tidy pgx back into go.mod: %v\n%s", err, mod)
 	}
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "build the component")

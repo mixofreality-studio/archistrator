@@ -331,3 +331,27 @@ func TestFreshBrowserSurfacePassesItsGate(t *testing.T) {
 		t.Error("a second surface must keep the project's own files")
 	}
 }
+
+// A machine client's code is all generated: once a Manager is integrated, its own construction
+// and integration have nothing left to write, and both gates pass on what is committed. Finished,
+// it owes the package that generation wrote.
+func TestFreshMachineClientLandsOnGeneratedCode(t *testing.T) {
+	repo := composedRepo(t)
+	runGenerators(t, repo, activitySpec(t, repo, freshManagerActivity, "integration"))
+	inRepo(t, repo, "go", "mod", "tidy")
+	inRepo(t, repo, "git", "add", "-A")
+	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
+
+	construct := activitySpec(t, repo, freshMachineActivity, "construction")
+	statuses, logs := gate(t, repo, commandChecks(t, construct))
+	requirePassed(t, statuses, logs)
+
+	integrate := activitySpec(t, repo, freshMachineActivity, "integration")
+	runGenerators(t, repo, integrate)
+	inRepo(t, repo, "make", "gen-tests")
+	inRepo(t, repo, "go", "mod", "tidy")
+	requireInScope(t, repo, integrate)
+	inRepo(t, repo, "git", "commit", "-q", "--allow-empty", "-m", "integrate the machine client")
+	statuses, logs = gate(t, repo, commandChecks(t, integrate))
+	requirePassed(t, statuses, logs)
+}
