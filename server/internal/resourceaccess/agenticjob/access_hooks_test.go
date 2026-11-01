@@ -1942,28 +1942,7 @@ func seedActivityBranches(t *testing.T, repoDir string, count int) {
 // and the same failure give the same one, a different failure gives another, and a green run
 // gives none, so nothing but a repeated red gate can ever match.
 func TestLocalRailFingerprintsARedRun(t *testing.T) {
-	var tree, state string
-	run := func(digest string) agenticjob.PipelineObservation {
-		t.Helper()
-		h := scenariohost.Start(t)
-		v := newGateVenue(t, h)
-		if tree != "" {
-			if err := os.WriteFile(v.env.agent.treeNext, []byte(tree), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if state != "" {
-			if err := os.WriteFile(v.env.agent.nextState, []byte(state), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if digest != "" {
-			v.set(t, "results.json", stpRedResults)
-			v.set(t, "run-checks-rc", "1")
-			v.set(t, "failure-digest", digest)
-		}
-		return v.runToEnd(t, h, constructSpec("construction"))
-	}
+	run := func(digest string) agenticjob.PipelineObservation { return redRun(t, digest, "", "") }
 	if obs := run(""); obs.ProgressFingerprint != nil {
 		t.Fatalf("a green run has no fingerprint, got %q", *obs.ProgressFingerprint)
 	}
@@ -1977,19 +1956,46 @@ func TestLocalRailFingerprintsARedRun(t *testing.T) {
 	if *third.ProgressFingerprint == *first.ProgressFingerprint {
 		t.Error("a different failure must fingerprint differently")
 	}
-	// An agent that changed the code made progress, however alike the failure reads.
-	tree = "more work\n"
-	changed := run("one-way\n")
-	tree = ""
-	if changed.ProgressFingerprint == nil || *changed.ProgressFingerprint == *first.ProgressFingerprint {
-		t.Errorf("a changed tree must fingerprint differently: %v", changed.ProgressFingerprint)
+}
+
+// TestLocalRailFingerprintReadsTheTree: an agent that changed the code made progress, however
+// alike the failure reads, and the state directory's bookkeeping, which moves on every attempt,
+// is not progress.
+func TestLocalRailFingerprintReadsTheTree(t *testing.T) {
+	first := redRun(t, "one-way\n", "", "")
+	changed := redRun(t, "one-way\n", "more work\n", "")
+	bookkept := redRun(t, "one-way\n", "", "{\"bookkeeping\": true}\n")
+	if first.ProgressFingerprint == nil || changed.ProgressFingerprint == nil || bookkept.ProgressFingerprint == nil {
+		t.Fatalf("a red gate must fingerprint: %+v, %+v, %+v", first, changed, bookkept)
 	}
-	// The state directory's bookkeeping moves on every attempt and is not progress.
-	state = "{\"bookkeeping\": true}\n"
-	bookkept := run("one-way\n")
-	if bookkept.ProgressFingerprint == nil || *bookkept.ProgressFingerprint != *first.ProgressFingerprint {
-		t.Errorf("a change under .aiarch must not read as progress: %v vs %q", bookkept.ProgressFingerprint, *first.ProgressFingerprint)
+	if *changed.ProgressFingerprint == *first.ProgressFingerprint {
+		t.Error("a changed tree must fingerprint differently")
 	}
+	if *bookkept.ProgressFingerprint != *first.ProgressFingerprint {
+		t.Errorf("a change under .aiarch must not read as progress: %q vs %q", *bookkept.ProgressFingerprint, *first.ProgressFingerprint)
+	}
+}
+
+// redRun is one gated run in a fresh venue. A non-empty digest makes its checks red; tree and
+// state are what the agent commits outside and inside the state directory.
+func redRun(t *testing.T, digest, tree, state string) agenticjob.PipelineObservation {
+	t.Helper()
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	for path, body := range map[string]string{v.env.agent.treeNext: tree, v.env.agent.nextState: state} {
+		if body == "" {
+			continue
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if digest != "" {
+		v.set(t, "results.json", stpRedResults)
+		v.set(t, "run-checks-rc", "1")
+		v.set(t, "failure-digest", digest)
+	}
+	return v.runToEnd(t, h, constructSpec("construction"))
 }
 
 // TestLocalRailGeneratesTheContractBeforeTheAgent: the generated half of a component is the
