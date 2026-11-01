@@ -1145,7 +1145,6 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 	// carrySendBackFeedback appends a note per call, and the pending-note queue is what carries
 	// it into every retry that follows.
 	carryWalkFeedback(ctx, tc)
-	delete(tc.State.lastFingerprint, tc.Task.ID) // a send-back's feedback changed the inputs
 	var deferred []routedSignal
 	for attempt := 0; ; attempt++ {
 		if attempt >= maxVarianceAttempts {
@@ -1223,7 +1222,8 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 		return "", csPipelineObservation{}, err
 	}
 	// A note riding this attempt changed its inputs, so the result it comes back with is not a
-	// repeat of the attempt before it (the comparison restarts, as for a send-back's feedback).
+	// repeat of the attempt before it. Send-back feedback and an operator's answer to an
+	// escalation both arrive as pending notes, so this one reset covers them all.
 	if len(tc.State.pendingNotes) > 0 {
 		delete(tc.State.lastFingerprint, tc.Task.ID)
 	}
@@ -1372,8 +1372,6 @@ func (wf *csWorkflows) runTaskVariance(
 	case intervention.VarianceGiveUp:
 		return varianceNoProgress, deferred, nil
 	case intervention.VarianceEscalate:
-		// An operator's answer changes the attempt's inputs, so the next red run starts over.
-		delete(tc.State.lastFingerprint, tc.Task.ID)
 		return wf.escalateTaskVariance(ctx, tc, detail, deferred)
 	}
 	// VarianceDirective has no Unknown sentinel (VarianceRetry is its zero value), so anything

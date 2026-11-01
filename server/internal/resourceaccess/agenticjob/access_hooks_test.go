@@ -405,6 +405,8 @@ type agentDouble struct {
 	claude    string // the executable
 	failFlag  string // present ⇒ the next run fails
 	nextState string // present ⇒ the next run commits it as the state document
+	goCache   string // the GOCACHE the run was started with
+	treeNext  string // present ⇒ every run commits this content outside the state directory
 	argv      string // the last run's argv, one argument per line
 	settings  string // a copy of the last run's --settings file
 	switchTo  string // present ⇒ after its commit, the next run switches to a scratch branch and commits there
@@ -423,6 +425,8 @@ func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
 		argv:      filepath.Join(ctl, "argv"),
 		settings:  filepath.Join(ctl, "settings.json"),
 		switchTo:  filepath.Join(ctl, "switch-next"),
+		goCache:   filepath.Join(ctl, "gocache"),
+		treeNext:  filepath.Join(ctl, "tree-next"),
 	}
 	a.claude = writeExecutable(t, filepath.Join(a.binDir, "claude"), fmt.Sprintf(`#!/bin/sh
 # Agent double for the Claude Code CLI. Started by agenticJobAccess in the run's
@@ -430,6 +434,10 @@ func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
 # started with and the settings file beside the worktree, for the probes.
 printf '%%s\n' "$@" > %[6]q
 cp ../aiarch-settings.json %[7]q 2>/dev/null || :
+printf '%%s' "$GOCACHE" > %[9]q
+if [ -f %[10]q ]; then
+  cp %[10]q progress.txt && %[3]q add progress.txt || exit 1
+fi
 if [ -f %[1]q ]; then
   rm -f %[1]q
   echo "agent double: run failed (arranged by the scenario)" >&2
@@ -450,7 +458,7 @@ if [ -f %[8]q ]; then
   %[3]q -c user.name=agent-double -c user.email=agent-double@example.invalid -c commit.gpgsign=false \
     commit --no-verify --quiet -m "agent double: left on scratch" || exit 1
 fi
-`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath, a.argv, a.settings, a.switchTo))
+`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath, a.argv, a.settings, a.switchTo, a.goCache, a.treeNext))
 	return a
 }
 
@@ -1934,10 +1942,21 @@ func seedActivityBranches(t *testing.T, repoDir string, count int) {
 // and the same failure give the same one, a different failure gives another, and a green run
 // gives none, so nothing but a repeated red gate can ever match.
 func TestLocalRailFingerprintsARedRun(t *testing.T) {
+	var tree, state string
 	run := func(digest string) agenticjob.PipelineObservation {
 		t.Helper()
 		h := scenariohost.Start(t)
 		v := newGateVenue(t, h)
+		if tree != "" {
+			if err := os.WriteFile(v.env.agent.treeNext, []byte(tree), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if state != "" {
+			if err := os.WriteFile(v.env.agent.nextState, []byte(state), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if digest != "" {
 			v.set(t, "results.json", stpRedResults)
 			v.set(t, "run-checks-rc", "1")
@@ -1957,6 +1976,76 @@ func TestLocalRailFingerprintsARedRun(t *testing.T) {
 	}
 	if *third.ProgressFingerprint == *first.ProgressFingerprint {
 		t.Error("a different failure must fingerprint differently")
+	}
+	// An agent that changed the code made progress, however alike the failure reads.
+	tree = "more work\n"
+	changed := run("one-way\n")
+	tree = ""
+	if changed.ProgressFingerprint == nil || *changed.ProgressFingerprint == *first.ProgressFingerprint {
+		t.Errorf("a changed tree must fingerprint differently: %v", changed.ProgressFingerprint)
+	}
+	// The state directory's bookkeeping moves on every attempt and is not progress.
+	state = "{\"bookkeeping\": true}\n"
+	bookkept := run("one-way\n")
+	if bookkept.ProgressFingerprint == nil || *bookkept.ProgressFingerprint != *first.ProgressFingerprint {
+		t.Errorf("a change under .aiarch must not read as progress: %v vs %q", bookkept.ProgressFingerprint, *first.ProgressFingerprint)
+	}
+}
+
+// TestLocalRailGeneratesTheContractBeforeTheAgent: the generated half of a component is the
+// job's, so the agent builds against the real surface and never improvises a generator. It
+// names the spec's contracts and no others.
+func TestLocalRailGeneratesTheContractBeforeTheAgent(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "spec.json", strings.Replace(stpTaskSpec, `"hash":`, `"contracts": ["reviewEngine", "reviewPolicy"], "hash":`, 1))
+	makeLog := v.makeDouble(t, 0)
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	got, err := os.ReadFile(makeLog)
+	if err != nil {
+		t.Fatalf("make never ran: %v", err)
+	}
+	if want := "gen-models CONTRACTS=reviewEngine reviewPolicy before-agent GOWORK=off in wt"; strings.TrimSpace(string(got)) != want {
+		t.Errorf("make ran as %q, want %q", got, want)
+	}
+}
+
+// TestLocalRailRefusesAContractThatIsNotAKey: contract keys reach make's argv.
+func TestLocalRailRefusesAContractThatIsNotAKey(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	v.set(t, "spec.json", strings.Replace(stpTaskSpec, `"hash":`, `"contracts": ["a b"], "hash":`, 1))
+	makeLog := v.makeDouble(t, 0)
+	obs := v.runToEnd(t, h, constructSpec("construction"))
+	if obs.Phase == agenticjob.PhaseSucceeded || !strings.Contains(obs.Diagnostic, "contract keys") {
+		t.Fatalf("run ended %s (%s), want refused for its contracts", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if _, err := os.Stat(makeLog); err == nil {
+		t.Error("make ran on a spec whose contracts were refused")
+	}
+}
+
+// TestLocalRailGivesTheAgentAWritableBuildCache: the agent's Bash tool can only build with a
+// GOCACHE inside the sandbox's write allowlist, and the default cache is outside it.
+func TestLocalRailGivesTheAgentAWritableBuildCache(t *testing.T) {
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	if obs := v.runToEnd(t, h, constructSpec("construction")); obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	cache, err := os.ReadFile(v.env.agent.goCache)
+	if err != nil || filepath.Base(string(cache)) != "gocache" {
+		t.Fatalf("the agent's GOCACHE is %q (%v), want the job's own cache", cache, err)
+	}
+	settings, err := os.ReadFile(v.env.agent.settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(settings), string(cache)) {
+		t.Errorf("GOCACHE %s is not writable in the sandbox settings:\n%s", cache, settings)
 	}
 }
 
@@ -2006,6 +2095,25 @@ func TestLocalMergeTidiesTheModuleInsideTheMerge(t *testing.T) {
 	}
 	if parents := strings.Fields(gitOut(t, rig.repo.Dir, "log", "-1", "--format=%P", "main")); len(parents) != 2 {
 		t.Errorf("the tidy must fold into the merge commit, parents %v", parents)
+	}
+}
+
+// TestLocalMergeTidiesAcrossABookkeepingConflict: when the only conflict was the state document's
+// envelope, the merge is committed through the index and the working copy still holds the
+// markers. The tail must read the merge commit: the module dir comes out of that document.
+func TestLocalMergeTidiesAcrossABookkeepingConflict(t *testing.T) {
+	rig := newRaceRig(t)
+	moduleBranch(t, rig, "C-env", "module example.com/m\n\n\n\ngo 1.25\n", "", "")
+	project := func(version int) projectstate.Project {
+		return projectstate.Project{ID: raceProject, Version: projectstate.Version(version), Phase: projectstate.PhaseConstruction}
+	}
+	commitStateDoc(t, rig.repo.Dir, "activity/C-env", project(5))
+	commitStateDoc(t, rig.repo.Dir, "main", project(6))
+	if err := rig.merge("C-env"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOut(t, rig.repo.Dir, "show", "main:go.mod"); got != "module example.com/m\n\ngo 1.25" {
+		t.Errorf("the merged go.mod was not tidied: %q", got)
 	}
 }
 

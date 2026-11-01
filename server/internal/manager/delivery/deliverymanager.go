@@ -14039,8 +14039,7 @@ type constructState struct {
 	// lastFingerprint is each task's previous red attempt's progress fingerprint. Per task,
 	// because parallel siblings fail in between each other's attempts. A task's supervision
 	// loop runs inside one workflow run (ContinueAsNew waits for no task in flight), so this
-	// needs no carrying across a continue: a send-back re-enters produceConstructionChange,
-	// whose carried feedback resets it.
+	// needs no carrying across a continue. A note carried into an attempt resets it.
 	lastFingerprint map[string]string
 	// branchJobs serialises this activity's jobs on its one branch (lockBranchJobs).
 	branchJobs workflow.Mutex

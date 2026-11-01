@@ -496,6 +496,45 @@ func modelgenMenuInPrompt() (string, error) {
 	return methodassets.RenderCommand("service-detailed-design", []string{freshComponent, freshActivity})
 }
 
+// The real binary leaves the digest the venue folds into its fingerprint, computed from the
+// real check logs: the same failure in two worktrees digests alike, and a different failure of
+// the same check does not.
+func TestFreshRedGateDigestsItsFailure(t *testing.T) {
+	built := builtRepo(t)
+	digest := func(misnamed string) string {
+		t.Helper()
+		repo := t.TempDir()
+		inRepo(t, built, "git", "clone", "-q", built, repo)
+		spec := commandChecks(t, taskSpec(t, repo, "construction"), "command:arch")
+		writeRepoFile(t, repo, freshPackage+"/"+misnamed, []byte("package todolist\n"))
+		spec.Hash = spec.ComputeHash()
+		body, err := json.Marshal(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := t.TempDir()
+		specPath := filepath.Join(out, "spec.json")
+		if err := os.WriteFile(specPath, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(stateBinary(t), "run-checks", "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
+		cmd.Dir = repo
+		_, _ = cmd.CombinedOutput()
+		got, err := os.ReadFile(filepath.Join(out, "res", failureDigestFile))
+		if err != nil || len(got) == 0 {
+			t.Fatalf("a red gate wrote no digest: %v", err)
+		}
+		return string(got)
+	}
+	one, again, other := digest("helpers.go"), digest("helpers.go"), digest("utilities.go")
+	if one != again {
+		t.Errorf("the same failure in two worktrees must digest alike: %q vs %q", one, again)
+	}
+	if one == other {
+		t.Error("a different failure of the same check must digest differently: the digest did not read the log")
+	}
+}
+
 // RUN-007's attempts 7 and 8 of one task failed identically in two different temp worktrees.
 // The fingerprint exists to see that, so the digest must not be fooled by the temp path; and a
 // different failure must still read as different.

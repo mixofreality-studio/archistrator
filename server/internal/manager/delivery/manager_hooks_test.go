@@ -806,6 +806,8 @@ type venue struct {
 	redChecks atomic.Bool
 	// redTask narrows setRedChecks to one lifecycle task's gate ("" is every gate), under mu.
 	redTask string
+	// steadyWork makes an agent's attempts commit the same tree each time, under mu.
+	steadyWork bool
 	// branchJobs / branchJobsMax count the jobs running on each activity's branch, now and at
 	// most (noteBranchJob), guarded by mu.
 	branchJobs, branchJobsMax map[string]int
@@ -1222,14 +1224,21 @@ func (v *venue) commitWork(n int, j agentJob) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(p, fmt.Appendf(nil, "%s for %s, run %d\n", j.Command, j.Activity, n+1), 0o600); err != nil {
+	v.mu.Lock()
+	steady := v.steadyWork
+	v.mu.Unlock()
+	body := fmt.Appendf(nil, "%s for %s, run %d\n", j.Command, j.Activity, n+1)
+	if steady {
+		body = fmt.Appendf(nil, "%s for %s\n", j.Command, j.Activity)
+	}
+	if err := os.WriteFile(p, body, 0o600); err != nil {
 		return err
 	}
 	if _, err := runGit(j.dir, "add", rel); err != nil {
 		return err
 	}
 	_, err = runGit(j.dir, "-c", "user.name=scripted-agent", "-c", "user.email=scripted-agent@aiarch.local",
-		"commit", "-q", "-m", j.Command+" "+j.Activity)
+		"commit", "--allow-empty", "-q", "-m", j.Command+" "+j.Activity)
 	return err
 }
 
@@ -3853,51 +3862,71 @@ func TestARedAttemptThatChangesNothingGivesUp(t *testing.T) {
 	awaitPumpIdle(t, h, subject)
 }
 
+// redOnly reddens one lifecycle task's gate.
+func redOnly(t *testing.T, s *stack, task string) {
+	t.Helper()
+	s.venue.setRedChecks(true)
+	s.venue.mu.Lock()
+	s.venue.redTask = task
+	s.venue.mu.Unlock()
+	t.Cleanup(func() { s.venue.setRedChecks(false) })
+}
+
+// jobsOf counts the driven activity's jobs of one command.
+func jobsOf(s *stack, command string) int {
+	n := 0
+	for _, j := range s.venue.jobs() {
+		if j.Activity == string(drivenActivity) && j.Command == command {
+			n++
+		}
+	}
+	return n
+}
+
 // TestACarriedNoteRestartsTheNoProgressComparison: an operator's note changes the next attempt's
 // inputs. The attempt it arrived during is not given up on, however it failed, and the attempt
 // carrying it is not compared with what came before it. Only the one after that, with nothing
 // new, repeats. An override needs a failed attempt to name, so the test opens the one window
-// that has: the test plan failed once and waits for the branch while construction holds it.
+// that has: construction failed once and waits for the branch while the test plan holds it.
 func TestACarriedNoteRestartsTheNoProgressComparison(t *testing.T) {
 	h := scenariohost.Start(t)
 	endHeldWorkflows(t, h)
 	subject := newSubject(t, h)
 	s := stackOf(t, subject)
 	s.serve()
-	s.venue.setRedChecks(true)
+	redOnly(t, s, "construction")
 	s.venue.mu.Lock()
-	s.venue.redTask = "stp"
+	s.venue.steadyWork = true
 	s.venue.mu.Unlock()
-	t.Cleanup(func() { s.venue.setRedChecks(false) })
-	failedOnce, overridden, noted := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	planHolding, overridden, noted := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var built, planned atomic.Int32
 	s.venue.script(func(_ int, j agentJob) runOutcome {
 		if j.Activity != string(drivenActivity) {
 			return runSucceeds
 		}
 		switch {
-		case j.Command == "service-construction" && built.Add(1) == 1:
-			close(failedOnce)
+		case j.Command == "service-test-plan" && planned.Add(1) == 1:
+			close(planHolding)
 			<-overridden
-		case j.Command == "service-test-plan" && planned.Add(1) == 2:
+		case j.Command == "service-construction" && built.Add(1) == 2:
 			<-noted
 		}
 		return runSucceeds
 	})
 	var releaseOverridden, releaseNoted sync.Once
-	letBuild := func() { releaseOverridden.Do(func() { close(overridden) }) }
-	letPlan := func() { releaseNoted.Do(func() { close(noted) }) }
-	t.Cleanup(letBuild)
+	letPlan := func() { releaseOverridden.Do(func() { close(overridden) }) }
+	letBuild := func() { releaseNoted.Do(func() { close(noted) }) }
 	t.Cleanup(letPlan)
+	t.Cleanup(letBuild)
 	arrangeProject(t, h, subject, s, "")
 	setPolicy(t, h, subject, vibes)
 	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-no-progress-note-0001"); err != nil {
 		t.Fatalf("tick the pump: %v", err)
 	}
 	select {
-	case <-failedOnce:
+	case <-planHolding:
 	case <-time.After(walkWindow):
-		t.Fatal("construction never took the branch")
+		t.Fatal("the test plan never took the branch")
 	}
 	eventually(t, walkWindow, "the override being accepted", func() (bool, string) {
 		err := subject.OverrideActivity(callContext(t, h, ""), planProject, drivenActivity,
@@ -3907,42 +3936,116 @@ func TestACarriedNoteRestartsTheNoProgressComparison(t *testing.T) {
 		}
 		return true, ""
 	})
-	letBuild()
+	letPlan()
 	eventually(t, walkWindow, "the note being recorded on the activity", func() (bool, string) {
 		doc, gerr := runGit(s.venue.repo.Dir, "show", "main:.aiarch/state/project.json")
 		return gerr == nil && strings.Contains(doc, "the import path is wrong"), "not on the row yet"
 	})
-	letPlan()
+	letBuild()
 	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
-	if got := planned.Load(); got != 4 {
-		t.Errorf("the test plan ran %d times, want 4: two red, the one carrying the note, and its repeat", got)
+	if got := built.Load(); got != 4 {
+		t.Errorf("construction ran %d times, want 4: two red, the one carrying the note, and its repeat", got)
 	}
 	awaitPumpIdle(t, h, subject)
 }
 
+// TestNoProgressIsComparedPerTask: parallel siblings fail in between each other's attempts, and
+// a sibling's failure must not hide a task repeating itself.
+func TestNoProgressIsComparedPerTask(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	redOnly(t, s, "stp")
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		if j.Activity == string(drivenActivity) && j.Command == "service-construction" {
+			return runFails
+		}
+		return runSucceeds
+	})
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-no-progress-task-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
+	if got := jobsOf(s, "service-test-plan"); got != 2 {
+		t.Errorf("the test plan ran %d times, want 2: the sibling's failures must not reset its comparison", got)
+	}
+	awaitPumpIdle(t, h, subject)
+}
+
+// TestAFailureWithoutAFingerprintKeepsItsBudget: a run that died before its gate finished says
+// nothing about progress. An empty fingerprint never compares equal, so it keeps retrying.
+func TestAFailureWithoutAFingerprintKeepsItsBudget(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		if j.Activity == string(drivenActivity) && j.Command == "service-requirements" {
+			return runFails
+		}
+		return runSucceeds
+	})
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-no-progress-empty-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	eventually(t, walkWindow, "a third attempt of a run that keeps dying", func() (bool, string) {
+		n := jobsOf(s, "service-requirements")
+		return n >= 3, fmt.Sprintf("%d attempts", n)
+	})
+}
+
 // TestAnActivitysJobsTakeItsBranchOneAtATime: the Method runs a service's test plan and its
-// construction as parallel branches, but one activity has one git branch and one writer. Both
-// must complete without ever overlapping, so neither sees "already checked out".
+// construction as parallel branches, but one activity has one git branch and one writer. The
+// second job opens no attempt while the first holds the branch. The agent runs alone cannot
+// show this: the venue's branch-checked-out refusal keeps them apart even with no lock, at the
+// cost of the retries and false Infrastructure errors the lock exists to remove.
 func TestAnActivitysJobsTakeItsBranchOneAtATime(t *testing.T) {
 	h := scenariohost.Start(t)
 	endHeldWorkflows(t, h)
 	subject := newSubject(t, h)
 	s := stackOf(t, subject)
 	s.serve()
+	holding, release := make(chan struct{}), make(chan struct{})
+	var first sync.Once
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		if j.Activity == string(drivenActivity) && (j.Command == "service-test-plan" || j.Command == "service-construction") {
+			first.Do(func() {
+				close(holding)
+				<-release
+			})
+		}
+		return runSucceeds
+	})
+	var once sync.Once
+	letGo := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(letGo)
 	arrangeProject(t, h, subject, s, "")
 	setPolicy(t, h, subject, vibes)
 	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-one-writer-0001"); err != nil {
 		t.Fatalf("tick the pump: %v", err)
 	}
-	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
-	commands := map[string]bool{}
-	for _, j := range s.venue.jobs() {
-		if j.Activity == string(drivenActivity) {
-			commands[j.Command] = true
-		}
+	select {
+	case <-holding:
+	case <-time.After(walkWindow):
+		t.Fatal("neither parallel job started")
 	}
-	if !commands["service-test-plan"] || !commands["service-construction"] {
-		t.Fatalf("this activity must run the parallel pair, ran %v", commands)
+	// Long enough for an unlocked sibling to open its attempt. A correct lock passes however
+	// long this waits, so it cannot flake.
+	time.Sleep(5 * time.Second)
+	if got := openParallelAttempts(t, s); got != 1 {
+		t.Errorf("%d parallel tasks opened an attempt while one job held the branch, want 1", got)
+	}
+	letGo()
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	if jobsOf(s, "service-test-plan") == 0 || jobsOf(s, "service-construction") == 0 {
+		t.Fatalf("this activity must run the parallel pair, ran %v", s.venue.jobs())
 	}
 	s.venue.mu.Lock()
 	most := s.venue.branchJobsMax[string(drivenActivity)]
@@ -3951,4 +4054,30 @@ func TestAnActivitysJobsTakeItsBranchOneAtATime(t *testing.T) {
 		t.Errorf("%d jobs overlapped on the activity's branch, want 1", most)
 	}
 	awaitPumpIdle(t, h, subject)
+}
+
+// openParallelAttempts counts the parallel pair's attempts on the activity's row.
+func openParallelAttempts(t *testing.T, s *stack) int {
+	t.Helper()
+	raw, err := runGit(s.venue.repo.Dir, "show", "main:.aiarch/state/project.json")
+	if err != nil {
+		t.Fatalf("read the state document: %v", err)
+	}
+	var doc struct {
+		ActivityExecution map[string]struct {
+			Attempts []struct {
+				Task string `json:"task"`
+			} `json:"attempts"`
+		} `json:"activityExecution"`
+	}
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatalf("decode the state document: %v", err)
+	}
+	n := 0
+	for _, a := range doc.ActivityExecution[string(drivenActivity)].Attempts {
+		if a.Task == "stp" || a.Task == "construction" {
+			n++
+		}
+	}
+	return n
 }

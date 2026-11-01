@@ -24,6 +24,7 @@
 package sourcecontrol_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -173,4 +174,69 @@ func stepExecuteAProjectActivityP4S1(t *testing.T, h *scenariohost.Host, subject
 func probeExecuteAProjectActivityP4S3N1(t *testing.T, h *scenariohost.Host, _ sourcecontrol.SourceControlAccess) (any, error) {
 	t.Helper()
 	return readCommittedProject(t, h, "stp-sca-eapa-p4")
+}
+
+// TestEveryScaffoldFileSeatsAtBirth: a fresh project's birth goes through the managed-file
+// allowlist, which refuses the whole bundle for one path it does not know.
+func TestEveryScaffoldFileSeatsAtBirth(t *testing.T) {
+	h := scenariohost.Start(t)
+	subject := newSubject(t, h)
+	repo := sourcecontrol.RepoRefFromString("local|local/fresh-birth")
+	cred := sourcecontrol.RepoCredential{Bytes: []byte("local")}
+	files, err := sourcecontrol.ManagedScaffoldFiles(repo, "aiarch-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subject.CommitManagedFiles(callContext(t, h, "birth"), repo, files, cred); err != nil {
+		t.Fatalf("birth refused its own scaffold: %v", err)
+	}
+	for _, f := range files {
+		got, err := subject.ReadManagedFile(callContext(t, h, "read-"+f.Path), repo, f.Path, cred)
+		if err != nil {
+			t.Errorf("read %s after birth: %v", f.Path, err)
+			continue
+		}
+		if !bytes.Equal(got.Content, f.Content) {
+			t.Errorf("%s was not seated as rendered", f.Path)
+		}
+	}
+}
+
+// TestTheSyncConvergesTheMethodGate: the gate is server-owned policy, so a project seated before
+// it changed gets the new one, while the files an app evolves are left alone.
+func TestTheSyncConvergesTheMethodGate(t *testing.T) {
+	h := scenariohost.Start(t)
+	subject := newSubject(t, h)
+	repo := sourcecontrol.RepoRefFromString("local|local/fresh-sync")
+	cred := sourcecontrol.RepoCredential{Bytes: []byte("local")}
+	files, err := sourcecontrol.ManagedScaffoldFiles(repo, "aiarch-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := []sourcecontrol.ManagedFile{
+		{Path: "go.mod", Content: []byte("module app-evolved\n")},
+		{Path: sourcecontrol.MethodTestPath, Content: []byte("package internal_test\n")},
+	}
+	if _, err := subject.CommitManagedFiles(callContext(t, h, "old-seat"), repo, stale, cred); err != nil {
+		t.Fatal(err)
+	}
+	// The free helper is what the cloud rail's verb runs; the local rail's verb is a no-op
+	// because the local venue never re-seats a repo.
+	if _, err := sourcecontrol.SyncManagedScaffold(h.Context(t), subject, repo, cred); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	var want []byte
+	for _, f := range files {
+		if f.Path == sourcecontrol.MethodTestPath {
+			want = f.Content
+		}
+	}
+	got, err := subject.ReadManagedFile(callContext(t, h, "read-gate"), repo, sourcecontrol.MethodTestPath, cred)
+	if err != nil || !bytes.Equal(got.Content, want) {
+		t.Errorf("the gate did not converge (%v):\n%s", err, got.Content)
+	}
+	mod, err := subject.ReadManagedFile(callContext(t, h, "read-mod"), repo, "go.mod", cred)
+	if err != nil || string(mod.Content) != "module app-evolved\n" {
+		t.Errorf("the sync touched the app's go.mod (%v): %s", err, mod.Content)
+	}
 }
