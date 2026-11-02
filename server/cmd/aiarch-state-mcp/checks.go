@@ -321,6 +321,7 @@ func (r checkRunner) runScenarios(ctx context.Context, contract string, checks [
 		out := make([]CheckResult, len(checks))
 		for i, c := range checks {
 			out[i] = r.finish(c, checkFail, r.since(start), []byte(msg+"\n"))
+			out[i].NoVerdict = ptr(true)
 		}
 		return out
 	}

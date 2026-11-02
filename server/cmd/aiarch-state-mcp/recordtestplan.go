@@ -73,24 +73,9 @@ func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, strin
 	if err := json.Unmarshal([]byte(`{"testPlan":`+string(rec)+`}`), &pl); err != nil {
 		return nil, "", fmt.Errorf("record does not conform to PhaseArtifactPayload: %w", err)
 	}
-	var doc struct {
-		ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, "", fmt.Errorf("read the document's contracts: %w", err)
-	}
-	key, err := testPlanKey(doc.ServiceContracts, component)
+	key, rec, err := canonicalPlanRecord(raw, component, rec, pl.TestPlan)
 	if err != nil {
 		return nil, "", err
-	}
-	if pl.TestPlan == nil || (pl.TestPlan.Component != component && pl.TestPlan.Component != key) {
-		return nil, "", fmt.Errorf("record's component does not name %s", component)
-	}
-	if pl.TestPlan.Component != key {
-		pl.TestPlan.Component = key
-		if rec, err = json.Marshal(pl.TestPlan); err != nil {
-			return nil, "", fmt.Errorf("re-encode the record: %w", err)
-		}
 	}
 	baseline, err := methodcheck.ValidateProjectJSON(raw)
 	if err != nil {
@@ -117,6 +102,33 @@ func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, strin
 		return nil, "", fmt.Errorf("%d finding(s) for %s:\n%s", len(bad), key, b.String())
 	}
 	return out, key, nil
+}
+
+// canonicalPlanRecord resolves the name a plan was recorded under to its contract key, and rewrites
+// the record's component to that key when it differs.
+func canonicalPlanRecord(raw []byte, component string, rec []byte, plan *projectstate.TestPlanRecord) (string, []byte, error) {
+	var doc struct {
+		ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return "", nil, fmt.Errorf("read the document's contracts: %w", err)
+	}
+	key, err := testPlanKey(doc.ServiceContracts, component)
+	if err != nil {
+		return "", nil, err
+	}
+	if plan == nil || (plan.Component != component && plan.Component != key) {
+		return "", nil, fmt.Errorf("record's component does not name %s", component)
+	}
+	if plan.Component == key {
+		return key, rec, nil
+	}
+	plan.Component = key
+	out, err := json.Marshal(plan)
+	if err != nil {
+		return "", nil, fmt.Errorf("re-encode the record: %w", err)
+	}
+	return key, out, nil
 }
 
 // newTestPlanErrors returns the errors in after that refuse the write: every TP-* error

@@ -221,3 +221,105 @@ func TestFreshPlanWithoutItsContractIsRefused(t *testing.T) {
 		t.Fatalf("the plan must be filed under the contract key, got %+v", recordedPlans(t, repo))
 	}
 }
+
+// Integration's allegation carries what the verb stamps, so the agent cannot report for another
+// attempt or set the baseline it is judged against, and it refuses what no run could make good.
+func TestFreshReportPlanDefect(t *testing.T) {
+	repo := bornRepo(t, run008State(t))
+	s := &Session{Mode: jobModeConstruct, StateRoot: repo, ActivityID: run008Activity, TaskID: "stp", ComponentID: run008Component, git: runGit}
+	if err := s.recordPhaseArtifact(run008Component, map[string]any{"testPlan": run008Plan(t, run008Component)}); err != nil {
+		t.Fatal(err)
+	}
+	const scenarioID = "add-a-todo-P1"
+	valid := reportPlanDefectInput{Contract: run008Contract, Scenarios: []string{scenarioID}, Reason: "clause 2 refuses an empty owner"}
+
+	s.TaskID = "integration"
+	if err := s.reportPlanDefect(valid); err == nil || !strings.Contains(err.Error(), "attempt") {
+		t.Errorf("with no ambient attempt the verb must refuse, got %v", err)
+	}
+	const revision = run008Activity + ":integration:3"
+	t.Setenv(envRevision, revision)
+	assertReportRefusals(t, s, scenarioID)
+	s.TaskID = "construction"
+	if err := s.reportPlanDefect(valid); err == nil || !strings.Contains(err.Error(), "no test plan") {
+		t.Errorf("a task with no route must be refused, got %v", err)
+	}
+	s.TaskID = "integration"
+	if err := s.reportPlanDefect(valid); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.reportPlanDefect(valid); err != nil {
+		t.Fatal(err)
+	}
+	assertReportStamped(t, s, revision, scenarioID)
+}
+
+// assertReportRefusals checks what the verb refuses whatever the run says.
+func assertReportRefusals(t *testing.T, s *Session, scenarioID string) {
+	t.Helper()
+	for name, tc := range map[string]struct {
+		in   reportPlanDefectInput
+		want string
+	}{
+		"no reason":           {reportPlanDefectInput{Contract: run008Contract, Scenarios: []string{scenarioID}}, "reason"},
+		"no scenarios":        {reportPlanDefectInput{Contract: run008Contract, Reason: "x"}, "scenarios"},
+		"another contract":    {reportPlanDefectInput{Contract: "ghostAccess", Scenarios: []string{scenarioID}, Reason: "x"}, "not one of this activity's contracts"},
+		"an unbound scenario": {reportPlanDefectInput{Contract: run008Contract, Scenarios: []string{"ghost-P1"}, Reason: "x"}, "binds no scenario"},
+		"a scenario twice":    {reportPlanDefectInput{Contract: run008Contract, Scenarios: []string{scenarioID, scenarioID}, Reason: "x"}, "named twice"},
+	} {
+		if err := s.reportPlanDefect(tc.in); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want a refusal naming %q", name, err, tc.want)
+		}
+	}
+}
+
+// assertReportStamped checks the one report on the document: the verb's stamps, a baseline over
+// every binding, and that it alone may write one and that its digests survive the workflow boundary.
+func assertReportStamped(t *testing.T, s *Session, revision, scenarioID string) {
+	t.Helper()
+	proj, _, err := s.readProject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj.TestingState == nil || len(proj.TestingState.PlanDefects) != 1 {
+		t.Fatalf("a repeat under one attempt must replace: %+v", proj.TestingState)
+	}
+	got := proj.TestingState.PlanDefects[0]
+	if got.ID != revision+":"+run008Contract || got.Revision != revision || got.Activity != run008Activity || got.Task != "integration" {
+		t.Errorf("the verb's stamps are wrong: %+v", got)
+	}
+	digests, err := projectstate.PlanBindingDigests(&proj, []string{run008Contract})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(digests) == 0 || len(got.Baseline) != len(digests) || got.Baseline[run008Contract+":"+scenarioID] != digests[run008Contract+":"+scenarioID] {
+		t.Errorf("the baseline must digest every binding: %v vs %v", got.Baseline, digests)
+	}
+	if err := s.recordTestingState(map[string]any{"PlanDefect": map[string]any{"id": "forged"}}); err == nil || !strings.Contains(err.Error(), "reportPlanDefect") {
+		t.Errorf("the verb must be the only writer, got %v", err)
+	}
+	assertDigestsCrossTheBoundary(t, proj, digests)
+}
+
+// assertDigestsCrossTheBoundary: a workflow reads the plan's digests through the envelope, which
+// does not carry the plans, and they must read as what the verb took as the baseline.
+func assertDigestsCrossTheBoundary(t *testing.T, proj projectstate.Project, digests map[string]string) {
+	t.Helper()
+	env, err := projectstate.EncodeProject(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	through, err := env.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := projectstate.PlanBindingDigests(&through, []string{run008Contract})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range digests {
+		if same[k] != v {
+			t.Errorf("the digest of %s changed across the workflow boundary", k)
+		}
+	}
+}

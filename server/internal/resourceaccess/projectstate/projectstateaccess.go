@@ -6154,8 +6154,8 @@ type Project struct {
 	// nil until the first testing activity produces output.
 	// PlanDigests is the digests a project read through the envelope carries in place of its
 	// plans (PlanBindingDigests); nil on a project read off the document, which has the plans.
-	PlanDigests map[string]string `json:"-"`
-	TestingState *TestingState `json:"testingState,omitempty"`
+	PlanDigests  map[string]string `json:"-"`
+	TestingState *TestingState     `json:"testingState,omitempty"`
 
 	// OperatorPaused is set when an operator pauses the project's construction
 	// (RecordOperatorPaused) and cleared when the operator resumes it

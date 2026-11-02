@@ -180,7 +180,40 @@ func freshState(t *testing.T) []byte {
 	}
 	top["serviceContracts"] = contracts
 	top["slots"] = withClientSurfaces(t, top["slots"])
+	top["phaseArtifacts"] = withPlansUnderContractKeys(t, top["phaseArtifacts"], map[string]projectstate.ServiceContract{freshContract: todo, "callerAccess": caller})
 	out, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// withPlansUnderContractKeys is RUN-007's plans as the verb now files them: RUN-007's agent keyed
+// them by component id, which no check could read.
+func withPlansUnderContractKeys(t *testing.T, raw json.RawMessage, contracts map[string]projectstate.ServiceContract) json.RawMessage {
+	t.Helper()
+	var artifacts map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &artifacts); err != nil {
+		t.Fatal(err)
+	}
+	var plans map[string]map[string]any
+	if err := json.Unmarshal(artifacts["testPlan"], &plans); err != nil {
+		t.Fatal(err)
+	}
+	keyed := make(map[string]map[string]any, len(plans))
+	for name, plan := range plans {
+		key, err := testPlanKey(contracts, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan["component"] = key
+		keyed[key] = plan
+	}
+	var err error
+	if artifacts["testPlan"], err = json.Marshal(keyed); err != nil {
+		t.Fatal(err)
+	}
+	out, err := json.Marshal(artifacts)
 	if err != nil {
 		t.Fatal(err)
 	}

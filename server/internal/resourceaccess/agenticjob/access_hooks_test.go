@@ -57,6 +57,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2289,6 +2290,54 @@ func stateMergeRig(t *testing.T, rig *raceRig, activity string, base, ours, tip 
 	runGit(t, work, "push", "--quiet", "--force", "origin", "main", "activity/"+activity)
 }
 
+// siblingDoc is what TestLocalMergeLandsSiblingsStructurally reads of a state document.
+type siblingDoc struct {
+	Version          json.Number                `json:"version"`
+	UpdatedAt        string                     `json:"updatedAt"`
+	ServiceContracts map[string]json.RawMessage `json:"serviceContracts"`
+	TestingState     struct {
+		CheckRuns []struct {
+			ID string `json:"id"`
+		} `json:"checkRuns"`
+	} `json:"testingState"`
+	PhaseArtifacts struct {
+		TestPlan map[string]json.RawMessage `json:"testPlan"`
+	} `json:"phaseArtifacts"`
+}
+
+func readSiblingDoc(t *testing.T, raw []byte) siblingDoc {
+	t.Helper()
+	var d siblingDoc
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatalf("the document is not JSON: %v", err)
+	}
+	return d
+}
+
+// assertNothingLost fails t unless got holds every check run once and every contract and plan.
+func assertNothingLost(t *testing.T, got siblingDoc, runs, contracts, plans []string) {
+	t.Helper()
+	seen := map[string]int{}
+	for _, r := range got.TestingState.CheckRuns {
+		seen[r.ID]++
+	}
+	for _, id := range runs {
+		if seen[id] != 1 {
+			t.Errorf("check run %s appears %d times", id, seen[id])
+		}
+	}
+	for _, k := range contracts {
+		if _, ok := got.ServiceContracts[k]; !ok {
+			t.Errorf("contract %s was lost", k)
+		}
+	}
+	for _, k := range plans {
+		if _, ok := got.PhaseArtifacts.TestPlan[k]; !ok {
+			t.Errorf("plan %s was lost", k)
+		}
+	}
+}
+
 // TestLocalMergeLandsSiblingsStructurally is the sequential merge no C-* activity had ever
 // survived: RUN-008's real documents. A text merge leaves 28 conflicts on the second sibling
 // and 30 on the third (testingState.checkRuns, serviceContracts); the siblings do not actually
@@ -2297,76 +2346,30 @@ func TestLocalMergeLandsSiblingsStructurally(t *testing.T) {
 	rig := newRaceRig(t)
 	siblings := []string{"change-notice-access", "identity-access", "list-record-access"}
 	current := archivedStateDoc(t, "main")
-	var mainDoc struct {
-		Version   json.Number `json:"version"`
-		UpdatedAt string      `json:"updatedAt"`
-	}
-	if err := json.Unmarshal(current, &mainDoc); err != nil {
-		t.Fatal(err)
-	}
-	wantRuns := map[string]bool{}
-	wantContracts := map[string]bool{}
-	type doc struct {
-		Version          json.Number                `json:"version"`
-		UpdatedAt        string                     `json:"updatedAt"`
-		ServiceContracts map[string]json.RawMessage `json:"serviceContracts"`
-		TestingState     struct {
-			CheckRuns []struct {
-				ID string `json:"id"`
-			} `json:"checkRuns"`
-		} `json:"testingState"`
-		PhaseArtifacts struct {
-			TestPlan map[string]json.RawMessage `json:"testPlan"`
-		} `json:"phaseArtifacts"`
-	}
+	mainDoc := readSiblingDoc(t, current)
+	var runs, contracts []string
 	for _, sibling := range siblings {
 		tip := archivedStateDoc(t, "tip."+sibling)
-		var d doc
-		if err := json.Unmarshal(tip, &d); err != nil {
-			t.Fatal(err)
-		}
+		d := readSiblingDoc(t, tip)
 		for _, r := range d.TestingState.CheckRuns {
-			wantRuns[r.ID] = true
+			runs = append(runs, r.ID)
 		}
-		for k := range d.ServiceContracts {
-			wantContracts[k] = true
-		}
+		contracts = slices.AppendSeq(contracts, maps.Keys(d.ServiceContracts))
 		stateMergeRig(t, rig, "C-"+sibling, archivedStateDoc(t, "base."+sibling), current, tip)
 		if err := rig.merge("C-" + sibling); err != nil {
 			t.Fatalf("merge of %s: %v", sibling, err)
 		}
 		current = []byte(gitOutRaw(t, rig.repo.Dir, "show", "main:"+stateDocPath))
 	}
-	var got doc
-	if err := json.Unmarshal(current, &got); err != nil {
-		t.Fatalf("the merged document is not JSON: %v", err)
+	if len(contracts) < 3 || len(runs) < 3 {
+		t.Fatalf("the fixture must hold three siblings' work: %v %v", contracts, runs)
 	}
+	got := readSiblingDoc(t, current)
 	if got.Version != mainDoc.Version || got.UpdatedAt != mainDoc.UpdatedAt {
 		t.Errorf("the envelope is %s/%s, want main's %s/%s", got.Version, got.UpdatedAt, mainDoc.Version, mainDoc.UpdatedAt)
 	}
-	seen := map[string]int{}
-	for _, r := range got.TestingState.CheckRuns {
-		seen[r.ID]++
-	}
-	for id := range wantRuns {
-		if seen[id] != 1 {
-			t.Errorf("check run %s appears %d times", id, seen[id])
-		}
-	}
-	for k := range wantContracts {
-		if _, ok := got.ServiceContracts[k]; !ok {
-			t.Errorf("contract %s was lost", k)
-		}
-	}
-	for _, k := range siblings {
-		if _, ok := got.PhaseArtifacts.TestPlan[k]; !ok {
-			t.Errorf("plan %s was lost", k)
-		}
-	}
-	if len(wantContracts) < 3 || len(wantRuns) < 3 {
-		t.Fatalf("the fixture must hold three siblings' work: %v %v", wantContracts, wantRuns)
-	}
-	// The store still reads it, and a store write of it changes nothing in the merged sections.
+	slices.Sort(runs)
+	assertNothingLost(t, got, slices.Compact(runs), contracts, siblings)
 	if _, ok, err := projectstate.DecodeProjectJSON(current, ""); err != nil || !ok {
 		t.Errorf("the store cannot read the merged document: ok=%v err=%v", ok, err)
 	}

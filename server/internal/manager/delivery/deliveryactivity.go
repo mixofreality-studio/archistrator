@@ -2577,10 +2577,7 @@ func (wf *csWorkflows) runGate(
 		// this arm waits for must not be handed a testing round with no run and no system
 		// comment, so the venue's evidence is judged and a hold lands its blocking comment
 		// on the round before the gate is parked. Held or not, the arm waits for a human.
-		if _, gerr := wf.testingGateHeld(ctx, in, lc, t, ws, state, &refused); gerr != nil {
-			return walkTaskFailed, gerr
-		}
-		if _, gerr := wf.replanGateHeld(ctx, in, lc, t, state, &refused); gerr != nil {
+		if _, gerr := wf.evidenceHoldsTheGate(ctx, in, lc, t, ws, state, &refused); gerr != nil {
 			return walkTaskFailed, gerr
 		}
 		state.surfaceReviewSetRefusal(t.ID, err.Error())
@@ -2649,16 +2646,9 @@ func (wf *csWorkflows) runGate(
 	// hold is a HUMAN gate (nil autogate reason): the remedy is a send-back, which re-runs
 	// integration and with it the venue's record step, or an approve over the resolved system
 	// comment, which is an override on the record.
-	held, err := wf.testingGateHeld(ctx, in, lc, t, ws, state, &gate)
+	held, err := wf.evidenceHoldsTheGate(ctx, in, lc, t, ws, state, &gate)
 	if err != nil {
 		return walkTaskFailed, err
-	}
-	if !held {
-		// A plan re-derived for a plan defect may change only what the report named. The same
-		// human hold: the autogate cannot pass over its comment, a human can resolve it.
-		if held, err = wf.replanGateHeld(ctx, in, lc, t, state, &gate); err != nil {
-			return walkTaskFailed, err
-		}
 	}
 	if held {
 		state.surfaceReviewSet(t.ID, &set)
@@ -2706,6 +2696,20 @@ func (wf *csWorkflows) runGate(
 	state.surfaceReviewSet(t.ID, &set)
 	state.stage = StageAwaitingApproval
 	return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
+}
+
+// evidenceHoldsTheGate is the holds that judge what the venue left behind rather than who decides:
+// the testing gate's run, and a plan re-derived for a plan defect, which may change only what the
+// report named. Both land a blocking system comment, so the autogate cannot pass over it.
+func (wf *csWorkflows) evidenceHoldsTheGate(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, t methodassets.LifecycleTask,
+	ws *walkState, state *constructState, gate *gateLedger,
+) (bool, error) {
+	held, err := wf.testingGateHeld(ctx, in, lc, t, ws, state, gate)
+	if err != nil || held {
+		return held, err
+	}
+	return wf.replanGateHeld(ctx, in, lc, t, state, gate)
 }
 
 // autogateOn is the reason a HELD autogate will pass with, once its round has no open comment

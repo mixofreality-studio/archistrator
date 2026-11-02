@@ -268,3 +268,34 @@ func TestNoProgressStopsUnderTiers(t *testing.T) {
 		t.Errorf("escalate-everything no-progress = %v, want escalate", got)
 	}
 }
+
+// Integration may send its plan back twice per activity. A third need escalates, because the
+// contract or use case is then probably what is wrong. Escalate-everything never sends back: an
+// operator reopens instead. A repeat is judged before a report, in the Manager, so its kind wins.
+func TestPlanDefectTripsAreBoundedUnderTiers(t *testing.T) {
+	h := scenariohost.Start(t)
+	subject := newSubject(t, h)
+	decide := func(policy intervention.InterventionPolicy, kind intervention.VarianceKind, trips int64) intervention.VarianceDirective {
+		t.Helper()
+		got, err := subject.DecideOnVariance(h.EngineContext(t), intervention.ConstructionVariance{
+			ProjectID: "p", ActivityID: "a", Kind: kind, AttemptCount: trips, Policy: policy,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	tiered := intervention.InterventionPolicy{Mode: intervention.Tiered, RetryBudget: 2}
+	for trips, want := range []intervention.VarianceDirective{intervention.VarianceSendBack, intervention.VarianceSendBack, intervention.VarianceEscalate, intervention.VarianceEscalate} {
+		if got := decide(tiered, intervention.PlanDefectReported, int64(trips)); got != want {
+			t.Errorf("after %d trips the directive is %v, want %v", trips, got, want)
+		}
+	}
+	everything := intervention.InterventionPolicy{Mode: intervention.EscalateEverything}
+	if got := decide(everything, intervention.PlanDefectReported, 0); got != intervention.VarianceEscalate {
+		t.Errorf("escalate-everything answered %v, want an escalation", got)
+	}
+	if got := decide(tiered, intervention.NoProgress, 0); got != intervention.VarianceGiveUp {
+		t.Errorf("no progress answered %v, want a give-up", got)
+	}
+}

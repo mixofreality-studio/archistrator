@@ -136,6 +136,9 @@ func TestScenarioCheckMissingVerdictFails(t *testing.T) {
 	if res[0].Status != "pass" || res[1].Status != "fail" {
 		t.Fatalf("got %s %s", res[0].Status, res[1].Status)
 	}
+	if res[0].NoVerdict != nil || res[1].NoVerdict == nil || !*res[1].NoVerdict {
+		t.Errorf("only the scenario with no verdict is marked so: %v %v", res[0].NoVerdict, res[1].NoVerdict)
+	}
 	if res[0].DurationMs != 12 {
 		t.Fatalf("duration must come from the index, got %d", res[0].DurationMs)
 	}

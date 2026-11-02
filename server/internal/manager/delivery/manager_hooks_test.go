@@ -4608,10 +4608,6 @@ type planStep struct {
 	steady bool
 }
 
-func (p planStep) red() bool {
-	return len(p.failed)+len(p.timedOut)+len(p.noVerdict) > 0 || p.buildRed
-}
-
 // playPlanScript plays the scripted part of a driven-activity job: an integration run's report,
 // or whatever the scenario does to the plan on a test-plan run.
 func (v *venue) playPlanScript(j agentJob) error {
@@ -4869,15 +4865,7 @@ func TestAPlanDefectReopensThePlanThroughItsReview(t *testing.T) {
 	if got := jobCount(s, "service-integration"); got != 2 {
 		t.Errorf("integration ran %d times, want the red run and the green one", got)
 	}
-	var order []string
-	for _, j := range s.venue.jobs() {
-		if j.Activity == drivenActivity && (j.Command == "service-test-plan" || j.Command == "service-integration") {
-			order = append(order, j.Command)
-		}
-	}
-	if len(order) != 4 || order[1] != "service-integration" || order[2] != "service-test-plan" || order[3] != "service-integration" {
-		t.Errorf("job order %v, want the redraft between the two integration runs", order)
-	}
+	assertRedraftBetweenIntegrations(t, s)
 	rounds := planDefectRounds(t, h, s)
 	if len(rounds) != 3 {
 		t.Fatalf("the plan gate holds %d rounds, want pass, system send-back, pass: %+v", len(rounds), rounds)
@@ -4888,6 +4876,39 @@ func TestAPlanDefectReopensThePlanThroughItsReview(t *testing.T) {
 	if v := rounds[1].Verdicts; len(v) != 1 || v[0].Actor != "system" || !strings.Contains(v[0].Summary, "contradicts the contract") {
 		t.Errorf("the send-back round's verdict is %+v, want the system's, carrying the claim", v)
 	}
+}
+
+// assertRedraftBetweenIntegrations fails t unless the plan's redraft ran between the two integrations.
+func assertRedraftBetweenIntegrations(t *testing.T, s *stack) {
+	t.Helper()
+	var order []string
+	for _, j := range s.venue.jobs() {
+		if j.Activity == drivenActivity && (j.Command == "service-test-plan" || j.Command == "service-integration") {
+			order = append(order, j.Command)
+		}
+	}
+	if !slices.Equal(order, []string{"service-test-plan", "service-integration", "service-test-plan", "service-integration"}) {
+		t.Errorf("job order %v, want the redraft between the two integration runs", order)
+	}
+}
+
+// refusalScript is one rule of planDefectAdmissible per run, then a green run.
+func refusalScript(run int, sc []string) planStep {
+	switch run {
+	case 1:
+		return planStep{failed: sc[:2], report: sc[:1]}
+	case 2:
+		return planStep{failed: sc[:1], buildRed: true, report: sc[:1]}
+	case 3:
+		return planStep{failed: sc[:1], report: sc[:2]}
+	case 4:
+		return planStep{timedOut: sc[:1], report: sc[:1]}
+	case 5:
+		return planStep{noVerdict: sc[:1], report: sc[:1]}
+	case 6:
+		return planStep{failed: sc, report: sc}
+	}
+	return planStep{}
 }
 
 // TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed holds the agent to the run, one rule per attempt
@@ -4902,23 +4923,7 @@ func TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed(t *testing.T) {
 		"recorded no verdict",
 		"points at wiring or a hook",
 	}
-	s, h, _ := planDefectWalk(t, "refusals", func(run int, sc []string) planStep {
-		switch run {
-		case 1:
-			return planStep{failed: sc[:2], report: sc[:1]}
-		case 2:
-			return planStep{failed: sc[:1], buildRed: true, report: sc[:1]}
-		case 3:
-			return planStep{failed: sc[:1], report: sc[:2]}
-		case 4:
-			return planStep{timedOut: sc[:1], report: sc[:1]}
-		case 5:
-			return planStep{noVerdict: sc[:1], report: sc[:1]}
-		case 6:
-			return planStep{failed: sc, report: sc}
-		}
-		return planStep{}
-	}, delivery.ActivityViewDone)
+	s, h, _ := planDefectWalk(t, "refusals", refusalScript, delivery.ActivityViewDone)
 	if got := jobCount(s, "service-test-plan"); got != 1 {
 		t.Errorf("the test plan ran %d times: a refused report must not re-open it", got)
 	}

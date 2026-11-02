@@ -5495,7 +5495,6 @@ const (
 	stateDocArray
 )
 
-
 // stateDocTree is a parsed document and the bytes after its root value.
 type stateDocTree struct {
 	root    *stateDocNode
