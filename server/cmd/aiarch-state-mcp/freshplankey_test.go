@@ -295,16 +295,23 @@ func assertReportStamped(t *testing.T, s *Session, revision, scenarioID string) 
 	if len(digests) == 0 || len(got.Baseline) != len(digests) || got.Baseline[run008Contract+":"+scenarioID] != digests[run008Contract+":"+scenarioID] {
 		t.Errorf("the baseline must digest every binding: %v vs %v", got.Baseline, digests)
 	}
-	if err := s.recordTestingState(map[string]any{"PlanDefect": map[string]any{"id": "forged"}}); err == nil || !strings.Contains(err.Error(), "reportPlanDefect") {
-		t.Errorf("the verb must be the only writer, got %v", err)
-	}
-	for field, forged := range map[string]string{"PlanDefect": "reportPlanDefect", "CheckRun": "record-check-run"} {
-		err := s.recordPhaseArtifact("k", map[string]any{field: map[string]any{"id": "forged"}})
-		if err == nil || !strings.Contains(err.Error(), forged) {
-			t.Errorf("recordPhaseArtifact routes %s to the same store, so it must refuse it too, got %v", field, err)
+	assertOnlyTheSystemWritesEvidence(t, s)
+	assertDigestsCrossTheBoundary(t, proj, digests)
+}
+
+// assertOnlyTheSystemWritesEvidence: both agent-facing verbs reach the routing that stores a report
+// and a run, so both must refuse them, or an agent could forge the attempt or the baseline.
+func assertOnlyTheSystemWritesEvidence(t *testing.T, s *Session) {
+	t.Helper()
+	for field, want := range map[string]string{"PlanDefect": "reportPlanDefect", "CheckRun": "record-check-run"} {
+		forged := map[string]any{field: map[string]any{"id": "forged"}}
+		if err := s.recordTestingState(forged); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("recordTestingState must refuse %s, got %v", field, err)
+		}
+		if err := s.recordPhaseArtifact("k", forged); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("recordPhaseArtifact must refuse %s, got %v", field, err)
 		}
 	}
-	assertDigestsCrossTheBoundary(t, proj, digests)
 }
 
 // assertDigestsCrossTheBoundary: a workflow reads the plan's digests through the envelope, which
