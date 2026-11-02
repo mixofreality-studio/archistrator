@@ -11191,7 +11191,9 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 		}
 		r.Outcome = outcome
 		r.DecidedBy = decidedBy
-		r.DecidedAt = now.UTC().Format(time.RFC3339)
+		// Nanoseconds, as an attempt's EndedAt has: a resume asks which of the two came first, and
+		// they are one write apart, so at whole seconds the attempt reads as the later.
+		r.DecidedAt = now.UTC().Format(time.RFC3339Nano)
 		return nil
 	})
 }

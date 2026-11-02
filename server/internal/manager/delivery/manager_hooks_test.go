@@ -5212,6 +5212,12 @@ func TestAResumeAfterASendBackHoldsIntegration(t *testing.T) {
 		}
 	}
 	if len(order) != 2 || order[0] != "service-test-plan" || order[1] != "service-integration" {
-		t.Errorf("after the resume the jobs are %v, want the plan's redraft and then integration", order)
+		t.Fatalf("after the resume the jobs are %v, want the plan's redraft and then integration", order)
+	}
+	for _, j := range s.venue.jobs()[before:] {
+		if j.Activity == drivenActivity && j.Command == "service-test-plan" &&
+			!strings.Contains(j.env["AIARCH_OPERATOR_NOTE"], "contradicts the contract") {
+			t.Errorf("the resumed redraft's operator note is %q, want the claim the round carried", j.env["AIARCH_OPERATOR_NOTE"])
+		}
 	}
 }
