@@ -1190,6 +1190,11 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 					dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs))
 			subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
 			return subject, gerr
+		case verdict == varianceSentBack:
+			wf.reofferDeferred(ctx, tc, deferred)
+			return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+				Detail: dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs), EpisodeID: episodeIDOf(obs),
+				AttemptRecorded: true, PlanDefectSentBack: true, PlanDefectNote: tc.State.planDefects[tc.Task.ID].note}, nil
 		default:
 			return wf.constructionExited(ctx, tc, deferred, attemptID, obs, verdict)
 		}
@@ -3858,8 +3863,8 @@ func (wf *csWorkflows) seedWalkFromLedger(
 // seedSentBackRounds is what a fresh run owes a send-back the last run never finished. The
 // judged task's latest attempt reads passed, so the plain seed would mark it passed and the
 // review would re-judge the very work it just rejected, with no redraft. A latest sent-back round
-// whose judged task has no later resolved attempt seeds that task pending, with the round's
-// steer. A task that reported the defect holds until its gate passes again, or its redraft
+// whose judged task has no later passed attempt seeds that task pending, with the round's steer:
+// a redraft that failed has not answered it either. A task that reported the defect holds until its gate passes again, or its redraft
 // would race the old plan.
 func seedSentBackRounds(lc methodassets.Lifecycle, row projectstate.ActivityExecution, ws *walkState) {
 	for _, t := range lc.Tasks {
@@ -3870,7 +3875,7 @@ func seedSentBackRounds(lc methodassets.Lifecycle, row projectstate.ActivityExec
 			continue
 		}
 		latest, ok := latestRound(row, t.ID)
-		if !ok || latest.Outcome != projectstate.RoundSentBack || attemptResolvedAfter(row, t.Reviews, latest.DecidedAt) {
+		if !ok || latest.Outcome != projectstate.RoundSentBack || attemptEndedAfter(row, t.Reviews, latest.DecidedAt, true) {
 			continue
 		}
 		ws.byTask[t.Reviews] = walkTaskPending
@@ -3880,7 +3885,7 @@ func seedSentBackRounds(lc methodassets.Lifecycle, row projectstate.ActivityExec
 		if t.SendsBackTo == "" || ws.byTask[t.SendsBackTo] == walkTaskPassed {
 			continue
 		}
-		if round, ok := latestPlanDefectRound(row, t.SendsBackTo); ok && !attemptResolvedAfter(row, t.ID, round.DecidedAt) {
+		if round, ok := latestPlanDefectRound(row, t.SendsBackTo); ok && !attemptEndedAfter(row, t.ID, round.DecidedAt, false) {
 			ws.byTask[t.ID] = walkTaskHeld
 		}
 	}
@@ -3898,16 +3903,19 @@ func latestRound(row projectstate.ActivityExecution, task string) (projectstate.
 	return best, found
 }
 
-// attemptResolvedAfter reports whether a task holds a resolved attempt that ended after a
-// round was decided. A round with no readable decision time has nothing to compare, and is
-// read as answered: the plain seed then stands.
-func attemptResolvedAfter(row projectstate.ActivityExecution, task, decidedAt string) bool {
+// attemptEndedAfter reports whether a task holds a resolved attempt, or only a passed one, that
+// ended after a round was decided. A round with no readable decision time has nothing to compare
+// and is read as answered: the plain seed then stands.
+func attemptEndedAfter(row projectstate.ActivityExecution, task, decidedAt string, passedOnly bool) bool {
 	decided, err := time.Parse(time.RFC3339Nano, decidedAt)
 	if err != nil {
 		return true
 	}
 	return slices.ContainsFunc(row.Attempts, func(a projectstate.TaskAttempt) bool {
-		return string(a.Task) == task && a.Outcome != projectstate.OutcomePending && a.EndedAt != nil && a.EndedAt.After(decided)
+		if string(a.Task) != task || a.EndedAt == nil || !a.EndedAt.After(decided) {
+			return false
+		}
+		return a.Outcome == projectstate.OutcomePassed || (!passedOnly && a.Outcome != projectstate.OutcomePending)
 	})
 }
 

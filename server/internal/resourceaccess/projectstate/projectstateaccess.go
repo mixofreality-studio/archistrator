@@ -4224,6 +4224,10 @@ type ProjectEnvelope struct {
 	// without this member it decoded a project with no runs on it. omitempty keeps every
 	// payload without a testing state byte-identical to before.
 	TestingState *TestingState `json:"testingState,omitempty"`
+	// PlanBindingDigests stands in for .phaseArtifacts.testPlan across this boundary, where the
+	// plans themselves would risk the payload limit. A plan's review compares them against a plan
+	// defect report's baseline (PlanBindingDigests). omitempty keeps a planless payload as it was.
+	PlanBindingDigests map[string]string `json:"planBindingDigests,omitempty"`
 	// ModuleDir is the project's Go module directory (agent task spec): the task spec's
 	// edit scope and command checks are rooted there, so a spec resolved off this envelope
 	// must see it to hash the same as one resolved off the checkout. omitempty keeps every
@@ -4252,6 +4256,13 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 	out.ActivityExecution = p.ActivityExecution
 	out.ServiceContracts = p.ServiceContracts
 	out.TestingState = p.TestingState
+	if p.PhaseArtifacts != nil && len(p.PhaseArtifacts.TestPlan) > 0 {
+		digests, err := PlanBindingDigests(&p, slices.Sorted(maps.Keys(p.PhaseArtifacts.TestPlan)))
+		if err != nil {
+			return ProjectEnvelope{}, err
+		}
+		out.PlanBindingDigests = digests
+	}
 	out.ModuleDir = p.ModuleDir
 	out.OperatorPaused = p.OperatorPaused
 	out.PauseReason = p.PauseReason
@@ -4291,6 +4302,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	p.ActivityExecution = activityExecutionOrLegacy(e.ActivityExecution, e.LegacyActivityConstruction)
 	p.ServiceContracts = e.ServiceContracts
 	p.TestingState = e.TestingState
+	p.PlanDigests = e.PlanBindingDigests
 	p.ModuleDir = e.ModuleDir
 	p.OperatorPaused = e.OperatorPaused
 	p.PauseReason = e.PauseReason
@@ -5826,19 +5838,77 @@ type PlanDefectReport struct {
 func PlanBindingDigests(p *Project, contracts []string) (map[string]string, error) {
 	out := map[string]string{}
 	if p.PhaseArtifacts == nil {
+		// Read through the envelope, which carries the digests and not the plans.
+		for key, digest := range p.PlanDigests {
+			contract, _, _ := strings.Cut(key, ":")
+			if slices.Contains(contracts, contract) {
+				out[key] = digest
+			}
+		}
 		return out, nil
 	}
 	for _, contract := range contracts {
 		for _, b := range p.PhaseArtifacts.TestPlan[contract].Bindings {
-			raw, err := json.Marshal(b)
+			digest, err := bindingDigest(b)
 			if err != nil {
 				return nil, fmt.Errorf("digest the binding of %s %s: %w", contract, b.Scenario, err)
 			}
-			sum := sha256.Sum256(raw)
-			out[contract+":"+b.Scenario] = hex.EncodeToString(sum[:])
+			out[contract+":"+b.Scenario] = digest
 		}
 	}
 	return out, nil
+}
+
+// bindingDigest digests a binding's content. Absent, null and empty read alike: a binding read
+// back through a workflow's data converter may spell an empty list differently from the one the
+// state tool read off the branch, and that is not a change to the binding.
+func bindingDigest(b ScenarioBinding) (string, error) {
+	raw, err := json.Marshal(b)
+	if err != nil {
+		return "", err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return "", err
+	}
+	raw, err = json.Marshal(dropEmptyValues(v))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// dropEmptyValues removes the null, empty-list and empty-object members of a decoded document.
+func dropEmptyValues(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			e = dropEmptyValues(e)
+			switch c := e.(type) {
+			case nil:
+				continue
+			case []any:
+				if len(c) == 0 {
+					continue
+				}
+			case map[string]any:
+				if len(c) == 0 {
+					continue
+				}
+			}
+			out[k] = e
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = dropEmptyValues(e)
+		}
+		return out
+	}
+	return v
 }
 
 // OperatingModel declares WHO OPERATES the built application — a PROJECT-LEVEL
@@ -6082,6 +6152,9 @@ type Project struct {
 	// TestingState holds the project-level testing artifacts produced by N-* activities
 	// (system test plan, harness, perf rig, quality gates, test runs, defects). Additive,
 	// nil until the first testing activity produces output.
+	// PlanDigests is the digests a project read through the envelope carries in place of its
+	// plans (PlanBindingDigests); nil on a project read off the document, which has the plans.
+	PlanDigests map[string]string `json:"-"`
 	TestingState *TestingState `json:"testingState,omitempty"`
 
 	// OperatorPaused is set when an operator pauses the project's construction

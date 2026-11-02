@@ -829,6 +829,16 @@ type venue struct {
 	// run to hold on.
 	narrow  bool
 	dropped string
+	// planScript scripts the integration task's runs for the plan-defect route: what each one
+	// reports and how its gate comes out. planSteps holds the step the running job took, under mu.
+	planScript func(run int, scenarios []string) planStep
+	planRuns   int
+	planNow    planStep
+	// bindPlan makes each test-plan job bind the design state's plan, and replan changes it, by
+	// run number from 1.
+	bindPlan  bool
+	replan    func(run int, plan map[string]any)
+	testPlans int
 }
 
 // openVenue points the venue at this scenario: the doubles first on PATH (never the
@@ -971,6 +981,9 @@ type checksResponse struct {
 	Error string `json:"error"`
 	// Red makes the run a red gate that always fails the same way (setRedChecks).
 	Red bool `json:"red"`
+	// Results, when set, are the run's own results and Digest its failure digest (planScript).
+	Results []projectstate.CheckResult `json:"results,omitempty"`
+	Digest  string                     `json:"digest,omitempty"`
 }
 
 func serveChecks(w http.ResponseWriter, r *http.Request) {
@@ -985,6 +998,9 @@ func serveChecks(w http.ResponseWriter, r *http.Request) {
 			resp.Error = err.Error()
 		}
 		resp.Red = v.redChecks.Load() && v.gatesRed(req.Spec)
+		if results, digest, ok := v.planResults(req.Spec); ok {
+			resp.Results, resp.Digest = results, digest
+		}
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -1070,6 +1086,9 @@ func (v *venue) perform(n int, j agentJob) error {
 	case "construct":
 		if strings.HasSuffix(j.Command, "-detailed-design") && foldName(j.Component) == foldName(drivenContract) {
 			return v.recordContract(j)
+		}
+		if err := v.playPlanScript(j); err != nil {
+			return err
 		}
 		// Every other step — integration's wiring among them — is a change on the
 		// activity branch; the executor's gates record integration's check run.
@@ -1500,6 +1519,9 @@ func runVenueChecks(r venueRig) int {
 	if resp.Red {
 		return writeRedChecks()
 	}
+	if resp.Results != nil {
+		return writePlanResults(resp.Results, resp.Digest)
+	}
 	return testinfra.RunChecksDouble(os.Args[2:], os.Stdout)
 }
 
@@ -1525,6 +1547,35 @@ func writeRedChecks() int {
 		}
 	}
 	return 1
+}
+
+// writePlanResults writes a scripted integration gate's results, red when any check is.
+func writePlanResults(results []projectstate.CheckResult, digest string) int {
+	red := slices.ContainsFunc(results, func(r projectstate.CheckResult) bool { return r.Status != "pass" })
+	for i, a := range os.Args {
+		if a != "--out" || i+1 >= len(os.Args) {
+			continue
+		}
+		out := os.Args[i+1]
+		body, err := json.Marshal(results)
+		if err == nil {
+			err = os.MkdirAll(out, 0o750)
+		}
+		if err == nil {
+			err = os.WriteFile(filepath.Join(out, "results.json"), body, 0o600)
+		}
+		if err == nil && red {
+			err = os.WriteFile(filepath.Join(out, "failure-digest"), []byte(digest+"\n"), 0o600)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "venue:", err)
+			return 2
+		}
+	}
+	if red {
+		return 1
+	}
+	return 0
 }
 
 func readVenueRig(dir string) (venueRig, error) {
@@ -4541,4 +4592,577 @@ func openParallelAttempts(t *testing.T, s *stack) int {
 		}
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// The route from integration back to the test plan
+// ---------------------------------------------------------------------------
+
+// planStep is one scripted integration run: the scenarios its gate fails, how, and what the
+// agent reports. Every check not named passes. A zero step is a green run with no report.
+type planStep struct {
+	failed, timedOut, noVerdict []string
+	buildRed                    bool
+	report                      []string
+	// steady keeps the failure digest of the run before, so the run repeats it.
+	steady bool
+}
+
+func (p planStep) red() bool {
+	return len(p.failed)+len(p.timedOut)+len(p.noVerdict) > 0 || p.buildRed
+}
+
+// playPlanScript plays the scripted part of a driven-activity job: an integration run's report,
+// or whatever the scenario does to the plan on a test-plan run.
+func (v *venue) playPlanScript(j agentJob) error {
+	if j.Activity != drivenActivity {
+		return nil
+	}
+	v.mu.Lock()
+	script, bind := v.planScript, v.bindPlan
+	v.mu.Unlock()
+	switch {
+	case script != nil && j.Command == "service-integration":
+		return v.playIntegration(j, script)
+	case bind && j.Command == "service-test-plan":
+		return v.commitPlan(j)
+	}
+	return nil
+}
+
+// commitPlan binds the plan the design state holds into the job's document, changed as the scenario
+// says. It writes the way the verbs do, through the store's codec, but holds the plan to no rule:
+// the design state's plan was bound against the whole design, and the scenario runs a narrowed one.
+func (v *venue) commitPlan(j agentJob) error {
+	v.mu.Lock()
+	v.testPlans++
+	run, replan := v.testPlans, v.replan
+	v.mu.Unlock()
+	plan, err := designPlan()
+	if err != nil {
+		return err
+	}
+	if replan != nil {
+		replan(run, plan)
+	}
+	body, err := json.Marshal(plan)
+	if err != nil {
+		return err
+	}
+	var rec projectstate.TestPlanRecord
+	if err := json.Unmarshal(body, &rec); err != nil {
+		return err
+	}
+	path := filepath.Join(j.dir, filepath.FromSlash(".aiarch/state/project.json"))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var anyProject projectstate.ProjectID
+	p, _, err := projectstate.DecodeProjectJSON(raw, anyProject)
+	if err != nil {
+		return err
+	}
+	projectstate.ApplyPhaseArtifactPayload(&p, drivenContract, projectstate.PhaseArtifactPayload{TestPlan: &rec})
+	out, err := projectstate.EncodeProjectJSON(p)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return err
+	}
+	if _, err := runGit(j.dir, "add", ".aiarch/state/project.json"); err != nil {
+		return err
+	}
+	_, err = runGit(j.dir, "-c", "user.name=scripted-agent", "-c", "user.email=scripted-agent@aiarch.local",
+		"commit", "--allow-empty", "-q", "-m", "bind the plan")
+	return err
+}
+
+func (v *venue) playIntegration(j agentJob, script func(int, []string) planStep) error {
+	scenarios, err := v.jobScenarios(j)
+	if err != nil {
+		return err
+	}
+	v.mu.Lock()
+	v.planRuns++
+	step := script(v.planRuns, scenarios)
+	v.planNow = step
+	v.mu.Unlock()
+	if len(step.report) == 0 {
+		return nil
+	}
+	return v.withStateTool(j, func(s *stateSession) error {
+		_, err := s.call("reportPlanDefect", map[string]any{
+			"contract": drivenContract, "scenarios": step.report, "reason": "the binding contradicts the contract's error model",
+		})
+		return err
+	})
+}
+
+// jobScenarios is the job's scenario ids, in spec order.
+func (v *venue) jobScenarios(j agentJob) ([]string, error) {
+	tmp, err := os.MkdirTemp("", "dct-plan-spec-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	path := filepath.Join(tmp, "spec.json")
+	if _, err := testinfra.ResolveTaskSpec(v.tool, venueJob(j), path); err != nil {
+		return nil, err
+	}
+	spec, err := testinfra.ReadSpec(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, c := range spec.Checks {
+		if c.Kind == projectstate.CheckKindScenario {
+			out = append(out, c.Source.Scenario)
+		}
+	}
+	return out, nil
+}
+
+// planResults is the scripted gate of the integration job in progress.
+func (v *venue) planResults(specPath string) ([]projectstate.CheckResult, string, bool) {
+	spec, err := testinfra.ReadSpec(specPath)
+	if err != nil || spec.Task != "integration" || spec.Activity != drivenActivity {
+		return nil, "", false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.planScript == nil {
+		return nil, "", false
+	}
+	step := v.planNow
+	results := make([]projectstate.CheckResult, 0, len(spec.Checks))
+	for _, c := range spec.Checks {
+		r := projectstate.CheckResult{CheckId: c.ID, Kind: c.Kind, Status: "pass", DurationMs: 1}
+		switch {
+		case slices.Contains(step.failed, c.Source.Scenario) && c.Source.Scenario != "":
+			r.Status = "fail"
+		case slices.Contains(step.timedOut, c.Source.Scenario) && c.Source.Scenario != "":
+			r.Status = "timeout"
+		case slices.Contains(step.noVerdict, c.Source.Scenario) && c.Source.Scenario != "":
+			yes := true
+			r.Status, r.NoVerdict = "fail", &yes
+		case step.buildRed && c.ID == "command:build":
+			r.Status = "fail"
+		}
+		results = append(results, r)
+	}
+	digest := fmt.Sprintf("failure of run %d", v.planRuns)
+	if step.steady {
+		digest = "the same failure"
+	}
+	return results, digest, true
+}
+
+// planDefectWalk runs the driven activity under a scripted integration until it reads want.
+func planDefectWalk(t *testing.T, id string, script func(int, []string) planStep, want delivery.ActivityViewState) (*stack, *scenariohost.Host, delivery.DeliveryManager) {
+	t.Helper()
+	s, h, subject := startPlanDefectWalk(t, id, script, vibes, nil)
+	awaitActivityState(t, h, subject, drivenActivity, want)
+	return s, h, subject
+}
+
+// startPlanDefectWalk starts the driven activity under a scripted integration. Every test-plan
+// run binds the plan the design state holds, and then does what replan says, if anything.
+func startPlanDefectWalk(
+	t *testing.T, id string, script func(int, []string) planStep, policy delivery.ExecutionPolicyInput,
+	replan func(run int, plan map[string]any),
+) (*stack, *scenariohost.Host, delivery.DeliveryManager) {
+	t.Helper()
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.mu.Lock()
+	s.venue.planScript = script
+	s.venue.bindPlan, s.venue.replan = true, replan
+	s.venue.mu.Unlock()
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, policy)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-plan-defect-"+id); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	return s, h, subject
+}
+
+// designPlan is the test plan the design state holds for the driven contract.
+func designPlan() (map[string]any, error) {
+	raw, err := os.ReadFile(designState)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		PhaseArtifacts struct {
+			TestPlan map[string]map[string]any `json:"testPlan"`
+		} `json:"phaseArtifacts"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	plan, ok := doc.PhaseArtifacts.TestPlan[drivenContract]
+	if !ok {
+		return nil, fmt.Errorf("the design state has no plan for %s", drivenContract)
+	}
+	return plan, nil
+}
+
+// flipBindingHook changes one binding of a plan, by flipping its first step's hook flag.
+func flipBindingHook(plan map[string]any, scenario string) {
+	for _, b := range plan["bindings"].([]any) {
+		binding := b.(map[string]any)
+		if binding["scenario"] != scenario {
+			continue
+		}
+		step := binding["steps"].([]any)[0].(map[string]any)
+		hook, _ := step["hook"].(bool)
+		step["hook"] = !hook
+	}
+}
+
+// jobCount counts the driven activity's runs of one command.
+func jobCount(s *stack, command string) int {
+	n := 0
+	for _, j := range s.venue.jobs() {
+		if j.Activity == drivenActivity && j.Command == command {
+			n++
+		}
+	}
+	return n
+}
+
+// planDefectRounds reads the plan gate's rounds off the ledger.
+func planDefectRounds(t *testing.T, h *scenariohost.Host, s *stack) []projectstate.ReviewRound {
+	t.Helper()
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "plan-defect-read"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []projectstate.ReviewRound
+	for _, r := range proj.ActivityExecution[drivenActivity].Reviews {
+		if r.TaskID == "stpReview" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// TestAPlanDefectReopensThePlanThroughItsReview is the route end to end. Integration's run fails
+// exactly the one scenario it names. The gate stays red and the attempt fails, the plan's review
+// gets a system-authored send-back round, the test-engineer redrafts carrying the claim, the
+// review passes again, and only then does integration re-run and the activity finish.
+func TestAPlanDefectReopensThePlanThroughItsReview(t *testing.T) {
+	s, h, _ := planDefectWalk(t, "route", func(run int, scenarios []string) planStep {
+		if run == 1 {
+			return planStep{failed: scenarios[:1], report: scenarios[:1]}
+		}
+		return planStep{}
+	}, delivery.ActivityViewDone)
+	if got := jobCount(s, "service-test-plan"); got != 2 {
+		t.Errorf("the test plan ran %d times, want the first draft and one redraft", got)
+	}
+	if got := jobCount(s, "service-integration"); got != 2 {
+		t.Errorf("integration ran %d times, want the red run and the green one", got)
+	}
+	var order []string
+	for _, j := range s.venue.jobs() {
+		if j.Activity == drivenActivity && (j.Command == "service-test-plan" || j.Command == "service-integration") {
+			order = append(order, j.Command)
+		}
+	}
+	if len(order) != 4 || order[1] != "service-integration" || order[2] != "service-test-plan" || order[3] != "service-integration" {
+		t.Errorf("job order %v, want the redraft between the two integration runs", order)
+	}
+	rounds := planDefectRounds(t, h, s)
+	if len(rounds) != 3 {
+		t.Fatalf("the plan gate holds %d rounds, want pass, system send-back, pass: %+v", len(rounds), rounds)
+	}
+	if rounds[1].Outcome != projectstate.RoundSentBack || rounds[2].Outcome != projectstate.RoundPassed {
+		t.Errorf("round outcomes %v %v", rounds[1].Outcome, rounds[2].Outcome)
+	}
+	if v := rounds[1].Verdicts; len(v) != 1 || v[0].Actor != "system" || !strings.Contains(v[0].Summary, "contradicts the contract") {
+		t.Errorf("the send-back round's verdict is %+v, want the system's, carrying the claim", v)
+	}
+}
+
+// TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed holds the agent to the run, one rule per attempt
+// of one walk: a claim the run does not bear out re-opens nothing, it re-dispatches integration as
+// any red does, and the attempt records why the route stayed shut.
+func TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed(t *testing.T) {
+	wants := []string{
+		"is red and not named",
+		"command:build is red and not named",
+		"is named but passed",
+		"not a recorded failure",
+		"recorded no verdict",
+		"points at wiring or a hook",
+	}
+	s, h, _ := planDefectWalk(t, "refusals", func(run int, sc []string) planStep {
+		switch run {
+		case 1:
+			return planStep{failed: sc[:2], report: sc[:1]}
+		case 2:
+			return planStep{failed: sc[:1], buildRed: true, report: sc[:1]}
+		case 3:
+			return planStep{failed: sc[:1], report: sc[:2]}
+		case 4:
+			return planStep{timedOut: sc[:1], report: sc[:1]}
+		case 5:
+			return planStep{noVerdict: sc[:1], report: sc[:1]}
+		case 6:
+			return planStep{failed: sc, report: sc}
+		}
+		return planStep{}
+	}, delivery.ActivityViewDone)
+	if got := jobCount(s, "service-test-plan"); got != 1 {
+		t.Errorf("the test plan ran %d times: a refused report must not re-open it", got)
+	}
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "plan-defect-refusals"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var details []string
+	for _, a := range proj.ActivityExecution[drivenActivity].Attempts {
+		if a.Task == "integration" && a.Outcome == projectstate.OutcomeFailed {
+			details = append(details, a.Detail)
+		}
+	}
+	if len(details) != len(wants) {
+		t.Fatalf("%d red attempts, want %d: %q", len(details), len(wants), details)
+	}
+	for i, want := range wants {
+		if !strings.Contains(details[i], "report was refused") || !strings.Contains(details[i], want) {
+			t.Errorf("attempt %d's detail %q, want the refusal naming %q", i+1, details[i], want)
+		}
+	}
+	if rounds := planDefectRounds(t, h, s); len(rounds) != 1 {
+		t.Errorf("the plan gate holds %d rounds, want only its first pass", len(rounds))
+	}
+}
+
+// TestAnUpheldBindingCannotBeReportedAgain: the test-engineer answered "binding stands" by leaving
+// the plan alone and the review passed, so the same claim on the same binding re-opens nothing.
+func TestAnUpheldBindingCannotBeReportedAgain(t *testing.T) {
+	s, h, _ := planDefectWalk(t, "upheld", func(run int, sc []string) planStep {
+		if run <= 2 {
+			return planStep{failed: sc[:1], report: sc[:1]}
+		}
+		return planStep{}
+	}, delivery.ActivityViewDone)
+	if got := jobCount(s, "service-test-plan"); got != 2 {
+		t.Errorf("the test plan ran %d times, want one redraft", got)
+	}
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "plan-defect-upheld"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range proj.ActivityExecution[drivenActivity].Attempts {
+		found = found || (a.Task == "integration" && strings.Contains(a.Detail, "reported before and upheld"))
+	}
+	if !found {
+		t.Errorf("no attempt records the upheld refusal: %+v", proj.ActivityExecution[drivenActivity].Attempts)
+	}
+}
+
+// TestPlanDefectTripsAreBounded: two trips, each changing the named binding so neither is upheld,
+// and the third report escalates. The escalation names the dispute, and the count comes off the
+// ledger, so nothing about the plan changing resets it.
+func TestPlanDefectTripsAreBounded(t *testing.T) {
+	var scenario atomic.Value
+	s, h, _ := startPlanDefectWalk(t, "bound", func(_ int, sc []string) planStep {
+		scenario.Store(sc[0])
+		return planStep{failed: sc[:1], report: sc[:1]}
+	}, vibes, func(run int, plan map[string]any) {
+		if name, ok := scenario.Load().(string); ok && run > 1 {
+			if run%2 == 0 {
+				flipBindingHook(plan, name)
+			}
+		}
+	})
+	eventually(t, 3*walkWindow, "the third report escalating", func() (bool, string) {
+		return jobCount(s, "service-integration") == 3 && jobCount(s, "service-test-plan") == 3, fmt.Sprintf("%d integration, %d plan",
+			jobCount(s, "service-integration"), jobCount(s, "service-test-plan"))
+	})
+	time.Sleep(45 * time.Second)
+	if got := jobCount(s, "service-integration"); got != 3 {
+		t.Errorf("integration ran %d times: the third report must escalate rather than retry", got)
+	}
+	rounds := planDefectRounds(t, h, s)
+	trips := 0
+	for _, r := range rounds {
+		if r.Outcome == projectstate.RoundSentBack {
+			trips++
+		}
+	}
+	if trips != 2 {
+		t.Errorf("%d send-back rounds, want 2: %+v", trips, rounds)
+	}
+}
+
+// TestARepeatBeatsAReport: a plan upheld unchanged, over the same tree and the same failure,
+// is no progress, whatever the agent says about it. The comparison survives the trip.
+func TestARepeatBeatsAReport(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.mu.Lock()
+	s.venue.steadyWork = true
+	s.venue.planScript = func(_ int, sc []string) planStep {
+		return planStep{failed: sc[:1], report: sc[:1], steady: true}
+	}
+	s.venue.bindPlan = true
+	s.venue.mu.Unlock()
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-plan-defect-repeat"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "plan-defect-repeat"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := proj.ActivityExecution[drivenActivity].FailureReason; got != projectstate.NoProgress {
+		t.Errorf("the activity ended %v, want noProgress", got)
+	}
+	if got := jobCount(s, "service-integration"); got != 2 {
+		t.Errorf("integration ran %d times, want the report and its identical repeat", got)
+	}
+}
+
+// TestAReplanThatTouchesWhatWasNotNamedHoldsForAHuman: the re-plan changed a binding the report
+// did not name. Under vibes nobody has to look, and that is exactly why the gate must not pass.
+func TestAReplanThatTouchesWhatWasNotNamedHoldsForAHuman(t *testing.T) {
+	var other atomic.Value
+	s, h, subject := startPlanDefectWalk(t, "replan-hold", func(_ int, sc []string) planStep {
+		other.Store(sc[1])
+		return planStep{failed: sc[:1], report: sc[:1]}
+	}, vibes, func(run int, plan map[string]any) {
+		if name, ok := other.Load().(string); ok && run == 2 {
+			flipBindingHook(plan, name)
+		}
+	})
+	view := awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewAwaitingHuman)
+	eventually(t, walkWindow, "the hold's system comment", func() (bool, string) {
+		v, err := subject.QueryActivityView(callContext(t, h, ""), planProject, drivenActivity)
+		if err != nil {
+			return false, err.Error()
+		}
+		view = v
+		revs := taskOf(v, "stpReview").Revisions
+		return len(revs) > 0 && len(revs[len(revs)-1].Thread) > 0, fmt.Sprintf("%+v", taskOf(v, "stpReview"))
+	})
+	revs := taskOf(view, "stpReview").Revisions
+	thread := revs[len(revs)-1].Thread
+	if !strings.Contains(thread[0].Text, "did not name") {
+		t.Errorf("the hold's comment is %q", thread[0].Text)
+	}
+	if got := jobCount(s, "service-integration"); got != 1 {
+		t.Errorf("integration ran %d times while the plan was held", got)
+	}
+}
+
+// TestAReportWaitsForAnOpenPlanGate: integration can go red while a human still holds the plan's
+// review. The redraft must not start over the human's head; it starts once that gate passes.
+func TestAReportWaitsForAnOpenPlanGate(t *testing.T) {
+	gated := delivery.ExecutionPolicyInput{Policy: &delivery.ReviewPolicyInput{
+		GatedPhasesByType: map[string][]string{"service": {"test_plan"}}}}
+	s, h, subject := startPlanDefectWalk(t, "open-gate", func(run int, sc []string) planStep {
+		if run == 1 {
+			return planStep{failed: sc[:1], report: sc[:1]}
+		}
+		return planStep{}
+	}, gated, nil)
+	eventually(t, 2*walkWindow, "integration reporting while the plan's gate is open", func() (bool, string) {
+		return jobCount(s, "service-integration") == 1 && jobCount(s, "service-test-plan") == 1, "not yet"
+	})
+	time.Sleep(45 * time.Second)
+	if got := jobCount(s, "service-test-plan"); got != 1 {
+		t.Fatalf("the plan was redrafted %d times over an open gate", got-1)
+	}
+	decide := func() {
+		eventually(t, walkWindow, "the plan's gate being decided", func() (bool, string) {
+			err := subject.SubmitReviewDecision(callContext(t, h, ""), planProject, drivenActivity, "stpReview",
+				delivery.ReviewDecisionInput{Decision: delivery.ReviewApprove}, nil)
+			if err != nil {
+				return false, err.Error()
+			}
+			return true, ""
+		})
+	}
+	decide()
+	eventually(t, walkWindow, "the redraft", func() (bool, string) {
+		return jobCount(s, "service-test-plan") == 2, "not yet"
+	})
+	if got := jobCount(s, "service-integration"); got != 1 {
+		t.Errorf("integration ran %d times before the redraft's review", got)
+	}
+	decide()
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	if got := jobCount(s, "service-integration"); got != 2 {
+		t.Errorf("integration ran %d times, want 2", got)
+	}
+}
+
+// TestAResumeAfterASendBackHoldsIntegration: the redraft gives up, so the activity exits with the
+// plan sent back. The resume is a fresh walk with only the ledger to go on: it must seed the plan's
+// task pending, carrying the steer, and hold integration until the plan's review passes, or
+// integration re-runs over the very plan it reported.
+func TestAResumeAfterASendBackHoldsIntegration(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	var plans atomic.Int32
+	var failing atomic.Bool
+	failing.Store(true)
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		if j.Activity == drivenActivity && j.Command == "service-test-plan" && plans.Add(1) > 1 && failing.Load() {
+			return runFails
+		}
+		return runSucceeds
+	})
+	s.venue.mu.Lock()
+	s.venue.planScript = func(run int, sc []string) planStep {
+		if run == 1 {
+			return planStep{failed: sc[:1], report: sc[:1]}
+		}
+		return planStep{}
+	}
+	s.venue.bindPlan = true
+	s.venue.mu.Unlock()
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-plan-defect-resume"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	first := awaitHalt(t, h, subject)
+	if got := jobCount(s, "service-integration"); got != 1 {
+		t.Fatalf("integration ran %d times before the redraft gave up, want 1", got)
+	}
+	failing.Store(false)
+	before := len(s.venue.jobs())
+	if err := subject.SetProjectRunState(callContext(t, h, ""), planProject, delivery.ProjectRunning, ""); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	_ = first
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	var order []string
+	for _, j := range s.venue.jobs()[before:] {
+		if j.Activity == drivenActivity {
+			order = append(order, j.Command)
+		}
+	}
+	if len(order) != 2 || order[0] != "service-test-plan" || order[1] != "service-integration" {
+		t.Errorf("after the resume the jobs are %v, want the plan's redraft and then integration", order)
+	}
 }
