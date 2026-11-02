@@ -9038,6 +9038,10 @@ const (
 	// executeOverride's Skip arm both returned attemptDone with a nil error) and what keeps the
 	// pump's cascade alive past an activity that gave up.
 	walkTaskExited
+	// walkTaskHeld is APPENDED (FIX-022): a dispatch that reported a plan defect waits here for
+	// the gate it named to pass again. It is not pending, because its dependsOn have all passed
+	// and it would race the redraft against the old plan; a founder ruling fixes those edges.
+	walkTaskHeld
 )
 
 // producedSubject is what a strategy hands back: the ref a review round will cite, the
@@ -9072,6 +9076,11 @@ type producedSubject struct {
 	// VarianceExhausted or EscalationTimedOut for the two give-ups — and a walk that re-derived
 	// one would report the same thing for all three.
 	ActivityExited bool
+	// PlanDefectSentBack says the task's run was red, its report of a plan defect was admitted,
+	// and the walk must hold it until the plan's review passes again.
+	PlanDefectSentBack bool
+	// PlanDefectNote is what the plan's redraft is sent back with.
+	PlanDefectNote string
 }
 
 // deliveryActivityInput is the start payload for the GENERIC per-activity child.
@@ -9106,6 +9115,9 @@ type walkSnapshot struct {
 	Feedback map[string]string          `json:"feedback"`
 	Produced map[string]producedSubject `json:"produced"`
 	Pending  map[string][]routedSignal  `json:"pending"`
+	// PlanDefects are admitted reports whose send-back round has not opened yet, by the task
+	// that reported them. The plan baseline they are judged against is on the activity branch.
+	PlanDefects map[string]string `json:"planDefects,omitempty"`
 }
 
 // The four signal kinds the router forwards. They are the message's discriminator, not a
@@ -14071,6 +14083,9 @@ type constructState struct {
 	// loop runs inside one workflow run (ContinueAsNew waits for no task in flight), so this
 	// needs no carrying across a continue. A note carried into an attempt resets it.
 	lastFingerprint map[string]string
+	// planDefects is what judgePlanDefectReport admitted for a task's latest attempt, which the
+	// variance decision reads in the same coroutine. It never crosses a continue-as-new.
+	planDefects map[string]admittedPlanDefect
 	// branchJobs serialises this activity's jobs on its one branch (lockBranchJobs).
 	branchJobs workflow.Mutex
 

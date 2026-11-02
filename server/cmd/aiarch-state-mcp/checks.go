@@ -373,7 +373,9 @@ func (r checkRunner) scenarioResult(b scenarioBatch, c projectstate.SpecCheck, i
 		if runErr != nil {
 			msg += "[" + runErr.Error() + "]\n"
 		}
-		return r.finish(c, checkFail, 0, append([]byte(msg+"\n"), logTail(out)...))
+		res := r.finish(c, checkFail, 0, append([]byte(msg+"\n"), logTail(out)...))
+		res.NoVerdict = ptr(true)
+		return res
 	}
 	var log string
 	if b.goTest {

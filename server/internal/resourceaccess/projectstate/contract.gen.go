@@ -207,6 +207,7 @@ type CheckResult struct {
 	OutputRef  *string `json:"outputRef,omitempty"`
 	TraceRef   *string `json:"traceRef,omitempty"`
 	VideoRef   *string `json:"videoRef,omitempty"`
+	NoVerdict  *bool   `json:"noVerdict,omitempty"`
 }
 
 type CheckRun struct {

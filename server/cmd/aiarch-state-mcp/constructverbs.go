@@ -26,6 +26,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -273,6 +274,9 @@ func (s *Session) recordTestingState(payload map[string]any) error {
 	if err != nil {
 		return err
 	}
+	if pl.PlanDefect != nil {
+		return fmt.Errorf("recordTestingState does not record plan defects: call reportPlanDefect, which stamps the attempt and the plan baseline")
+	}
 	if pl.CheckRun != nil {
 		return fmt.Errorf("recordTestingState does not record check runs: a run is the venue's measured evidence, " +
 			"recorded by the workflow's `record-check-run` step from the check gate's results — " +
@@ -282,6 +286,105 @@ func (s *Session) recordTestingState(payload map[string]any) error {
 		projectstate.ApplyPhaseArtifactPayload(p, "", pl)
 		return nil
 	})
+}
+
+// reportPlanDefectInput is integration's allegation. The attempt and the plan baseline are not
+// inputs: the verb stamps them, so an agent cannot report for another attempt.
+type reportPlanDefectInput struct {
+	Contract  string   `json:"contract" jsonschema:"the contract key whose test plan holds the scenarios (a .serviceContracts key)"`
+	Scenarios []string `json:"scenarios" jsonschema:"the ids of the scenarios whose binding is wrong; each must have a recorded failing verdict in this attempt's run"`
+	Reason    string   `json:"reason" jsonschema:"the contract or use-case clause the binding contradicts; never an observed value"`
+}
+
+// reportPlanDefect records integration's allegation that named scenarios' bindings are wrong.
+// It writes through the evidence path: a report changes nothing a rule reads, and a document
+// already red must still be able to carry it. Whether the report takes effect is the Manager's
+// to judge against the attempt's run; this verb refuses only what no run could ever make good.
+func (s *Session) reportPlanDefect(in reportPlanDefectInput) error {
+	revision := strings.TrimSpace(os.Getenv(envRevision))
+	if s.ActivityID == "" || s.TaskID == "" || revision == "" {
+		return fmt.Errorf("reportPlanDefect needs the ambient activity, task and attempt; this job has none")
+	}
+	in.Contract, in.Reason = strings.TrimSpace(in.Contract), strings.TrimSpace(in.Reason)
+	if in.Reason == "" {
+		return fmt.Errorf("reportPlanDefect needs a reason citing the contract or use-case clause the binding contradicts")
+	}
+	if len(in.Scenarios) == 0 {
+		return fmt.Errorf("reportPlanDefect needs the scenarios whose binding is wrong")
+	}
+	return s.applyEvidenceMutation("plan defect report", func(p *projectstate.Project) error {
+		if err := planDefectRouteDeclared(p, s.ActivityID, s.TaskID); err != nil {
+			return err
+		}
+		contracts, err := componentContracts(p, s.ComponentID)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(contracts, in.Contract) {
+			return fmt.Errorf("contract %q is not one of this activity's contracts: %s", in.Contract, strings.Join(contracts, ", "))
+		}
+		if err := planBindsScenarios(p, in.Contract, in.Scenarios); err != nil {
+			return err
+		}
+		baseline, err := projectstate.PlanBindingDigests(p, contracts)
+		if err != nil {
+			return err
+		}
+		projectstate.ApplyPhaseArtifactPayload(p, "", projectstate.PhaseArtifactPayload{PlanDefect: &projectstate.PlanDefectReport{
+			ID: revision + ":" + in.Contract, Activity: s.ActivityID, Task: s.TaskID, Revision: revision,
+			Contract: in.Contract, Scenarios: slices.Sorted(slices.Values(in.Scenarios)), Reason: in.Reason, Baseline: baseline,
+		}})
+		return nil
+	})
+}
+
+// planDefectRouteDeclared refuses a report from a task whose lifecycle has no route back to a
+// plan, such as an integration activity sharing the command: there, the component is what to fix.
+func planDefectRouteDeclared(p *projectstate.Project, activity, task string) error {
+	lc, err := projectstate.ActivityLifecycle(p, activity)
+	if err != nil {
+		return err
+	}
+	for _, t := range lc.Tasks {
+		if t.ID == task && t.SendsBackTo != "" {
+			return nil
+		}
+	}
+	return fmt.Errorf("activity %s's lifecycle has no test plan for task %q to send back to; fix the component", activity, task)
+}
+
+// componentContracts are the contracts of a component: its own and every facet naming it.
+func componentContracts(p *projectstate.Project, componentID string) ([]string, error) {
+	key, ok := projectstate.ContractKeyOf(p, componentID)
+	if !ok {
+		return nil, fmt.Errorf("the System gives component %q no contract key", componentID)
+	}
+	var out []string
+	for name, sc := range p.ServiceContracts {
+		if name == key || scenario.Normalize(sc.Component) == scenario.Normalize(key) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// planBindsScenarios refuses a scenario the contract's plan does not bind, or names twice.
+func planBindsScenarios(p *projectstate.Project, contract string, scenarios []string) error {
+	if p.PhaseArtifacts == nil {
+		return fmt.Errorf("no test plan is recorded for %s", contract)
+	}
+	bound := map[string]bool{}
+	for _, b := range p.PhaseArtifacts.TestPlan[contract].Bindings {
+		bound[b.Scenario] = true
+	}
+	for _, id := range scenarios {
+		if !bound[id] {
+			return fmt.Errorf("the plan of %s binds no scenario %q (or it is named twice)", contract, id)
+		}
+		delete(bound, id)
+	}
+	return nil
 }
 
 // decodePhaseArtifactPayload strictly decodes the agent-supplied payload map into the

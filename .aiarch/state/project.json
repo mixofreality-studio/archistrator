@@ -27161,13 +27161,15 @@
             0,
             1,
             2,
-            3
+            3,
+            4
           ],
           "x-enum-varnames": [
             "VarianceRetry",
             "VarianceEscalate",
             "VarianceTakeover",
-            "VarianceGiveUp"
+            "VarianceGiveUp",
+            "VarianceSendBack"
           ],
           "x-go-base": "int"
         },
@@ -27178,14 +27180,16 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "x-enum-varnames": [
             "VarianceKindUnknown",
             "ReviewFailedUnresolvable",
             "WorkerMiss",
             "EstimateOverrun",
-            "NoProgress"
+            "NoProgress",
+            "PlanDefectReported"
           ],
           "x-go-base": "int"
         }
@@ -35458,6 +35462,10 @@
             },
             "videoRef": {
               "type": "string"
+            },
+            "noVerdict": {
+              "type": "boolean",
+              "description": "The scenario's run recorded no verdict for it, so its fail says nothing about the scenario (a results path no check reads, a test that never started). Absent otherwise."
             }
           },
           "required": [

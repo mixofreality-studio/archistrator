@@ -88,7 +88,7 @@ var (
 	// so new verbs keep this shape; extend the prefix list when a new verb prefix
 	// is coined. Raw generated tools (<component><Operation>) are referenced via
 	// the explicit mcp__ form, which needs no shape filter.
-	toolNameShape = regexp.MustCompile(`^(get|put|set|list|read|write|record|respond|publish|propose|submit|create|update|delete|commit|amend|answer)[A-Z][A-Za-z0-9]*$`)
+	toolNameShape = regexp.MustCompile(`^(get|put|set|list|read|write|record|report|respond|publish|propose|submit|create|update|delete|commit|amend|answer)[A-Z][A-Za-z0-9]*$`)
 )
 
 // extractionSentinels are core verbs the prompt surface is KNOWN to reference. If the

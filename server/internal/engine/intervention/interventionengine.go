@@ -82,7 +82,7 @@ func (interventionEngineImpl) DecideOnVariance(_ fweng.Context, variance Constru
 	d := s.decideOnVariance(variance)
 	if !varianceDirectiveValid(d) {
 		return 0, fweng.New(fweng.InternalInvariant,
-			"DecideOnVariance: strategy returned a directive outside the closed set {Retry|Escalate|Takeover|GiveUp}")
+			"DecideOnVariance: strategy returned a directive outside the closed set {Retry|Escalate|Takeover|GiveUp|SendBack}")
 	}
 	return d, nil
 }
@@ -150,7 +150,7 @@ func (interventionEngineImpl) ApplyPausePolicy(_ fweng.Context, ctx PauseRequest
 
 func varianceDirectiveValid(d VarianceDirective) bool {
 	switch d {
-	case VarianceRetry, VarianceEscalate, VarianceTakeover, VarianceGiveUp:
+	case VarianceRetry, VarianceEscalate, VarianceTakeover, VarianceGiveUp, VarianceSendBack:
 		return true
 	default:
 		return false
@@ -274,11 +274,25 @@ func (s tieredStrategy) effectiveRetryBudget() int64 {
 	return budget
 }
 
+// maxPlanDefectTrips is how many times one activity's integration may send its test plan back.
+// The first trip fixes the named defects, the second covers any they were masking. A third
+// suggests the plan and the implementation are not converging, and the contract or use case is
+// probably what is wrong, which no further round settles.
+const maxPlanDefectTrips = 2
+
 func (s tieredStrategy) decideOnVariance(v ConstructionVariance) VarianceDirective {
 	// Identical tree, identical failure: another attempt cannot change the result, and more
 	// budget would only re-pay for it. An operator may still reopen the task.
 	if v.Kind == NoProgress {
 		return VarianceGiveUp
+	}
+	// Integration reports the plan, not its own work, as what is wrong. AttemptCount counts the
+	// round trips this activity already spent on that.
+	if v.Kind == PlanDefectReported {
+		if v.AttemptCount < maxPlanDefectTrips {
+			return VarianceSendBack
+		}
+		return VarianceEscalate
 	}
 	// Within the retry budget AND not high-severity: retry.
 	if v.AttemptCount < s.effectiveRetryBudget() && v.Severity != SeverityHigh {

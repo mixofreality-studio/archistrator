@@ -2806,6 +2806,7 @@ type PhaseArtifactPayload struct {
 	PerfHarness   *PerfHarness
 	QualityGate   *QualityGate
 	CheckRun      *CheckRun
+	PlanDefect    *PlanDefectReport
 	Defect        *DefectRecord
 	// QualityAuditReport replaces the string in TestingState when non-empty.
 	QualityAuditReport string
@@ -3052,6 +3053,15 @@ func applyTestingStatePayload(p *Project, payload PhaseArtifactPayload) {
 		}
 		if !replaced {
 			ts.CheckRuns = append(ts.CheckRuns, *payload.CheckRun)
+		}
+	}
+	if payload.PlanDefect != nil {
+		ts := ensureTestingState()
+		i := slices.IndexFunc(ts.PlanDefects, func(r PlanDefectReport) bool { return r.ID == payload.PlanDefect.ID })
+		if i >= 0 {
+			ts.PlanDefects[i] = *payload.PlanDefect
+		} else {
+			ts.PlanDefects = append(ts.PlanDefects, *payload.PlanDefect)
 		}
 	}
 	if payload.Defect != nil {
@@ -5786,6 +5796,49 @@ type TestingState struct {
 	QualityAuditReport string         `json:"qualityAuditReport,omitempty"`
 	CheckRuns          []CheckRun     `json:"checkRuns,omitempty"`
 	Defects            []DefectRecord `json:"defects,omitempty"`
+	// PlanDefects are integration's allegations that a scenario's binding is wrong. Each
+	// carries an id, so sibling activities' records merge as a set.
+	PlanDefects []PlanDefectReport `json:"planDefects,omitempty"`
+}
+
+// PlanDefectReport is one integration attempt's allegation against one contract's test plan.
+// An allegation and nothing more: the test-engineer re-derives the named bindings and the
+// review rules on fault. The agent names Contract, Scenarios and Reason. The rest is the
+// verb's: Revision ties the report to the attempt it was made under, and Baseline is what lets
+// the review see a re-plan that changed more than it was asked to, and a later attempt see a
+// binding already upheld. Both outlive a continue-as-new and a fresh run, being on the branch.
+type PlanDefectReport struct {
+	// ID is "<revision>:<contract>", so a repeat under one attempt replaces.
+	ID        string   `json:"id"`
+	Activity  string   `json:"activity"`
+	Task      string   `json:"task"`
+	Revision  string   `json:"revision"`
+	Contract  string   `json:"contract"`
+	Scenarios []string `json:"scenarios"`
+	Reason    string   `json:"reason"`
+	// Baseline digests every binding of every contract of the component when the report was
+	// made, keyed "<contract>:<scenario>".
+	Baseline map[string]string `json:"baseline"`
+}
+
+// PlanBindingDigests digests each binding of the named contracts' plans, keyed
+// "<contract>:<scenario>". Equal digests mean the binding did not change.
+func PlanBindingDigests(p *Project, contracts []string) (map[string]string, error) {
+	out := map[string]string{}
+	if p.PhaseArtifacts == nil {
+		return out, nil
+	}
+	for _, contract := range contracts {
+		for _, b := range p.PhaseArtifacts.TestPlan[contract].Bindings {
+			raw, err := json.Marshal(b)
+			if err != nil {
+				return nil, fmt.Errorf("digest the binding of %s %s: %w", contract, b.Scenario, err)
+			}
+			sum := sha256.Sum256(raw)
+			out[contract+":"+b.Scenario] = hex.EncodeToString(sum[:])
+		}
+	}
+	return out, nil
 }
 
 // OperatingModel declares WHO OPERATES the built application — a PROJECT-LEVEL
@@ -11971,6 +12024,25 @@ func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
 	s = s.normalized()
 	s.Hash = s.ComputeHash()
 	return s, nil
+}
+
+// ActivityLifecycle is the lifecycle an activity of the committed list walks.
+func ActivityLifecycle(p *Project, activityID string) (methodassets.Lifecycle, error) {
+	item, ok := committedActivityItemOf(p, activityID)
+	if !ok {
+		return methodassets.Lifecycle{}, fmt.Errorf("no activity %q in the committed activity list", activityID)
+	}
+	row := p.ActivityExecution[activityID]
+	row.ActivityID = activityID
+	typ, variant, _, classified := ResolveConstructionRow(row, item)
+	if !classified {
+		return methodassets.Lifecycle{}, fmt.Errorf("activity %q matches no activity-classification rule", activityID)
+	}
+	lc, ok := methodassets.LifecycleFor(LifecycleKeyFor(typ, variant))
+	if !ok {
+		return methodassets.Lifecycle{}, fmt.Errorf("the method assets carry no lifecycle for activity %q", activityID)
+	}
+	return lc, nil
 }
 
 // generatedFilesGlobSuffix turns "<dir>" into the one non-trivial glob the grammar admits

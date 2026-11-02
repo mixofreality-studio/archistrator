@@ -1247,6 +1247,7 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 		obs = wf.observeDispatchedJob(ctx, tc, dispatch.handle, task, n, jobLabelConstruction, &tc.State.walk.gf)
 	}
 	unlock()
+	obs = wf.judgePlanDefectReport(ctx, tc, attemptID, obs)
 	// A scaffold-sync refusal dispatched NOTHING, so there is no episode to capture and no run
 	// to observe — but the attempt still resolves, as a failure, because an attempt left pending
 	// is indistinguishable from a run that died.
@@ -1303,6 +1304,8 @@ const (
 	varianceEscalationTimedOut
 	// varianceNoProgress: two consecutive attempts changed nothing and failed identically.
 	varianceNoProgress
+	// varianceSentBack: the attempt's admitted report re-opens the plan; the task holds.
+	varianceSentBack
 )
 
 // runTaskVariance is handleVariance and executeOverride, through the child, for ONE task.
@@ -1344,10 +1347,17 @@ func (wf *csWorkflows) runTaskVariance(
 		"detail", detail)
 
 	kind := intervention.WorkerMiss
+	count := int64(attempt)
 	// A note waiting for the next attempt means that attempt's inputs differ, so this one is not
 	// the last word however it failed (dispatchConstructionOnce restarts the comparison).
-	if len(tc.State.pendingNotes) == 0 && tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint) {
+	report, reported := tc.State.planDefects[tc.Task.ID]
+	switch {
+	case len(tc.State.pendingNotes) == 0 && tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint):
+		// Before a report: a repeat is no progress whatever the agent says about it. The
+		// comparison carries across a trip, so a plan the review upheld unchanged ends here.
 		kind = intervention.NoProgress
+	case reported:
+		kind, count = intervention.PlanDefectReported, report.trips
 	}
 	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()},
 		intervention.ConstructionVariance{
@@ -1357,7 +1367,7 @@ func (wf *csWorkflows) runTaskVariance(
 			ProjectID:    intervention.ProjectID(tc.In.ActivityID),
 			ActivityID:   intervention.ActivityID(tc.In.ActivityID),
 			Kind:         kind,
-			AttemptCount: int64(attempt),
+			AttemptCount: count,
 			Policy:       wf.InterventionPolicy,
 		})
 	if derr != nil {
@@ -1373,6 +1383,11 @@ func (wf *csWorkflows) runTaskVariance(
 		return varianceNoProgress, deferred, nil
 	case intervention.VarianceEscalate:
 		return wf.escalateTaskVariance(ctx, tc, detail, deferred)
+	case intervention.VarianceSendBack:
+		// Not a variance any more: the work is parked, not failing.
+		tc.State.variance = nil
+		tc.State.stage = StageDispatching
+		return varianceSentBack, deferred, nil
 	}
 	// VarianceDirective has no Unknown sentinel (VarianceRetry is its zero value), so anything
 	// outside the closed set is an unrecognized engine decision.
@@ -1900,6 +1915,9 @@ type walkState struct {
 	produced map[string]producedSubject
 	inbox    map[string]workflow.Channel
 	pending  map[string][]routedSignal
+	// planDefects are admitted reports whose send-back round has not opened yet, by the task
+	// that reported them; the value is the note the redraft is sent back with.
+	planDefects map[string]string
 
 	// rec is the lifecycle-shape oracle's delivery hook, nil in production. It is here
 	// rather than at the router because WHICH TASK received a message is the thing the
@@ -1931,6 +1949,8 @@ func newWalkState(lc methodassets.Lifecycle) *walkState {
 		produced: map[string]producedSubject{},
 		inbox:    map[string]workflow.Channel{},
 		pending:  map[string][]routedSignal{},
+
+		planDefects: map[string]string{},
 	}
 	for _, t := range lc.Tasks {
 		ws.byTask[t.ID] = walkTaskPending
@@ -1962,6 +1982,9 @@ func (ws *walkState) snapshot() *walkSnapshot {
 	for id, msgs := range ws.pending {
 		snap.Pending[id] = append([]routedSignal(nil), msgs...)
 	}
+	if len(ws.planDefects) > 0 {
+		snap.PlanDefects = maps.Clone(ws.planDefects)
+	}
 	return snap
 }
 
@@ -1979,6 +2002,7 @@ func walkStateFrom(lc methodassets.Lifecycle, snap *walkSnapshot) *walkState {
 	for id, msgs := range snap.Pending {
 		ws.pending[id] = append([]routedSignal(nil), msgs...)
 	}
+	maps.Copy(ws.planDefects, snap.PlanDefects)
 	return ws
 }
 
@@ -2103,6 +2127,11 @@ func (wf *csWorkflows) walkTasks(
 	results := workflow.NewBufferedChannel(ctx, len(lc.Tasks))
 	inflight := 0
 	for {
+		// Before readyTasks, and so before the finalize check below: a settled send-back makes
+		// the plan's pair ready, and a released hold makes the held task ready.
+		if err := wf.settleHeldTasks(ctx, in, lc, ws, state); err != nil {
+			return wf.failWalk(ctx, in, state, "plan-defect send-back", err)
+		}
 		for _, t := range readyTasks(lc, ws) {
 			ws.byTask[t.ID] = walkTaskRunning
 			inflight++
@@ -2145,7 +2174,11 @@ func (wf *csWorkflows) walkTasks(
 			return nil
 		}
 		if d.state == walkTaskSentBack {
-			reopenJudgedPair(lc, ws, d.taskID)
+			if _, reported := ws.planDefects[d.taskID]; reported {
+				ws.byTask[d.taskID] = walkTaskHeld
+			} else {
+				reopenJudgedPair(lc, ws, d.taskID)
+			}
 		}
 		// THE ONLY SAFE CONTINUE-AS-NEW POINT. inflight == 0 means no coroutine holds a
 		// gate or a poll, so the snapshot is complete and nothing is abandoned
@@ -2457,6 +2490,11 @@ func (wf *csWorkflows) runTask(
 		ws.produced[t.ID] = produced
 		return walkTaskExited, nil
 	}
+	if produced.PlanDefectSentBack {
+		ws.produced[t.ID] = produced
+		ws.planDefects[t.ID] = produced.PlanDefectNote
+		return walkTaskSentBack, nil
+	}
 	// The output is what a REVIEW task will cite, keyed by the task that produced it, so
 	// runGate can reach it through t.Reviews — a review task with a `reviews` target
 	// produces nothing of its own, and without this hand-off every round would cite the
@@ -2537,6 +2575,9 @@ func (wf *csWorkflows) runGate(
 		if _, gerr := wf.testingGateHeld(ctx, in, lc, t, ws, state, &refused); gerr != nil {
 			return walkTaskFailed, gerr
 		}
+		if _, gerr := wf.replanGateHeld(ctx, in, lc, t, state, &refused); gerr != nil {
+			return walkTaskFailed, gerr
+		}
 		state.surfaceReviewSetRefusal(t.ID, err.Error())
 		state.stage = StageAwaitingApproval
 		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &refused, inbox, nil)
@@ -2606,6 +2647,13 @@ func (wf *csWorkflows) runGate(
 	held, err := wf.testingGateHeld(ctx, in, lc, t, ws, state, &gate)
 	if err != nil {
 		return walkTaskFailed, err
+	}
+	if !held {
+		// A plan re-derived for a plan defect may change only what the report named. The same
+		// human hold: the autogate cannot pass over its comment, a human can resolve it.
+		if held, err = wf.replanGateHeld(ctx, in, lc, t, state, &gate); err != nil {
+			return walkTaskFailed, err
+		}
 	}
 	if held {
 		state.surfaceReviewSet(t.ID, &set)
@@ -3800,8 +3848,77 @@ func (wf *csWorkflows) seedWalkFromLedger(
 			ws.revision[string(r.TaskID)] = r.Round
 		}
 	}
+	if workflow.GetVersion(ctx, changePlanDefectRoute, workflow.DefaultVersion, 1) >= 1 {
+		seedSentBackRounds(lc, row, ws)
+	}
 	reopenAtSeed(ctx, in, lc, ws)
 	return ws
+}
+
+// seedSentBackRounds is what a fresh run owes a send-back the last run never finished. The
+// judged task's latest attempt reads passed, so the plain seed would mark it passed and the
+// review would re-judge the very work it just rejected, with no redraft. A latest sent-back round
+// whose judged task has no later resolved attempt seeds that task pending, with the round's
+// steer. A task that reported the defect holds until its gate passes again, or its redraft
+// would race the old plan.
+func seedSentBackRounds(lc methodassets.Lifecycle, row projectstate.ActivityExecution, ws *walkState) {
+	for _, t := range lc.Tasks {
+		if t.Kind != methodassets.LifecycleTaskReview || t.Reviews == "" {
+			continue
+		}
+		if ws.byTask[t.ID] == walkTaskPassed {
+			continue
+		}
+		latest, ok := latestRound(row, t.ID)
+		if !ok || latest.Outcome != projectstate.RoundSentBack || attemptResolvedAfter(row, t.Reviews, latest.DecidedAt) {
+			continue
+		}
+		ws.byTask[t.Reviews] = walkTaskPending
+		ws.feedback[t.Reviews] = roundSteer(latest)
+	}
+	for _, t := range lc.Tasks {
+		if t.SendsBackTo == "" || ws.byTask[t.SendsBackTo] == walkTaskPassed {
+			continue
+		}
+		if round, ok := latestPlanDefectRound(row, t.SendsBackTo); ok && !attemptResolvedAfter(row, t.ID, round.DecidedAt) {
+			ws.byTask[t.ID] = walkTaskHeld
+		}
+	}
+}
+
+// latestRound is the highest-numbered round a task holds.
+func latestRound(row projectstate.ActivityExecution, task string) (projectstate.ReviewRound, bool) {
+	var best projectstate.ReviewRound
+	found := false
+	for _, r := range row.Reviews {
+		if string(r.TaskID) == task && (!found || r.Round > best.Round) {
+			best, found = r, true
+		}
+	}
+	return best, found
+}
+
+// attemptResolvedAfter reports whether a task holds a resolved attempt that ended after a
+// round was decided. A round with no readable decision time has nothing to compare, and is
+// read as answered: the plain seed then stands.
+func attemptResolvedAfter(row projectstate.ActivityExecution, task, decidedAt string) bool {
+	decided, err := time.Parse(time.RFC3339Nano, decidedAt)
+	if err != nil {
+		return true
+	}
+	return slices.ContainsFunc(row.Attempts, func(a projectstate.TaskAttempt) bool {
+		return string(a.Task) == task && a.Outcome != projectstate.OutcomePending && a.EndedAt != nil && a.EndedAt.After(decided)
+	})
+}
+
+// roundSteer is the steer a sent-back round carried: its last verdict's summary.
+func roundSteer(r projectstate.ReviewRound) string {
+	for i := len(r.Verdicts) - 1; i >= 0; i-- {
+		if r.Verdicts[i].Verdict == projectstate.VerdictSendBack && r.Verdicts[i].Summary != "" {
+			return r.Verdicts[i].Summary
+		}
+	}
+	return ""
 }
 
 // latestPassedAttempt is the highest-numbered PASSED attempt the ledger holds at task.
@@ -6735,4 +6852,464 @@ func (wf *csWorkflows) holdTestingGate(
 			Type:       projectstate.ReviewCommentTypeChangeRequest,
 			Addressee:  projectstate.ReviewAddresseeArchitect,
 		}})
+}
+
+// ---------------------------------------------------------------------------
+// THE ROUTE FROM INTEGRATION BACK TO THE TEST PLAN
+//
+// A plan cannot run against an implementation until integration, so a wrong binding can only be
+// found there, and integration may not change it: the failing task must not overrule its own
+// test. So integration alleges (reportPlanDefect), the job's gate stays red and the attempt
+// resolves failed as usual, and this section decides whether the allegation re-opens the plan.
+//
+// It re-opens through the plan's own review, never around it: a system-authored send-back round
+// on the gate the lifecycle names (sendsBackTo), which reopenJudgedPair turns into a redraft by
+// the blind test-engineer and a fresh judgement. The reporting task holds until that gate passes
+// again, so no redraft races the old plan, and then re-runs every scenario.
+//
+// Every fact lives on a ledger: the round trips on the review rounds, the reports and their
+// baselines on the activity branch. Nothing resets across a plan change, a continue-as-new or
+// a fresh run. A run with no report takes none of this path.
+// ---------------------------------------------------------------------------
+
+// changePlanDefectRoute fences the route and the seed that serves it: a history recorded
+// before it dispatched integration again on any red. Deploying it needs a workflow drain.
+const changePlanDefectRoute = "plan-defect-route"
+
+// planDefectReviewerRole marks the verdict of a system-authored send-back round. It is what the
+// round-trip count reads, so a human send-back on the same gate never spends the budget.
+const planDefectReviewerRole = "plan-defect-route"
+
+// admittedPlanDefect is one attempt's admitted report: what the variance decision and the walk
+// need from it within the attempt's coroutine.
+type admittedPlanDefect struct {
+	trips int64
+	note  string
+}
+
+// judgePlanDefectReport reads what a red attempt of a route-carrying task reported and decides
+// it against that attempt's run. An admissible report is remembered for the variance decision. A
+// refusal, and a run nobody reported on, is an ordinary red: the refusal is added to the
+// diagnostic the attempt records, so the reader sees why the route stayed shut.
+func (wf *csWorkflows) judgePlanDefectReport(
+	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation,
+) csPipelineObservation {
+	delete(tc.State.planDefects, tc.Task.ID)
+	if obs.Phase == PipelineSucceeded || tc.Task.SendsBackTo == "" ||
+		workflow.GetVersion(ctx, changePlanDefectRoute, workflow.DefaultVersion, 1) < 1 {
+		return obs
+	}
+	proj, err := wf.readActivityBranchProject(ctx, tc.In)
+	if err != nil {
+		workflow.GetLogger(ctx).Error("delivery.planDefect.unreadable; an ordinary red",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "err", err.Error())
+		return obs
+	}
+	reports, earlier := planDefectReportsAt(&proj, string(tc.In.ActivityID), attemptID)
+	if len(reports) == 0 {
+		return obs
+	}
+	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(tc.In.ProjectID), string(tc.In.ActivityID))
+	if err != nil {
+		workflow.GetLogger(ctx).Error("delivery.planDefect.unreadable; an ordinary red",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "err", err.Error())
+		return obs
+	}
+	run, found := selectCheckRun(&proj, string(tc.In.ActivityID), tc.Task.ID, "", []string{attemptID}, true)
+	var judged *projectstate.CheckRun
+	if found {
+		judged = &run
+	}
+	current, err := projectstate.PlanBindingDigests(&proj, reportedContracts(reports))
+	if err != nil {
+		obs.Diagnostic += " (the plan defect report was refused: " + err.Error() + ")"
+		return obs
+	}
+	prior := tripReports(row, earlier, tc.Task.ID, tc.Task.SendsBackTo)
+	if reason := planDefectAdmissible(reports, prior, judged, current); reason != "" {
+		workflow.GetLogger(ctx).Warn("delivery.planDefect.refused", "activityId", tc.In.ActivityID,
+			"taskId", tc.Task.ID, "attemptId", attemptID, "reason", reason)
+		obs.Diagnostic += " (the plan defect report was refused: " + reason + ")"
+		return obs
+	}
+	note := planDefectNote(reports)
+	if tc.State.planDefects == nil {
+		tc.State.planDefects = map[string]admittedPlanDefect{}
+	}
+	tc.State.planDefects[tc.Task.ID] = admittedPlanDefect{trips: planDefectTrips(row, tc.Task.SendsBackTo), note: note}
+	// On the attempt, so a give-up over this report names the dispute.
+	obs.Diagnostic += " (" + note + ")"
+	return obs
+}
+
+// tripReports keeps the reports that actually sent the plan back. A report the Manager refused
+// was never ruled on, so it must not read as upheld when the agent makes it again. Each send-back
+// round follows the attempt whose report caused it, with no attempt between them.
+func tripReports(row projectstate.ActivityExecution, reports []projectstate.PlanDefectReport, task, gate string) []projectstate.PlanDefectReport {
+	tripped := map[string]bool{}
+	for _, r := range row.Reviews {
+		if string(r.TaskID) != gate || !isPlanDefectRound(r) {
+			continue
+		}
+		decided, err := time.Parse(time.RFC3339Nano, r.DecidedAt)
+		if err != nil {
+			continue
+		}
+		var last *projectstate.TaskAttempt
+		for i := range row.Attempts {
+			a := &row.Attempts[i]
+			if string(a.Task) == task && a.EndedAt != nil && a.EndedAt.Before(decided) && (last == nil || a.Attempt > last.Attempt) {
+				last = a
+			}
+		}
+		if last != nil {
+			tripped[last.AttemptID] = true
+		}
+	}
+	return slices.DeleteFunc(reports, func(r projectstate.PlanDefectReport) bool { return !tripped[r.Revision] })
+}
+
+// planDefectReportsAt splits the activity's reports into those made under revision and the
+// earlier ones, which is what a repeat is judged against.
+func planDefectReportsAt(proj *projectstate.Project, activity, revision string) (at, prior []projectstate.PlanDefectReport) {
+	if proj.TestingState == nil {
+		return nil, nil
+	}
+	for _, r := range proj.TestingState.PlanDefects {
+		switch {
+		case r.Activity != activity:
+		case r.Revision == revision:
+			at = append(at, r)
+		default:
+			prior = append(prior, r)
+		}
+	}
+	return at, prior
+}
+
+func reportedContracts(reports []projectstate.PlanDefectReport) []string {
+	var out []string
+	for _, r := range reports {
+		out = append(out, r.Contract)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// planDefectAdmissible returns "" when the reports may re-open the plan, else why not. current
+// digests the reported contracts' bindings as they stand. The rules say that the agent's claim
+// alone never re-opens anything: the run must agree with it.
+//
+//   - A run is recorded at the report's attempt: nothing else says what failed.
+//   - The red set is exactly the named scenarios: build, vet, layout and every other scenario are
+//     green, so the plan is the only thing left to blame.
+//   - Each named scenario has a recorded failing verdict. No verdict and a timeout are plumbing,
+//     which the test-engineer cannot fix.
+//   - Every reported contract has a green scenario. All red points at wiring or an unfilled hook,
+//     so a one-scenario contract takes the ordinary path, which is the safe direction.
+//   - A binding an earlier trip upheld, unchanged since, is settled.
+func planDefectAdmissible(reports, prior []projectstate.PlanDefectReport, run *projectstate.CheckRun, current map[string]string) string {
+	if run == nil {
+		return "no check run is recorded at this attempt"
+	}
+	named := map[string]bool{}
+	for _, r := range reports {
+		for _, id := range r.Scenarios {
+			named[projectstate.CheckKindScenario+":"+r.Contract+":"+id] = true
+		}
+	}
+	green := map[string]bool{}
+	for _, res := range run.Results {
+		if res.Status == checkStatusPass {
+			if contract, ok := scenarioCheckContract(res.CheckId); ok {
+				green[contract] = true
+			}
+		}
+		if reason := planDefectResultRefusal(res, named); reason != "" {
+			return reason
+		}
+		delete(named, res.CheckId)
+	}
+	if len(named) > 0 {
+		return "check(s) " + strings.Join(slices.Sorted(maps.Keys(named)), ", ") + " are named but the run holds no failure for them"
+	}
+	for _, r := range reports {
+		if !green[r.Contract] {
+			return "every scenario of " + r.Contract + " failed, which points at wiring or a hook rather than at a binding"
+		}
+	}
+	return planDefectUpheld(reports, prior, current)
+}
+
+// planDefectResultRefusal judges one check's result against what the reports named.
+func planDefectResultRefusal(res projectstate.CheckResult, named map[string]bool) string {
+	switch {
+	case res.Status == checkStatusPass:
+		if named[res.CheckId] {
+			return "check " + res.CheckId + " is named but passed"
+		}
+	case !named[res.CheckId]:
+		return "check " + res.CheckId + " is red and not named, so the plan is not the only thing wrong"
+	case res.Status != scenarioStatusFail:
+		return "check " + res.CheckId + " is " + res.Status + ", not a recorded failure"
+	case res.NoVerdict != nil && *res.NoVerdict:
+		return "check " + res.CheckId + " recorded no verdict, which is a plumbing defect and not a plan defect"
+	}
+	return ""
+}
+
+// planDefectUpheld refuses a scenario an earlier report named whose binding has not changed
+// since: the plan's review already ruled on it.
+func planDefectUpheld(reports, prior []projectstate.PlanDefectReport, current map[string]string) string {
+	for _, r := range reports {
+		for _, id := range r.Scenarios {
+			key := r.Contract + ":" + id
+			for _, p := range prior {
+				if p.Contract == r.Contract && slices.Contains(p.Scenarios, id) && p.Baseline[key] == current[key] {
+					return "the binding of " + id + " was reported before and upheld; integration must fix the component"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// scenarioCheckContract is the contract a scenario check id names.
+func scenarioCheckContract(checkID string) (string, bool) {
+	rest, ok := strings.CutPrefix(checkID, projectstate.CheckKindScenario+":")
+	if !ok {
+		return "", false
+	}
+	contract, _, ok := strings.Cut(rest, ":")
+	return contract, ok
+}
+
+// checkStatusPass is a check's green status, in a run's results.
+const checkStatusPass = scenarioStatusPass
+
+// planDefectNote is the steer the plan is sent back with: a claim to check, not evidence.
+func planDefectNote(reports []projectstate.PlanDefectReport) string {
+	var b strings.Builder
+	b.WriteString("Integration reports plan defects. Treat each as a claim to check against the contract and use case; a binding that follows from them stands.")
+	for _, r := range reports {
+		fmt.Fprintf(&b, " %s [%s]: %s", r.Contract, strings.Join(r.Scenarios, ", "), r.Reason)
+	}
+	return b.String()
+}
+
+// planDefectTrips counts the system-authored send-back rounds on the gate. It is derived from
+// the ledger, so a plan change, a continue-as-new or a fresh run cannot reset it.
+func planDefectTrips(row projectstate.ActivityExecution, gate string) int64 {
+	var trips int64
+	for _, r := range row.Reviews {
+		if string(r.TaskID) == gate && isPlanDefectRound(r) {
+			trips++
+		}
+	}
+	return trips
+}
+
+func isPlanDefectRound(r projectstate.ReviewRound) bool {
+	return r.Outcome == projectstate.RoundSentBack && slices.ContainsFunc(r.Verdicts, func(v projectstate.ReviewVerdict) bool {
+		return v.ReviewerRole == planDefectReviewerRole
+	})
+}
+
+// latestPlanDefectRound is the highest-numbered system-authored send-back round on the gate.
+func latestPlanDefectRound(row projectstate.ActivityExecution, gate string) (projectstate.ReviewRound, bool) {
+	var best projectstate.ReviewRound
+	found := false
+	for _, r := range row.Reviews {
+		if string(r.TaskID) == gate && isPlanDefectRound(r) && (!found || r.Round > best.Round) {
+			best, found = r, true
+		}
+	}
+	return best, found
+}
+
+// settleHeldTasks moves every held task on, once the gate it named has passed: an undelivered
+// report opens its send-back round, which re-opens the plan's pair; a delivered one means the plan
+// came back through its review, so the task goes to pending at its next revision. A gate still open
+// keeps the task held: a report arriving while the plan is under review waits for that decision.
+func (wf *csWorkflows) settleHeldTasks(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, ws *walkState, state *constructState,
+) error {
+	for _, t := range lc.Tasks {
+		if ws.byTask[t.ID] != walkTaskHeld || ws.byTask[t.SendsBackTo] != walkTaskPassed {
+			continue
+		}
+		note, undelivered := ws.planDefects[t.ID]
+		if !undelivered {
+			ws.byTask[t.ID] = walkTaskPending
+			ws.revision[t.ID]++
+			continue
+		}
+		if err := wf.openPlanDefectRound(ctx, in, lc, t.SendsBackTo, ws, state, note); err != nil {
+			return err
+		}
+		delete(ws.planDefects, t.ID)
+	}
+	return nil
+}
+
+// openPlanDefectRound lands the send-back on the plan's gate. The round is the system's own and
+// is decided in one step, so the rejection the redraft follows reads as any other on the ledger,
+// and the gate's passed attempt is superseded by a rejected one.
+func (wf *csWorkflows) openPlanDefectRound(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, gateID string,
+	ws *walkState, state *constructState, note string,
+) error {
+	t, ok := lifecycleTaskByID(lc, gateID)
+	if !ok {
+		return fmt.Errorf("the send-back route names %q, which the lifecycle does not hold", gateID)
+	}
+	// Past the round that passed: that one's number is the revision, and reopenJudgedPair
+	// moves past this one in turn.
+	ws.revision[gateID]++
+	phase, _ := lifecyclePhaseByID(lc, t.Phase)
+	tc := taskContext{In: in, Task: t, Phase: phase, Lifecycle: lc, Revision: ws.revision[gateID], Attempt: int(ws.revision[gateID]) + 1, State: state}
+	var gate gateLedger
+	if err := wf.openRound(ctx, in, t, tc, judgedSubject(ws, t), roundArtifactKind(lc, t), ReviewSet{}, state, &gate); err != nil {
+		return err
+	}
+	csIn := in.csIn()
+	if err := wf.appendVerdict(ctx, csIn, state, &gate, &state.walk.headVersion, state.walk.cred,
+		projectstate.ReviewVerdict{
+			ReviewerRole: planDefectReviewerRole,
+			Actor:        gateActorSystem,
+			Verdict:      projectstate.VerdictSendBack,
+			Summary:      note,
+			AttemptID:    gate.judgedAttemptID,
+		}, nil); err != nil {
+		return err
+	}
+	if err := wf.decideRound(ctx, csIn, state, &gate, &state.walk.headVersion, state.walk.cred,
+		projectstate.RoundSentBack, gateActorSystem); err != nil {
+		return err
+	}
+	if err := wf.rejectGateAttempt(ctx, csIn, state, &gate, &state.walk.headVersion, state.walk.cred); err != nil {
+		return err
+	}
+	ws.feedback[string(roundJudges(t))] = note
+	workflow.GetLogger(ctx).Info("delivery.planDefect.sentBack", "activityId", in.ActivityID, "gate", gateID, "roundId", gate.roundID)
+	reopenJudgedPair(lc, ws, gateID)
+	return nil
+}
+
+// replanGateHeld holds the plan's gate on a re-plan that changed a binding the report did not
+// name, or that has no baseline to be compared with, landing the hold on the round the way the
+// testing gate does. Only a gate in the wake of a system send-back has anything to compare: it
+// asks the ledger, so a human redraft of the same gate is not held.
+func (wf *csWorkflows) replanGateHeld(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, t methodassets.LifecycleTask,
+	state *constructState, gate *gateLedger,
+) (bool, error) {
+	source := slices.IndexFunc(lc.Tasks, func(o methodassets.LifecycleTask) bool { return o.SendsBackTo == t.ID })
+	if source < 0 || !state.executionLedger {
+		return false, nil
+	}
+	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), string(in.ActivityID))
+	if err != nil {
+		return false, err
+	}
+	if !planDefectRoundPending(row, t.ID, int64(gate.number)) {
+		return false, nil
+	}
+	proj, err := wf.readActivityBranchProject(ctx, in)
+	if err != nil {
+		return false, err
+	}
+	sent := latestAttemptID(row, lc.Tasks[source].ID)
+	reports, _ := planDefectReportsAt(&proj, string(in.ActivityID), sent)
+	contracts, _ := gateContracts(&proj, in.Activity.ComponentID)
+	current, err := projectstate.PlanBindingDigests(&proj, contracts)
+	if err != nil {
+		return false, err
+	}
+	reason := replanHold(reports, current)
+	if reason == "" {
+		return false, nil
+	}
+	workflow.GetLogger(ctx).Warn("delivery.gate.replanHeld", "activityId", in.ActivityID, "taskId", t.ID,
+		"roundId", gate.roundID, "reason", reason)
+	return true, wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
+		projectstate.ReviewVerdict{
+			ReviewerRole: gateActorSystem,
+			Actor:        gateActorSystem,
+			Verdict:      projectstate.VerdictSendBack,
+			Summary:      reason,
+			AttemptID:    gate.judgedAttemptID,
+		},
+		[]projectstate.ReviewComment{{
+			Anchor:     "$.phaseArtifacts.testPlan",
+			AnchorText: "the re-derived plan",
+			Text:       reason,
+			AuthorRole: gateActorSystem,
+			Type:       projectstate.ReviewCommentTypeChangeRequest,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+		}})
+}
+
+// planDefectRoundPending reports whether a system send-back is the gate's latest word before
+// this round: one stands after the last round that passed.
+func planDefectRoundPending(row projectstate.ActivityExecution, gate string, round int64) bool {
+	var lastPassed, lastTrip int64
+	for _, r := range row.Reviews {
+		if string(r.TaskID) != gate || r.Round >= round {
+			continue
+		}
+		switch {
+		case isPlanDefectRound(r):
+			lastTrip = max(lastTrip, r.Round)
+		case r.Outcome == projectstate.RoundPassed:
+			lastPassed = max(lastPassed, r.Round)
+		}
+	}
+	return lastTrip > lastPassed
+}
+
+// latestAttemptID is the id of a task's highest-numbered attempt, "" when it holds none.
+func latestAttemptID(row projectstate.ActivityExecution, task string) string {
+	id, best := "", 0
+	for _, a := range row.Attempts {
+		if string(a.Task) == task && a.Attempt > best {
+			id, best = a.AttemptID, a.Attempt
+		}
+	}
+	return id
+}
+
+// replanHold returns "" when the re-derived plan changed only what the reports named, else why
+// not. A binding added or dropped counts as changed. No baseline means nothing can be compared,
+// which holds too.
+func replanHold(reports []projectstate.PlanDefectReport, current map[string]string) string {
+	var baseline map[string]string
+	named := map[string]bool{}
+	for _, r := range reports {
+		if r.Baseline != nil {
+			baseline = r.Baseline
+		}
+		for _, id := range r.Scenarios {
+			named[r.Contract+":"+id] = true
+		}
+	}
+	if baseline == nil {
+		return "this re-plan has no baseline from the report that asked for it, so nothing shows it changed only what was named"
+	}
+	var changed []string
+	for key, digest := range current {
+		if baseline[key] != digest && !named[key] {
+			changed = append(changed, key)
+		}
+	}
+	for key := range baseline {
+		if _, ok := current[key]; !ok && !named[key] {
+			changed = append(changed, key)
+		}
+	}
+	if len(changed) == 0 {
+		return ""
+	}
+	slices.Sort(changed)
+	return "this re-plan changed binding(s) the plan defect report did not name: " + strings.Join(changed, ", ")
 }

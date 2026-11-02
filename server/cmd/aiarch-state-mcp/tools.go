@@ -317,6 +317,18 @@ func composedVerbs(s *Session) []composedVerb {
 				return "The testing artifact passed validation and was written. Call publishDraft to commit it.", nil
 			}))
 		}},
+		{name: "reportPlanDefect", modes: construct, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "reportPlanDefect",
+				Description: "Allege that named scenarios of this activity's test plan have a wrong binding, citing the contract or use-case clause each contradicts. You may not change the plan: the system re-opens it for a blind test-engineer and the review rules on fault. " +
+					"It takes effect only if this attempt's run fails exactly the scenarios you name, with every other check green. Call publishDraft after it.",
+			}, textHandler(func(_ context.Context, in reportPlanDefectInput) (string, error) {
+				if err := s.reportPlanDefect(in); err != nil {
+					return "", err
+				}
+				return "The report was recorded. Call publishDraft, then finish: the gate will stay red, and the system decides whether the plan re-opens.", nil
+			}))
+		}},
 		{name: getOperatorNotesTool, modes: construct, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: getOperatorNotesTool,
