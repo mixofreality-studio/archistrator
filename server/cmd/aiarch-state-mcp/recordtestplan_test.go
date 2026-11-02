@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // committedProject is archistrator's own committed state document, the fixture the
@@ -138,6 +140,73 @@ func TestRecordTestPlan_RefusesARecordNamingAnotherComponent(t *testing.T) {
 
 // TestSpliceTestPlan_InsertsANewComponentAtItsSortedPosition: a component with no
 // testPlan key yet is inserted among the sorted keys; every other byte is kept.
+// The plan's key is the contract's: a slot-5 id that resolves to one contract is filed under
+// the contract key with the record's component rewritten, and a component with several facets
+// is refused by name, because one key cannot hold one plan per facet.
+func TestTestPlanKey(t *testing.T) {
+	contracts := map[string]projectstate.ServiceContract{
+		"listRecordAccess":  {Component: "list-record-access"},
+		"webClient":         {Component: "webClient"},
+		"webClientPlan":     {Component: "webClient"},
+		"webClientProjects": {Component: "webClient"},
+	}
+	for _, tc := range []struct{ name, want, wantErr string }{
+		{"listRecordAccess", "listRecordAccess", ""},
+		{"list-record-access", "listRecordAccess", ""},
+		{"webClientPlan", "webClientPlan", ""},
+		{"webClient", "webClient", ""},
+		{"web-client", "", "webClient, webClientPlan, webClientProjects"},
+		{"ghost", "", "record the contract first"},
+	} {
+		got, err := testPlanKey(contracts, tc.name)
+		if tc.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("%s: got %q, %v; want an error naming %q", tc.name, got, err, tc.wantErr)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s: got %q, %v; want %q", tc.name, got, err, tc.want)
+		}
+	}
+}
+
+func TestRecordTestPlan_FilesAKebabRecordUnderTheContractKey(t *testing.T) {
+	_, raw := copyCommittedProject(t)
+	var plan map[string]any
+	if err := json.Unmarshal(committedPlan(t, raw, "reviewEngine"), &plan); err != nil {
+		t.Fatal(err)
+	}
+	plan["component"] = "review-engine"
+	rec, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, key, err := gateTestPlanRecord(raw, "review-engine", rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "reviewEngine" {
+		t.Errorf("key = %q", key)
+	}
+	var doc struct {
+		PhaseArtifacts struct {
+			TestPlan map[string]struct {
+				Component string `json:"component"`
+			} `json:"testPlan"`
+		} `json:"phaseArtifacts"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, kebab := doc.PhaseArtifacts.TestPlan["review-engine"]; kebab {
+		t.Errorf("the kebab key reached the document")
+	}
+	if got := doc.PhaseArtifacts.TestPlan["reviewEngine"].Component; got != "reviewEngine" {
+		t.Errorf("the record's component = %q, want the contract key", got)
+	}
+}
+
 func TestSpliceTestPlan_InsertsANewComponentAtItsSortedPosition(t *testing.T) {
 	doc := "{\n  \"phaseArtifacts\": {\n    \"testPlan\": {\n      \"a\": {\n        \"component\": \"a\"\n      },\n      \"c\": {\n        \"component\": \"c\"\n      }\n    }\n  }\n}\n"
 	got, err := spliceTestPlan([]byte(doc), "b", []byte(`{"component":"b"}`))

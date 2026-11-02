@@ -1,0 +1,347 @@
+{
+  "component": "change-notice-access",
+  "bindings": [
+    {
+      "scenario": "add-a-todo-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "alice",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-add-a-todo-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n8"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "drive-the-list-from-agent-tooling-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "agent-user-1",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-drive-the-list-from-agent-tooling-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n7",
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "fix-a-todo-s-wording-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "bob",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-fix-a-todo-s-wording-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "fix-a-todo-s-wording-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "carol",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-fix-a-todo-s-wording-P2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "mark-a-todo-done-or-not-done-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "dave",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-mark-a-todo-done-or-not-done-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n6"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "mark-everything-done-or-undo-that-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "erin",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-mark-everything-done-or-undo-that-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "mark-everything-done-or-undo-that-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "frank",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-mark-everything-done-or-undo-that-P2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "remove-a-todo-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "grace",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-remove-a-todo-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n6"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "sweep-away-finished-todos-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "heidi",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-sweep-away-finished-todos-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n7"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "tend-the-list-P4",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "ivan",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-tend-the-list-P4",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n13"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "work-the-list-from-a-hosted-workspace-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "AnnounceListChanged",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "judy",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeID",
+              "value": "chg-work-the-list-from-a-hosted-workspace-P1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": null,
+          "unobservable": [
+            "n8"
+          ],
+          "hook": false
+        }
+      ]
+    }
+  ]
+}

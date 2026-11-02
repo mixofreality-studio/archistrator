@@ -54,52 +54,69 @@ func runRecordTestPlan(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	out, err := gateTestPlanRecord(raw, comp, rec)
+	out, key, err := gateTestPlanRecord(raw, comp, rec)
 	if err != nil {
 		return err
 	}
 	if err := os.WriteFile(*project, out, 0o600); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "OK: recorded testPlan[%s]\n", comp)
+	_, err = fmt.Fprintf(stdout, "OK: recorded testPlan[%s]\n", key)
 	return err
 }
 
-// gateTestPlanRecord decodes the record, splices it into the document and runs the
-// per-writer gate, returning the document to write.
-func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, error) {
+// gateTestPlanRecord decodes the record, canonicalises it to the contract key the plan is
+// filed under, splices it into the document and runs the per-writer gate, returning the
+// document to write and the key.
+func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, string, error) {
 	var pl projectstate.PhaseArtifactPayload
 	if err := json.Unmarshal([]byte(`{"testPlan":`+string(rec)+`}`), &pl); err != nil {
-		return nil, fmt.Errorf("record does not conform to PhaseArtifactPayload: %w", err)
+		return nil, "", fmt.Errorf("record does not conform to PhaseArtifactPayload: %w", err)
 	}
-	if pl.TestPlan == nil || pl.TestPlan.Component != component {
-		return nil, fmt.Errorf("record's component does not name %s", component)
+	var doc struct {
+		ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, "", fmt.Errorf("read the document's contracts: %w", err)
+	}
+	key, err := testPlanKey(doc.ServiceContracts, component)
+	if err != nil {
+		return nil, "", err
+	}
+	if pl.TestPlan == nil || (pl.TestPlan.Component != component && pl.TestPlan.Component != key) {
+		return nil, "", fmt.Errorf("record's component does not name %s", component)
+	}
+	if pl.TestPlan.Component != key {
+		pl.TestPlan.Component = key
+		if rec, err = json.Marshal(pl.TestPlan); err != nil {
+			return nil, "", fmt.Errorf("re-encode the record: %w", err)
+		}
 	}
 	baseline, err := methodcheck.ValidateProjectJSON(raw)
 	if err != nil {
-		return nil, fmt.Errorf("baseline coherence check: %w", err)
+		return nil, "", fmt.Errorf("baseline coherence check: %w", err)
 	}
-	out, err := spliceTestPlan(raw, component, rec)
+	out, err := spliceTestPlan(raw, key, rec)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if _, ok, err := projectstate.DecodeProjectJSON(out, ""); err != nil {
-		return nil, fmt.Errorf("read-back decode: %w", err)
+		return nil, "", fmt.Errorf("read-back decode: %w", err)
 	} else if !ok {
-		return nil, fmt.Errorf("read-back decode found no project document")
+		return nil, "", fmt.Errorf("read-back decode found no project document")
 	}
 	after, err := methodcheck.ValidateProjectJSON(out)
 	if err != nil {
-		return nil, fmt.Errorf("coherence check: %w", err)
+		return nil, "", fmt.Errorf("coherence check: %w", err)
 	}
-	if bad := newTestPlanErrors(baseline, after, component); len(bad) > 0 {
+	if bad := newTestPlanErrors(baseline, after, key); len(bad) > 0 {
 		var b strings.Builder
 		for _, f := range bad {
 			fmt.Fprintf(&b, "  - %s\n", findingKey(f))
 		}
-		return nil, fmt.Errorf("%d finding(s) for %s:\n%s", len(bad), component, b.String())
+		return nil, "", fmt.Errorf("%d finding(s) for %s:\n%s", len(bad), key, b.String())
 	}
-	return out, nil
+	return out, key, nil
 }
 
 // newTestPlanErrors returns the errors in after that refuse the write: every TP-* error

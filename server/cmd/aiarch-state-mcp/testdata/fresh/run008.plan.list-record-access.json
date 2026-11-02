@@ -1,0 +1,2091 @@
+{
+  "component": "list-record-access",
+  "bindings": [
+    {
+      "scenario": "add-a-todo-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecordNewTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-add",
+              "schemaRef": ""
+            },
+            {
+              "name": "newTodo",
+              "value": "{\"title\": \"Buy milk\"}",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-add-1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n6",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-add",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Existing\",\"completed\":false},{\"title\":\"Buy milk\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-add",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Existing\",\"completed\":false},{\"title\":\"Buy milk\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n7",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-add",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Existing\",\"completed\":false},{\"title\":\"Buy milk\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n8"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "come-back-to-the-list-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-back",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n4",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-back",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n5",
+            "n6"
+          ],
+          "hook": true
+        }
+      ]
+    },
+    {
+      "scenario": "drive-the-list-from-agent-tooling-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n5"
+          ],
+          "hook": false
+        },
+        {
+          "seq": 2,
+          "operation": "RecordNewTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            },
+            {
+              "name": "newTodo",
+              "value": "{\"title\": \"Walk dog\"}",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-drive1-2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 3,
+          "operation": "RecordNewWording",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "title",
+              "value": "Walk the dog",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-drive1-3",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 4,
+          "operation": "RecordCompletedState",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "true",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-drive1-4",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 5,
+          "operation": "RecordCompletedStateForAll",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "false",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-drive1-5",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 6,
+          "operation": "StrikeTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-drive1-6",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 7,
+          "operation": "StrikeCompletedTodos",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-drive1-7",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "0",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 8,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n6",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-drive1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n7",
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "drive-the-list-from-agent-tooling-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-drive2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":true}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n8",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-drive2",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":true}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n10"
+          ],
+          "hook": true
+        }
+      ]
+    },
+    {
+      "scenario": "fix-a-todo-s-wording-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecordNewWording",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-fix1",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id of seeded Todo Buy milk",
+              "schemaRef": ""
+            },
+            {
+              "name": "title",
+              "value": "Buy oat milk",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-fix1-1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n6",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-fix1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy oat milk\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-fix1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy oat milk\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n9",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-fix1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy oat milk\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "fix-a-todo-s-wording-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "StrikeTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-fix2",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id of seeded Todo Buy milk",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-fix2-1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n7",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-fix2",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-fix2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n9",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-fix2",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "mark-a-todo-done-or-not-done-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecordCompletedState",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-mark",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id of seeded Todo Buy milk",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "true",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-mark-1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n4",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-mark",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-mark",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n5",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-mark",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n6"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "mark-everything-done-or-undo-that-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-all1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":true}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n4"
+          ],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecordCompletedStateForAll",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-all1",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "false",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-owner-all1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n6",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-all1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 3,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-all1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n9",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-all1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "mark-everything-done-or-undo-that-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-all2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n4"
+          ],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecordCompletedStateForAll",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-all2",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "true",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-owner-all2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n7",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-all2",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":true}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 3,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-all2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":true}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n9",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-all2",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":true}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n10"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "remove-a-todo-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "StrikeTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-rm",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id of seeded Todo Buy milk",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-rm-1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n4",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-rm",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-rm",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n5",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-rm",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n6"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "see-how-many-todos-are-left-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-left",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false},{\"title\":\"Feed cat\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n4",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-left",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false},{\"title\":\"Feed cat\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        }
+      ]
+    },
+    {
+      "scenario": "sweep-away-finished-todos-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "StrikeCompletedTodos",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-sw1",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-sw1-1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "2",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n4",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-sw1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        },
+        {
+          "seq": 2,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-sw1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n6",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-sw1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n7"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "sweep-away-finished-todos-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "StrikeCompletedTodos",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-sw2",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-sw2-1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "0",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n4",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-sw2",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": true
+        }
+      ]
+    },
+    {
+      "scenario": "switch-between-all-active-and-done-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-sw",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false},{\"title\":\"Feed cat\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n4",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-sw",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false},{\"title\":\"Feed cat\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n5"
+          ],
+          "hook": true
+        }
+      ]
+    },
+    {
+      "scenario": "take-stock-of-the-list-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-stock",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n6",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-stock",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false}]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n7",
+            "n8"
+          ],
+          "hook": true
+        }
+      ]
+    },
+    {
+      "scenario": "tend-the-list-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n6"
+          ],
+          "hook": true
+        }
+      ]
+    },
+    {
+      "scenario": "tend-the-list-P3",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend3",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n6"
+          ],
+          "hook": false
+        },
+        {
+          "seq": 2,
+          "operation": "RecordNewTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend3",
+              "schemaRef": ""
+            },
+            {
+              "name": "newTodo",
+              "value": "{\"title\": \"Walk dog\"}",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend3-2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 3,
+          "operation": "RecordNewWording",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend3",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "title",
+              "value": "Walk the dog",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend3-3",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 4,
+          "operation": "RecordCompletedState",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend3",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "true",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend3-4",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 5,
+          "operation": "RecordCompletedStateForAll",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend3",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "false",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend3-5",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 6,
+          "operation": "StrikeTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend3",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend3-6",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 7,
+          "operation": "StrikeCompletedTodos",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend3",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend3-7",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "0",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n9",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-tend3",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "tend-the-list-P4",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n6"
+          ],
+          "hook": false
+        },
+        {
+          "seq": 2,
+          "operation": "RecordNewTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            },
+            {
+              "name": "newTodo",
+              "value": "{\"title\": \"Walk dog\"}",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend4-2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 3,
+          "operation": "RecordNewWording",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "title",
+              "value": "Walk the dog",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend4-3",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 4,
+          "operation": "RecordCompletedState",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "true",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend4-4",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 5,
+          "operation": "RecordCompletedStateForAll",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "false",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend4-5",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 6,
+          "operation": "StrikeTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend4-6",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 7,
+          "operation": "StrikeCompletedTodos",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-tend4-7",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "0",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n9",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-tend4",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 8,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-tend4",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n12",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-tend4",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n13"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "work-the-list-from-a-hosted-workspace-P1",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n4"
+          ],
+          "hook": false
+        },
+        {
+          "seq": 2,
+          "operation": "RecordNewTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            },
+            {
+              "name": "newTodo",
+              "value": "{\"title\": \"Walk dog\"}",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-host1-2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 3,
+          "operation": "RecordNewWording",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "title",
+              "value": "Walk the dog",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-host1-3",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 4,
+          "operation": "RecordCompletedState",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "true",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-host1-4",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 5,
+          "operation": "RecordCompletedStateForAll",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            },
+            {
+              "name": "completed",
+              "value": "false",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-host1-5",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 6,
+          "operation": "StrikeTodo",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            },
+            {
+              "name": "todoId",
+              "value": "id from step 2",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-host1-6",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todoOnList\":true}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 7,
+          "operation": "StrikeCompletedTodos",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            },
+            {
+              "name": "changeId",
+              "value": "chg-host1-7",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "0",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n6",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-host1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [],
+          "hook": false
+        },
+        {
+          "seq": 8,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host1",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [
+            {
+              "for": "n7",
+              "component": "list-record-access",
+              "operation": "RecallList",
+              "inputs": [
+                {
+                  "name": "listOwner",
+                  "value": "owner-host1",
+                  "schemaRef": ""
+                }
+              ],
+              "expect": {
+                "result": "{\"todos\":[]}",
+                "errorExpected": false,
+                "errorCode": ""
+              }
+            }
+          ],
+          "unobservable": [
+            "n8"
+          ],
+          "hook": false
+        }
+      ]
+    },
+    {
+      "scenario": "work-the-list-from-a-hosted-workspace-P2",
+      "steps": [
+        {
+          "seq": 1,
+          "operation": "RecallList",
+          "inputs": [
+            {
+              "name": "listOwner",
+              "value": "owner-host2",
+              "schemaRef": ""
+            }
+          ],
+          "expect": {
+            "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false}]}",
+            "errorExpected": false,
+            "errorCode": ""
+          },
+          "probes": [],
+          "unobservable": [
+            "n4"
+          ],
+          "hook": true
+        }
+      ]
+    }
+  ]
+}

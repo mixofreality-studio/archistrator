@@ -26,10 +26,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -44,7 +46,7 @@ type recordServiceContractInput struct {
 // tagged union — exactly one field set) plus the mapKey it is stored under (the
 // component/surface/resource/doc name).
 type recordPhaseArtifactInput struct {
-	MapKey  string         `json:"mapKey" jsonschema:"the map key this artifact is stored under (the component/surface/resource/doc name)"`
+	MapKey  string         `json:"mapKey" jsonschema:"the map key this artifact is stored under (the component/surface/resource/doc name; a testPlan is filed under its contract key)"`
 	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE phase-artifact field set (e.g. SRS, UIDesign, IntegrationNote, ProvisioningSpec, DeployNote, DocOutline, DocNote)"`
 }
 
@@ -215,9 +217,43 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 		return err
 	}
 	return s.applyConstructionMutation("phase artifact", func(p *projectstate.Project) error {
-		projectstate.ApplyPhaseArtifactPayload(p, strings.TrimSpace(mapKey), pl)
+		key := strings.TrimSpace(mapKey)
+		if pl.TestPlan != nil {
+			var err error
+			if key, err = testPlanKey(p.ServiceContracts, key); err != nil {
+				return err
+			}
+			pl.TestPlan.Component = key
+		}
+		projectstate.ApplyPhaseArtifactPayload(p, key, pl)
 		return nil
 	})
+}
+
+// testPlanKey resolves what a caller named a test plan by to the serviceContracts key the plan
+// is filed under: the key names the generated test, its results directory and the checks that
+// read them, so no other spelling may reach the document (methodcheck TP-KEY). A component's
+// slot-5 id is accepted when it resolves to exactly one contract. A component with several
+// facets has one plan per facet, so its id alone is refused, naming them.
+func testPlanKey(contracts map[string]projectstate.ServiceContract, name string) (string, error) {
+	if _, ok := contracts[name]; ok {
+		return name, nil
+	}
+	want := scenario.Normalize(name)
+	var found []string
+	for key, sc := range contracts {
+		if scenario.Normalize(key) == want || scenario.Normalize(sc.Component) == want {
+			found = append(found, key)
+		}
+	}
+	slices.Sort(found)
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("no service contract is recorded for test plan %q; a plan is filed under its component's contract key, so record the contract first", name)
+	case 1:
+		return found[0], nil
+	}
+	return "", fmt.Errorf("component %q publishes %d contract facets, and each has its own plan: record this plan under one of %s", name, len(found), strings.Join(found, ", "))
 }
 
 // recordTestingState routes a testing-state payload into .testingState (project-level

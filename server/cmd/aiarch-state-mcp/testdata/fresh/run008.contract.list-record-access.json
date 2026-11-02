@@ -1,0 +1,278 @@
+{
+  "component": "listRecordAccess",
+  "layer": "ResourceAccess",
+  "goPackage": "internal/resourceaccess/listrecord",
+  "infra": [
+    "Postgres"
+  ],
+  "title": "listRecord contract",
+  "$defs": {
+    "ChangeID": {
+      "description": "Identifies one logical change, originated by ListManager. A retry of the change reuses the value; a new logical change gets a new one. Deduplication scope is (listOwner, changeId). Empty is ContractMisuse.",
+      "type": "string"
+    },
+    "List": {
+      "description": "A User's whole List as last kept. The position of each entry in todos is its place in the List: new Todos go last and nothing else reorders it. A User with nothing on record has an empty array, never null.",
+      "properties": {
+        "todos": {
+          "items": {
+            "$ref": "#/$defs/Todo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "todos"
+      ],
+      "type": "object"
+    },
+    "ListOwner": {
+      "description": "Opaque identifier of the User whose List this is, as established by IdentityAccess and passed on by ListManager. This component trusts it, never parses it, and scopes every read and change by it. Empty is ContractMisuse.",
+      "type": "string"
+    },
+    "NewTodo": {
+      "description": "What a new Todo is entered with. A Todo always starts not completed, so there is no completed field. A future Todo attribute is added here and on Todo, without a new verb or a changed signature.",
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/Title"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "RemovedCount": {
+      "description": "How many Completed Todos the first run of this change removed. Zero when there were none. A repeat of the same changeId returns the original count.",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "Title": {
+      "description": "The free-text wording of a Todo, kept and returned byte for byte and handled strictly as data. The Blank Title rule belongs to ListResolvingEngine, so it is not checked here. Only text that cannot be returned byte for byte (invalid UTF-8 or a NUL character) is refused, as ContractMisuse.",
+      "type": "string"
+    },
+    "Todo": {
+      "description": "One Todo as a whole, as kept in the List Record.",
+      "properties": {
+        "completed": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "#/$defs/TodoID"
+        },
+        "title": {
+          "$ref": "#/$defs/Title"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "completed"
+      ],
+      "type": "object"
+    },
+    "TodoChangeOutcome": {
+      "description": "Result of a change addressed to one Todo. todoOnList is false when that Todo was not on this listOwner's List when the change first ran; nothing changed in that case and it is not an error. Setting a value the Todo already has is todoOnList=true.",
+      "properties": {
+        "todoOnList": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "todoOnList"
+      ],
+      "type": "object"
+    },
+    "TodoID": {
+      "description": "Opaque identifier of one Todo, minted by this component in RecordNewTodo and never reused. Callers must not parse or build one. An unknown or malformed value, or one on another owner's List, behaves as a Todo not on the List. Empty is ContractMisuse.",
+      "type": "string"
+    }
+  },
+  "interface": {
+    "name": "ListRecordAccess",
+    "layer": "resourceaccess",
+    "operations": [
+      {
+        "name": "RecordNewTodo",
+        "params": [
+          {
+            "name": "listOwner",
+            "schema": {
+              "$ref": "#/$defs/ListOwner"
+            }
+          },
+          {
+            "name": "newTodo",
+            "schema": {
+              "$ref": "#/$defs/NewTodo"
+            }
+          },
+          {
+            "name": "changeId",
+            "schema": {
+              "$ref": "#/$defs/ChangeID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/TodoID"
+        },
+        "error": true
+      },
+      {
+        "name": "RecordNewWording",
+        "params": [
+          {
+            "name": "listOwner",
+            "schema": {
+              "$ref": "#/$defs/ListOwner"
+            }
+          },
+          {
+            "name": "todoId",
+            "schema": {
+              "$ref": "#/$defs/TodoID"
+            }
+          },
+          {
+            "name": "title",
+            "schema": {
+              "$ref": "#/$defs/Title"
+            }
+          },
+          {
+            "name": "changeId",
+            "schema": {
+              "$ref": "#/$defs/ChangeID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/TodoChangeOutcome"
+        },
+        "error": true
+      },
+      {
+        "name": "RecordCompletedState",
+        "params": [
+          {
+            "name": "listOwner",
+            "schema": {
+              "$ref": "#/$defs/ListOwner"
+            }
+          },
+          {
+            "name": "todoId",
+            "schema": {
+              "$ref": "#/$defs/TodoID"
+            }
+          },
+          {
+            "name": "completed",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "changeId",
+            "schema": {
+              "$ref": "#/$defs/ChangeID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/TodoChangeOutcome"
+        },
+        "error": true
+      },
+      {
+        "name": "RecordCompletedStateForAll",
+        "params": [
+          {
+            "name": "listOwner",
+            "schema": {
+              "$ref": "#/$defs/ListOwner"
+            }
+          },
+          {
+            "name": "completed",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "changeId",
+            "schema": {
+              "$ref": "#/$defs/ChangeID"
+            }
+          }
+        ],
+        "error": true
+      },
+      {
+        "name": "StrikeTodo",
+        "params": [
+          {
+            "name": "listOwner",
+            "schema": {
+              "$ref": "#/$defs/ListOwner"
+            }
+          },
+          {
+            "name": "todoId",
+            "schema": {
+              "$ref": "#/$defs/TodoID"
+            }
+          },
+          {
+            "name": "changeId",
+            "schema": {
+              "$ref": "#/$defs/ChangeID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/TodoChangeOutcome"
+        },
+        "error": true
+      },
+      {
+        "name": "StrikeCompletedTodos",
+        "params": [
+          {
+            "name": "listOwner",
+            "schema": {
+              "$ref": "#/$defs/ListOwner"
+            }
+          },
+          {
+            "name": "changeId",
+            "schema": {
+              "$ref": "#/$defs/ChangeID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/RemovedCount"
+        },
+        "error": true
+      },
+      {
+        "name": "RecallList",
+        "params": [
+          {
+            "name": "listOwner",
+            "schema": {
+              "$ref": "#/$defs/ListOwner"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/List"
+        },
+        "error": true
+      }
+    ]
+  },
+  "notes": "# ListRecordAccess: detailed design\n\nStatus: IN-DESIGN. The App C section 6 check is complete, but no system-architect has reviewed this yet. Review happens at the activity's gate. Do not construct against this contract until that review passes; FROZEN is not claimed here.\n\nDesigned to the senior-developer standard. Reviewer: system-architect.\n\nFacet: keep and recall one User's List in the List Record. One contract on this service. Sole caller: ListManager, synchronous. Sole downstream: ListRecordDB. No queued operations, no events, no Temporal.\n\n## Operations\n\nEvery change is atomic and durable before it returns, and takes a changeId.\n\n- RecordNewTodo: enters one new, not completed Todo last on the List and returns its minted TodoID. A repeat returns the same TodoID and creates nothing, even if that Todo has since changed or been struck.\n- RecordNewWording: replaces one Todo's Title. Its completed state and place do not change.\n- RecordCompletedState: sets whether one Todo is completed. Its Title and place do not change.\n- RecordCompletedStateForAll: sets every Todo on the List, as it stands at that moment, to the given state, all or nothing. This includes a Todo added after the caller's last RecallList. An empty List is success with no effect.\n- StrikeTodo: removes one Todo. Every other Todo keeps its relative order.\n- StrikeCompletedTodos: removes every Todo completed at that moment, all or nothing, and returns the count. None completed is success with count 0.\n- RecallList: read-only. Returns the whole List in order and reflects every change already acknowledged, so it must read from the primary record. A User with nothing on record gets an empty List.\n\nNo error from a change means it is safely on record. An error means the caller must not treat it as kept. Unless the error is a lost acknowledgement (below), the List stands as it was.\n\n## Decisions on the scope note's open questions\n\n- Q1 Change id: an explicit changeId parameter on all six change ops. The dynamic-view labels omit it; the store edges already name it. ListManager originates it, and its contract must define the derivation so that a retry reuses the value. Remembered: the change and its outcome commit in one transaction, and the outcome is kept for at least 7 days. The 7 days is a design estimate that must exceed ListManager's retry horizon; it is not a sourced figure.\n- Q2 Repeated change: a repeat replays the first recorded outcome with no second effect, so StrikeCompletedTodos returns the original count, not zero.\n- Q3 Todo identity: this component mints TodoID. A new id is minted only once per change.\n- Q4 Change payload: RecordNewTodo and RecallList carry the Todo as a whole (NewTodo, Todo), so an added attribute travels without a new signature. RecordNewWording and RecordCompletedState carry only the attribute they change, matching their committed view labels. A whole-Todo write built from an earlier recall would overwrite another caller's change made in between, breaking Objective 4. This is a partial reading of tend-the-list n19; see Review questions.\n- Q5 Lost races: a Todo that has gone is no effect (todoOnList=false), not a failure, matching tend-the-list n8. RecordCompletedStateForAll and StrikeCompletedTodos apply to the List as it stands when they run. A Todo another caller added after the recall therefore takes the state too. That is accepted, because ListManager recalls afterwards and the result is the truth.\n- Q6 First recall: an empty List, not an error.\n- Q7 Technology: Postgres, see Review questions. Provisioning stays open.\n- Q8 Capacity: no target is set and no limit is enforced. RecallList returns the whole List with no paging, on the working assumption that a Small Team's Lists are small. Review questions carries this.\n\n## Idempotency\n\nDedup scope is (listOwner, changeId). The same changeId with the same change returns the first outcome, has no second effect, and takes no second place on the List. The same changeId with a different change is Conflict and changes nothing. To detect this, store a fingerprint of the operation and its arguments with the outcome. The first outcome replays even when it was todoOnList=false. RecallList has no side effects and needs no key.\n\n## Error model\n\nUse the framework resourceaccess.Error kinds. A Todo not on the List is never an error, so NotFound is not used.\n\n- Transient, Infrastructure (retryable): the record could not be reached or the operation was interrupted. The acknowledgement may have been lost even though the change committed, so retry with the same changeId, which is safe.\n- Auth (terminal): the record refused this component's credentials.\n- Conflict (terminal): changeId reused for a different change.\n- ContractMisuse (terminal): empty listOwner, todoId or changeId; a Title with invalid UTF-8 or a NUL character.\n\nClassify and wrap every store error. No query, schema detail, connection string, credential or other User's data may reach the error text.\n\n## Security\n\nEvery statement is scoped by listOwner. A TodoID belonging to another owner is indistinguishable from one not on the List: todoOnList=false, nothing read or changed. The ledger is scoped the same way, so one owner's changeId never affects another's. No authorization happens here; listOwner is trusted from ListManager. Title is only ever bound as a statement parameter, never interpolated. Credentials and endpoints come from configuration.\n\n## Orchestration guidance (non-normative)\n\nAdvisory timeouts, as design estimates: 5 seconds for RecallList, 10 seconds for changes. Retry only retryable kinds, always with the same changeId. ListManager picks the actual policy.\n\n## Internal structure (for the constructor; not contract)\n\nIn internal/resourceaccess/listrecord: a Postgres implementation of ListRecordAccess built on framework-go-infrastructure-postgres.\n\n- Run each change in one transaction with its ledger row, committing before returning.\n- Serialize changes per listOwner, so that places come from a per-owner increasing sequence assigned only for a new Todo. Gaps are allowed and never exposed.\n- The schema (Todos and the change ledger) and its migrations belong to this component.\n\nTest against a real Postgres (the postgres module's testinfra), not a fake. Cover: survival across a restart of the record, order, all-or-nothing under failure, repeated changeId for every change op, changeId reused for a different change, a Todo already gone, isolation between owners, a Title containing query syntax, an empty List for each op, and errors that leak nothing.\n\n## Factoring\n\nThe seven ops are the System's committed atomic business verbs, and each is called by a dynamic view.\n\nRejected:\n- A generic ApplyChange, which hides the business verbs behind one op.\n- Merging RecordCompletedStateForAll into RecordCompletedState with an optional todoId: the System commits them as separate verbs, and one signature would mean two things.\n- A read-one-Todo op, which no view calls.\n- Returning a Todo snapshot from RecordNewTodo, which a replay could not honestly reproduce.\n- A blank check here, which is a business rule belonging to ListResolvingEngine.\n\nReuse test: a second team fronting a different record would implement this contract unchanged. Nothing in the signatures or $defs names the store.\n\n## App C section 6 standard check\n\n- 1 Reusable: PASS.\n- 2a At least 2 ops: PASS.\n- 2b 3 to 5 ops: WAIVED at 7. The seven verbs are committed on the System, are distinct business acts and are all reached. Reducing them needs a System amendment.\n- 2c At most 12: PASS.\n- 2d Under 20: PASS.\n- 3 No property-like ops: PASS. Each op is a named business act, not a GetX/SetX on stored fields, and RecallList returns the whole List.\n- 4 At most 2 contracts: PASS (1).\n- 5 Not a junior hand-off and 6 Architect or senior designer: PASS on the senior-developer default. State records no named hand-off assignment; the activity's junior-developer worker class applies to construction. The architect must confirm this at review, since both items are non-waivable.\n\nLayer rules: no queued ops, no events, no Temporal, one Resource behind it: PASS.\n\n## Review questions for system-architect\n\n- Store: the scope note asked Detailed Design not to pick a technology by default, but this contract must name an infra and the Operations Model (slot 6) is not committed. Postgres is chosen deliberately: the module already requires its framework at the platform's version, and it gives the per-owner atomic transactions and restart durability this contract needs. Confirm it.\n- Provisioning: no activity provisions ListRecordDB. Decide who stands it up. This design assumes this activity owns only the schema, and that Construction needs nothing beyond the test record until then.\n- n19: confirm the partial reading in Q4. The cost is that a future attribute that can be changed after creation needs a new verb, and so a System change.\n- Labels: the list-manager to list-record-access labels omit changeId and show recordNewTodo with a bare title. Confirm these parameters are enough, or amend the labels.\n- C-list-manager: its contract must adopt changeId origination, a retry horizon under 7 days, and todoOnList=false as the no-effect path. Decide there whether no effect still sends a change notice.\n- Capacity: confirm no target is needed for the trial, given that nearly every use case recalls the whole List.\n- Hand-off: confirm items 5 and 6 above."
+}
