@@ -736,23 +736,21 @@ func TestClassifyMachineClient(t *testing.T) {
 	}
 }
 
-// A machine client's lifecycle binds no test plan and has one dispatch, so its testing review
-// never waits on a scenario run nothing would record; its proof is a check of that dispatch.
-func TestMachineClientLifecycleHasOneTaskAndNoPlan(t *testing.T) {
+// A machine client binds a plan, so its testing review judges a scenario run through it like any
+// component's, and nothing is proved without one. It designs and constructs nothing: both are generated.
+func TestMachineClientLifecycleBindsAPlan(t *testing.T) {
 	lc, ok := methodassets.LifecycleFor("machineClient")
 	if !ok {
 		t.Fatal("no machineClient lifecycle")
 	}
-	dispatches := 0
+	var ids []string
 	for _, task := range lc.Tasks {
-		if task.Kind == methodassets.LifecycleTaskDispatch {
-			dispatches++
-		}
-		if task.ArtifactKind == "STP" {
-			t.Errorf("%s binds a test plan", task.ID)
-		}
+		ids = append(ids, task.ID)
 	}
-	if dispatches != 1 {
-		t.Errorf("want one dispatch, got %d", dispatches)
+	if !slices.Equal(ids, []string{"stp", "stpReview", "integration", "testing"}) {
+		t.Errorf("tasks = %v", ids)
+	}
+	if !slices.ContainsFunc(lc.Tasks, func(task methodassets.LifecycleTask) bool { return task.ArtifactKind == "STP" }) {
+		t.Error("a machine client binds a test plan")
 	}
 }

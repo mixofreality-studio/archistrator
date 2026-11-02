@@ -74,7 +74,6 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -3952,25 +3951,6 @@ func assertActivityResolvesItsContract(t *testing.T, p *projectstate.Project, a 
 		}
 	}
 	return 0
-}
-
-// A machine client binds a plan, so its testing review judges a scenario run through it like any
-// component's, and nothing is proved without one.
-func TestMachineClientLifecycleBindsAPlan(t *testing.T) {
-	lc, ok := methodassets.LifecycleFor("machineClient")
-	if !ok {
-		t.Fatal("no machineClient lifecycle")
-	}
-	var ids []string
-	for _, task := range lc.Tasks {
-		ids = append(ids, task.ID)
-	}
-	if !slices.Equal(ids, []string{"stp", "stpReview", "integration", "testing"}) {
-		t.Errorf("tasks = %v", ids)
-	}
-	if i := slices.IndexFunc(lc.Tasks, func(task methodassets.LifecycleTask) bool { return task.ArtifactKind == "STP" }); i < 0 {
-		t.Error("a machine client binds a test plan")
-	}
 }
 
 // assertScenarioChecks fails t unless spec carries one scenario check under key for every
