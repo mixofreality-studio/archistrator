@@ -9,6 +9,7 @@ server/.env
 # scripts/build-local.sh output — the three-binary local-first layout
 # (local-first-init-funnel Task 4/5/6, final-review I1): /archistrator (CLI),
 # /archistrator-server (composition root, -tags localdist), /aiarch-state-mcp
+/build-stamp.json
 # (construct-verb rig). webappdist/ is the staged webApp/dist tree go:embed
 # needs at compile time (cmd/server/spa_embed.go). All build-time artifacts,
 # never committed.

@@ -34,6 +34,12 @@
 # cmd/server/spa_embed.go), then builds archistrator-server with
 # `-tags localdist`, which embeds that staged tree.
 #
+# Writes build-stamp.json LAST (gitignored): the app and go.work-resolved platform shas and
+# dirty flags, and the sha256 of each binary. The bench refuses to run binaries the stamp does
+# not match (archistrator-bench src/runner/buildstamp.ts): the binaries carry no vcs.revision,
+# so nothing else can say what they were built from. A tree that changes during the build
+# fails it rather than stamping a guess.
+#
 # Cloud images are UNAFFECTED: they build cmd/server without -tags localdist
 # (see server/Dockerfile) and never touch webappdist/ (see
 # cmd/server/spa_stub.go, the tag's no-op arm) — and never touch this script.
@@ -59,7 +65,30 @@ OUT_CLI="$ROOT/archistrator"
 OUT_SERVER="$ROOT/archistrator-server"
 OUT_STATE_MCP="$ROOT/aiarch-state-mcp"
 
+OUT_STAMP="$ROOT/build-stamp.json"
+
 note() { printf '\n== %s\n' "$*"; }
+
+# The platform checkout go.work really resolves, whatever it is named.
+platform_root() {
+  local dir
+  dir="$(cd "$SERVER_DIR" && go list -m -f '{{.Dir}}' github.com/mixofreality-studio/archistrator-platform/framework-go)"
+  git -C "$dir" rev-parse --show-toplevel
+}
+
+tree_state() { # <repo> -> "<sha> <dirty>"
+  local dirty=false
+  [ -z "$(git -C "$1" status --porcelain)" ] || dirty=true
+  printf '%s %s' "$(git -C "$1" rev-parse HEAD)" "$dirty"
+}
+
+sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+
+# A build must not leave an old stamp saying these binaries are the old ones.
+rm -f "$OUT_STAMP"
+PLATFORM_ROOT="$(platform_root)"
+APP_BEFORE="$(tree_state "$ROOT")"
+PLATFORM_BEFORE="$(tree_state "$PLATFORM_ROOT")"
 
 note "building webApp SPA (npm run build)"
 (cd "$WEB_APP_DIR" && npm run build)
@@ -78,3 +107,24 @@ note "building aiarch-state-mcp (go build ./cmd/aiarch-state-mcp)"
 (cd "$SERVER_DIR" && go build -o "$OUT_STATE_MCP" ./cmd/aiarch-state-mcp)
 
 note "built ${OUT_CLI#"$ROOT"/}, ${OUT_SERVER#"$ROOT"/}, ${OUT_STATE_MCP#"$ROOT"/}"
+
+if [ "$(tree_state "$ROOT")" != "$APP_BEFORE" ] || [ "$(tree_state "$PLATFORM_ROOT")" != "$PLATFORM_BEFORE" ]; then
+  printf 'a tree changed during the build; no stamp written\n' >&2
+  exit 1
+fi
+
+read -r APP_SHA APP_DIRTY <<<"$APP_BEFORE"
+read -r PLATFORM_SHA PLATFORM_DIRTY <<<"$PLATFORM_BEFORE"
+cat >"$OUT_STAMP" <<EOF
+{
+  "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "app": { "sha": "$APP_SHA", "dirty": $APP_DIRTY },
+  "platform": { "sha": "$PLATFORM_SHA", "dirty": $PLATFORM_DIRTY, "path": "$PLATFORM_ROOT" },
+  "sha256": {
+    "archistrator": "$(sha256_of "$OUT_CLI")",
+    "archistrator-server": "$(sha256_of "$OUT_SERVER")",
+    "aiarch-state-mcp": "$(sha256_of "$OUT_STATE_MCP")"
+  }
+}
+EOF
+note "stamped ${OUT_STAMP#"$ROOT"/} (app $APP_SHA dirty=$APP_DIRTY, platform $PLATFORM_SHA dirty=$PLATFORM_DIRTY)"
