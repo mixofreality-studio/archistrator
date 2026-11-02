@@ -4604,7 +4604,7 @@ func openParallelAttempts(t *testing.T, s *stack) int {
 // planStep is one scripted integration run: the scenarios its gate fails, how, and what the
 // agent reports. Every check not named passes. A zero step is a green run with no report.
 type planStep struct {
-	failed, timedOut, noVerdict []string
+	failed, timedOut, noVerdict, skipped []string
 	// absent are scenarios the job's spec does not select, so its run holds no result for them.
 	absent   []string
 	buildRed bool
@@ -4747,25 +4747,36 @@ func (v *venue) planResults(specPath string) ([]projectstate.CheckResult, string
 		}
 	}
 	for _, c := range spec.Checks {
-		r := projectstate.CheckResult{CheckId: c.ID, Kind: c.Kind, Status: "pass", DurationMs: 1}
-		switch {
-		case slices.Contains(step.failed, c.Source.Scenario) && c.Source.Scenario != "":
-			r.Status = "fail"
-		case slices.Contains(step.timedOut, c.Source.Scenario) && c.Source.Scenario != "":
-			r.Status = "timeout"
-		case slices.Contains(step.noVerdict, c.Source.Scenario) && c.Source.Scenario != "":
-			yes := true
-			r.Status, r.NoVerdict = "fail", &yes
-		case step.buildRed && c.ID == "command:build":
-			r.Status = "fail"
-		}
-		results = append(results, r)
+		results = append(results, step.resultOf(c))
 	}
 	digest := fmt.Sprintf("failure of run %d", v.planRuns)
 	if step.steady {
 		digest = "the same failure"
 	}
 	return results, digest, true
+}
+
+// resultOf is the result this step scripts for one check.
+func (step planStep) resultOf(c projectstate.SpecCheck) projectstate.CheckResult {
+	r := projectstate.CheckResult{CheckId: c.ID, Kind: c.Kind, Status: "pass", DurationMs: 1}
+	if step.buildRed && c.ID == "command:build" {
+		r.Status = "fail"
+	}
+	if c.Source.Scenario == "" {
+		return r
+	}
+	switch {
+	case slices.Contains(step.failed, c.Source.Scenario):
+		r.Status = "fail"
+	case slices.Contains(step.timedOut, c.Source.Scenario):
+		r.Status = "timeout"
+	case slices.Contains(step.noVerdict, c.Source.Scenario):
+		yes := true
+		r.Status, r.NoVerdict = "fail", &yes
+	case slices.Contains(step.skipped, c.Source.Scenario):
+		r.Status = "skip"
+	}
+	return r
 }
 
 // planGateCannotRun reports that the scripted integration job's gate records no check run.
@@ -4978,6 +4989,8 @@ func refusalScript(run int, sc []string) planStep {
 		return planStep{report: sc[:1], noRun: true}
 	case 8:
 		return planStep{failed: sc[:1], absent: sc[1:2], report: sc[:2]}
+	case 9:
+		return planStep{failed: sc[:1], skipped: sc[1:2], report: sc[:1]}
 	}
 	return planStep{}
 }
@@ -4995,6 +5008,7 @@ func TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed(t *testing.T) {
 		"points at wiring or a hook",
 		"no check run is recorded",
 		"are named but the run holds no failure",
+		"was skipped and is not named",
 	}
 	s, h, _ := planDefectWalk(t, "refusals", refusalScript, delivery.ActivityViewDone)
 	if got := jobCount(s, "service-test-plan"); got != 1 {
@@ -5254,7 +5268,7 @@ func TestAResumeAfterASendBackHoldsIntegration(t *testing.T) {
 	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-plan-defect-resume"); err != nil {
 		t.Fatalf("tick the pump: %v", err)
 	}
-	first := awaitHalt(t, h, subject)
+	awaitHalt(t, h, subject)
 	if got := jobCount(s, "service-integration"); got != 1 {
 		t.Fatalf("integration ran %d times before the redraft gave up, want 1", got)
 	}
@@ -5263,21 +5277,25 @@ func TestAResumeAfterASendBackHoldsIntegration(t *testing.T) {
 	if err := subject.SetProjectRunState(callContext(t, h, ""), planProject, delivery.ProjectRunning, ""); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	_ = first
 	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	assertResumedRedraftFirst(t, s.venue.jobs()[before:])
+}
+
+// assertResumedRedraftFirst holds the jobs after a resume to the plan's redraft, carrying the
+// claim its round did, and only then integration.
+func assertResumedRedraftFirst(t *testing.T, jobs []agentJob) {
+	t.Helper()
 	var order []string
-	for _, j := range s.venue.jobs()[before:] {
-		if j.Activity == drivenActivity {
-			order = append(order, j.Command)
+	for _, j := range jobs {
+		if j.Activity != drivenActivity {
+			continue
+		}
+		order = append(order, j.Command)
+		if j.Command == "service-test-plan" && !strings.Contains(j.env["AIARCH_OPERATOR_NOTE"], "contradicts the contract") {
+			t.Errorf("the resumed redraft's operator note is %q, want the claim the round carried", j.env["AIARCH_OPERATOR_NOTE"])
 		}
 	}
 	if len(order) != 2 || order[0] != "service-test-plan" || order[1] != "service-integration" {
 		t.Fatalf("after the resume the jobs are %v, want the plan's redraft and then integration", order)
-	}
-	for _, j := range s.venue.jobs()[before:] {
-		if j.Activity == drivenActivity && j.Command == "service-test-plan" &&
-			!strings.Contains(j.env["AIARCH_OPERATOR_NOTE"], "contradicts the contract") {
-			t.Errorf("the resumed redraft's operator note is %q, want the claim the round carried", j.env["AIARCH_OPERATOR_NOTE"])
-		}
 	}
 }

@@ -7065,6 +7065,10 @@ func planDefectResultRefusal(res projectstate.CheckResult, named map[string]bool
 		if named[res.CheckId] {
 			return "check " + res.CheckId + " is named but passed"
 		}
+	case !named[res.CheckId] && res.Status == scenarioStatusSkip:
+		// Not red, and the job's gate lets it by, but the testing gate holds on it: the rule is
+		// that everything else is green, and a skip proved nothing.
+		return "check " + res.CheckId + " was skipped and is not named, so the run does not show the rest of the plan green"
 	case !named[res.CheckId]:
 		return "check " + res.CheckId + " is red and not named, so the plan is not the only thing wrong"
 	case res.Status != scenarioStatusFail:
