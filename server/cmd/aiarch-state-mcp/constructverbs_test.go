@@ -21,7 +21,15 @@ func projectWithComponent(t *testing.T, id string, kind ...projectstate.Componen
 	if len(kind) > 0 && kind[0] == projectstate.CompResource {
 		c.Kind, c.Layer = projectstate.CompResource, projectstate.LayerResource
 	}
-	sys := &projectstate.System{Components: []projectstate.Component{c}}
+	// The live design-health tier holds a System to having a Manager and a ResourceAccess over a
+	// Resource, and the contract verb runs that tier on what it records.
+	sys := &projectstate.System{Components: []projectstate.Component{c,
+		{ID: "fixture-manager", Name: "Fixture Manager", Kind: projectstate.CompManager, Layer: projectstate.LayerManager, Encapsulates: "Fixture workflow volatility"},
+		{ID: "fixture-access", Name: "Fixture Access", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess, Encapsulates: "Fixture store volatility"},
+		{ID: "fixture-store", Name: "Fixture Store", Kind: projectstate.CompResource, Layer: projectstate.LayerResource, Encapsulates: "Fixture data"},
+	}, Relationships: []projectstate.Relationship{
+		{From: "fixture-access", To: "fixture-store", Mode: projectstate.CallSync, Label: "store"},
+	}}
 	if err := projectstate.FinalizeDraftModel(sys); err != nil {
 		t.Fatalf("finalize the fixture System: %v", err)
 	}
@@ -39,6 +47,7 @@ func TestRecordServiceContract_WritesAndValidates(t *testing.T) {
 		"component": "billingEngine",
 		"layer":     "Engine",
 		"title":     "Billing Engine",
+		"interface": map[string]any{"name": "BillingEngine"},
 	}); err != nil {
 		t.Fatalf("recordServiceContract: %v", err)
 	}
@@ -64,7 +73,7 @@ func TestRecordServiceContract_CanonicalizesAndRefusesAtTheVerb(t *testing.T) {
 	s, _ := seedProject(t, projectWithComponent(t, "billing-engine"), jobModeConstruct, 0)
 	s.ComponentID = "billing-engine"
 	contract := func(extra map[string]any) map[string]any {
-		c := map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine"}
+		c := map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine", "interface": map[string]any{"name": "BillingEngine"}}
 		maps.Copy(c, extra)
 		return c
 	}

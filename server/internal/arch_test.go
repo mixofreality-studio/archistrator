@@ -1015,6 +1015,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// REC-BUILT-UNRECORDED resolve through it. projectstate owns the System model it is
 		// derived over; same category as ContractKeyOf / the Finalize/identity helpers.
 		"ContractKeyFor",
+		// PlanBindingDigests / ActivityLifecycle (FIX-022): pure reads of the document model, with
+		// the same two callers as ContractKeyOf. aiarch-state-mcp's reportPlanDefect stamps the
+		// baseline and resolves the route through them, and the delivery Manager's replan hold
+		// compares against the same digests, so the two sides cannot digest a binding differently.
+		"PlanBindingDigests",
+		"ActivityLifecycle",
 		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 		// needs an explicit entry like the System model types) + its hand-written accessors.

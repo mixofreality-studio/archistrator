@@ -392,7 +392,7 @@ func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
 	}
 
 	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
-		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine"},
+		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine", "interface": map[string]any{"name": "BillingEngine"}},
 	})
 	if res.IsError {
 		t.Fatalf("recordServiceContract failed: %s", contentText(res))
@@ -656,7 +656,7 @@ func rigRecordContract(t *testing.T, bin, repo, branch string, c projectstate.Co
 		envTargetBranch+"="+branch, envProjectID+"=rigproj", envStateRoot+"="+repo)
 	key := lowerCamelOfID(c.ID)
 	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
-		"contract": map[string]any{"component": key, "layer": contractLayerOf(c.Kind), "title": c.Name},
+		"contract": map[string]any{"component": key, "layer": contractLayerOf(c.Kind), "title": c.Name, "interface": map[string]any{"name": contractInterfaceNameOf(key, c.Kind)}},
 	})
 	if res.IsError {
 		return res, nil
@@ -677,6 +677,17 @@ func contractLayerOf(k projectstate.ComponentKind) string {
 		projectstate.CompClient: "Client", projectstate.CompManager: "Manager", projectstate.CompEngine: "Engine",
 		projectstate.CompResourceAccess: "ResourceAccess", projectstate.CompResource: "Resource", projectstate.CompUtility: "Utility",
 	}[k]
+}
+
+// contractInterfaceNameOf names a component's port the way the contract verb requires: an Engine's
+// ends in Engine and a ResourceAccess's in Access, whatever the component's id happens to say.
+func contractInterfaceNameOf(key string, k projectstate.ComponentKind) string {
+	name := strings.ToUpper(key[:1]) + key[1:]
+	suffix := map[projectstate.ComponentKind]string{projectstate.CompEngine: "Engine", projectstate.CompResourceAccess: "Access"}[k]
+	if strings.HasSuffix(name, suffix) {
+		return name
+	}
+	return name + suffix
 }
 
 func keysOfTools(m map[string]*mcp.Tool) []string {
