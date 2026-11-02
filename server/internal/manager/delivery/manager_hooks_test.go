@@ -5019,6 +5019,32 @@ func TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed(t *testing.T) {
 	}
 }
 
+// TestARefusedReportCanBeMadeAgain: a refused report was never ruled on, so it does not read as
+// upheld when the agent makes it again over a run that bears it out.
+func TestARefusedReportCanBeMadeAgain(t *testing.T) {
+	s, h, _ := planDefectWalk(t, "refused-again", func(run int, sc []string) planStep {
+		switch run {
+		case 1:
+			return planStep{failed: sc[:2], report: sc[:1]}
+		case 2:
+			return planStep{failed: sc[:1], report: sc[:1]}
+		}
+		return planStep{}
+	}, delivery.ActivityViewDone)
+	if got := jobCount(s, "service-test-plan"); got != 2 {
+		t.Errorf("the test plan ran %d times, want the first draft and the redraft the second report asked for", got)
+	}
+	trips := 0
+	for _, r := range planDefectRounds(t, h, s) {
+		if r.Outcome == projectstate.RoundSentBack {
+			trips++
+		}
+	}
+	if trips != 1 {
+		t.Errorf("%d send-back rounds, want the one the second report opened", trips)
+	}
+}
+
 // TestAnUpheldBindingCannotBeReportedAgain: the test-engineer answered "binding stands" by leaving
 // the plan alone and the review passed, so the same claim on the same binding re-opens nothing.
 func TestAnUpheldBindingCannotBeReportedAgain(t *testing.T) {
