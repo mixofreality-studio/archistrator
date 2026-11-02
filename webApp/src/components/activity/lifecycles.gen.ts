@@ -27,7 +27,8 @@ export type LifecycleTypeKey =
   | 'deployment'
   | 'documentation'
   | 'uiDesign'
-  | 'integration';
+  | 'integration'
+  | 'machineClient';
 
 /** A Figure A-2 grouping of tasks: the earned-value unit. */
 export interface LifecyclePhaseDef {
@@ -1031,6 +1032,41 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         dependsOn: [],
         revisionGroup: 'integration',
         command: 'service-integration',
+        workerClass: 'system-architect',
+        artifactKind: 'Integration',
+      },
+      {
+        id: 'testing',
+        kind: 'review',
+        title: 'Integration Testing',
+        phase: 'integration',
+        dependsOn: ['integration'],
+        revisionGroup: 'integration',
+        reviews: 'integration',
+      },
+    ],
+  },
+  {
+    type: 'machineClient',
+    phases: [
+      {
+        id: 'integration',
+        label: 'Integration',
+        weight: 100,
+        gate: 'testing',
+        exitCriterion:
+          "The client's generated code is committed and its gate, including its generated wire proof, passes",
+      },
+    ],
+    tasks: [
+      {
+        id: 'integration',
+        kind: 'dispatch',
+        title: 'Integration',
+        phase: 'integration',
+        dependsOn: [],
+        revisionGroup: 'integration',
+        command: 'machine-client-integration',
         workerClass: 'system-architect',
         artifactKind: 'Integration',
       },

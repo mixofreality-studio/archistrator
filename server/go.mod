@@ -6,11 +6,11 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.15.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.16.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.4
+	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.5
 	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.13.0
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.14.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
@@ -63,7 +63,7 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.0 // indirect
+	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.1 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.2.0 // indirect
 	github.com/moby/moby/api v1.54.1 // indirect
@@ -124,7 +124,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go v0.18.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.19.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.3.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0

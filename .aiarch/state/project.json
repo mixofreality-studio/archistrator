@@ -7295,7 +7295,8 @@
             "contractKey": "mcpClient",
             "constructionProfile": "generated",
             "provisioning": "owned",
-            "uiSurface": false
+            "uiSurface": false,
+            "machineProtocol": "mcp"
           },
           {
             "id": "scheduler-client",
@@ -8003,31 +8004,36 @@
             "from": "mcp-client",
             "to": "security",
             "mode": "sync",
-            "label": "AuthN/AuthZ"
+            "label": "AuthN/AuthZ",
+            "ambient": true
           },
           {
             "from": "operations-manager",
             "to": "logging",
             "mode": "sync",
-            "label": "Logs"
+            "label": "Logs",
+            "ambient": true
           },
           {
             "from": "operations-manager",
             "to": "diagnostics",
             "mode": "sync",
-            "label": "Reports health"
+            "label": "Reports health",
+            "ambient": true
           },
           {
             "from": "billing-manager",
             "to": "logging",
             "mode": "sync",
-            "label": "Logs"
+            "label": "Logs",
+            "ambient": true
           },
           {
             "from": "billing-manager",
             "to": "diagnostics",
             "mode": "sync",
-            "label": "Reports health"
+            "label": "Reports health",
+            "ambient": true
           },
           {
             "from": "billing-manager",
@@ -8039,7 +8045,8 @@
             "from": "operations-manager",
             "to": "message-bus",
             "mode": "sync",
-            "label": "registerSchedule(operatedStateReconcile)"
+            "label": "registerSchedule(operatedStateReconcile)",
+            "ambient": true
           },
           {
             "from": "billing-manager",
@@ -8147,13 +8154,15 @@
             "from": "delivery-manager",
             "to": "logging",
             "mode": "sync",
-            "label": "Logs"
+            "label": "Logs",
+            "ambient": true
           },
           {
             "from": "delivery-manager",
             "to": "diagnostics",
             "mode": "sync",
-            "label": "Reports health"
+            "label": "Reports health",
+            "ambient": true
           },
           {
             "from": "billing-manager",
@@ -17218,7 +17227,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -17230,7 +17240,8 @@
             "ActivityTypeIntegration",
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
-            "ActivityTypeProjectDesign"
+            "ActivityTypeProjectDesign",
+            "ActivityTypeMachineClient"
           ],
           "x-go-base": "int"
         },
@@ -20888,7 +20899,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -20900,7 +20912,8 @@
             "ActivityTypeIntegration",
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
-            "ActivityTypeProjectDesign"
+            "ActivityTypeProjectDesign",
+            "ActivityTypeMachineClient"
           ],
           "x-go-base": "int"
         },
@@ -26035,6 +26048,9 @@
             },
             "uiSurface": {
               "type": "boolean"
+            },
+            "machineClient": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -26046,7 +26062,8 @@
             "coding",
             "componentId",
             "derived",
-            "uiSurface"
+            "uiSurface",
+            "machineClient"
           ],
           "additionalProperties": false
         },
@@ -26657,7 +26674,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -26669,7 +26687,8 @@
             "ActivityTypeIntegration",
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
-            "ActivityTypeProjectDesign"
+            "ActivityTypeProjectDesign",
+            "ActivityTypeMachineClient"
           ],
           "x-go-base": "int"
         },
@@ -27667,7 +27686,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -27679,7 +27699,8 @@
             "ActivityTypeIntegration",
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
-            "ActivityTypeProjectDesign"
+            "ActivityTypeProjectDesign",
+            "ActivityTypeMachineClient"
           ],
           "x-go-base": "int"
         },
@@ -35205,7 +35226,8 @@
             6,
             7,
             8,
-            9
+            9,
+            10
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -35217,7 +35239,8 @@
             "ActivityTypeIntegration",
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
-            "ActivityTypeProjectDesign"
+            "ActivityTypeProjectDesign",
+            "ActivityTypeMachineClient"
           ],
           "x-go-base": "int"
         },
@@ -35628,6 +35651,13 @@
                 "null",
                 "boolean"
               ]
+            },
+            "machineProtocol": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "description": "A built machine client's transport: rest (the shared generated REST server) or mcp (generated tool tables). Required on one, illegal elsewhere (SYS-CLIENT-PROTOCOL)."
             }
           },
           "required": [
@@ -37245,6 +37275,13 @@
             },
             "label": {
               "type": "string"
+            },
+            "ambient": {
+              "type": [
+                "null",
+                "boolean"
+              ],
+              "description": "An ambient dependency on a Utility no use case can narrate (logging, diagnostics, authentication): the only way a relationship may go uncalled by every dynamic view (CC-EDGE-REALIZED). Legal only on a Utility target."
             }
           },
           "required": [
@@ -38671,7 +38708,8 @@
             "integration",
             "requirements",
             "architecture",
-            "projectDesign"
+            "projectDesign",
+            "machineClient"
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -38683,7 +38721,8 @@
             "ActivityTypeIntegration",
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
-            "ActivityTypeProjectDesign"
+            "ActivityTypeProjectDesign",
+            "ActivityTypeMachineClient"
           ],
           "x-go-base": "string"
         },

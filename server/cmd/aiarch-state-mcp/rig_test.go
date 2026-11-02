@@ -479,6 +479,12 @@ func assertContractRecorded(t *testing.T, c projectstate.Component, res *mcp.Cal
 		}
 		return
 	}
+	if c.Kind == projectstate.CompClient {
+		if !res.IsError || !strings.Contains(contentText(res), "authors no contract") {
+			t.Errorf("recordServiceContract for the Client %q: want it refused, got error=%v %q", c.ID, res.IsError, contentText(res))
+		}
+		return
+	}
 	if res.IsError {
 		t.Errorf("recordServiceContract for %q (%s) refused: %s", c.ID, c.Kind, contentText(res))
 		return
@@ -500,7 +506,8 @@ type freshSystem struct {
 	base   projectstate.Project
 }
 
-// statingClientSurfaces is a corpus System with each Client's uiSurface stated, as
+// statingClientSurfaces is a corpus System with each Client's uiSurface and transport stated and
+// no relationship left uncalled, as
 // SYS-CLIENT-UISURFACE now makes an agent do. The corpus stays verbatim: no run recorded the
 // field, which is the defect the rule closes.
 func statingClientSurfaces(t *testing.T, system json.RawMessage) json.RawMessage {
@@ -512,8 +519,26 @@ func statingClientSurfaces(t *testing.T, system json.RawMessage) json.RawMessage
 	for _, c := range model["components"].([]any) {
 		if comp := c.(map[string]any); comp["kind"] == "client" {
 			comp["uiSurface"] = false
+			comp["machineProtocol"] = "mcp"
 		}
 	}
+	called := map[string]bool{}
+	for _, v := range model["dynamicViews"].([]any) {
+		for _, st := range v.(map[string]any)["steps"].([]any) {
+			for _, c := range st.(map[string]any)["calls"].([]any) {
+				call := c.(map[string]any)
+				called[call["from"].(string)+">"+call["to"].(string)] = true
+			}
+		}
+	}
+	var realized []any
+	for _, r := range model["relationships"].([]any) {
+		rel := r.(map[string]any)
+		if called[rel["from"].(string)+">"+rel["to"].(string)] {
+			realized = append(realized, rel)
+		}
+	}
+	model["relationships"] = realized
 	out, err := json.Marshal(model)
 	if err != nil {
 		t.Fatal(err)
@@ -656,7 +681,7 @@ func rigRecordContract(t *testing.T, bin, repo, branch string, c projectstate.Co
 		envTargetBranch+"="+branch, envProjectID+"=rigproj", envStateRoot+"="+repo)
 	key := lowerCamelOfID(c.ID)
 	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
-		"contract": map[string]any{"component": key, "layer": contractLayerOf(c.Kind), "title": c.Name, "interface": map[string]any{"name": contractInterfaceNameOf(key, c.Kind)}},
+		"contract": map[string]any{"component": key, "layer": contractLayerOf(c.Kind), "title": c.Name, "$defs": map[string]any{"T": map[string]any{"type": "string"}}, "interface": map[string]any{"name": contractInterfaceNameOf(key, c.Kind), "operations": rigOpsOf(t, repo, branch, c.ID)}},
 	})
 	if res.IsError {
 		return res, nil
@@ -669,6 +694,45 @@ func rigRecordContract(t *testing.T, bin, repo, branch string, c projectstate.Co
 		t.Fatalf("published project.json does not decode: ok=%v err=%v", ok, err)
 	}
 	return res, proj.ServiceContracts
+}
+
+// rigOpsOf is the operations the design's "|" labels name on a component, exported, as the agent
+// that designs its contract records them: TP-LABEL-OP holds a contract to those labels.
+func rigOpsOf(t *testing.T, repo, branch, componentID string) []map[string]any {
+	t.Helper()
+	proj, ok, err := projectstate.DecodeProjectJSON(gitShow(t, repo, "origin/"+branch, ".aiarch/state/project.json"), "rigproj")
+	if err != nil || !ok {
+		t.Fatalf("project.json does not decode: ok=%v err=%v", ok, err)
+	}
+	sys, _ := proj.SystemDesign.Model.(*projectstate.System)
+	if sys == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	ops := []map[string]any{}
+	for _, v := range sys.DynamicViews {
+		for _, st := range v.Steps {
+			for _, call := range st.Calls {
+				if call.To != componentID {
+					continue
+				}
+				clause, _, _ := strings.Cut(strings.ReplaceAll(call.Label, "→", "—"), "—")
+				if !strings.Contains(clause, "|") {
+					continue
+				}
+				for alt := range strings.SplitSeq(clause, "|") {
+					name, _, _ := strings.Cut(strings.TrimSpace(alt), "(")
+					name, _, _ = strings.Cut(name, " ")
+					if name == "" || seen[strings.ToLower(name)] {
+						continue
+					}
+					seen[strings.ToLower(name)] = true
+					ops = append(ops, map[string]any{"name": strings.ToUpper(name[:1]) + name[1:], "params": []any{}, "error": true})
+				}
+			}
+		}
+	}
+	return ops
 }
 
 // contractLayerOf is a ServiceContract's Layer word for a component kind.

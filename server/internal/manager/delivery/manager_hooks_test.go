@@ -3816,7 +3816,7 @@ func TestPlanCarriesABrowserSurfaceToItsLifecycle(t *testing.T) {
 			continue
 		}
 		delete(want, a.Name)
-		got, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.UISurface)
+		got, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.UISurface, a.MachineClient)
 		if err != nil || got != wantType {
 			t.Errorf("%s classifies as %v (%v), want %v", a.Name, got, err, wantType)
 		}

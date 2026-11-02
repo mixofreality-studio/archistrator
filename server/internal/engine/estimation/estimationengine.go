@@ -1668,6 +1668,9 @@ func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
 		Coding:      true,
 		ComponentID: c.ID,
 		Derived:     true,
+		// A client that is not a browser surface is generated: it walks the machineClient
+		// lifecycle, which writes nothing and proves the generated code.
+		MachineClient: c.Kind == "client",
 	}, true
 }
 

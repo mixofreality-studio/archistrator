@@ -185,7 +185,7 @@ func freshState(t *testing.T) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return out
+	return conformClientDesign(t, out)
 }
 
 // withPlansUnderContractKeys is RUN-007's plans as the verb now files them: RUN-007's agent keyed

@@ -6535,12 +6535,9 @@ func (wf *csWorkflows) applyRowRecovering(
 // spec §6.5 says the round "cannot passRound unless" the evidence holds up, whoever decides
 // it. An empty-roster round parked for a human is still a round a human can approve.
 //
-// EARMARK — THE VACUOUS PASS: a run with NO results over a component with NO projected
-// scenarios passes (testingGateHold). Spec §6.5 does not say so; it is admitted so the
-// hand-built rigs that run the production projector over use-case-less projects do not
-// wedge. In production projectstate.ComponentScenarios is empty for a component on no
-// use-case path, so a zero-result run — if any path ever stores one — passes for such a
-// component. Needs a ruling (hold on an empty projection, or accept it as "nothing to test").
+// NO VACUOUS PASS: a component with no projected scenarios holds the gate (testingGateHold). A
+// machine client never reaches this gate, because its lifecycle binds no test plan
+// (lifecycleBindsTestPlan); its generated proof runs in its integration's own checks instead.
 //
 // IT LIVES IN THIS FILE, not in a testinggate.go of its own, because the file-layout gate
 // (framework-go/arch, TestFileLayout at zero waivers) admits exactly one handwritten file

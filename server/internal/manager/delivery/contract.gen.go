@@ -144,6 +144,7 @@ const (
 	ActivityTypeRequirements  ActivityType = 7
 	ActivityTypeArchitecture  ActivityType = 8
 	ActivityTypeProjectDesign ActivityType = 9
+	ActivityTypeMachineClient ActivityType = 10
 )
 
 type ActivityView struct {

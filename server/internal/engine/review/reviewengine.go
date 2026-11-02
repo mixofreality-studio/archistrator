@@ -238,7 +238,7 @@ func designActivityType(t ActivityType) bool {
 	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
 		return true
 	case ActivityTypeService, ActivityTypeFrontend, ActivityTypeTesting, ActivityTypeDeployment,
-		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration:
+		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration, ActivityTypeMachineClient:
 		return false
 	}
 	return false
@@ -262,7 +262,7 @@ func artifactKindFor(t ActivityType, p string, hasComponent bool) ReviewArtifact
 		kind = componentReviewKind(p, ReviewKindDetailedDesign, ReviewKindConstruction)
 	case ActivityTypeFrontend, ActivityTypeUIDesign:
 		kind = componentReviewKind(p, ReviewKindUIDesign, ReviewKindUICode)
-	case ActivityTypeIntegration:
+	case ActivityTypeIntegration, ActivityTypeMachineClient:
 		kind = componentReviewKind(p, ReviewKindNoncoding, ReviewKindNoncoding)
 	case ActivityTypeTesting, ActivityTypeDocumentation:
 		// A document or a test asset with no architecture component; its "integration"
@@ -301,7 +301,7 @@ func componentReviewKind(p string, design, build ReviewArtifactKind) ReviewArtif
 func reviewersFor(t ActivityType, p string, kind ReviewArtifactKind) (reviewers []Reviewer, known bool) {
 	switch t {
 	case ActivityTypeService, ActivityTypeFrontend, ActivityTypeTesting, ActivityTypeDeployment,
-		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration:
+		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration, ActivityTypeMachineClient:
 		return constructionReviewersFor(kind), true
 	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
 		return designReviewersFor(t, p), true

@@ -689,6 +689,7 @@ export interface ConstructionRow {
     | 'documentation'
     | 'uiDesign'
     | 'integration'
+    | 'machineClient'
     // The three design types at the head of the plan (spec 2026-09-20 §5.1). The
     // design prefix is derived, classified, committed and backfilled onto
     // construction rows same as any other activity (server: ClassifyActivity /

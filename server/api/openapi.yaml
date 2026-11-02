@@ -366,6 +366,7 @@ components:
                 - 7
                 - 8
                 - 9
+                - 10
             type: integer
             x-enum-varnames:
                 - ActivityTypeService
@@ -378,6 +379,7 @@ components:
                 - ActivityTypeRequirements
                 - ActivityTypeArchitecture
                 - ActivityTypeProjectDesign
+                - ActivityTypeMachineClient
             x-go-base: int
         DeliveryActivityView:
             additionalProperties: false
@@ -3232,6 +3234,8 @@ components:
                     type: string
                 effortDays:
                     type: number
+                machineClient:
+                    type: boolean
                 name:
                     type: string
                 riskBucket:
@@ -3405,6 +3409,10 @@ components:
                         - resource
                         - utility
                     type: string
+                machineProtocol:
+                    type:
+                        - "null"
+                        - string
                 name:
                     type: string
                 provisioning:
@@ -4126,6 +4134,10 @@ components:
         ModelRelationship:
             additionalProperties: false
             properties:
+                ambient:
+                    type:
+                        - "null"
+                        - boolean
                 from:
                     type: string
                 label:

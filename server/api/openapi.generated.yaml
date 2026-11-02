@@ -366,6 +366,7 @@ components:
                 - 7
                 - 8
                 - 9
+                - 10
             type: integer
             x-enum-varnames:
                 - ActivityTypeService
@@ -378,6 +379,7 @@ components:
                 - ActivityTypeRequirements
                 - ActivityTypeArchitecture
                 - ActivityTypeProjectDesign
+                - ActivityTypeMachineClient
             x-go-base: int
         DeliveryActivityView:
             additionalProperties: false

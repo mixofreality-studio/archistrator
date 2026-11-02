@@ -4769,14 +4769,15 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 	acts := make([]projectstate.ActivityItem, 0, len(plan.Activities))
 	for _, a := range plan.Activities {
 		acts = append(acts, projectstate.ActivityItem{
-			Name:        a.Name,
-			Title:       a.Title,
-			EffortDays:  a.EffortDays,
-			RiskBucket:  int(a.RiskBucket),
-			WorkerClass: a.WorkerClass,
-			Coding:      a.Coding,
-			ComponentID: a.ComponentID,
-			UISurface:   a.UiSurface,
+			Name:          a.Name,
+			Title:         a.Title,
+			EffortDays:    a.EffortDays,
+			RiskBucket:    int(a.RiskBucket),
+			WorkerClass:   a.WorkerClass,
+			Coding:        a.Coding,
+			ComponentID:   a.ComponentID,
+			UISurface:     a.UiSurface,
+			MachineClient: a.MachineClient,
 		})
 	}
 	return projectstate.ActivityList{Activities: acts}
@@ -8299,7 +8300,8 @@ func isDesignLifecycle(typ projectstate.ActivityType) bool {
 		projectstate.ActivityTypeDeployment,
 		projectstate.ActivityTypeDocumentation,
 		projectstate.ActivityTypeUIDesign,
-		projectstate.ActivityTypeIntegration:
+		projectstate.ActivityTypeIntegration,
+		projectstate.ActivityTypeMachineClient:
 		return false
 	}
 	return false
@@ -8440,7 +8442,7 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 // is where a plan defect becomes verdictBlocked with its repair named, and swallowing it here
 // would turn a reportable defect back into a silent quiet tick.
 func admissibleInPhase(phase projectstate.Phase, rule eligibilityRule, name string, item projectstate.ActivityItem) bool {
-	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding, item.UISurface)
+	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient)
 	if err != nil {
 		return true
 	}
@@ -8481,7 +8483,7 @@ func dispatchSelectionFor(proj projectstate.Project, chosen string, item project
 	// classify has no phase profile and no slash command, so dispatching it would mean
 	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
 	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
-	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding, item.UISurface)
+	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient)
 	// (A design activity used to take its own quiescent arm HERE, because rule 0 classified
 	// it and then refused it: reaching this line meant some path had chosen an activity the
 	// scan walks past, and going quiet was the only safe answer — verdictBlocked writes the
@@ -11221,7 +11223,7 @@ func (m *deliveryManager) activityLifecycle(rc fwmanager.Context, projectID Proj
 		return methodassets.Lifecycle{}, newError(fwmanager.NotFound,
 			"no activity "+id+" in the committed activity list")
 	}
-	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding, item.UISurface)
+	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient)
 	if err != nil {
 		return methodassets.Lifecycle{}, newError(fwmanager.FailedPrecondition, err.Error())
 	}

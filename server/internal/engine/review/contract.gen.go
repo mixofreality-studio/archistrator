@@ -20,6 +20,7 @@ const (
 	ActivityTypeRequirements  ActivityType = "requirements"
 	ActivityTypeArchitecture  ActivityType = "architecture"
 	ActivityTypeProjectDesign ActivityType = "projectDesign"
+	ActivityTypeMachineClient ActivityType = "machineClient"
 )
 
 type ReviewArtifactKind string

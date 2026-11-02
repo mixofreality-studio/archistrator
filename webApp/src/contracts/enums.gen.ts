@@ -119,6 +119,7 @@ export const ACTIVITY_TYPE_GO_VARNAMES = [
   'ActivityTypeRequirements',
   'ActivityTypeArchitecture',
   'ActivityTypeProjectDesign',
+  'ActivityTypeMachineClient',
 ] as const;
 
 export type ActivityTypeGoVarname = (typeof ACTIVITY_TYPE_GO_VARNAMES)[number];
@@ -137,6 +138,7 @@ export const ACTIVITY_TYPE_APP_STRINGS = [
   'requirements',
   'architecture',
   'projectDesign',
+  'machineClient',
 ] as const;
 
 export type ActivityType = (typeof ACTIVITY_TYPE_APP_STRINGS)[number];
@@ -154,6 +156,7 @@ export const ACTIVITY_TYPE_APP_TO_ORDINAL: Readonly<Record<ActivityType, number>
   requirements: 7,
   architecture: 8,
   projectDesign: 9,
+  machineClient: 10,
 };
 // --- ActivityViewState ---------------------------------------------------
 // Sources: DeliveryActivityViewState

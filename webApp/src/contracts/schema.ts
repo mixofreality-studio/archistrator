@@ -496,7 +496,7 @@ export interface components {
       title: string;
     };
     /** @enum {integer} */
-    DeliveryActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+    DeliveryActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     /** @description One activity's lifecycle, per-task revisions and live review set: the Activity Experience's single read. Derived on read from the attempt ledger, the episode ledger, the operator notes, the stored lifecycle-phase completions and the live session; nothing here is stored. */
     DeliveryActivityView: {
       activityId: components['schemas']['DeliveryActivityID'];
@@ -1459,6 +1459,7 @@ export interface components {
       coding: boolean;
       componentId?: string;
       effortDays: number;
+      machineClient?: boolean;
       name: string;
       riskBucket: number;
       title?: string;
@@ -1523,6 +1524,7 @@ export interface components {
       kind: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
       /** @enum {string} */
       layer: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
+      machineProtocol?: null | string;
       name: string;
       provisioning?: null | string;
       uiSurface?: null | boolean;
@@ -1735,6 +1737,7 @@ export interface components {
       reason: string;
     };
     ModelRelationship: {
+      ambient?: null | boolean;
       from: string;
       label: string;
       /** @enum {string} */

@@ -181,6 +181,7 @@ const CLASSIFICATIONS: Readonly<Record<Classification, true>> = {
   documentation: true,
   uiDesign: true,
   integration: true,
+  machineClient: true,
   'testing:harness': true,
   'testing:perf': true,
   'testing:qaProcess': true,

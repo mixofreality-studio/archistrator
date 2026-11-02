@@ -53,6 +53,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/clientgen"
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
@@ -4852,6 +4853,9 @@ type ActivityItem struct {
 	// UISurface marks the activity that builds a browser surface (the Client's uiSurface,
 	// carried by the derivation). It is what puts the activity on the frontend lifecycle.
 	UISurface bool `json:"uiSurface,omitempty"`
+	// MachineClient marks the activity of a machine client (the Client's uiSurface false, carried
+	// on the plan the same way): its code is generated, so it walks the machineClient lifecycle.
+	MachineClient bool `json:"machineClient,omitempty"`
 }
 
 // ActivityList holds the Phase-2 activity list artifact — the coding + noncoding
@@ -7809,6 +7813,7 @@ var activityTypeNames = map[ActivityType]string{
 	ActivityTypeRequirements:  "requirements",
 	ActivityTypeArchitecture:  "architecture",
 	ActivityTypeProjectDesign: "projectDesign",
+	ActivityTypeMachineClient: "machineClient",
 }
 var activityTypeByName = invert(activityTypeNames)
 
@@ -8816,6 +8821,8 @@ func (t ActivityType) String() string {
 		return "uiDesign"
 	case ActivityTypeIntegration:
 		return "integration"
+	case ActivityTypeMachineClient:
+		return "machineClient"
 	case ActivityTypeRequirements:
 		return "requirements"
 	case ActivityTypeArchitecture:
@@ -9175,6 +9182,7 @@ func designActivityType(id string) (ActivityType, bool) {
 //     none (N-STP/N-IT are retired, spec §7) falls through to the rules below
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
 //  3. uiSurface                        → Frontend
+//     machineClient                    → MachineClient
 //  4. id prefix I-                    → Integration
 //  5. coding == true                  → Service
 //  6. workerClass ∈ {system-architect, project-manager, product-manager} → Documentation
@@ -9190,7 +9198,7 @@ func designActivityType(id string) (ActivityType, bool) {
 //
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
 // zero value (no variant) otherwise.
-func ClassifyActivity(id, workerClass string, coding, uiSurface bool) (ActivityType, TestingVariant, error) {
+func ClassifyActivity(id, workerClass string, coding, uiSurface, machineClient bool) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
 		return typ, 0, nil
 	}
@@ -9207,6 +9215,9 @@ func ClassifyActivity(id, workerClass string, coding, uiSurface bool) (ActivityT
 	}
 	if uiSurface {
 		return ActivityTypeFrontend, 0, nil
+	}
+	if machineClient {
+		return ActivityTypeMachineClient, 0, nil
 	}
 	if strings.HasPrefix(strings.ToUpper(id), "I-") {
 		return ActivityTypeIntegration, 0, nil
@@ -9240,11 +9251,11 @@ func ClassifyActivity(id, workerClass string, coding, uiSurface bool) (ActivityT
 // of the construction list view. A wrong type therefore fabricates an entire lifecycle.
 // The second return value is ok: when false the caller MUST render the row as
 // Unclassified with NO lifecycle sub-rows at all. An honest blank beats a plausible lie.
-func ClassifyType(id, workerClass string, coding, uiSurface, hasServiceContract bool) (ActivityType, bool) {
+func ClassifyType(id, workerClass string, coding, uiSurface, machineClient, hasServiceContract bool) (ActivityType, bool) {
 	if hasServiceContract {
 		return ActivityTypeService, true
 	}
-	typ, _, err := ClassifyActivity(id, workerClass, coding, uiSurface)
+	typ, _, err := ClassifyActivity(id, workerClass, coding, uiSurface, machineClient)
 	// A design activity needed a tolerance here until stage 4b1 Task 10: rule 0 handed back
 	// its type WITH ErrDesignActivityNotDispatchable, so this lens had to let that one error
 	// through or it would have refused to render a row that has a type, a lifecycle and
@@ -9286,7 +9297,7 @@ func ResolveConstructionRow(
 	// hasServiceContract is false: an execution row carries no produced-artifact record
 	// (the list and its only writer, CommitActivityArtifacts, were deleted in dct4), so a
 	// row is typed by the committed plan's item alone.
-	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, meta.UISurface, false)
+	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, meta.UISurface, meta.MachineClient, false)
 	if !classified {
 		return typ, variant, nil, false
 	}
@@ -12157,7 +12168,8 @@ func EditScopeGlobMatch(g, p string) bool {
 		return strings.HasPrefix(p, dir+"/")
 	}
 	if dir, ok := strings.CutSuffix(g, generatedFilesGlobSuffix); ok {
-		return strings.HasPrefix(p, dir+"/") && strings.Contains(path.Base(p), ".gen.")
+		base := path.Base(p)
+		return strings.HasPrefix(p, dir+"/") && (strings.Contains(base, ".gen.") || strings.HasSuffix(base, ".gen_test.go"))
 	}
 	return p == g
 }
@@ -12355,6 +12367,9 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 		}}, nil
 	case ms.Phase == "requirements" || ms.Phase == "detailed_design" || ms.Kind == methodassets.LifecycleTaskReview:
 		return stateOnly, []SpecCheck{projectRuleCheck()}, nil
+	}
+	if ms.Command == machineClientCommand {
+		return machineClientScopeAndChecks(p, item.ComponentID)
 	}
 	contracts := componentContracts(p, item.ComponentID)
 	switch ms.Command {
@@ -12555,6 +12570,88 @@ func contractLayer(p *Project, contract string) string {
 	return sc.Interface.Layer
 }
 
+// machineClientCommand is the machineClient lifecycle's one dispatch.
+const machineClientCommand = "machine-client-integration"
+
+// machineClientPackage is the Go tree a machine client's code lands in, read from the design
+// alone: a machine client has no contract to read it from. A REST client is the shared
+// generated transport; an MCP client has its own tool tables.
+func machineClientPackage(p *Project, componentID string) (string, error) {
+	c := lookupSystemComponent(p, componentID)
+	if c == nil || c.Kind != CompClient || c.UiSurface == nil || *c.UiSurface {
+		return "", fmt.Errorf("projectstate.TaskSpecFor: %q is not a machine client of the committed System", componentID)
+	}
+	protocol := ""
+	if c.MachineProtocol != nil {
+		protocol = *c.MachineProtocol
+	}
+	switch protocol {
+	case machineProtocolREST:
+		return "internal/client/web", nil
+	case machineProtocolMCP:
+		return clientgen.ClientPackage(c.Name), nil
+	}
+	return "", fmt.Errorf("projectstate.TaskSpecFor: machine client %q has machineProtocol %q, not rest or mcp (SYS-CLIENT-PROTOCOL)", componentID, protocol)
+}
+
+// The transports a machine client can be (Component.MachineProtocol).
+const (
+	machineProtocolREST = "rest"
+	machineProtocolMCP  = "mcp"
+)
+
+// lookupSystemComponent finds a component of the committed System by id.
+func lookupSystemComponent(p *Project, id string) *Component {
+	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
+	if !ok {
+		sys, ok = p.SystemDesign.Model.(*System)
+		if !ok || sys == nil {
+			return nil
+		}
+	}
+	for i := range sys.Components {
+		if sys.Components[i].ID == id {
+			return &sys.Components[i]
+		}
+	}
+	return nil
+}
+
+// machineClientScopeAndChecks is a machine client's gate. Its code is all generated, so nothing
+// here depends on a contract: the checks are what any generated Go package owes, the composition
+// root it changes, and its generated proof, which is what stands in for scenario checks. It
+// carries none of those: a machine client has no plan for them to ever get a verdict from.
+func machineClientScopeAndChecks(p *Project, componentID string) (SpecEditScope, []SpecCheck, error) {
+	pkg, err := machineClientPackage(p, componentID)
+	if err != nil {
+		return SpecEditScope{}, nil, err
+	}
+	dir := p.ModuleDir
+	tree := "./" + pkg + "/..."
+	scope := SpecEditScope{
+		Components: []SpecScopeComponent{{ID: componentID, Paths: packageGlobs(p, []string{pkg})}},
+		Extra:      append([]string{inModule(p, "go.mod"), inModule(p, "go.sum"), inModule(p, "cmd/server/hooks.go")}, compositionPaths(p)...),
+	}
+	wire := commandCheck(machineClientWireCheck, "The client's generated proof passes: every route or tool reaches its Manager operation", []string{"go", "test", "-count=1", "-v", tree}, dir, commandCheckTimeoutSec)
+	wire.Source.RequireTests = true
+	checks := append([]SpecCheck{
+		commandCheck("gofmt", "gofmt", []string{"sh", "-c", `test -z "$(gofmt -l ` + pkg + `)"`}, dir, commandCheckTimeoutSec),
+		commandCheck("build", "go build", []string{"go", "build", tree}, dir, commandCheckTimeoutSec),
+		commandCheck("vet", "go vet", []string{"go", "vet", tree}, dir, commandCheckTimeoutSec),
+		commandCheck("lint", "golangci-lint", []string{"golangci-lint", "run", tree}, dir, lintCheckTimeoutSec),
+		archCheck(dir),
+		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
+		wire,
+	}, compositionChecks(p, dir)...)
+	slices.Sort(scope.Extra)
+	scope.Extra = slices.Compact(scope.Extra)
+	sortChecks(checks)
+	return scope, checks, nil
+}
+
+// machineClientWireCheck names the check that runs a machine client's generated proof.
+const machineClientWireCheck = "client-wire"
+
 // composesServer reports whether integrating these contracts builds the composition root: a
 // Manager's or a Client's does, since either changes what the server wires or serves. A
 // ResourceAccess or Engine integrates against its callers and leaves the server alone.
@@ -12626,10 +12723,19 @@ func generatorsOf(p *Project, command, componentID string) []SpecGenerator {
 		)
 	case "service-integration":
 		if composesServer(p, componentContracts(p, componentID)) {
-			for _, sub := range compositionGenerators {
-				out = append(out, SpecGenerator{Title: "appgen " + sub, Argv: appgenArgv(p, sub)})
-			}
+			out = append(out, compositionGeneratorsSpec(p)...)
 		}
+	case machineClientCommand:
+		out = append(out, compositionGeneratorsSpec(p)...)
+	}
+	return out
+}
+
+// compositionGeneratorsSpec runs every generator the composition root needs.
+func compositionGeneratorsSpec(p *Project) []SpecGenerator {
+	out := make([]SpecGenerator, 0, len(compositionGenerators))
+	for _, sub := range compositionGenerators {
+		out = append(out, SpecGenerator{Title: "appgen " + sub, Argv: appgenArgv(p, sub)})
 	}
 	return out
 }
@@ -12710,6 +12816,11 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
 			return SpecEditScope{}, nil, err
+		}
+		if len(scen) == 0 {
+			// An empty gate must not pass silently: every operation of a browser surface is
+			// derived from a label a use case's view carries, so none means a design defect.
+			return SpecEditScope{}, nil, fmt.Errorf("projectstate.TaskSpecFor: browser surface %q has no scenario to integrate against: record its UI design, so its contract is derived from the actor calls into it, and check the System's dynamic views call it (SYS-CLIENT-OP-LABEL)", componentID)
 		}
 		checks = append(checks, scen...)
 	}
@@ -12807,4 +12918,127 @@ func sortChecks(checks []SpecCheck) {
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
+}
+
+// IsClientComponent reports whether a component of the committed System is a Client.
+func IsClientComponent(p *Project, componentID string) bool {
+	c := lookupSystemComponent(p, componentID)
+	return c != nil && c.Kind == CompClient
+}
+
+// browserContractDefs is the web dialect every browser operation speaks (the-method-testing §1):
+// one browser action in, what the step observes out.
+const browserContractDefs = `{
+ "UIAction": {"type": "object", "description": "One browser action a scenario step performs: click or fill the element carrying data-testid target, or navigate to value.",
+  "properties": {"kind": {"type": "string", "enum": ["click", "fill", "navigate"]}, "target": {"type": "string"}, "value": {"type": "string"}},
+  "required": ["kind"], "additionalProperties": false},
+ "UIObservable": {"type": "object", "description": "One observation after the action: the data-testid that is visible, the text a data-testid holds, or the URL.",
+  "properties": {"visible": {"type": "string"}, "text": {"type": "string"}, "target": {"type": "string"}, "url": {"type": "string"}}, "additionalProperties": false},
+ "UIObservation": {"description": "What the step observes: one observable, or several.",
+  "oneOf": [{"$ref": "#/$defs/UIObservable"}, {"type": "array", "items": {"$ref": "#/$defs/UIObservable"}}]}
+}`
+
+// RecordBrowserContract writes a browser surface's contract from the design, in the same
+// mutation that records its UI design and again on every re-record. Beyond the operation names
+// the contract holds nothing an author adds, so nobody authors it and methodcheck TP-CLIENT-OPS
+// holds it to these names. A family already holding exactly them is left alone, so hand-split
+// facets stay.
+func RecordBrowserContract(p *Project, componentID string) error {
+	c := lookupSystemComponent(p, componentID)
+	if c == nil || c.Kind != CompClient || c.UiSurface == nil || !*c.UiSurface {
+		return fmt.Errorf("recording a UI design: %q is not a browser surface of the committed System", componentID)
+	}
+	key, _ := ContractKeyFor(*c)
+	ops, err := browserOps(p, c.ID)
+	if err != nil {
+		return fmt.Errorf("recording the UI design of %q: %w", componentID, err)
+	}
+	if len(ops) == 0 {
+		return fmt.Errorf("recording the UI design of %q: no use case's dynamic view has an actor call it, so it has no operations; that is a design defect, not something to record around", componentID)
+	}
+	have, err := familyOps(p, c.ID)
+	if err != nil {
+		return err
+	}
+	want := slices.Sorted(slices.Values(ops))
+	if slices.Equal(have, want) {
+		return nil
+	}
+	sc, err := browserContract(key, c.Name, ops)
+	if err != nil {
+		return fmt.Errorf("recording the UI design of %q: %w", componentID, err)
+	}
+	maps.DeleteFunc(p.ServiceContracts, func(name string, other ServiceContract) bool { return other.Component == key && name != key })
+	if p.ServiceContracts == nil {
+		p.ServiceContracts = map[string]ServiceContract{}
+	}
+	p.ServiceContracts[key] = sc
+	return nil
+}
+
+// browserOps derives a surface's operations from the labels of the actor calls into it.
+func browserOps(p *Project, componentID string) ([]string, error) {
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return nil, err
+	}
+	var labels []string
+	for _, v := range in.Views {
+		for _, st := range v.Steps {
+			for _, call := range st.Calls {
+				if call.To == componentID && in.Actors[call.From] {
+					labels = append(labels, call.Label)
+				}
+			}
+		}
+	}
+	return scenario.ClientOps(labels)
+}
+
+// familyOps is the sorted operations of the contracts a call into a component resolves against.
+func familyOps(p *Project, componentID string) ([]string, error) {
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return nil, err
+	}
+	ops, _ := scenario.FamilyOps(in, componentID)
+	return ops, nil
+}
+
+// browserContract builds the derived contract: no goPackage, so testgen routes it to Playwright,
+// each operation in the web dialect with its spelling kept literal.
+func browserContract(key, name string, ops []string) (ServiceContract, error) {
+	type param struct {
+		Name   string         `json:"name"`
+		Schema map[string]any `json:"schema"`
+	}
+	type operation struct {
+		Name   string         `json:"name"`
+		Params []param        `json:"params"`
+		Result map[string]any `json:"result"`
+		Error  bool           `json:"error"`
+	}
+	operations := make([]operation, 0, len(ops))
+	for _, op := range ops {
+		operations = append(operations, operation{
+			Name:   op,
+			Params: []param{{Name: "action", Schema: map[string]any{"$ref": "#/$defs/UIAction"}}},
+			Result: map[string]any{"$ref": "#/$defs/UIObservation"},
+		})
+	}
+	raw, err := json.Marshal(map[string]any{
+		"component": key,
+		"layer":     "Client",
+		"title":     key + " contract",
+		"$defs":     json.RawMessage(browserContractDefs),
+		"interface": map[string]any{"name": name, "layer": "client", "operations": operations},
+	})
+	if err != nil {
+		return ServiceContract{}, err
+	}
+	var sc ServiceContract
+	if err := json.Unmarshal(raw, &sc); err != nil {
+		return ServiceContract{}, fmt.Errorf("the derived contract does not fit its schema: %w", err)
+	}
+	return sc, nil
 }

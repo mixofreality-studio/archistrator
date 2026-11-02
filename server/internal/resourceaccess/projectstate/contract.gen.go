@@ -112,6 +112,7 @@ const (
 	ActivityTypeRequirements  ActivityType = 7
 	ActivityTypeArchitecture  ActivityType = 8
 	ActivityTypeProjectDesign ActivityType = 9
+	ActivityTypeMachineClient ActivityType = 10
 )
 
 type Actor struct {
@@ -250,6 +251,7 @@ type Component struct {
 	ConstructionProfile      *string       `json:"constructionProfile,omitempty"`
 	Provisioning             *string       `json:"provisioning,omitempty"`
 	UiSurface                *bool         `json:"uiSurface,omitempty"`
+	MachineProtocol          *string       `json:"machineProtocol,omitempty"`
 }
 
 type ComponentKind int
@@ -716,10 +718,11 @@ const (
 )
 
 type Relationship struct {
-	From  string   `json:"from"`
-	To    string   `json:"to"`
-	Mode  CallMode `json:"mode"`
-	Label string   `json:"label"`
+	From    string   `json:"from"`
+	To      string   `json:"to"`
+	Mode    CallMode `json:"mode"`
+	Label   string   `json:"label"`
+	Ambient *bool    `json:"ambient,omitempty"`
 }
 
 type RepoCredential struct {

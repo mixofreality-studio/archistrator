@@ -153,6 +153,9 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		if err != nil {
 			return err
 		}
+		if err := refuseClientContract(*p, s.ComponentID, sc); err != nil {
+			return err
+		}
 		if err := canonicalizeContract(key, &sc); err != nil {
 			return err
 		}
@@ -162,6 +165,15 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		p.ServiceContracts[key] = sc
 		return nil
 	})
+}
+
+// refuseClientContract: nobody authors a Client's contract. A browser surface's is derived from
+// the design's labels when its UI design is recorded, and a machine client has none.
+func refuseClientContract(p projectstate.Project, componentID string, sc projectstate.ServiceContract) error {
+	if !strings.EqualFold(sc.Layer, "client") && !strings.EqualFold(sc.Interface.Layer, "client") && !projectstate.IsClientComponent(&p, componentID) {
+		return nil
+	}
+	return fmt.Errorf("recordServiceContract: a Client authors no contract: a browser surface's is derived from the actor calls into it when its UI design is recorded, and a machine client has none, so do not record one")
 }
 
 // canonicalizeContract lowercases the contract's interface layer and holds it to what the
@@ -230,6 +242,9 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 			pl.TestPlan.Component = key
 		}
 		projectstate.ApplyPhaseArtifactPayload(p, key, pl)
+		if pl.UIDesign != nil {
+			return projectstate.RecordBrowserContract(p, s.ComponentID)
+		}
 		return nil
 	})
 }

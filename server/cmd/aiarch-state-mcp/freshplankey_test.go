@@ -94,6 +94,7 @@ func run008State(t *testing.T) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mid = conformClientDesign(t, mid)
 	proj, _, err := projectstate.DecodeProjectJSON(mid, anyProject)
 	if err != nil {
 		t.Fatal(err)
