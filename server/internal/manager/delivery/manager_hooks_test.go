@@ -1001,6 +1001,9 @@ func serveChecks(w http.ResponseWriter, r *http.Request) {
 		if results, digest, ok := v.planResults(req.Spec); ok {
 			resp.Results, resp.Digest = results, digest
 		}
+		if v.planGateCannotRun(req.Spec) {
+			resp.Results, resp.Error = nil, "scripted gate: the checks could not run"
+		}
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -4606,6 +4609,8 @@ type planStep struct {
 	report                      []string
 	// steady keeps the failure digest of the run before, so the run repeats it.
 	steady bool
+	// noRun leaves the attempt with no check run at all: the gate itself could not run.
+	noRun bool
 }
 
 // playPlanScript plays the scripted part of a driven-activity job: an integration run's report,
@@ -4753,6 +4758,17 @@ func (v *venue) planResults(specPath string) ([]projectstate.CheckResult, string
 		digest = "the same failure"
 	}
 	return results, digest, true
+}
+
+// planGateCannotRun reports that the scripted integration job's gate records no check run.
+func (v *venue) planGateCannotRun(specPath string) bool {
+	spec, err := testinfra.ReadSpec(specPath)
+	if err != nil || spec.Task != "integration" || spec.Activity != drivenActivity {
+		return false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.planScript != nil && v.planNow.noRun
 }
 
 // planDefectWalk runs the driven activity under a scripted integration until it reads want.
@@ -4946,6 +4962,8 @@ func refusalScript(run int, sc []string) planStep {
 		return planStep{noVerdict: sc[:1], report: sc[:1]}
 	case 6:
 		return planStep{failed: sc, report: sc}
+	case 7:
+		return planStep{report: sc[:1], noRun: true}
 	}
 	return planStep{}
 }
@@ -4961,6 +4979,7 @@ func TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed(t *testing.T) {
 		"not a recorded failure",
 		"recorded no verdict",
 		"points at wiring or a hook",
+		"no check run is recorded",
 	}
 	s, h, _ := planDefectWalk(t, "refusals", refusalScript, delivery.ActivityViewDone)
 	if got := jobCount(s, "service-test-plan"); got != 1 {
