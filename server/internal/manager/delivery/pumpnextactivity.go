@@ -619,7 +619,7 @@ func (wf *csWorkflows) pumpDrainIfIdle(
 // project reading "running" once nothing can move, which cost RUN-007 ten idle minutes: a
 // give-up's dependents stay blocked, so "every activity terminal" never comes.
 //
-// THE VERDICT IS DERIVED FROM THE ROWS, so it survives everything that loses pump memory: a
+// THE VERDICT IS DERIVED FROM THE ROWS, so it survives everything that loses a pump's state: a
 // continue-as-new, a pause that ended the chain, and a sweep's fresh chain all reach the same
 // answer. It reads again whenever this chain started anything, because the wake-up's read can
 // predate a child's last write. A fresh chain's own read is new enough.
