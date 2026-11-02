@@ -137,7 +137,7 @@ func TestRun009ManagerPath(t *testing.T) {
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 	statuses, logs = gate(t, repo, commandChecks(t, integrate))
 	requirePassed(t, statuses, logs)
-	for _, want := range []string{"command:build-server", "command:gen-compose-check", "command:gen-clients-check"} {
+	for _, want := range []string{"command:build-server", "command:gen-compose-check", "command:gen-clients-check", "command:clients-wire"} {
 		if _, ok := statuses[want]; !ok {
 			t.Errorf("the integration gate has no %s", want)
 		}

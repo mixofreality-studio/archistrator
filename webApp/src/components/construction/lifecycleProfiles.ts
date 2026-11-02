@@ -140,6 +140,7 @@ const KIND_LIFECYCLE: Readonly<Record<Exclude<ActivityKind, 'testing'>, Lifecycl
   documentation: 'documentation',
   uiDesign: 'uiDesign',
   integration: 'integration',
+  machineClient: 'machineClient',
   requirements: 'requirements',
   architecture: 'architecture',
   projectDesign: 'projectDesign',

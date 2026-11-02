@@ -74,6 +74,7 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -3809,7 +3810,7 @@ func TestPlanCarriesABrowserSurfaceToItsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]projectstate.ActivityType{"U-SPA-web-app": projectstate.ActivityTypeFrontend, "C-machine-api": projectstate.ActivityTypeService}
+	want := map[string]projectstate.ActivityType{"U-SPA-web-app": projectstate.ActivityTypeFrontend, "C-machine-api": projectstate.ActivityTypeMachineClient}
 	for _, a := range list.Activities {
 		wantType, tracked := want[a.Name]
 		if !tracked {
@@ -3889,6 +3890,15 @@ func freshPlannedProject(t *testing.T, path string) (projectstate.Project, proje
 	if err := projectstate.FinalizeDraftModel(&sys); err != nil {
 		t.Fatalf("FinalizeDraftModel: %v", err)
 	}
+	// The corpus predates uiSurface and machineProtocol, and no Client states them. State them as
+	// the draft gate now asks: unstated reads as a machine client, over MCP.
+	mcp := "mcp"
+	for i := range sys.Components {
+		if sys.Components[i].Kind == projectstate.CompClient && sys.Components[i].UiSurface == nil {
+			no := false
+			sys.Components[i].UiSurface, sys.Components[i].MachineProtocol = &no, &mcp
+		}
+	}
 	list, _, _, err := delivery.MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("derive the plan: %v", err)
@@ -3912,6 +3922,10 @@ func freshPlannedProject(t *testing.T, path string) (projectstate.Project, proje
 // scenario check the use cases project for the key. It returns that scenario count.
 func assertActivityResolvesItsContract(t *testing.T, p *projectstate.Project, a projectstate.ActivityItem) int {
 	t.Helper()
+	if a.MachineClient {
+		assertMachineClientHasNoScenarios(t, p, a)
+		return 0
+	}
 	key, ok := projectstate.ContractKeyOf(p, a.ComponentID)
 	if !ok {
 		t.Errorf("activity %s: component %q resolves to no contract key — its detailed design cannot record a contract, its testing gate holds, and its review floor finds none", a.Name, a.ComponentID)
@@ -3934,6 +3948,51 @@ func assertActivityResolvesItsContract(t *testing.T, p *projectstate.Project, a 
 		}
 	}
 	return 0
+}
+
+// assertMachineClientHasNoScenarios holds a machine client to its one task: its gate is read from
+// the design, with no contract recorded, and carries no scenario check nothing could give a verdict.
+func assertMachineClientHasNoScenarios(t *testing.T, p *projectstate.Project, a projectstate.ActivityItem) {
+	t.Helper()
+	spec, err := projectstate.TaskSpecFor(p, a.Name, "integration")
+	if err != nil {
+		t.Errorf("activity %s integration: %v", a.Name, err)
+		return
+	}
+	if slices.Contains(spec.EditScope.Extra, "**") || len(spec.EditScope.Components) == 0 {
+		t.Errorf("activity %s fell back to the underivable posture: %+v", a.Name, spec.EditScope)
+	}
+	wired := false
+	for _, c := range spec.Checks {
+		if c.Kind == projectstate.CheckKindScenario {
+			t.Errorf("activity %s carries scenario check %s", a.Name, c.ID)
+		}
+		wired = wired || c.ID == "command:client-wire"
+	}
+	if !wired {
+		t.Errorf("activity %s does not run its generated proof", a.Name)
+	}
+}
+
+// A machine client's lifecycle binds no test plan and has one dispatch, so its testing review
+// never waits on a scenario run nothing would record; its proof is a check of that dispatch.
+func TestMachineClientLifecycleHasOneTaskAndNoPlan(t *testing.T) {
+	lc, ok := methodassets.LifecycleFor("machineClient")
+	if !ok {
+		t.Fatal("no machineClient lifecycle")
+	}
+	dispatches := 0
+	for _, task := range lc.Tasks {
+		if task.Kind == methodassets.LifecycleTaskDispatch {
+			dispatches++
+		}
+		if task.ArtifactKind == "STP" {
+			t.Errorf("%s binds a test plan", task.ID)
+		}
+	}
+	if dispatches != 1 {
+		t.Errorf("want one dispatch, got %d", dispatches)
+	}
 }
 
 // assertScenarioChecks fails t unless spec carries one scenario check under key for every

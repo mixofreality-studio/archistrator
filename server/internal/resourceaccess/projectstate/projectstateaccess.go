@@ -12634,6 +12634,7 @@ func machineClientScopeAndChecks(p *Project, componentID string) (SpecEditScope,
 	}
 	wire := commandCheck(machineClientWireCheck, "The client's generated proof passes: every route or tool reaches its Manager operation", []string{"go", "test", "-count=1", "-v", tree}, dir, commandCheckTimeoutSec)
 	wire.Source.RequireTests = true
+	composition := slices.DeleteFunc(compositionChecks(p, dir), func(c SpecCheck) bool { return c.ID == CheckKindCommand+":"+allClientsWireCheck })
 	checks := append([]SpecCheck{
 		commandCheck("gofmt", "gofmt", []string{"sh", "-c", `test -z "$(gofmt -l ` + pkg + `)"`}, dir, commandCheckTimeoutSec),
 		commandCheck("build", "go build", []string{"go", "build", tree}, dir, commandCheckTimeoutSec),
@@ -12642,7 +12643,7 @@ func machineClientScopeAndChecks(p *Project, componentID string) (SpecEditScope,
 		archCheck(dir),
 		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
 		wire,
-	}, compositionChecks(p, dir)...)
+	}, composition...)
 	slices.Sort(scope.Extra)
 	scope.Extra = slices.Compact(scope.Extra)
 	sortChecks(checks)
@@ -12692,8 +12693,13 @@ func compositionChecks(p *Project, dir string) []SpecCheck {
 		}
 		out = append(out, commandCheck("gen-"+sub+"-check", "appgen "+sub+" output is current", appgenArgv(p, sub, "-check"), dir, commandCheckTimeoutSec))
 	}
-	return out
+	// Every machine client's generated proof runs wherever it is regenerated, so one the design
+	// marks constructionProfile generated, which no activity builds, still has a gate that runs it.
+	return append(out, commandCheck(allClientsWireCheck, "The machine clients' generated proofs pass", []string{"go", "test", "-count=1", "./internal/client/..."}, dir, commandCheckTimeoutSec))
 }
+
+// allClientsWireCheck names the check that runs every machine client's generated proof.
+const allClientsWireCheck = "clients-wire"
 
 // webProjectDir is the one web project every browser surface of an app shares, at the repo
 // root whatever the module dir is.

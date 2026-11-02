@@ -11,6 +11,7 @@ export type Classification =
   | 'documentation'
   | 'uiDesign'
   | 'integration'
+  | 'machineClient'
   // The three design kinds. Like deployment/documentation/integration they have no
   // bespoke renderer, so they fall back to the unknown body rather than showing an
   // empty frame — and today no row carries one at all.

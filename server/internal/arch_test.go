@@ -1015,6 +1015,11 @@ var encapsulationAllowlistData = map[string][]string{
 		// REC-BUILT-UNRECORDED resolve through it. projectstate owns the System model it is
 		// derived over; same category as ContractKeyOf / the Finalize/identity helpers.
 		"ContractKeyFor",
+		// RecordBrowserContract / IsClientComponent: a browser surface's contract is derived from
+		// the System when its UI design is recorded, and a Client authors none. aiarch-state-mcp's
+		// record verbs call both over the document; same category as ContractKeyFor.
+		"RecordBrowserContract",
+		"IsClientComponent",
 		// PlanBindingDigests / ActivityLifecycle (FIX-022): pure reads of the document model, with
 		// the same two callers as ContractKeyOf. aiarch-state-mcp's reportPlanDefect stamps the
 		// baseline and resolves the route through them, and the delivery Manager's replan hold
