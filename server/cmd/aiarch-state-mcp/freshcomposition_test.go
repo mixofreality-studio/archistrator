@@ -202,6 +202,25 @@ func conformClientDesign(t *testing.T, state []byte) []byte {
 	}
 	slots, _ := top["slots"].(map[string]any)
 	system, _ := slots["5"].(map[string]any)["model"].(map[string]any)
+	conformClients(system)
+	if plan, ok := slots["9"].(map[string]any); ok {
+		for _, a := range plan["model"].(map[string]any)["activities"].([]any) {
+			item := a.(map[string]any)
+			if strings.HasPrefix(item["name"].(string), "C-") && machineClientID(system, item["componentId"]) {
+				item["machineClient"] = true
+			}
+		}
+	}
+	out, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// conformClients states each machine client's transport, leads each actor call into a browser
+// surface with its operation, and drops the relationships no view calls.
+func conformClients(system map[string]any) {
 	surface := map[string]bool{}
 	for _, c := range system["components"].([]any) {
 		comp := c.(map[string]any)
@@ -235,19 +254,6 @@ func conformClientDesign(t *testing.T, state []byte) []byte {
 		}
 	}
 	system["relationships"] = kept
-	if plan, ok := slots["9"].(map[string]any); ok {
-		for _, a := range plan["model"].(map[string]any)["activities"].([]any) {
-			item := a.(map[string]any)
-			if strings.HasPrefix(item["name"].(string), "C-") && machineClientID(system, item["componentId"]) {
-				item["machineClient"] = true
-			}
-		}
-	}
-	out, err := json.Marshal(top)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
 }
 
 func machineClientID(system map[string]any, id any) bool {
@@ -615,15 +621,7 @@ func TestFreshBrowserContractIsDerivedFromItsLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	const surface = "web-app"
-	contract := proj.ServiceContracts["webApp"]
-	if contract.Layer != "Client" || contract.GoPackage != "" || len(contract.Interface.Operations) == 0 {
-		t.Fatalf("the derived contract is a Client's with no Go package and some operations: %+v", contract)
-	}
-	for _, op := range contract.Interface.Operations {
-		if len(op.Params) != 1 || op.Params[0].Name != "action" {
-			t.Errorf("%s must take the one web-dialect action param: %+v", op.Name, op.Params)
-		}
-	}
+	requireDerivedShape(t, proj.ServiceContracts["webApp"])
 	scenarios, err := projectstate.ComponentScenarios(&proj, "webApp")
 	if err != nil || len(scenarios) == 0 {
 		t.Fatalf("the surface's scenarios: %d, %v", len(scenarios), err)
@@ -651,6 +649,18 @@ func TestFreshBrowserContractIsDerivedFromItsLabels(t *testing.T) {
 	}
 	if err := projectstate.RecordBrowserContract(&proj, "machine-api"); err == nil {
 		t.Error("only a browser surface has a derived contract")
+	}
+}
+
+func requireDerivedShape(t *testing.T, contract projectstate.ServiceContract) {
+	t.Helper()
+	if contract.Layer != "Client" || contract.GoPackage != "" || len(contract.Interface.Operations) == 0 {
+		t.Fatalf("the derived contract is a Client's with no Go package and some operations: %+v", contract)
+	}
+	for _, op := range contract.Interface.Operations {
+		if len(op.Params) != 1 || op.Params[0].Name != "action" {
+			t.Errorf("%s must take the one web-dialect action param: %+v", op.Name, op.Params)
+		}
 	}
 }
 

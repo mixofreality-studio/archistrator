@@ -151,11 +151,11 @@ github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/mdelapenya/tlscert v0.2.0 h1:7H81W6Z/4weDvZBNOfQte5GpIMo0lGYEeWbkGp5LJHI=
 github.com/mdelapenya/tlscert v0.2.0/go.mod h1:O4njj3ELLnJjGdkN7M/vIVCpZ+Cf0L6muqOG4tLSl8o=
-github.com/mixofreality-studio/archistrator-platform/framework-go v0.19.0 h1:67r32kyS2szyQG5X6wr7NjNgU6civxElLDKkHz9hKGE=
+github.com/mixofreality-studio/archistrator-platform/framework-go v0.19.0 h1:I6i2f2P52S9mKPeUUQg6IaOg+HWnvHNZd6wfcvA/lO8=
 github.com/mixofreality-studio/archistrator-platform/framework-go v0.19.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
-github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.16.0 h1:bxPUGG0/4lLvUWG/dPizoaq0A/AxitjZ7MCb634Tjkw=
+github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.16.0 h1:oqaIfxsnBh5haacI6Zi6rpzXxaPrt1meg/suO6583ks=
 github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.16.0/go.mod h1:Kya8u01nSpRsD6i5dIaD4AI1RUvLwmPWr3v9SDdWFo0=
-github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.1 h1:rEKR/zq2BYAhUi4DifcIo3zYkmbWoYBxVXqssyFrPb8=
+github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.1 h1:KncKK3bkF0G+AwqZFH9Xu4ilUJyiLhTKDL7QCUHjKtw=
 github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.1/go.mod h1:B+QxMPDv1UNzIhOTY7NqOoeZy8CXxzSuXjEl8uw0jzY=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.3.0 h1:dnAqc4rzD5zKDKvthzlLbi2rUXltFbLNzRtVK8p/cC4=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.3.0/go.mod h1:qDfwYEvCZA9neAnu5Cg3ZQGZ0T/ha4llQta8ICBzHYA=
@@ -173,7 +173,7 @@ github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v
 github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.5/go.mod h1:YbfS35fW8k0sFydWYKFYdWDP64y4BzigHXUDMJRRDSs=
 github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0 h1:4t5ukp+YGh4BYqHA7RqpFxJa0snMzYmj7nPPHpZ427c=
 github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0/go.mod h1:luUYTGdJmb87O+RLol0ysvd47nR76NA9rYgX5CLOz8Q=
-github.com/mixofreality-studio/archistrator-platform/method-assets v0.14.0 h1:oMsnqslv7n6/hnst6eBhy3/TFtJyjX9CNpxxLet0IC4=
+github.com/mixofreality-studio/archistrator-platform/method-assets v0.14.0 h1:cj2sXDF8gfj5GNxuXaEtcezJ8KxHOxm1ZENqDa68o5g=
 github.com/mixofreality-studio/archistrator-platform/method-assets v0.14.0/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
