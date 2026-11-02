@@ -7217,7 +7217,8 @@ func (wf *csWorkflows) replanGateHeld(
 	state *constructState, gate *gateLedger,
 ) (bool, error) {
 	source := slices.IndexFunc(lc.Tasks, func(o methodassets.LifecycleTask) bool { return o.SendsBackTo == t.ID })
-	if source < 0 || !state.executionLedger {
+	if source < 0 || !state.executionLedger ||
+		workflow.GetVersion(ctx, changePlanDefectRoute, workflow.DefaultVersion, 1) < 1 {
 		return false, nil
 	}
 	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), string(in.ActivityID))

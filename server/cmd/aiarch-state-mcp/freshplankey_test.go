@@ -298,6 +298,12 @@ func assertReportStamped(t *testing.T, s *Session, revision, scenarioID string) 
 	if err := s.recordTestingState(map[string]any{"PlanDefect": map[string]any{"id": "forged"}}); err == nil || !strings.Contains(err.Error(), "reportPlanDefect") {
 		t.Errorf("the verb must be the only writer, got %v", err)
 	}
+	for field, forged := range map[string]string{"PlanDefect": "reportPlanDefect", "CheckRun": "record-check-run"} {
+		err := s.recordPhaseArtifact("k", map[string]any{field: map[string]any{"id": "forged"}})
+		if err == nil || !strings.Contains(err.Error(), forged) {
+			t.Errorf("recordPhaseArtifact routes %s to the same store, so it must refuse it too, got %v", field, err)
+		}
+	}
 	assertDigestsCrossTheBoundary(t, proj, digests)
 }
 

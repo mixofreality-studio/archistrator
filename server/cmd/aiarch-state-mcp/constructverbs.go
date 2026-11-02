@@ -217,6 +217,9 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 	if err != nil {
 		return err
 	}
+	if err := refuseSystemEvidence("recordPhaseArtifact", pl); err != nil {
+		return err
+	}
 	return s.applyConstructionMutation("phase artifact", func(p *projectstate.Project) error {
 		key := strings.TrimSpace(mapKey)
 		if pl.TestPlan != nil {
@@ -274,18 +277,28 @@ func (s *Session) recordTestingState(payload map[string]any) error {
 	if err != nil {
 		return err
 	}
-	if pl.PlanDefect != nil {
-		return fmt.Errorf("recordTestingState does not record plan defects: call reportPlanDefect, which stamps the attempt and the plan baseline")
-	}
-	if pl.CheckRun != nil {
-		return fmt.Errorf("recordTestingState does not record check runs: a run is the venue's measured evidence, " +
-			"recorded by the workflow's `record-check-run` step from the check gate's results — " +
-			"an agent cannot claim one (run_checks runs the checks without recording)")
+	if err := refuseSystemEvidence("recordTestingState", pl); err != nil {
+		return err
 	}
 	return s.applyConstructionMutation("testing state", func(p *projectstate.Project) error {
 		projectstate.ApplyPhaseArtifactPayload(p, "", pl)
 		return nil
 	})
+}
+
+// refuseSystemEvidence closes the agent-facing verbs to what only the system may stamp. Both verbs
+// reach the same routing (ApplyPhaseArtifactPayload), which carries these fields for the writers
+// that do stamp them, so a verb that left the door open would let an agent forge a run or a report.
+func refuseSystemEvidence(verb string, pl projectstate.PhaseArtifactPayload) error {
+	if pl.PlanDefect != nil {
+		return fmt.Errorf("%s does not record plan defects: call reportPlanDefect, which stamps the attempt and the plan baseline", verb)
+	}
+	if pl.CheckRun != nil {
+		return fmt.Errorf("%s does not record check runs: a run is the venue's measured evidence, "+
+			"recorded by the workflow's `record-check-run` step from the check gate's results — "+
+			"an agent cannot claim one (run_checks runs the checks without recording)", verb)
+	}
+	return nil
 }
 
 // reportPlanDefectInput is integration's allegation. The attempt and the plan baseline are not
