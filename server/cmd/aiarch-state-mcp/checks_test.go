@@ -111,6 +111,46 @@ func TestRuleCheckFiltersByPrefixAndFailsOnError(t *testing.T) {
 	}
 }
 
+// A batch that could not be read back recorded no verdict for any scenario it selected, so each
+// is marked: the plan-defect route refuses a report on such a failure, because the plumbing is
+// what broke and no rewrite of a binding could mend it.
+func TestScenarioBatchThatRecordsNothingMarksEveryScenario(t *testing.T) {
+	checks := []projectstate.SpecCheck{
+		{ID: "scenario:billingStateAccess:bill-P1", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P1"}, TimeoutSec: 30},
+		{ID: "scenario:billingStateAccess:bill-P2", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P2"}, TimeoutSec: 30},
+	}
+	cases := map[string]func(t *testing.T) checkRunner{
+		"the project cannot be read": func(t *testing.T) checkRunner {
+			root := t.TempDir()
+			return checkRunner{root: root, outDir: filepath.Join(root, "check-results"), now: time.Now}
+		},
+		"the index cannot be decoded": func(t *testing.T) checkRunner {
+			root := repoWithProject(t, goContractProject())
+			return checkRunner{root: root, outDir: filepath.Join(root, "check-results"), now: time.Now,
+				exec: func(_ context.Context, dir string, _ []string, _ ...string) ([]byte, error) {
+					indexDir := filepath.Join(dir, "test-results", "billingStateAccess")
+					if err := os.MkdirAll(indexDir, 0o750); err != nil {
+						t.Fatal(err)
+					}
+					return nil, os.WriteFile(filepath.Join(indexDir, "results.json"), []byte("not json"), 0o600)
+				}}
+		},
+	}
+	for name, runner := range cases {
+		t.Run(name, func(t *testing.T) {
+			res := runner(t).Run(context.Background(), checks)
+			if len(res) != len(checks) {
+				t.Fatalf("got %d results for %d checks", len(res), len(checks))
+			}
+			for _, r := range res {
+				if r.Status != "fail" || r.NoVerdict == nil || !*r.NoVerdict {
+					t.Errorf("%s: status %s, noVerdict %v; want a failure marked as no verdict", r.CheckId, r.Status, r.NoVerdict)
+				}
+			}
+		})
+	}
+}
+
 func TestScenarioCheckMissingVerdictFails(t *testing.T) {
 	root := repoWithProject(t, goContractProject())
 	var argvSeen []string
