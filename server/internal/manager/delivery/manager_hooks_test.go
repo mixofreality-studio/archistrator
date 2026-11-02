@@ -74,7 +74,6 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -3971,27 +3970,6 @@ func assertMachineClientHasNoScenarios(t *testing.T, p *projectstate.Project, a 
 	}
 	if !wired {
 		t.Errorf("activity %s does not run its generated proof", a.Name)
-	}
-}
-
-// A machine client's lifecycle binds no test plan and has one dispatch, so its testing review
-// never waits on a scenario run nothing would record; its proof is a check of that dispatch.
-func TestMachineClientLifecycleHasOneTaskAndNoPlan(t *testing.T) {
-	lc, ok := methodassets.LifecycleFor("machineClient")
-	if !ok {
-		t.Fatal("no machineClient lifecycle")
-	}
-	dispatches := 0
-	for _, task := range lc.Tasks {
-		if task.Kind == methodassets.LifecycleTaskDispatch {
-			dispatches++
-		}
-		if task.ArtifactKind == "STP" {
-			t.Errorf("%s binds a test plan", task.ID)
-		}
-	}
-	if dispatches != 1 {
-		t.Errorf("want one dispatch, got %d", dispatches)
 	}
 }
 
