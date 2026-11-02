@@ -2069,8 +2069,9 @@ var (
 		GatedPhasesByType: map[string][]string{"service": {"construction"}}}}
 )
 
-// siblingActivity is a second construction activity with no dependency on drivenActivity.
-const siblingActivity = "C-autoscaler-engine"
+// siblingActivity is a second construction activity with no dependency on drivenActivity, and
+// with no contract the risk floor gates, so it walks to done unattended.
+const siblingActivity = "C-design-health-engine"
 
 // planWithSibling keeps siblingActivity in the narrowed plan for one test.
 func planWithSibling(inner arrangement) arrangement {
@@ -3993,12 +3994,13 @@ func constructionJobs(s *stack) int {
 }
 
 // TestAGiveUpHaltsOnlyWhenTheNetworkDrains is the product ruling on FIX-016, end to end. While a
-// sibling works the project still reads running and the cascade continues; once nothing is in
-// flight and nothing is eligible it reads halted, naming the give-up; Begin and a per-activity
-// requeue both point back at Resume; and Resume returns the activity carrying the operator's note.
+// sibling works the project still reads running and the sibling carries on past the give-up. Once
+// nothing is in flight and nothing is eligible the project reads halted, naming the first give-up
+// and listing them all. Begin and a per-activity requeue both point back at Resume, and Resume
+// returns every give-up carrying the operator's note. Turning the red gates off is the repair.
 func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 	h := scenariohost.Start(t)
-	endHeldWorkflows(t, h)
+	endHeldWorkflows(t, h, siblingActivity)
 	subject := newSubject(t, h)
 	s := stackOf(t, subject)
 	s.serve()
@@ -4006,20 +4008,16 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 	var letGo sync.Once
 	open := func() { letGo.Do(func() { close(release) }) }
 	t.Cleanup(open)
-	var repaired atomic.Bool
-	var sibling sync.Map
+	// Red gates end an activity in two attempts, well inside the venue's run timeout that the held
+	// sibling job is also running against.
+	s.venue.setRedChecks(true)
+	t.Cleanup(func() { s.venue.setRedChecks(false) })
+	var siblingWorking atomic.Bool
 	s.venue.script(func(_ int, j agentJob) runOutcome {
-		switch {
-		case slices.Contains(designOrder, j.Activity):
-			return runSucceeds
-		case j.Activity == string(drivenActivity):
-			if !j.isConstruction() || repaired.Load() {
-				return runSucceeds
-			}
-			return runFails
+		if j.Activity == siblingActivity {
+			siblingWorking.Store(true)
+			<-release
 		}
-		sibling.Store(j.Activity, true)
-		<-release
 		return runSucceeds
 	})
 	keepSiblingInPlan(t)
@@ -4029,26 +4027,24 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 		t.Fatalf("tick the pump: %v", err)
 	}
 	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
-
-	var witness string
-	eventually(t, walkWindow, "an independent activity going to work past the give-up", func() (bool, string) {
-		sibling.Range(func(k, _ any) bool {
-			witness = k.(string)
-			return false
-		})
-		return witness != "", "no sibling job yet"
-	})
+	if !siblingWorking.Load() {
+		t.Fatal("no independent activity was working when the give-up landed, so this proved nothing")
+	}
 	if got := runStateOf(t, h, subject); got != delivery.ProjectRunning {
 		t.Fatalf("the project reads %s with a sibling still working, want running", got)
 	}
+	jobsAtGiveUp := siblingJobs(s)
 
 	open()
 	halt := awaitHalt(t, h, subject)
-	if v := awaitActivityState(t, h, subject, delivery.ActivityID(witness), delivery.ActivityViewDone); v.State != delivery.ActivityViewDone {
-		t.Errorf("independent activity %s reads %s, want done: the cascade must continue past a give-up", witness, v.State)
+	if got := siblingJobs(s); got <= jobsAtGiveUp {
+		t.Errorf("the sibling ran %d jobs by the give-up and %d by the halt: the cascade must continue past a give-up", jobsAtGiveUp, got)
 	}
-	if !slices.Contains(halt.Failed, drivenActivity) {
-		t.Errorf("the halt's Failed is %v, want it to list %s", halt.Failed, drivenActivity)
+	if !slices.Contains(halt.Failed, drivenActivity) || !slices.Contains(halt.Failed, siblingActivity) {
+		t.Errorf("the halt's Failed is %v, want both give-ups", halt.Failed)
+	}
+	if !strings.Contains(halt.Cause, "noProgress") {
+		t.Errorf("the halt's cause is %q, want the give-up's reason", halt.Cause)
 	}
 	if v := awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed); v.State != delivery.ActivityViewFailed {
 		t.Errorf("the give-up reads %s, want its recorded failed terminal", v.State)
@@ -4062,23 +4058,36 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 		t.Errorf("a requeue on the halted project answered %v, want a refusal naming ResumeProject", err)
 	}
 
-	repaired.Store(true)
+	s.venue.setRedChecks(false)
 	const note = "the import path was wrong; it is fixed in the plan now"
 	if err := subject.SetProjectRunState(callContext(t, h, ""), planProject, delivery.ProjectRunning, note); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	// The fixture's scripted test run covers only drivenActivity, so the sibling comes to rest at
+	// its testing gate. That is a sibling in flight, so the project must not read halted.
+	awaitActivityState(t, h, subject, siblingActivity, delivery.ActivityViewAwaitingHuman)
 	doc, err := runGit(s.venue.repo.Dir, "show", "main:.aiarch/state/project.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(doc, note) {
-		t.Errorf("the operator's note is not on the returned activity's row")
+	if got := strings.Count(doc, note); got < 2 {
+		t.Errorf("the operator's note is on %d rows, want it on both returned activities", got)
 	}
-	awaitPumpIdle(t, h, subject)
 	if got := runStateOf(t, h, subject); got == delivery.ProjectHalted {
-		t.Errorf("the project still reads halted after the give-up was resolved")
+		t.Errorf("the project reads halted after the give-ups were returned")
 	}
+}
+
+// siblingJobs counts siblingActivity's dispatches.
+func siblingJobs(s *stack) int {
+	n := 0
+	for _, j := range s.venue.jobs() {
+		if j.Activity == siblingActivity {
+			n++
+		}
+	}
+	return n
 }
 
 // TestAResumeGivesAFreshAttemptBudget: an activity whose budget is spent, resumed into the same

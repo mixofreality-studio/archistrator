@@ -339,8 +339,8 @@ func sourceModel(t *testing.T, kind projectstate.ArtifactKind) json.RawMessage {
 // siblingComponent is a second component with no dependency on fixtureComponent, and
 // planSibling keeps it in the derived plan for one scenario.
 const (
-	siblingComponent = "autoscaler-engine"
-	siblingActivity  = "C-autoscaler-engine"
+	siblingComponent = "design-health-engine"
+	siblingActivity  = "C-design-health-engine"
 )
 
 var planSibling atomic.Bool
