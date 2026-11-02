@@ -252,7 +252,7 @@ jobs:
           # VERSION HANDSHAKE (managed-scaffold sync): the control plane stamps the
           # state-MCP pin it rendered this seated file with; the job echoes it so any
           # run's log states which binary generation this scaffold carries.
-          AIARCH_STATE_MCP_PIN: "cc7d6b1df9a094965b7f0873fb00ef4ce2fdd355"
+          AIARCH_STATE_MCP_PIN: "2e17a52b3d98ab37eec0d6cfc228f8dc46100dfa"
         run: |
           echo "aiarch-state-mcp pin: github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp@${AIARCH_STATE_MCP_PIN}"
           mkdir -p "${GOBIN}"
