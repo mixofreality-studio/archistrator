@@ -1582,13 +1582,13 @@ var arrangements = map[string]arrangement{
 	// execute-a-project-activity: the review policy names who judges, the agent script
 	// names whether the construction dispatch lands.
 	"execute-a-project-activity-P1":             arrangeExecute(vibes, nil),
-	"execute-a-project-activity-P2":             arrangeExecute(vibes, failConstructionUntil(3)),
+	"execute-a-project-activity-P2":             withLiveSibling(arrangeExecute(vibes, failConstructionUntil(3))),
 	"execute-a-project-activity-P3":             arrangeExecute(vibes, nil),
 	"execute-a-project-activity-P4":             arrangeExecute(humanAtConstruction, nil),
 	"execute-a-project-activity-P5":             arrangeExecute(vibes, failConstructionTimes(1)),
-	"execute-a-project-activity-P6":             arrangeExecute(vibes, failConstructionUntil(4)),
+	"execute-a-project-activity-P6":             withLiveSibling(arrangeExecute(vibes, failConstructionUntil(4))),
 	"execute-a-project-activity-P7":             arrangeExecute(vibes, nil),
-	"requeue-a-failed-construction-activity-P1": arrangeFailedActivity,
+	"requeue-a-failed-construction-activity-P1": planWithSibling(arrangeFailedActivity),
 	"download-generated-source-code-P1":         arrangeBuiltActivity,
 	"download-generated-source-code-P2":         arrangeBuiltActivity,
 	// ask: [yes: session branch] finds the architecture walk live at its review gate,
@@ -1943,9 +1943,11 @@ func unbornOf(frontier []string, p projectstate.Project) []string {
 // the scenario.
 var expectHalt = map[string]string{
 	// These end on a give-up with the network drained, which is a halt by ruling (FIX-016).
-	"TestARedAttemptThatChangesNothingGivesUp":   "the activity gives up by design",
-	"TestAResumeGivesAFreshAttemptBudget":        "the second budget is spent too, by design",
-	"TestAnEscalationTimeoutCountsTowardTheHalt": "the seeded timeout stays unresolved, by design",
+	"TestARedAttemptThatChangesNothingGivesUp":        "the activity gives up by design",
+	"TestAResumeGivesAFreshAttemptBudget":             "the second budget is spent too, by design",
+	"TestAnEscalationTimeoutCountsTowardTheHalt":      "the seeded timeout stays unresolved, by design",
+	"TestACarriedNoteRestartsTheNoProgressComparison": "the activity still gives up after the note, by design",
+	"TestNoProgressIsComparedPerTask":                 "the activity gives up by design",
 }
 
 // recordedPumpHalt answers the project pump's halt Query on its LATEST run, running or not:
@@ -2026,21 +2028,19 @@ func awaitPumpSettled(t *testing.T, h *scenariohost.Host, subject delivery.Deliv
 // and the activity exited failed. It is driven, not seeded — one pump tick, the same op
 // the sweep calls — and the venue keeps failing until the operator's requeue (step 3),
 // after which the re-dispatched job is still in progress when the operator looks.
-//
-// A sibling stays at work throughout: a requeue is for a network that has not drained. Once it
-// drains the project halts, and only Resume brings anything back (FIX-016).
 func arrangeFailedActivity(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, seq int) {
 	t.Helper()
 	if seq != 1 {
 		return
 	}
 	arrangeProject(t, h, subject, s, "")
+	seedLiveSibling(t, h, s)
 	setPolicy(t, h, subject, vibes)
 	s.venue.script(func(_ int, j agentJob) runOutcome {
 		switch {
 		case !j.isConstruction():
 			return runSucceeds
-		case j.Activity != string(drivenActivity), s.arrangedStep(3):
+		case s.arrangedStep(3):
 			return runStaysRunning
 		}
 		return runFails
@@ -2068,6 +2068,52 @@ var (
 	humanAtConstruction = delivery.ExecutionPolicyInput{Policy: &delivery.ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{"service": {"construction"}}}}
 )
+
+// siblingActivity is a second construction activity with no dependency on drivenActivity.
+const siblingActivity = "C-autoscaler-engine"
+
+// planWithSibling keeps siblingActivity in the narrowed plan for one test.
+func planWithSibling(inner arrangement) arrangement {
+	return func(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, seq int) {
+		t.Helper()
+		if seq == 1 {
+			keepSiblingInPlan(t)
+		}
+		inner(t, h, subject, s, seq)
+	}
+}
+
+func keepSiblingInPlan(t *testing.T) {
+	t.Helper()
+	before := planActivities
+	planActivities = append(slices.Clone(before), siblingActivity)
+	t.Cleanup(func() { planActivities = before })
+}
+
+// seedLiveSibling opens siblingActivity's row with no pump chain holding it: the shape a child
+// leaves when it outlives the chain that started it. The network has therefore not drained, so a
+// give-up does not halt the project, and a per-activity retry is still the operator's to make.
+// Once the network drains only Resume brings anything back (FIX-016).
+func seedLiveSibling(t *testing.T, h *scenariohost.Host, s *stack) {
+	t.Helper()
+	access := projectstate.NewGitLocalActivityExecutionAccess(s.repo.URL)
+	if _, err := access.OpenActivity(h.ResourceAccessContext(t, "seed-sibling"), planProject, projectstate.NoActivityVersionExpectation,
+		siblingActivity, projectstate.ActivityTypeService, projectstate.TestVariantNone,
+		projectstate.LifecyclePin{TypeKey: "service", AssetsVersion: "seed"}, projectstate.RepoCredential{}, "seed-sibling"); err != nil {
+		t.Fatalf("hooks: open the live sibling: %v", err)
+	}
+}
+
+// withLiveSibling is an execute arrangement whose plan holds a sibling still at work.
+func withLiveSibling(inner arrangement) arrangement {
+	return planWithSibling(func(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, seq int) {
+		t.Helper()
+		inner(t, h, subject, s, seq)
+		if seq == 1 {
+			seedLiveSibling(t, h, s)
+		}
+	})
+}
 
 // setPolicy sets the project's review policy through the subject's own op.
 func setPolicy(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, policy delivery.ExecutionPolicyInput) {
@@ -3964,10 +4010,10 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 	var sibling sync.Map
 	s.venue.script(func(_ int, j agentJob) runOutcome {
 		switch {
-		case !j.isConstruction():
+		case slices.Contains(designOrder, j.Activity):
 			return runSucceeds
 		case j.Activity == string(drivenActivity):
-			if repaired.Load() {
+			if !j.isConstruction() || repaired.Load() {
 				return runSucceeds
 			}
 			return runFails
@@ -3976,6 +4022,7 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 		<-release
 		return runSucceeds
 	})
+	keepSiblingInPlan(t)
 	arrangeProject(t, h, subject, s, "")
 	setPolicy(t, h, subject, vibes)
 	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-drain-0001"); err != nil {
@@ -3984,13 +4031,13 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
 
 	var witness string
-	sibling.Range(func(k, _ any) bool {
-		witness = k.(string)
-		return false
+	eventually(t, walkWindow, "an independent activity going to work past the give-up", func() (bool, string) {
+		sibling.Range(func(k, _ any) bool {
+			witness = k.(string)
+			return false
+		})
+		return witness != "", "no sibling job yet"
 	})
-	if witness == "" {
-		t.Fatal("no independent activity was working when the give-up landed, so this proved nothing")
-	}
 	if got := runStateOf(t, h, subject); got != delivery.ProjectRunning {
 		t.Fatalf("the project reads %s with a sibling still working, want running", got)
 	}
@@ -4124,6 +4171,11 @@ func TestASkipNeverHalts(t *testing.T) {
 	s.venue.script(func(int, agentJob) runOutcome { return runSucceeds })
 	arrangeProject(t, h, subject, s, "")
 	setPolicy(t, h, subject, vibes)
+	access := projectstate.NewGitLocalActivityExecutionAccess(s.repo.URL)
+	if _, err := access.OpenActivity(h.ResourceAccessContext(t, "seed-open"), planProject, projectstate.NoActivityVersionExpectation,
+		drivenActivity, projectstate.ActivityTypeService, projectstate.TestVariantNone, projectstate.LifecyclePin{TypeKey: "service", AssetsVersion: "seed"}, projectstate.RepoCredential{}, "seed-open"); err != nil {
+		t.Fatalf("open the activity: %v", err)
+	}
 	seedOutcome(t, h, s, projectstate.ActivityOutcomeSkipped, projectstate.FailureReasonUnknown, "")
 	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-skip-0001"); err != nil {
 		t.Fatalf("tick the pump: %v", err)

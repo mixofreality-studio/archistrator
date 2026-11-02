@@ -62,6 +62,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -335,6 +336,44 @@ func sourceModel(t *testing.T, kind projectstate.ArtifactKind) json.RawMessage {
 	return trimmed
 }
 
+// siblingComponent is a second component with no dependency on fixtureComponent, and
+// planSibling keeps it in the derived plan for one scenario.
+const (
+	siblingComponent = "autoscaler-engine"
+	siblingActivity  = "C-autoscaler-engine"
+)
+
+var planSibling atomic.Bool
+
+// withLiveSibling keeps the sibling in the plan and, once inner has arranged step 1 with no
+// pump running, opens its row with no pump chain holding it: the shape a child leaves when it
+// outlives the chain that started it. The network has therefore not drained, so a give-up does
+// not halt the project and a per-activity retry is still the operator's to make. Once the
+// network drains only Resume brings anything back (FIX-016).
+func withLiveSibling(inner arrangement) arrangement {
+	return func(t *testing.T, s *stack, seq int) {
+		t.Helper()
+		if seq == 1 {
+			planSibling.Store(true)
+			t.Cleanup(func() { planSibling.Store(false) })
+		}
+		inner(t, s, seq)
+		if seq == 1 {
+			s.seedLiveSibling(t)
+		}
+	}
+}
+
+func (s *stack) seedLiveSibling(t *testing.T) {
+	t.Helper()
+	rc := s.h.ResourceAccessContext(t, s.nextKey("seed-sibling"))
+	if _, err := s.aea.OpenActivity(rc, projectstate.ProjectID(s.project), projectstate.NoActivityVersionExpectation,
+		siblingActivity, projectstate.ActivityTypeService, projectstate.TestVariantNone,
+		projectstate.LifecyclePin{TypeKey: "service", AssetsVersion: "seed"}, projectstate.RepoCredential{}, rc.IdempotencyKey); err != nil {
+		t.Fatalf("hooks: open the live sibling: %v", err)
+	}
+}
+
 // planOneComponent marks every component of a System model but fixtureComponent
 // buildStatus "planned" — designed, not yet built — so the plan derived from it
 // builds that one component.
@@ -346,7 +385,7 @@ func planOneComponent(raw json.RawMessage) (json.RawMessage, error) {
 	comps, _ := sys["components"].([]any)
 	for _, c := range comps {
 		comp, _ := c.(map[string]any)
-		if comp["id"] != fixtureComponent {
+		if comp["id"] != fixtureComponent && (!planSibling.Load() || comp["id"] != siblingComponent) {
 			comp["buildStatus"] = "planned"
 		}
 	}
@@ -1736,20 +1775,25 @@ func arrangeBuilt(t *testing.T, s *stack) {
 // ran, every construction dispatch failed until the supervision budget was spent, and
 // the activity exited failed. The venue keeps failing until the operator's requeue
 // (step 2), after which the re-dispatched job is still in progress when the operator
-// looks. A sibling stays at work throughout: a requeue is for a network that has not
-// drained. Once it drains the project halts, and only Resume brings anything back.
+// looks. The sibling is seeded before the pump is ticked, so the give-up never drains.
 func arrangeFailed(t *testing.T, s *stack) {
 	t.Helper()
 	s.venue.script(func(_ int, j agentJob) runOutcome {
 		switch {
 		case !j.isConstruction():
 			return runSucceeds
-		case j.Activity != fixtureActivity, s.arrangedStep(2):
+		case s.arrangedStep(2):
 			return runStaysRunning
 		}
 		return runFails
 	})
-	s.inFlight(t, vibes)
+	planSibling.Store(true)
+	t.Cleanup(func() { planSibling.Store(false) })
+	s.committedNotStarted(t, vibes)
+	s.seedLiveSibling(t)
+	if _, err := s.mgr.ExecuteNextActivity(s.h.ManagerContext(t), mgr.ProjectID(s.project), "dct-mcp-requeue-arrange"); err != nil {
+		t.Fatalf("hooks: tick the pump: %v", err)
+	}
 	s.awaitActivity(t, fixtureActivity, mgr.ActivityViewFailed)
 }
 
@@ -1842,11 +1886,11 @@ var arrangements = map[string]arrangement{
 	// execute-a-project-activity: the review policy names who judges, the agent script
 	// names whether the construction dispatch lands.
 	"execute-a-project-activity-P1": arrangeExecute(vibes, nil),
-	"execute-a-project-activity-P2": arrangeExecute(vibes, failConstructionUntil(3)),
+	"execute-a-project-activity-P2": withLiveSibling(arrangeExecute(vibes, failConstructionUntil(3))),
 	"execute-a-project-activity-P3": arrangeExecute(vibes, nil),
 	"execute-a-project-activity-P4": arrangeExecute(humanAtConstruction, nil),
 	"execute-a-project-activity-P5": arrangeExecute(vibes, failConstructionTimes(1)),
-	"execute-a-project-activity-P6": arrangeExecute(vibes, failConstructionUntil(4)),
+	"execute-a-project-activity-P6": withLiveSibling(arrangeExecute(vibes, failConstructionUntil(4))),
 	"execute-a-project-activity-P7": arrangeExecute(vibes, nil),
 
 	"pause-construction-P1": inFlightUnder(nil),
