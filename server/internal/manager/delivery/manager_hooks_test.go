@@ -4605,8 +4605,10 @@ func openParallelAttempts(t *testing.T, s *stack) int {
 // agent reports. Every check not named passes. A zero step is a green run with no report.
 type planStep struct {
 	failed, timedOut, noVerdict []string
-	buildRed                    bool
-	report                      []string
+	// absent are scenarios the job's spec does not select, so its run holds no result for them.
+	absent   []string
+	buildRed bool
+	report   []string
 	// steady keeps the failure digest of the run before, so the run repeats it.
 	steady bool
 	// noRun leaves the attempt with no check run at all: the gate itself could not run.
@@ -4738,6 +4740,12 @@ func (v *venue) planResults(specPath string) ([]projectstate.CheckResult, string
 	}
 	step := v.planNow
 	results := make([]projectstate.CheckResult, 0, len(spec.Checks))
+	if len(step.absent) > 0 {
+		spec.Checks = slices.DeleteFunc(spec.Checks, func(c projectstate.SpecCheck) bool { return slices.Contains(step.absent, c.Source.Scenario) })
+		if err := testinfra.WriteSpec(specPath, spec); err != nil {
+			return nil, "", false
+		}
+	}
 	for _, c := range spec.Checks {
 		r := projectstate.CheckResult{CheckId: c.ID, Kind: c.Kind, Status: "pass", DurationMs: 1}
 		switch {
@@ -4964,6 +4972,8 @@ func refusalScript(run int, sc []string) planStep {
 		return planStep{failed: sc, report: sc}
 	case 7:
 		return planStep{report: sc[:1], noRun: true}
+	case 8:
+		return planStep{failed: sc[:1], absent: sc[1:2], report: sc[:2]}
 	}
 	return planStep{}
 }
@@ -4980,6 +4990,7 @@ func TestAReportTheRunDoesNotBearOutIsAnOrdinaryRed(t *testing.T) {
 		"recorded no verdict",
 		"points at wiring or a hook",
 		"no check run is recorded",
+		"are named but the run holds no failure",
 	}
 	s, h, _ := planDefectWalk(t, "refusals", refusalScript, delivery.ActivityViewDone)
 	if got := jobCount(s, "service-test-plan"); got != 1 {
