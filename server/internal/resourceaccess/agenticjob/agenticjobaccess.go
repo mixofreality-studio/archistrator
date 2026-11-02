@@ -5240,16 +5240,10 @@ const localMergeRemote = "origin"
 // `git merge`, so the branch name never reaches git's argv.
 const localMergeHeadRef = "refs/aiarch/merge-head"
 
-// Clone-relative scratch files under the merge clone's .git (never part of the working
-// tree a commit stages) carrying values to git as file content rather than argv: the
-// merge message naming the branch, and the three stages of the state document's
-// envelope-neutral re-merge (git merge-file writes its result into the first).
-const (
-	localMergeMsgFile   = ".git/AIARCH_MERGE_MSG"
-	localStateDocOurs   = ".git/AIARCH_STATEDOC_OURS"
-	localStateDocBase   = ".git/AIARCH_STATEDOC_BASE"
-	localStateDocTheirs = ".git/AIARCH_STATEDOC_THEIRS"
-)
+// localMergeMsgFile is the clone-relative scratch file under the merge clone's .git (never
+// part of the working tree a commit stages) carrying the merge message naming the branch to
+// git as file content rather than argv.
+const localMergeMsgFile = ".git/AIARCH_MERGE_MSG"
 
 // cloneMainForMerge materialises the shared repo's main in parentDir/clone. The clone is
 // assembled rather than `git clone`d so the repo's location is configured through go-git,
@@ -5361,26 +5355,29 @@ func pushRejectionLines(out string) string {
 // are on DIFFERENT refs, so there is no race to serialise and no number of attempts
 // that helps. The fix is to stop submitting bookkeeping to a text merge.
 //
-// WHAT IT DOES NOT DO. It resolves ONLY those two members, ONLY when they are the
-// sole remaining conflict, and ONLY when both sides spell them the way the store's
-// own encoder does. A genuine content conflict inside project.json, a conflict in
-// any other file, or an envelope it does not recognise all keep failing exactly as
-// before — nothing is pushed and the branch survives. "Take main" would have been a
-// one-line fix and would have silently discarded the agent's work.
+// SIBLINGS DO NOT DISAGREE EITHER. A document is one file holding many activities' records,
+// so siblings appending to the same array (testingState.checkRuns) or filing different
+// contracts land on adjacent lines, and a text merge calls that a conflict. Git only knows
+// lines; the document has structure. So the state document is merged structurally: objects
+// key by key, id-carrying arrays by id.
+//
+// WHAT IT DOES NOT DO. It resolves ONLY when project.json is the sole conflicted path, and
+// ONLY when all three stages are in the form the store's own encoder writes. A leaf changed
+// differently on both sides, the same id added with different content, a conflict in any
+// other file, or a stage it does not recognise all keep failing exactly as before: nothing
+// is pushed and the branch survives. "Take main" would have been a one-line fix and would
+// have silently discarded the agent's work.
+//
+// EARMARK. The GitHub PR venue merges through the host and has this same conflict shape;
+// this resolver covers the local merge tail only.
 // ---------------------------------------------------------------------------
 
 // stateDocEnvelopeKeys are the top-level project.json members that are store
-// bookkeeping rather than content. Spelled as the encoder writes them: a two-space
-// indent at the document's top level (json.MarshalIndent(doc, "", "  ")).
+// bookkeeping rather than content.
 var stateDocEnvelopeKeys = []string{"version", "updatedAt"}
 
-// stateDocNeutralValues are the placeholder values each envelope member is rewritten
-// to before the 3-way merge, so all three stages agree on those lines and git has
-// nothing to conflict over. Index-aligned with stateDocEnvelopeKeys.
-var stateDocNeutralValues = []string{"0", `""`}
-
 // resolveStateDocEnvelopeConflict tries to finish a conflicted merge whose ONLY
-// unresolved difference is the state document's envelope. It returns resolved=true
+// unmerged path is the state document, merging it structurally. It returns resolved=true
 // having COMMITTED the merge in the clone (the caller then pushes), or
 // resolved=false with a diagnostic SUFFIX explaining why it declined — the caller
 // aborts and fails. Nothing is pushed from here.
@@ -5409,11 +5406,11 @@ func stateDocIsTheOnlyConflict(cloneDir string) (diagnosticSuffix string, only b
 	return "", true
 }
 
-// mergeStateDocWithMainsEnvelope re-runs the 3-way merge of the state document with
-// its envelope neutralised on all three stages, then restores MAIN's envelope into
-// the result. It returns the resolved document, or ok=false when the conflict is in
-// the document's CONTENT (git merge-file still reports one) or when any stage is not
-// in the form the store's encoder writes.
+// mergeStateDocWithMainsEnvelope is the structural 3-way merge of the state document:
+// object members merge key by key, an array whose elements all carry an id merges as a
+// set by id, and the envelope keeps MAIN's value. It returns the resolved document, or
+// ok=false, naming what disagrees, when a value changed differently on both sides or a
+// stage is not in the form the store's encoder writes.
 func mergeStateDocWithMainsEnvelope(cloneDir string) (merged, diagnosticSuffix string, ok bool) {
 	// The three merge stages: 1=base, 2=ours (main), 3=theirs (the activity branch).
 	base, bok := stateDocStage(cloneDir, 1)
@@ -5422,46 +5419,419 @@ func mergeStateDocWithMainsEnvelope(cloneDir string) (merged, diagnosticSuffix s
 	if !bok || !ook || !tok {
 		return "", " (" + localStateDocPath + " has no common base — it was added on both sides)", false
 	}
-	neutralBase, _, bRec := neutraliseStateDocEnvelope(base)
-	neutralOurs, oursEnv, oRec := neutraliseStateDocEnvelope(ours)
-	neutralTheirs, _, tRec := neutraliseStateDocEnvelope(theirs)
-	if !bRec || !oRec || !tRec {
-		// Hand-edited, reformatted, or written by something other than the store's
-		// encoder. Splicing bytes into a document whose shape is unknown is exactly
-		// the kind of guess that loses state, so decline.
-		return "", " (" + localStateDocPath + "'s envelope is not in the form the state store writes)", false
+	resolved, conflicts, err := mergeStateDocStages(base, ours, theirs)
+	if err != nil {
+		return "", " (" + localStateDocPath + "'s envelope is not in the form the state store writes: " + err.Error() + ")", false
 	}
-
-	// git merge-file writes the result into its FIRST argument and exits non-zero when
-	// anything is still in conflict — which is precisely the "real content conflict"
-	// signal this resolver must honour. The three stages go to fixed scratch files
-	// under the clone's .git.
-	for name, content := range map[string]string{localStateDocOurs: neutralOurs, localStateDocBase: neutralBase, localStateDocTheirs: neutralTheirs} {
-		if werr := writeCloneScratch(cloneDir, name, content); werr != nil {
-			return "", " (could not stage the envelope-neutral 3-way merge)", false
-		}
-	}
-	if _, merr := gitExec(cloneDir, exec.Command("git", "merge-file", "--quiet", localStateDocOurs, localStateDocBase, localStateDocTheirs)); merr != nil {
-		return "", " (the conflict is in " + localStateDocPath + "'s CONTENT, not its envelope)", false
-	}
-	mergedNeutral, rerr := readFileInDir(cloneDir, localStateDocOurs)
-	if rerr != nil {
-		return "", " (could not read the envelope-neutral merge result)", false
-	}
-
-	// Restore MAIN's envelope. version: main's token is the one every later
-	// main-scoped CAS compares against, and the branch's counter belongs to a
-	// different write sequence — adopting it would refuse every subsequent write.
-	// updatedAt: main's stamp for the same reason, and because the branch's is
-	// routinely the zero time (the agent-side rig re-encodes without one).
-	resolved, rok := restoreStateDocEnvelope(string(mergedNeutral), oursEnv)
-	if !rok {
-		return "", " (the envelope-neutral merge result no longer carries the envelope)", false
-	}
-	if !json.Valid([]byte(resolved)) {
-		return "", " (the resolved " + localStateDocPath + " is not valid JSON)", false
+	if len(conflicts) > 0 {
+		return "", " (the conflict is in " + localStateDocPath + "'s CONTENT, not its envelope: " + summarizeConflicts(conflicts) + ")", false
 	}
 	return resolved, "", true
+}
+
+// summarizeConflicts names the first few conflicting document paths.
+func summarizeConflicts(paths []string) string {
+	const named = 5
+	if len(paths) <= named {
+		return strings.Join(paths, ", ")
+	}
+	return strings.Join(paths[:named], ", ") + fmt.Sprintf(" and %d more", len(paths)-named)
+}
+
+// mergeStateDocStages merges the three stages' text. A stage that does not print back to
+// its own bytes was not written by the store's encoder (hand-edited, reformatted), and
+// splicing into a document whose shape is unknown is exactly the kind of guess that loses
+// state, so it is refused. version: main's token is the one every later main-scoped CAS
+// compares against, and the branch's counter belongs to a different write sequence.
+// updatedAt: main's stamp for the same reason, and because the branch's is routinely the
+// zero time.
+func mergeStateDocStages(base, ours, theirs string) (merged string, conflicts []string, err error) {
+	baseDoc, err := parseStateDoc(base)
+	if err != nil {
+		return "", nil, fmt.Errorf("the base stage: %w", err)
+	}
+	oursDoc, err := parseStateDoc(ours)
+	if err != nil {
+		return "", nil, fmt.Errorf("main's stage: %w", err)
+	}
+	theirsDoc, err := parseStateDoc(theirs)
+	if err != nil {
+		return "", nil, fmt.Errorf("the branch's stage: %w", err)
+	}
+	for _, key := range stateDocEnvelopeKeys {
+		mainValue := oursDoc.root.member(key)
+		if mainValue == nil || baseDoc.root.member(key) == nil || theirsDoc.root.member(key) == nil {
+			return "", nil, fmt.Errorf("a stage has no %s", key)
+		}
+		baseDoc.root.setMember(key, mainValue)
+		theirsDoc.root.setMember(key, mainValue)
+	}
+	m := &stateDocMerge{}
+	root := m.value("", baseDoc.root, oursDoc.root, theirsDoc.root)
+	if len(m.conflicts) > 0 {
+		return "", m.conflicts, nil
+	}
+	out := root.print() + oursDoc.trailer
+	if !json.Valid([]byte(out)) {
+		return "", nil, errors.New("the merge result is not valid JSON")
+	}
+	return out, nil, nil
+}
+
+// stateDocNode is one JSON value, its leaves kept as their exact source text so the merge
+// never re-encodes what it did not change (the store's encoder has its own escaping).
+type stateDocNode struct {
+	kind stateDocKind
+	keys []string        // an object's member names, as source text with their quotes
+	kids []*stateDocNode // an object's member values, or an array's elements
+	leaf string          // a string, number, bool or null, as source text
+}
+
+type stateDocKind int
+
+const (
+	stateDocLeaf stateDocKind = iota
+	stateDocObject
+	stateDocArray
+)
+
+
+// stateDocTree is a parsed document and the bytes after its root value.
+type stateDocTree struct {
+	root    *stateDocNode
+	trailer string
+}
+
+// parseStateDoc parses a stage, refusing anything that does not print back to itself.
+func parseStateDoc(doc string) (stateDocTree, error) {
+	if !json.Valid([]byte(doc)) {
+		return stateDocTree{}, errors.New("it is not valid JSON")
+	}
+	p := stateDocParser{s: doc}
+	root, err := p.value()
+	if err != nil {
+		return stateDocTree{}, err
+	}
+	if root.kind != stateDocObject {
+		return stateDocTree{}, errors.New("its root is not an object")
+	}
+	tree := stateDocTree{root: root, trailer: doc[p.i:]}
+	if root.print()+tree.trailer != doc {
+		return stateDocTree{}, errors.New("it is not in the encoder's indentation")
+	}
+	return tree, nil
+}
+
+// stateDocParser is a recursive-descent reader over text json.Valid already accepted, so
+// it only has to find token boundaries.
+type stateDocParser struct {
+	s string
+	i int
+}
+
+func (p *stateDocParser) skipSpace() {
+	for p.i < len(p.s) && strings.IndexByte(" \t\r\n", p.s[p.i]) >= 0 {
+		p.i++
+	}
+}
+
+func (p *stateDocParser) value() (*stateDocNode, error) {
+	p.skipSpace()
+	switch p.s[p.i] {
+	case '{':
+		return p.object()
+	case '[':
+		return p.array()
+	case '"':
+		return &stateDocNode{leaf: p.str()}, nil
+	}
+	start := p.i
+	for p.i < len(p.s) && strings.IndexByte(",]} \t\r\n", p.s[p.i]) < 0 {
+		p.i++
+	}
+	return &stateDocNode{leaf: p.s[start:p.i]}, nil
+}
+
+// str consumes one string token and returns it with its quotes.
+func (p *stateDocParser) str() string {
+	start := p.i
+	for p.i++; p.s[p.i] != '"'; p.i++ {
+		if p.s[p.i] == '\\' {
+			p.i++
+		}
+	}
+	p.i++
+	return p.s[start:p.i]
+}
+
+func (p *stateDocParser) object() (*stateDocNode, error) {
+	n := &stateDocNode{kind: stateDocObject}
+	seen := map[string]bool{}
+	p.i++ // {
+	for {
+		p.skipSpace()
+		switch p.s[p.i] {
+		case '}':
+			p.i++
+			return n, nil
+		case ',':
+			p.i++
+			continue
+		}
+		key := p.str()
+		if seen[key] {
+			return nil, fmt.Errorf("member %s appears twice", key)
+		}
+		seen[key] = true
+		p.skipSpace()
+		p.i++ // :
+		v, err := p.value()
+		if err != nil {
+			return nil, err
+		}
+		n.keys, n.kids = append(n.keys, key), append(n.kids, v)
+	}
+}
+
+func (p *stateDocParser) array() (*stateDocNode, error) {
+	n := &stateDocNode{kind: stateDocArray}
+	p.i++ // [
+	for {
+		p.skipSpace()
+		switch p.s[p.i] {
+		case ']':
+			p.i++
+			return n, nil
+		case ',':
+			p.i++
+			continue
+		}
+		v, err := p.value()
+		if err != nil {
+			return nil, err
+		}
+		n.kids = append(n.kids, v)
+	}
+}
+
+// print writes the node the way json.MarshalIndent(doc, "", "  ") lays it out.
+func (n *stateDocNode) print() string {
+	var b strings.Builder
+	n.write(&b, "")
+	return b.String()
+}
+
+func (n *stateDocNode) write(b *strings.Builder, indent string) {
+	if n.kind == stateDocLeaf {
+		b.WriteString(n.leaf)
+		return
+	}
+	open, closing := "{", "}"
+	if n.kind == stateDocArray {
+		open, closing = "[", "]"
+	}
+	b.WriteString(open)
+	inner := indent + "  "
+	for i, kid := range n.kids {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString("\n" + inner)
+		if n.kind == stateDocObject {
+			b.WriteString(n.keys[i] + ": ")
+		}
+		kid.write(b, inner)
+	}
+	if len(n.kids) > 0 {
+		b.WriteString("\n" + indent)
+	}
+	b.WriteString(closing)
+}
+
+// member is the value of an object member named name (without quotes), or nil.
+func (n *stateDocNode) member(name string) *stateDocNode {
+	if n == nil || n.kind != stateDocObject {
+		return nil
+	}
+	if i := slices.Index(n.keys, `"`+name+`"`); i >= 0 {
+		return n.kids[i]
+	}
+	return nil
+}
+
+// setMember replaces an existing object member's value.
+func (n *stateDocNode) setMember(name string, v *stateDocNode) {
+	if i := slices.Index(n.keys, `"`+name+`"`); i >= 0 {
+		n.kids[i] = v
+	}
+}
+
+// id is an array element's identity: its id member, when that is a string.
+func (n *stateDocNode) id() (string, bool) {
+	v := n.member("id")
+	if v == nil || v.kind != stateDocLeaf || !strings.HasPrefix(v.leaf, `"`) {
+		return "", false
+	}
+	return v.leaf, true
+}
+
+func stateDocEqual(a, b *stateDocNode) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.kind == b.kind && a.leaf == b.leaf && slices.Equal(a.keys, b.keys) &&
+		slices.EqualFunc(a.kids, b.kids, stateDocEqual)
+}
+
+// stateDocMerge collects the document paths that changed differently on both sides.
+type stateDocMerge struct {
+	conflicts []string
+}
+
+// value merges one value; a nil node is an absent one, so a deletion on one side against
+// an unchanged other is honoured and a deletion against a change is a conflict.
+func (m *stateDocMerge) value(path string, base, ours, theirs *stateDocNode) *stateDocNode {
+	switch {
+	case stateDocEqual(ours, theirs), stateDocEqual(base, theirs):
+		return ours
+	case stateDocEqual(base, ours):
+		return theirs
+	case ours == nil || theirs == nil || ours.kind != theirs.kind:
+	case ours.kind == stateDocObject && stateDocMergeableBase(base, stateDocObject):
+		return m.object(path, base, ours, theirs)
+	case ours.kind == stateDocArray && stateDocMergeableBase(base, stateDocArray) && stateDocIdentified(base, ours, theirs):
+		return m.array(path, base, ours, theirs)
+	}
+	m.conflicts = append(m.conflicts, stateDocPathLabel(path))
+	return ours
+}
+
+func stateDocPathLabel(path string) string {
+	if path == "" {
+		return "the document"
+	}
+	return strings.TrimPrefix(path, ".")
+}
+
+// stateDocMergeableBase reports whether base can stand under two values of kind: the same
+// kind, or nothing yet (absent, or the null an unset pointer encodes to).
+func stateDocMergeableBase(base *stateDocNode, kind stateDocKind) bool {
+	return base == nil || base.kind == kind || (base.kind == stateDocLeaf && base.leaf == "null")
+}
+
+// stateDocIdentified reports whether every element of every given array carries a unique id.
+func stateDocIdentified(arrays ...*stateDocNode) bool {
+	for _, a := range arrays {
+		if a == nil || a.kind != stateDocArray {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, e := range a.kids {
+			id, ok := e.id()
+			if !ok || seen[id] {
+				return false
+			}
+			seen[id] = true
+		}
+	}
+	return true
+}
+
+// object merges key by key, keeping main's order. A key only the branch has takes its
+// sorted place in a map (every map the encoder writes is sorted) and otherwise follows
+// its predecessor on the branch, which keeps a struct's field order.
+func (m *stateDocMerge) object(path string, base, ours, theirs *stateDocNode) *stateDocNode {
+	out := &stateDocNode{kind: stateDocObject}
+	for i, key := range ours.keys {
+		name := stateDocKeyName(key)
+		if v := m.value(path+"."+name, base.member(name), ours.kids[i], theirs.member(name)); v != nil {
+			out.keys, out.kids = append(out.keys, key), append(out.kids, v)
+		}
+	}
+	sorted := slices.IsSorted(ours.keys) && slices.IsSorted(theirs.keys)
+	for i, key := range theirs.keys {
+		if slices.Contains(ours.keys, key) {
+			continue
+		}
+		name := stateDocKeyName(key)
+		if v := m.value(path+"."+name, base.member(name), nil, theirs.kids[i]); v != nil {
+			out.insert(key, v, stateDocInsertAt(out.keys, theirs.keys[:i], key, sorted))
+		}
+	}
+	return out
+}
+
+// stateDocKeyName is a member's source text without its quotes.
+func stateDocKeyName(key string) string {
+	return key[1 : len(key)-1]
+}
+
+// stateDocInsertAt is where a key new to out goes.
+func stateDocInsertAt(keys, predecessors []string, key string, sorted bool) int {
+	if sorted {
+		at, _ := slices.BinarySearch(keys, key)
+		return at
+	}
+	for i := len(predecessors) - 1; i >= 0; i-- {
+		if at := slices.Index(keys, predecessors[i]); at >= 0 {
+			return at + 1
+		}
+	}
+	return 0
+}
+
+func (n *stateDocNode) insert(key string, v *stateDocNode, at int) {
+	n.keys = slices.Insert(n.keys, at, key)
+	n.kids = slices.Insert(n.kids, at, v)
+}
+
+// array merges id-carrying elements as a set by id, keeping main's order and appending the
+// branch's new elements in its order. Two sides adding one id with different content is a
+// conflict; an element both sides inherited merges member by member, so only a leaf changed
+// differently on both is.
+func (m *stateDocMerge) array(path string, base, ours, theirs *stateDocNode) *stateDocNode {
+	baseByID, theirsByID := stateDocElements(base), stateDocElements(theirs)
+	inOurs := map[string]bool{}
+	out := &stateDocNode{kind: stateDocArray}
+	for _, e := range ours.kids {
+		id, _ := e.id()
+		inOurs[id] = true
+		if v := m.element(path, id, baseByID[id], e, theirsByID[id]); v != nil {
+			out.kids = append(out.kids, v)
+		}
+	}
+	for _, e := range theirs.kids {
+		id, _ := e.id()
+		if inOurs[id] {
+			continue
+		}
+		if v := m.element(path, id, baseByID[id], nil, e); v != nil {
+			out.kids = append(out.kids, v)
+		}
+	}
+	return out
+}
+
+func (m *stateDocMerge) element(path, id string, base, ours, theirs *stateDocNode) *stateDocNode {
+	label := path + "[" + strings.Trim(id, `"`) + "]"
+	if base == nil && ours != nil && theirs != nil && !stateDocEqual(ours, theirs) {
+		m.conflicts = append(m.conflicts, stateDocPathLabel(label))
+		return ours
+	}
+	return m.value(label, base, ours, theirs)
+}
+
+// stateDocElements indexes an id-carrying array by id; nil and null index to nothing.
+func stateDocElements(a *stateDocNode) map[string]*stateDocNode {
+	out := map[string]*stateDocNode{}
+	if a == nil || a.kind != stateDocArray {
+		return out
+	}
+	for _, e := range a.kids {
+		id, _ := e.id()
+		out[id] = e
+	}
+	return out
 }
 
 // commitResolvedStateDoc lands the resolved document as the merge commit. The write
@@ -5511,70 +5881,6 @@ func stateDocStage(cloneDir string, stage int) (string, bool) {
 		return "", false
 	}
 	return out, true
-}
-
-// neutraliseStateDocEnvelope rewrites each envelope member's VALUE to a fixed
-// placeholder, leaving every other byte of the line (and of the document) alone, so
-// the three merge stages become byte-identical on exactly those lines. It reports
-// recognised=false unless EVERY envelope member appears exactly once in the form the
-// store's encoder writes — a missing, duplicated or reshaped member is a document
-// this resolver must not touch. It also returns the ORIGINAL values, for restore.
-func neutraliseStateDocEnvelope(doc string) (neutral string, original map[string]string, recognised bool) {
-	lines := strings.Split(doc, "\n")
-	original = make(map[string]string, len(stateDocEnvelopeKeys))
-	for i, key := range stateDocEnvelopeKeys {
-		prefix := `  "` + key + `": `
-		at, found := soleLineWithPrefix(lines, prefix)
-		if !found {
-			return "", nil, false
-		}
-		rest := lines[at][len(prefix):]
-		comma := ""
-		if strings.HasSuffix(rest, ",") {
-			comma = ","
-		}
-		original[key] = rest
-		lines[at] = prefix + stateDocNeutralValues[i] + comma
-	}
-	return strings.Join(lines, "\n"), original, true
-}
-
-// restoreStateDocEnvelope puts the recorded envelope values back, undoing
-// neutraliseStateDocEnvelope on the merged document. A member that changed trailing
-// -comma shape between the stage it came from and the merged document has moved
-// position; rebuilding it would be a guess, so that is a refusal.
-func restoreStateDocEnvelope(doc string, original map[string]string) (string, bool) {
-	lines := strings.Split(doc, "\n")
-	for _, key := range stateDocEnvelopeKeys {
-		prefix := `  "` + key + `": `
-		at, found := soleLineWithPrefix(lines, prefix)
-		if !found {
-			return "", false
-		}
-		want := original[key]
-		if strings.HasSuffix(want, ",") != strings.HasSuffix(lines[at], ",") {
-			return "", false
-		}
-		lines[at] = prefix + want
-	}
-	return strings.Join(lines, "\n"), true
-}
-
-// soleLineWithPrefix finds the ONE line carrying prefix. Zero matches and more than
-// one are both found=false: an absent member and an ambiguous one are equally
-// unsafe to rewrite.
-func soleLineWithPrefix(lines []string, prefix string) (at int, found bool) {
-	at = -1
-	for n, line := range lines {
-		if !strings.HasPrefix(line, prefix) {
-			continue
-		}
-		if at >= 0 {
-			return -1, false
-		}
-		at = n
-	}
-	return at, at >= 0
 }
 
 // nonEmptyLines splits git's line-oriented output, dropping blanks.

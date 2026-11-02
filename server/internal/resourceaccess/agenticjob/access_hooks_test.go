@@ -53,7 +53,10 @@
 package agenticjob_test
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1300,13 +1303,18 @@ func (v *gateVenue) assertRecordedOn(t *testing.T, branch, runID string) {
 // gitOut is git's trimmed stdout in dir.
 func gitOut(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	return strings.TrimSpace(gitOutRaw(t, dir, args...))
+}
+
+func gitOutRaw(t *testing.T, dir string, args ...string) string {
+	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("hooks: git %s: %v", strings.Join(args, " "), err)
 	}
-	return strings.TrimSpace(string(out))
+	return string(out)
 }
 
 // TestLocalRailRefusesAStaleStateTool (R56): a state tool whose `version` is not the
@@ -2231,5 +2239,193 @@ func TestLocalMergeRefusesAModuleThatCannotTidy(t *testing.T) {
 	}
 	if after := gitOut(t, rig.repo.Dir, "rev-parse", "main"); after != before {
 		t.Errorf("main moved from %s to %s on a refused merge", before, after)
+	}
+}
+
+// archivedStateDoc reads one archived merge stage (testdata/statemerge is RUN-008's real
+// state document on main and on its first-fan-out activity branches).
+func archivedStateDoc(t *testing.T, name string) []byte {
+	t.Helper()
+	f, err := os.Open(filepath.Join("testdata", "statemerge", name+".json.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// stateMergeRig arranges one merge in a clone of the rig's repo, through a push: main holds
+// base when the branch forks from it, the branch then holds tip and main holds ours, so git
+// computes exactly the three stages under test.
+func stateMergeRig(t *testing.T, rig *raceRig, activity string, base, ours, tip []byte) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "stages")
+	runGit(t, "", "clone", "--quiet", rig.repo.Dir, work)
+	commit := func(doc []byte, msg string) {
+		t.Helper()
+		path := filepath.Join(work, stateDocPath)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, doc, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runGit(t, work, "add", stateDocPath)
+		runGit(t, work, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--allow-empty", "-m", msg)
+	}
+	commit(base, "base")
+	runGit(t, work, "checkout", "--quiet", "-B", "activity/"+activity)
+	commit(tip, "tip")
+	runGit(t, work, "checkout", "--quiet", "main")
+	commit(ours, "main moved on")
+	runGit(t, work, "push", "--quiet", "--force", "origin", "main", "activity/"+activity)
+}
+
+// TestLocalMergeLandsSiblingsStructurally is the sequential merge no C-* activity had ever
+// survived: RUN-008's real documents. A text merge leaves 28 conflicts on the second sibling
+// and 30 on the third (testingState.checkRuns, serviceContracts); the siblings do not actually
+// disagree, so all three land, with nothing of any of them lost and main's envelope kept.
+func TestLocalMergeLandsSiblingsStructurally(t *testing.T) {
+	rig := newRaceRig(t)
+	siblings := []string{"change-notice-access", "identity-access", "list-record-access"}
+	current := archivedStateDoc(t, "main")
+	var mainDoc struct {
+		Version   json.Number `json:"version"`
+		UpdatedAt string      `json:"updatedAt"`
+	}
+	if err := json.Unmarshal(current, &mainDoc); err != nil {
+		t.Fatal(err)
+	}
+	wantRuns := map[string]bool{}
+	wantContracts := map[string]bool{}
+	type doc struct {
+		Version          json.Number                `json:"version"`
+		UpdatedAt        string                     `json:"updatedAt"`
+		ServiceContracts map[string]json.RawMessage `json:"serviceContracts"`
+		TestingState     struct {
+			CheckRuns []struct {
+				ID string `json:"id"`
+			} `json:"checkRuns"`
+		} `json:"testingState"`
+		PhaseArtifacts struct {
+			TestPlan map[string]json.RawMessage `json:"testPlan"`
+		} `json:"phaseArtifacts"`
+	}
+	for _, sibling := range siblings {
+		tip := archivedStateDoc(t, "tip."+sibling)
+		var d doc
+		if err := json.Unmarshal(tip, &d); err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range d.TestingState.CheckRuns {
+			wantRuns[r.ID] = true
+		}
+		for k := range d.ServiceContracts {
+			wantContracts[k] = true
+		}
+		stateMergeRig(t, rig, "C-"+sibling, archivedStateDoc(t, "base."+sibling), current, tip)
+		if err := rig.merge("C-" + sibling); err != nil {
+			t.Fatalf("merge of %s: %v", sibling, err)
+		}
+		current = []byte(gitOutRaw(t, rig.repo.Dir, "show", "main:"+stateDocPath))
+	}
+	var got doc
+	if err := json.Unmarshal(current, &got); err != nil {
+		t.Fatalf("the merged document is not JSON: %v", err)
+	}
+	if got.Version != mainDoc.Version || got.UpdatedAt != mainDoc.UpdatedAt {
+		t.Errorf("the envelope is %s/%s, want main's %s/%s", got.Version, got.UpdatedAt, mainDoc.Version, mainDoc.UpdatedAt)
+	}
+	seen := map[string]int{}
+	for _, r := range got.TestingState.CheckRuns {
+		seen[r.ID]++
+	}
+	for id := range wantRuns {
+		if seen[id] != 1 {
+			t.Errorf("check run %s appears %d times", id, seen[id])
+		}
+	}
+	for k := range wantContracts {
+		if _, ok := got.ServiceContracts[k]; !ok {
+			t.Errorf("contract %s was lost", k)
+		}
+	}
+	for _, k := range siblings {
+		if _, ok := got.PhaseArtifacts.TestPlan[k]; !ok {
+			t.Errorf("plan %s was lost", k)
+		}
+	}
+	if len(wantContracts) < 3 || len(wantRuns) < 3 {
+		t.Fatalf("the fixture must hold three siblings' work: %v %v", wantContracts, wantRuns)
+	}
+	// The store still reads it, and a store write of it changes nothing in the merged sections.
+	if _, ok, err := projectstate.DecodeProjectJSON(current, ""); err != nil || !ok {
+		t.Errorf("the store cannot read the merged document: ok=%v err=%v", ok, err)
+	}
+	if strings.Contains(string(current), "<<<<<<<") {
+		t.Errorf("the merged document carries conflict markers")
+	}
+}
+
+// A real disagreement stays the honest failure it always was: nothing is pushed, whatever the
+// shape of the disagreement, and the failure names where it is.
+func TestLocalMergeRefusesARealStateConflict(t *testing.T) {
+	const form = `{
+  "id": "p",
+  "version": %s,
+  "name": %s,
+  "items": [%s],
+  "updatedAt": "t%s"
+}
+`
+	stage := func(version, name, items string) []byte {
+		return fmt.Appendf(nil, form, version, name, items, version)
+	}
+	item := func(id, v string) string {
+		return "\n    {\n      \"id\": \"" + id + "\",\n      \"v\": " + v + "\n    }\n  "
+	}
+	for _, tc := range []struct {
+		name             string
+		base, ours, tip  []byte
+		want             string
+		wantLanded       bool
+		wantInLandedText string
+	}{
+		{name: "a leaf changed differently on both sides", base: stage("1", `"a"`, ""), ours: stage("2", `"b"`, ""), tip: stage("3", `"c"`, ""), want: "CONTENT"},
+		{name: "one id added twice with different content", base: stage("1", `"a"`, ""), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("x", "2")), want: "items[x]"},
+		{name: "an inherited element's leaf changed differently", base: stage("1", `"a"`, item("x", "0")), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("x", "2")), want: "items[x].v"},
+		{name: "a stage not in the encoder's form", base: stage("1", `"a"`, ""), ours: []byte(`{"id":"p","version":2,"name":"b","items":[],"updatedAt":"t2"}`), tip: stage("3", `"c"`, ""), want: "form the state store writes"},
+		{name: "both add different ids", base: stage("1", `"a"`, ""), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("y", "2")), wantLanded: true, wantInLandedText: `"id": "y"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rig := newRaceRig(t)
+			stateMergeRig(t, rig, "C-conflict", tc.base, tc.ours, tc.tip)
+			before := gitOut(t, rig.repo.Dir, "rev-parse", "main")
+			err := rig.merge("C-conflict")
+			after := gitOut(t, rig.repo.Dir, "rev-parse", "main")
+			if tc.wantLanded {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := gitOutRaw(t, rig.repo.Dir, "show", "main:"+stateDocPath); !strings.Contains(got, tc.wantInLandedText) || !strings.Contains(got, `"version": 2`) {
+					t.Errorf("merged document:\n%s", got)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want a failure naming %q", err, tc.want)
+			}
+			if before != after {
+				t.Errorf("main moved on a refused merge")
+			}
+		})
 	}
 }
