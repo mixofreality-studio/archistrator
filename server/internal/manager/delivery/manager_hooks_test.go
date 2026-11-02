@@ -4036,6 +4036,32 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 	jobsAtGiveUp := siblingJobs(s)
 
 	open()
+	assertDrainHalt(t, h, subject, s, jobsAtGiveUp)
+
+	s.venue.setRedChecks(false)
+	const note = "the import path was wrong; it is fixed in the plan now"
+	if err := subject.SetProjectRunState(callContext(t, h, ""), planProject, delivery.ProjectRunning, note); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
+	// The fixture's scripted test run covers only drivenActivity, so the sibling comes to rest at
+	// its testing gate. That is a sibling in flight, so the project must not read halted.
+	awaitActivityState(t, h, subject, siblingActivity, delivery.ActivityViewAwaitingHuman)
+	doc, err := runGit(s.venue.repo.Dir, "show", "main:.aiarch/state/project.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(doc, note); got < 2 {
+		t.Errorf("the operator's note is on %d rows, want it on both returned activities", got)
+	}
+	if got := runStateOf(t, h, subject); got == delivery.ProjectHalted {
+		t.Errorf("the project reads halted after the give-ups were returned")
+	}
+}
+
+// assertDrainHalt waits for the halt and checks what it says and what it refuses.
+func assertDrainHalt(t *testing.T, h *scenariohost.Host, subject delivery.DeliveryManager, s *stack, jobsAtGiveUp int) {
+	t.Helper()
 	halt := awaitHalt(t, h, subject)
 	if got := siblingJobs(s); got <= jobsAtGiveUp {
 		t.Errorf("the sibling ran %d jobs by the give-up and %d by the halt: the cascade must continue past a give-up", jobsAtGiveUp, got)
@@ -4056,26 +4082,6 @@ func TestAGiveUpHaltsOnlyWhenTheNetworkDrains(t *testing.T) {
 		delivery.ActivityOverride{Kind: delivery.OverrideRetry, Notes: "just this one"})
 	if err == nil || !strings.Contains(err.Error(), "ResumeProject") {
 		t.Errorf("a requeue on the halted project answered %v, want a refusal naming ResumeProject", err)
-	}
-
-	s.venue.setRedChecks(false)
-	const note = "the import path was wrong; it is fixed in the plan now"
-	if err := subject.SetProjectRunState(callContext(t, h, ""), planProject, delivery.ProjectRunning, note); err != nil {
-		t.Fatalf("resume: %v", err)
-	}
-	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
-	// The fixture's scripted test run covers only drivenActivity, so the sibling comes to rest at
-	// its testing gate. That is a sibling in flight, so the project must not read halted.
-	awaitActivityState(t, h, subject, siblingActivity, delivery.ActivityViewAwaitingHuman)
-	doc, err := runGit(s.venue.repo.Dir, "show", "main:.aiarch/state/project.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Count(doc, note); got < 2 {
-		t.Errorf("the operator's note is on %d rows, want it on both returned activities", got)
-	}
-	if got := runStateOf(t, h, subject); got == delivery.ProjectHalted {
-		t.Errorf("the project reads halted after the give-ups were returned")
 	}
 }
 

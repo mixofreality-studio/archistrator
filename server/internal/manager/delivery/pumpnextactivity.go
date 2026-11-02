@@ -593,7 +593,24 @@ const (
 	pumpDrainMoved
 	// pumpDrainHalted: nothing in flight, nothing eligible, and a give-up unresolved.
 	pumpDrainHalted
+	// pumpNotIdle: the pump is holding work or is already halted, so the question does not arise.
+	pumpNotIdle
 )
+
+// pumpDrainIfIdle asks pumpDrain only of a running pump with nothing left of its own.
+func (wf *csWorkflows) pumpDrainIfIdle(
+	ctx workflow.Context, in pumpInput, st *pumpState, snapshot projectstate.Project, dispatch *pumpDispatch, decide *bool,
+) (pumpDrainVerdict, error) {
+	if st.Halt != nil || !st.idle() {
+		return pumpNotIdle, nil
+	}
+	verdict, err := wf.pumpDrain(ctx, in, st, snapshot, dispatch, decide)
+	if err == nil && verdict == pumpDrainQuiescent {
+		workflow.GetLogger(ctx).Info("no eligible activity and nothing in flight — cascade quiescent",
+			"projectId", string(in.ProjectID))
+	}
+	return verdict, err
+}
 
 // pumpDrain is the product ruling on a give-up (FIX-016), and the place it becomes a halt.
 //
@@ -962,21 +979,17 @@ func (wf *csWorkflows) pumpLoop(
 		// drain-to-quiet is what ends the pump, and a continue here is an infinite pump — one
 		// run per second, per project, forever. A HALTED pump is never quiescent: its stop is
 		// the park below, which is what keeps the sweep from restarting it.
-		if st.Halt == nil && st.idle() {
-			verdict, err := wf.pumpDrain(ctx, in, st, wake.proj, dispatch, &decide)
-			if err != nil {
-				return PumpResult{}, err
-			}
-			switch verdict {
-			case pumpDrainQuiescent:
-				logger.Info("no eligible activity and nothing in flight — cascade quiescent",
-					"projectId", string(in.ProjectID))
-				return pumpDispatchedResult(frontier), nil
-			case pumpDrainMoved:
-				continue
-			case pumpDrainHalted:
-				// Parks below, exactly as a halt on a failed child does.
-			}
+		verdict, err := wf.pumpDrainIfIdle(ctx, in, st, wake.proj, dispatch, &decide)
+		if err != nil {
+			return PumpResult{}, err
+		}
+		switch verdict {
+		case pumpDrainQuiescent:
+			return pumpDispatchedResult(frontier), nil
+		case pumpDrainMoved:
+			continue
+		case pumpDrainHalted, pumpNotIdle:
+			// A halted pump parks below, exactly as a halt on a failed child does.
 		}
 
 		if res, can, err := wf.pumpContinueAsNew(ctx, in, st, chans, frontier); can || err != nil {

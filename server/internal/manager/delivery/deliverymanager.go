@@ -6349,6 +6349,20 @@ func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID Proj
 	if !proj.OperatorPaused && !halted {
 		return newError(fwmanager.FailedPrecondition, "construction is neither paused nor halted — there is nothing to resume")
 	}
+	if err := m.clearPauseAndHalt(ctx, projectID, proj, halt, halted, note); err != nil {
+		return err
+	}
+	if _, err := m.startOrJoinPump(ctx, projectID); err != nil {
+		slog.Default().WarnContext(ctx, "construction resumed, but the pump did not start now; the 30-second sweep will start it",
+			"projectId", string(projectID), "error", err.Error())
+	}
+	return nil
+}
+
+// clearPauseAndHalt is ResumeProject's writes and relay, in the order its comment pins.
+func (m *constructionManager) clearPauseAndHalt(
+	ctx context.Context, projectID ProjectID, proj projectstate.Project, halt PumpHalt, halted bool, note string,
+) error {
 	if proj.OperatorPaused {
 		if err := m.refuseWhilePauseInFlight(ctx, projectID); err != nil {
 			return err
@@ -6357,19 +6371,13 @@ func (m *constructionManager) ResumeProject(rc fwmanager.Context, projectID Proj
 			return err
 		}
 	}
-	if halted {
-		if err := m.returnGiveUps(ctx, projectID, proj, note); err != nil {
-			return err
-		}
-		if err := m.relayResumeToPump(ctx, projectID, halt); err != nil {
-			return err
-		}
+	if !halted {
+		return nil
 	}
-	if _, err := m.startOrJoinPump(ctx, projectID); err != nil {
-		slog.Default().WarnContext(ctx, "construction resumed, but the pump did not start now; the 30-second sweep will start it",
-			"projectId", string(projectID), "error", err.Error())
+	if err := m.returnGiveUps(ctx, projectID, proj, note); err != nil {
+		return err
 	}
-	return nil
+	return m.relayResumeToPump(ctx, projectID, halt)
 }
 
 // returnGiveUps re-arms every activity holding a give-up, which is what makes the resume a way
