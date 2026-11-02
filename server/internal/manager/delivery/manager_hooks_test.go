@@ -4866,6 +4866,7 @@ func TestAPlanDefectReopensThePlanThroughItsReview(t *testing.T) {
 		t.Errorf("integration ran %d times, want the red run and the green one", got)
 	}
 	assertRedraftBetweenIntegrations(t, s)
+	assertClaimReachesOnlyTheRedraft(t, s)
 	rounds := planDefectRounds(t, h, s)
 	if len(rounds) != 3 {
 		t.Fatalf("the plan gate holds %d rounds, want pass, system send-back, pass: %+v", len(rounds), rounds)
@@ -4889,6 +4890,32 @@ func assertRedraftBetweenIntegrations(t *testing.T, s *stack) {
 	}
 	if !slices.Equal(order, []string{"service-test-plan", "service-integration", "service-test-plan", "service-integration"}) {
 		t.Errorf("job order %v, want the redraft between the two integration runs", order)
+	}
+}
+
+// assertClaimReachesOnlyTheRedraft fails t unless the test plan's redraft, and no other job, is
+// handed the reported claim. A note on integration would clear the no-progress comparison, and a
+// redraft without it would have nothing to check.
+func assertClaimReachesOnlyTheRedraft(t *testing.T, s *stack) {
+	t.Helper()
+	plans := 0
+	for _, j := range s.venue.jobs() {
+		if j.Activity != drivenActivity {
+			continue
+		}
+		note := j.env["AIARCH_OPERATOR_NOTE"]
+		if j.Command == "service-test-plan" {
+			plans++
+		}
+		if plans == 2 && j.Command == "service-test-plan" {
+			if !strings.Contains(note, "contradicts the contract") {
+				t.Errorf("the redraft's operator note is %q, want the reported claim", note)
+			}
+			continue
+		}
+		if strings.Contains(note, "contradicts the contract") {
+			t.Errorf("%s was handed the claim %q, which only the redraft may read", j.Command, note)
+		}
 	}
 }
 
