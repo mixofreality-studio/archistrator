@@ -74,7 +74,6 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -4162,15 +4161,20 @@ func TestAResumeGivesAFreshAttemptBudget(t *testing.T) {
 // a long operator wait. The pump's chains read it as any other row.
 func seedOutcome(t *testing.T, h *scenariohost.Host, s *stack, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string) {
 	t.Helper()
-	seedOutcomeOn(t, h, s, drivenActivity, outcome, reason, detail)
-}
-
-func seedOutcomeOn(t *testing.T, h *scenariohost.Host, s *stack, activity string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string) {
-	t.Helper()
 	access := projectstate.NewGitLocalActivityExecutionAccess(s.repo.URL)
 	if _, err := access.RecordActivityOutcome(h.ResourceAccessContext(t, "seed-outcome"), planProject,
-		projectstate.NoActivityVersionExpectation, activity, outcome, reason, detail, projectstate.RepoCredential{}, fwra.IdempotencyKey("seed-outcome-"+activity)); err != nil {
+		projectstate.NoActivityVersionExpectation, drivenActivity, outcome, reason, detail, projectstate.RepoCredential{}, "seed-outcome"); err != nil {
 		t.Fatalf("seed the outcome: %v", err)
+	}
+}
+
+// seedSiblingGiveUp records a give-up on siblingActivity, whose row seedLiveSibling opened.
+func seedSiblingGiveUp(t *testing.T, h *scenariohost.Host, s *stack, reason projectstate.FailureReason, detail string) {
+	t.Helper()
+	access := projectstate.NewGitLocalActivityExecutionAccess(s.repo.URL)
+	if _, err := access.RecordActivityOutcome(h.ResourceAccessContext(t, "seed-sibling-outcome"), planProject,
+		projectstate.NoActivityVersionExpectation, siblingActivity, projectstate.ActivityOutcomeUnknown, reason, detail, projectstate.RepoCredential{}, "seed-sibling-outcome"); err != nil {
+		t.Fatalf("seed the sibling's give-up: %v", err)
 	}
 }
 
@@ -4196,7 +4200,7 @@ func TestALiveRowHoldsTheDrainHalt(t *testing.T) {
 	if got := runStateOf(t, h, subject); got != delivery.ProjectRunning {
 		t.Fatalf("the project reads %s with a live row, want running", got)
 	}
-	seedOutcomeOn(t, h, s, siblingActivity, projectstate.ActivityOutcomeUnknown, projectstate.NoProgress, "no change")
+	seedSiblingGiveUp(t, h, s, projectstate.NoProgress, "no change")
 	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-liverow-0002"); err != nil {
 		t.Fatalf("tick the pump again: %v", err)
 	}
@@ -4224,7 +4228,7 @@ func TestAGiveUpAfterAHaltJoinsIt(t *testing.T) {
 	}
 	cause := awaitHalt(t, h, subject).Cause
 	healStoreWrites(t, s.repo)
-	seedOutcomeOn(t, h, s, siblingActivity, projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted, "out of attempts")
+	seedSiblingGiveUp(t, h, s, projectstate.VarianceExhausted, "out of attempts")
 	eventually(t, 2*haltReconcileWait, "the sibling's give-up joining the halt", func() (bool, string) {
 		halt := awaitHalt(t, h, subject)
 		if halt.Cause != cause {
