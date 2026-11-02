@@ -4910,6 +4910,10 @@ func TestAPlanDefectReopensThePlanThroughItsReview(t *testing.T) {
 	if rounds[1].Outcome != projectstate.RoundSentBack || rounds[2].Outcome != projectstate.RoundPassed {
 		t.Errorf("round outcomes %v %v", rounds[1].Outcome, rounds[2].Outcome)
 	}
+	// The seed orders this decision against the attempt that caused it, one write earlier.
+	if decided, err := time.Parse(time.RFC3339Nano, rounds[1].DecidedAt); err != nil || decided.Nanosecond() == 0 {
+		t.Errorf("the send-back round was decided at %q, want a time fine enough to order it against that attempt", rounds[1].DecidedAt)
+	}
 	if v := rounds[1].Verdicts; len(v) != 1 || v[0].Actor != "system" || !strings.Contains(v[0].Summary, "contradicts the contract") {
 		t.Errorf("the send-back round's verdict is %+v, want the system's, carrying the claim", v)
 	}
