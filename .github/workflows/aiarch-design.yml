@@ -394,7 +394,7 @@ jobs:
           # run's log states which binary generation this scaffold carries. The server's
           # sync-on-dispatch refreshes this whole file whenever its own pin moves, so a
           # run can never install a binary the dispatching server's validators reject.
-          AIARCH_STATE_MCP_PIN: "5c30a04266fbdbeae360edc2c12103425b5c81cc"
+          AIARCH_STATE_MCP_PIN: "6ae42add76f8bfd1b6c316e399f3e54bdc2cef07"
         run: |
           echo "aiarch-state-mcp pin: github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp@${AIARCH_STATE_MCP_PIN}"
           mkdir -p "${GOBIN}"
@@ -933,7 +933,7 @@ jobs:
           # install — the validator that gates the PR is BY CONSTRUCTION the same
           # binary generation that authored/validated the draft in-loop, so the two
           # verdicts can never disagree.
-          AIARCH_STATE_MCP_PIN: "5c30a04266fbdbeae360edc2c12103425b5c81cc"
+          AIARCH_STATE_MCP_PIN: "6ae42add76f8bfd1b6c316e399f3e54bdc2cef07"
         run: |
           echo "aiarch-state-mcp pin: github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp@${AIARCH_STATE_MCP_PIN}"
           mkdir -p "${GOBIN}"
