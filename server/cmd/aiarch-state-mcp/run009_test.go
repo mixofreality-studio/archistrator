@@ -10,10 +10,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -137,7 +140,7 @@ func TestRun009ManagerPath(t *testing.T) {
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 	statuses, logs = gate(t, repo, commandChecks(t, integrate))
 	requirePassed(t, statuses, logs)
-	for _, want := range []string{"command:build-server", "command:gen-compose-check", "command:gen-clients-check", "command:clients-wire"} {
+	for _, want := range []string{"command:build-server", "command:gen-compose-check", "command:gen-clients-check"} {
 		if _, ok := statuses[want]; !ok {
 			t.Errorf("the integration gate has no %s", want)
 		}
@@ -150,19 +153,200 @@ func TestRun009ManagerPath(t *testing.T) {
 		t.Error("the composition root must build the infra-free Utility by its pure constructor")
 	}
 
-	for _, activity := range []string{"C-web-api", "C-mcp-server"} {
-		spec := activitySpec(t, repo, activity, "integration")
-		runGenerators(t, repo, spec)
-		inRepo(t, repo, "go", "mod", "tidy")
-		requireInScope(t, repo, spec)
-		inRepo(t, repo, "git", "commit", "-q", "--allow-empty", "-m", "integrate "+activity)
-		requireMachineClientGate(t, repo, spec)
+	// A machine client's contract came with its Manager's, one op per route or tool its views reach.
+	sc, ok := stateContract(t, repo, "webApi")
+	if !ok || sc.GoPackage != "internal/client/web/listkeeping" || !slices.ContainsFunc(sc.Interface.Operations, func(op projectstate.ContractOperation) bool { return op.Name == "ListKeepingAddTodo" }) {
+		t.Fatalf("webApi's derived contract: %+v", sc)
 	}
-	for _, want := range []string{"internal/client/web/listkeeping/client_scenarios.gen_test.go", "internal/client/mcpserver/listkeeping/client_scenarios.gen_test.go"} {
-		if _, err := os.Stat(filepath.Join(repo, want)); err != nil {
-			t.Errorf("no proof at %s: %v", want, err)
+	if sc, ok := stateContract(t, repo, "mcpServer"); !ok || sc.GoPackage != "internal/client/mcpserver/listkeeping" {
+		t.Fatalf("mcpServer's derived contract: %+v", sc)
+	}
+
+	for _, tc := range []struct{ activity, contract, pkg, ctor string }{
+		{"C-web-api", "webApi", "internal/client/web/listkeeping", run009RESTSubject},
+		{"C-mcp-server", "mcpServer", "internal/client/mcpserver/listkeeping", run009MCPSubject},
+	} {
+		t.Run(tc.contract, func(t *testing.T) { requireClientScenarios(t, repo, tc.activity, tc.contract, tc.pkg, tc.ctor) })
+	}
+}
+
+func stateContract(t *testing.T, repo, key string) (projectstate.ServiceContract, bool) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(repo, ".aiarch/state/project.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	sc, ok := doc.ServiceContracts[key]
+	return sc, ok
+}
+
+// run009Subject builds the client's generated Handler over the real Manager. The fixture's Manager
+// answers without its dependencies, so no worker has to serve a workflow for it here.
+const (
+	run009RESTSubject = `Manager: listkeeping.NewListKeepingManager(recognizing.NewRecognizingEngine(), nil, pubsub.NewPubSub()), Security: permitAll{}`
+	run009MCPSubject  = `Manager: listkeeping.NewListKeepingManager(recognizing.NewRecognizingEngine(), nil, pubsub.NewPubSub())`
+)
+
+const run009ClientHooks = `// Package hooks for the client's scenario tests.
+package listkeeping_test
+
+import (
+	"testing"
+
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+
+	listkeepingclient "MODULE/CLIENTPKG"
+	"MODULE/internal/engine/recognizing"
+	"MODULE/internal/manager/listkeeping"
+	"MODULE/internal/utility/pubsub"
+)
+
+func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
+	t.Helper()
+	_ = h
+	return toolServer{Handlers: []toolRegistrar{&listkeepingclient.Handler{SUBJECT}}}
+}
+`
+
+// requireClientScenarios binds every scenario the projection gives one client, generates its tests
+// through that client, fills the hooks, and runs them. A broken surface then goes red: this is the
+// founder's rule that each surface is tested on its own, against what is below it.
+func requireClientScenarios(t *testing.T, repo, activity, contract, pkg, subject string) {
+	t.Helper()
+	spec := activitySpec(t, repo, activity, "integration")
+	scenarios := 0
+	for _, c := range spec.Checks {
+		if c.Kind == projectstate.CheckKindScenario {
+			scenarios++
 		}
 	}
+	if scenarios == 0 {
+		t.Fatalf("%s's integration carries no scenario check", activity)
+	}
+	recordClientPlan(t, repo, contract)
+	runGenerators(t, repo, spec)
+	inRepo(t, repo, "make", "gen-tests")
+	module := strings.TrimSpace(inRepo(t, repo, "go", "list", "-m"))
+	hooks := strings.NewReplacer("MODULE", module, "CLIENTPKG", pkg, "SUBJECT", subject).Replace(run009ClientHooks)
+	writeRepoFile(t, repo, pkg+"/client_hooks_test.go", []byte(hooks))
+	inRepo(t, repo, "go", "mod", "tidy")
+	// The plan is the test engineer's commit; what is left is this task's own.
+	inRepo(t, repo, "git", "add", ".aiarch/state/project.json")
+	inRepo(t, repo, "git", "commit", "-q", "-m", "bind "+contract)
+	requireInScope(t, repo, activitySpec(t, repo, activity, "integration"))
+	inRepo(t, repo, "git", "commit", "-q", "--allow-empty", "-m", "integrate "+activity)
+
+	// The whole gate, as the job runs it: every command check and each scenario's own verdict.
+	bound := activitySpec(t, repo, activity, "integration")
+	statuses, logs := gate(t, repo, bound)
+	requirePassed(t, statuses, logs)
+	for _, c := range bound.Checks {
+		if _, ok := statuses[c.ID]; !ok {
+			t.Errorf("the gate gave %s no verdict", c.ID)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, "test-results", contract, "results.json")); err != nil {
+		t.Errorf("the verdicts must land under the contract key: %v", err)
+	}
+
+	// A wrong expectation goes red, so the run really crosses the transport to the Manager.
+	gen := filepath.Join(repo, pkg, "client_scenarios.gen_test.go")
+	generated, err := os.ReadFile(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(string(generated), `"proof-value"`, `"other-value"`, 1)
+	if broken == string(generated) {
+		t.Fatalf("the generated scenarios carry no bound value:\n%s", generated)
+	}
+	if err := os.WriteFile(gen, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runIn(repo, "go", "test", "-count=1", "./"+pkg+"/"); err == nil {
+		t.Errorf("a wrong expectation stayed green:\n%s", out)
+	}
+	if err := os.WriteFile(gen, generated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runIn(repo string, argv ...string) (string, error) {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	raw, err := cmd.CombinedOutput()
+	return string(raw), err
+}
+
+// recordClientPlan binds every projected scenario of a client: each stimulus calls its operation
+// with the proof value and expects it back, in that transport's own shape.
+func recordClientPlan(t *testing.T, repo, contract string) {
+	t.Helper()
+	statePath := filepath.Join(repo, ".aiarch/state/project.json")
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var anyProject projectstate.ProjectID
+	proj, _, err := projectstate.DecodeProjectJSON(raw, anyProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenarios, err := projectstate.ComponentScenarios(&proj, contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := `"proof-value"`
+	if contract == "mcpServer" {
+		result = `{"result":"proof-value"}`
+	}
+	var bindings []map[string]any
+	for _, s := range scenarios {
+		var steps []map[string]any
+		for _, st := range s.Stimuli {
+			if st.Input.Op == "" {
+				t.Fatalf("%s step %d resolved no operation", s.ID, st.Seq)
+			}
+			steps = append(steps, map[string]any{
+				"seq": st.Seq, "operation": st.Input.Op,
+				"inputs": []map[string]any{{"name": "proof", "value": "proof-value", "schemaRef": "Proof"}},
+				"expect": map[string]any{"result": result}, "unobservable": run009Unobservable(st),
+			})
+		}
+		bindings = append(bindings, map[string]any{"scenario": s.ID, "steps": steps})
+	}
+	var top map[string]any
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _ := top["phaseArtifacts"].(map[string]any)
+	plans, _ := artifacts["testPlan"].(map[string]any)
+	plans[contract] = map[string]any{"component": contract, "bindings": bindings}
+	out, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// run009Unobservable names what a stimulus expects that a client cannot see.
+func run009Unobservable(st scenario.Stimulus) []string {
+	var out []string
+	for _, o := range st.ExpectedOutputs {
+		out = append(out, o.Node)
+	}
+	for _, s := range st.ExpectedStates {
+		out = append(out, s.Node)
+	}
+	return out
 }
 
 // Every one of RUN-009's contracts records, and the spelling it wrote itself is refused, naming
@@ -185,5 +369,112 @@ func TestRun009ContractsRecord(t *testing.T) {
 	lowercase.Interface.Operations[0].Name = "publish"
 	if err := canonicalizeContract("pubSub", &lowercase); err == nil || !strings.Contains(err.Error(), "exported Go identifier") {
 		t.Errorf("RUN-009's lowercase operation must be refused at record time: %v", err)
+	}
+}
+
+// The contract comes with its Manager's: nothing exists before it, a re-record follows it, and a
+// client over a second Manager gets a facet, because one package serves one surface.
+func TestMachineClientContractFollowsItsManagers(t *testing.T) {
+	var anyProject projectstate.ProjectID
+	proj, _, err := projectstate.DecodeProjectJSON(run009State(t), anyProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := proj.ServiceContracts["webApi"]
+	if len(web.Interface.Operations) != len(run009ManagerOps) {
+		t.Errorf("webApi has %d operations, want the %d its views reach", len(web.Interface.Operations), len(run009ManagerOps))
+	}
+	if web.Layer != "Client" || web.Deps != nil || web.Infra != nil {
+		t.Errorf("a derived contract is a Client's and depends on nothing: %+v", web)
+	}
+	for _, op := range web.Interface.Operations {
+		if len(op.Params) != 1 || op.Params[0].Name != "proof" {
+			t.Errorf("%s keeps the Manager's params: %+v", op.Name, op.Params)
+		}
+	}
+	mcp := proj.ServiceContracts["mcpServer"]
+	if !strings.Contains(string(mcp.Interface.Operations[0].Result), `"result"`) || strings.Contains(string(web.Interface.Operations[0].Result), `"result"`) {
+		t.Errorf("an MCP tool's result is its structured output and a route's is bare: %s, %s", mcp.Interface.Operations[0].Result, web.Interface.Operations[0].Result)
+	}
+
+	sys, _ := proj.SystemDesign.Model.(*projectstate.System)
+	rewriteClientCalls(sys, "mcp-server", "list-keeping-manager", "addTodo(proof)")
+	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
+		t.Fatal(err)
+	}
+	if got := proj.ServiceContracts["mcpServer"].Interface.Operations; len(got) != 1 || got[0].Name != "ListKeepingAddTodo" {
+		t.Errorf("a re-record follows the design, got %+v", got)
+	}
+
+	second := proj.ServiceContracts["listKeepingManager"]
+	second.Interface.Name, second.GoPackage = "AuditManager", "internal/manager/audit"
+	proj.ServiceContracts["auditManager"] = second
+	sys.DynamicViews[0].Steps[0].Calls = append(sys.DynamicViews[0].Steps[0].Calls,
+		projectstate.TraceCall{From: "agent", To: "mcp-server", Label: "audits"},
+		projectstate.TraceCall{From: "mcp-server", To: "audit-manager", Label: "reviewList(proof)"})
+	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
+		t.Fatal(err)
+	}
+	facet, ok := proj.ServiceContracts["mcpServerListKeeping"]
+	audit := proj.ServiceContracts["mcpServer"]
+	if !ok || facet.Component != "mcpServer" || facet.GoPackage != "internal/client/mcpserver/listkeeping" {
+		t.Errorf("the second Manager's facet: %+v", facet)
+	}
+	if audit.GoPackage != "internal/client/mcpserver/audit" || audit.Interface.Operations[0].Name != "AuditReviewList" {
+		t.Errorf("the first Manager's: %+v", audit)
+	}
+}
+
+func rewriteClientCalls(sys *projectstate.System, from, to, label string) {
+	for i := range sys.DynamicViews {
+		for j := range sys.DynamicViews[i].Steps {
+			for k := range sys.DynamicViews[i].Steps[j].Calls {
+				if call := &sys.DynamicViews[i].Steps[j].Calls[k]; call.From == from && call.To == to {
+					call.Label = label
+				}
+			}
+		}
+	}
+}
+
+// A project holding only its Managers' contracts gets its machine clients' from them.
+func TestRecordingAManagerDerivesItsClients(t *testing.T) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(run009State(t), &top); err != nil {
+		t.Fatal(err)
+	}
+	var contracts map[string]json.RawMessage
+	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
+		t.Fatal(err)
+	}
+	delete(contracts, "webApi")
+	delete(contracts, "mcpServer")
+	delete(contracts, "webApp")
+	delete(contracts, "mcpAppsSurface")
+	var anyProject projectstate.ProjectID
+	raw, err := json.Marshal(contracts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	top["serviceContracts"] = raw
+	state, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj, _, err := projectstate.DecodeProjectJSON(state, anyProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := proj.ServiceContracts["webApi"]; ok {
+		t.Fatal("the fixture must start with no client contract")
+	}
+	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := proj.ServiceContracts["webApi"]; !ok {
+		t.Error("the REST client's contract must be derived")
+	}
+	if _, ok := proj.ServiceContracts["mcpServer"]; !ok {
+		t.Error("the MCP client's contract must be derived")
 	}
 }

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -490,6 +492,9 @@ func assertContractRecorded(t *testing.T, c projectstate.Component, res *mcp.Cal
 		return
 	}
 	key := lowerCamelOfID(c.ID)
+	if c.Kind == projectstate.CompManager && !slices.ContainsFunc(slices.Collect(maps.Values(contracts)), func(sc projectstate.ServiceContract) bool { return sc.Layer == "Client" }) {
+		t.Errorf("recording Manager %q derived no machine client's contract: %v", c.ID, keysOfContracts(contracts))
+	}
 	if contracts[key].Component != key {
 		t.Errorf("component %q: contract not filed at .serviceContracts[%q]: %v", c.ID, key, keysOfContracts(contracts))
 	}

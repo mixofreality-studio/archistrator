@@ -74,6 +74,7 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -3922,7 +3923,11 @@ func freshPlannedProject(t *testing.T, path string) (projectstate.Project, proje
 func assertActivityResolvesItsContract(t *testing.T, p *projectstate.Project, a projectstate.ActivityItem) int {
 	t.Helper()
 	if a.MachineClient {
-		assertMachineClientHasNoScenarios(t, p, a)
+		// Its contract is derived from a Manager's, which this corpus has none of: the spec refuses
+		// its integration rather than falling back to "any path" with nothing to prove.
+		if _, err := projectstate.TaskSpecFor(p, a.Name, "integration"); err == nil || !strings.Contains(err.Error(), "no contract") {
+			t.Errorf("activity %s integration with no contract: %v", a.Name, err)
+		}
 		return 0
 	}
 	key, ok := projectstate.ContractKeyOf(p, a.ComponentID)
@@ -3949,27 +3954,22 @@ func assertActivityResolvesItsContract(t *testing.T, p *projectstate.Project, a 
 	return 0
 }
 
-// assertMachineClientHasNoScenarios holds a machine client to its one task: its gate is read from
-// the design, with no contract recorded, and carries no scenario check nothing could give a verdict.
-func assertMachineClientHasNoScenarios(t *testing.T, p *projectstate.Project, a projectstate.ActivityItem) {
-	t.Helper()
-	spec, err := projectstate.TaskSpecFor(p, a.Name, "integration")
-	if err != nil {
-		t.Errorf("activity %s integration: %v", a.Name, err)
-		return
+// A machine client binds a plan, so its testing review judges a scenario run through it like any
+// component's, and nothing is proved without one.
+func TestMachineClientLifecycleBindsAPlan(t *testing.T) {
+	lc, ok := methodassets.LifecycleFor("machineClient")
+	if !ok {
+		t.Fatal("no machineClient lifecycle")
 	}
-	if slices.Contains(spec.EditScope.Extra, "**") || len(spec.EditScope.Components) == 0 {
-		t.Errorf("activity %s fell back to the underivable posture: %+v", a.Name, spec.EditScope)
+	var ids []string
+	for _, task := range lc.Tasks {
+		ids = append(ids, task.ID)
 	}
-	wired := false
-	for _, c := range spec.Checks {
-		if c.Kind == projectstate.CheckKindScenario {
-			t.Errorf("activity %s carries scenario check %s", a.Name, c.ID)
-		}
-		wired = wired || c.ID == "command:client-wire"
+	if !slices.Equal(ids, []string{"stp", "stpReview", "integration", "testing"}) {
+		t.Errorf("tasks = %v", ids)
 	}
-	if !wired {
-		t.Errorf("activity %s does not run its generated proof", a.Name)
+	if i := slices.IndexFunc(lc.Tasks, func(task methodassets.LifecycleTask) bool { return task.ArtifactKind == "STP" }); i < 0 {
+		t.Error("a machine client binds a test plan")
 	}
 }
 

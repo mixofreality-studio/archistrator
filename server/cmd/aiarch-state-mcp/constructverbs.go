@@ -163,17 +163,20 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 			p.ServiceContracts = make(map[string]projectstate.ServiceContract)
 		}
 		p.ServiceContracts[key] = sc
+		if strings.EqualFold(sc.Layer, "manager") || strings.EqualFold(sc.Interface.Layer, "manager") {
+			return projectstate.RecordMachineClientContracts(p)
+		}
 		return nil
 	})
 }
 
 // refuseClientContract: nobody authors a Client's contract. A browser surface's is derived from
-// the design's labels when its UI design is recorded, and a machine client has none.
+// the design's labels when its UI design is recorded, and a machine client's from its Manager's.
 func refuseClientContract(p projectstate.Project, componentID string, sc projectstate.ServiceContract) error {
 	if !strings.EqualFold(sc.Layer, "client") && !strings.EqualFold(sc.Interface.Layer, "client") && !projectstate.IsClientComponent(&p, componentID) {
 		return nil
 	}
-	return fmt.Errorf("recordServiceContract: a Client authors no contract: a browser surface's is derived from the actor calls into it when its UI design is recorded, and a machine client has none, so do not record one")
+	return fmt.Errorf("recordServiceContract: a Client authors no contract: a browser surface's is derived from the actor calls into it when its UI design is recorded, and a machine client's from the Manager behind it, so do not record one")
 }
 
 // canonicalizeContract lowercases the contract's interface layer and holds it to what the

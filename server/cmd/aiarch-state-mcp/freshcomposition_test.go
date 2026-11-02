@@ -278,8 +278,8 @@ func useCaseOp(id string) string {
 	return b.String()
 }
 
-// withBrowserContracts records each browser surface's derived contract, as recording its UI design
-// does, so the fixture's plan reaches an integration with scenarios.
+// withBrowserContracts records every Client's derived contract, as recording a surface's UI design
+// and a Manager's contract do, so the fixture's plan reaches an integration with scenarios.
 func withBrowserContracts(t *testing.T, state []byte) []byte {
 	t.Helper()
 	var anyProject projectstate.ProjectID
@@ -306,12 +306,18 @@ func withBrowserContracts(t *testing.T, state []byte) []byte {
 		if err := projectstate.RecordBrowserContract(&proj, c.ID); err != nil {
 			t.Fatal(err)
 		}
-		key, _ := projectstate.ContractKeyFor(c)
-		raw, err := json.Marshal(proj.ServiceContracts[key])
-		if err != nil {
-			t.Fatal(err)
+	}
+	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
+		t.Fatal(err)
+	}
+	for key, sc := range proj.ServiceContracts {
+		if strings.EqualFold(sc.Layer, "client") {
+			raw, err := json.Marshal(sc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contracts[key] = raw
 		}
-		contracts[key] = raw
 	}
 	raw, err := json.Marshal(contracts)
 	if err != nil {
@@ -391,7 +397,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	for _, want := range []string{
 		"cmd/server/main.gen.go", "cmd/server/config.gen.go", "cmd/server/hooks.go",
 		"internal/client/web/server.gen.go", "internal/client/web/list/list_handlers.gen.go",
-		"internal/client/machineapi/list/list_tools.gen.go", "internal/client/machineapi/list/client_scenarios.gen_test.go", "api/openapi.yaml",
+		"internal/client/machineapi/list/list_tools.gen.go", "api/openapi.yaml",
 	} {
 		if _, err := os.Stat(filepath.Join(repo, want)); err != nil {
 			t.Errorf("the job did not write %s: %v", want, err)
@@ -436,8 +442,8 @@ func TestFreshResourceIntegrationGeneratesNoServer(t *testing.T) {
 // frontend lifecycle. Classification reads the design, not the activity's name.
 func TestFreshClientsTakeTheirDesignedLifecycle(t *testing.T) {
 	repo := bornRepo(t, composedState(t))
-	if got := activitySpec(t, repo, freshMachineActivity, "integration").Identity.Command; got != "machine-client-integration" {
-		t.Errorf("machine-api takes %q", got)
+	if got := activitySpec(t, repo, freshMachineActivity, "stp").Identity.Command; got != "service-test-plan" {
+		t.Errorf("machine-api's plan takes %q", got)
 	}
 	spec := activitySpec(t, repo, freshSurfaceActivity, "construction")
 	if spec.Identity.Command != "frontend-construction" {
@@ -555,61 +561,6 @@ func TestFreshBrowserSurfacePassesItsGate(t *testing.T) {
 	if strings.Contains(inRepo(t, repo, "git", "diff", "--cached", "--name-only"), "package.json") {
 		t.Error("a second surface must keep the project's own files")
 	}
-}
-
-// A machine client's code is all generated: its one task commits it, and its gate holds it to the
-// design with an exact check set. It carries no scenario checks, because it has no plan for them
-// to get a verdict from; its generated proof runs instead, over this project's own tools.
-func TestFreshMachineClientLandsOnGeneratedCode(t *testing.T) {
-	repo := composedRepo(t)
-	runGenerators(t, repo, activitySpec(t, repo, freshManagerActivity, "integration"))
-	inRepo(t, repo, "go", "mod", "tidy")
-	inRepo(t, repo, "git", "add", "-A")
-	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
-
-	spec := activitySpec(t, repo, freshMachineActivity, "integration")
-	runGenerators(t, repo, spec)
-	inRepo(t, repo, "go", "mod", "tidy")
-	requireInScope(t, repo, spec)
-	inRepo(t, repo, "git", "commit", "-q", "--allow-empty", "-m", "integrate the machine client")
-	requireMachineClientGate(t, repo, spec)
-
-	// The proof really runs the tools: a broken route to the Manager goes red.
-	wire := filepath.Join(repo, "internal/client/machineapi/list/list_tools.gen.go")
-	raw, err := os.ReadFile(wire)
-	if err != nil {
-		t.Fatal(err)
-	}
-	broken := strings.Replace(string(raw), `"listTakeStock"`, `"listTakeStockWrong"`, 1)
-	if broken == string(raw) {
-		t.Fatalf("the tool table has no listTakeStock tool:\n%s", raw)
-	}
-	if err := os.WriteFile(wire, []byte(broken), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	statuses, _ := gate(t, repo, commandChecks(t, spec, "command:client-wire"))
-	if statuses["command:client-wire"] == checkPass {
-		t.Error("the generated proof stayed green over a tool with the wrong name")
-	}
-}
-
-// requireMachineClientGate asserts a machine client's exact check set, and that all of it passes.
-func requireMachineClientGate(t *testing.T, repo string, spec projectstate.TaskSpec) {
-	t.Helper()
-	ids := make([]string, 0, len(spec.Checks))
-	for _, c := range spec.Checks {
-		if c.Kind == projectstate.CheckKindScenario {
-			t.Errorf("a machine client has no scenario checks, and has %s", c.ID)
-		}
-		ids = append(ids, c.ID)
-	}
-	slices.Sort(ids)
-	want := []string{"command:arch", "command:build", "command:build-server", "command:client-wire", "command:gen-clients-check", "command:gen-compose-check", "command:gen-config-check", "command:gofmt", "command:lint", "command:tidy", "command:vet"}
-	if !slices.Equal(ids, want) {
-		t.Errorf("the machine client's checks are\n%v, want\n%v", ids, want)
-	}
-	statuses, logs := gate(t, repo, commandChecks(t, spec))
-	requirePassed(t, statuses, logs)
 }
 
 // A browser surface's contract comes from the design: its operations are the names the actor

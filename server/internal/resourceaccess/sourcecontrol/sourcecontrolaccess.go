@@ -114,6 +114,7 @@ var scaffoldRootPaths = map[string]bool{
 	methodassets.ArchGatePath: true,
 	".golangci.yml":           true,
 	".gitattributes":          true,
+	".gitignore":              true,
 	scenarioMakefilePath:      true,
 	methodassets.DepsPinPath:  true,
 	"appgen.json":             true,
@@ -124,6 +125,7 @@ var syncedScaffoldRoots = map[string]bool{
 	methodassets.ArchGatePath: true,
 	".golangci.yml":           true,
 	".gitattributes":          true,
+	".gitignore":              true,
 	scenarioMakefilePath:      true,
 }
 

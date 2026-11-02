@@ -4854,7 +4854,8 @@ type ActivityItem struct {
 	// carried by the derivation). It is what puts the activity on the frontend lifecycle.
 	UISurface bool `json:"uiSurface,omitempty"`
 	// MachineClient marks the activity of a machine client (the Client's uiSurface false, carried
-	// on the plan the same way): its code is generated, so it walks the machineClient lifecycle.
+	// on the plan the same way): its code and contract are generated, so it walks the machineClient
+	// lifecycle, which binds a test plan and proves it through this client.
 	MachineClient bool `json:"machineClient,omitempty"`
 }
 
@@ -11623,7 +11624,7 @@ func scenarioViewOf(v DynamicView) scenario.View {
 // against. A contract whose `component` names a different component is a facet of it
 // (FacetOf) — methodcheck's contractOf, spelled over the server's types.
 func scenarioContractOf(key string, sc ServiceContract) scenario.Contract {
-	ct := scenario.Contract{Component: key}
+	ct := scenario.Contract{Component: key, Interface: sc.Interface.Name, Client: strings.EqualFold(sc.Layer, "client") || strings.EqualFold(sc.Interface.Layer, "client")}
 	if sc.Component != "" && scenario.Normalize(sc.Component) != scenario.Normalize(key) {
 		ct.FacetOf = sc.Component
 	}
@@ -12368,13 +12369,13 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 	case ms.Phase == "requirements" || ms.Phase == "detailed_design" || ms.Kind == methodassets.LifecycleTaskReview:
 		return stateOnly, []SpecCheck{projectRuleCheck()}, nil
 	}
-	if ms.Command == machineClientCommand {
-		return machineClientScopeAndChecks(p, item.ComponentID)
-	}
 	contracts := componentContracts(p, item.ComponentID)
 	switch ms.Command {
 	case "service-construction", "service-integration":
 		pkgs := goPackagesOf(p, contracts)
+		if len(pkgs) == 0 && item.MachineClient {
+			return SpecEditScope{}, nil, fmt.Errorf("projectstate.TaskSpecFor: machine client %q has no contract: it is derived when the contract of the Manager its views call is recorded, so that Manager must be designed first and the views must draw the call", item.ComponentID)
+		}
 		if len(pkgs) == 0 {
 			break // no Go package to scope or check: the underivable posture below
 		}
@@ -12545,6 +12546,9 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 		if err != nil {
 			return SpecEditScope{}, nil, err
 		}
+		if len(scen) == 0 && IsClientComponent(p, componentID) {
+			return SpecEditScope{}, nil, fmt.Errorf("projectstate.TaskSpecFor: machine client %q has no scenario to integrate against: check the System's dynamic views have an actor call it and it call its Manager in that step", componentID)
+		}
 		checks = append(checks, scen...)
 	}
 	slices.Sort(scope.Extra)
@@ -12570,36 +12574,6 @@ func contractLayer(p *Project, contract string) string {
 	return sc.Interface.Layer
 }
 
-// machineClientCommand is the machineClient lifecycle's one dispatch.
-const machineClientCommand = "machine-client-integration"
-
-// machineClientPackage is the Go tree a machine client's code lands in, read from the design
-// alone: a machine client has no contract to read it from. A REST client is the shared
-// generated transport; an MCP client has its own tool tables.
-func machineClientPackage(p *Project, componentID string) (string, error) {
-	c := lookupSystemComponent(p, componentID)
-	if c == nil || c.Kind != CompClient || c.UiSurface == nil || *c.UiSurface {
-		return "", fmt.Errorf("projectstate.TaskSpecFor: %q is not a machine client of the committed System", componentID)
-	}
-	protocol := ""
-	if c.MachineProtocol != nil {
-		protocol = *c.MachineProtocol
-	}
-	switch protocol {
-	case machineProtocolREST:
-		return "internal/client/web", nil
-	case machineProtocolMCP:
-		return clientgen.ClientPackage(c.Name), nil
-	}
-	return "", fmt.Errorf("projectstate.TaskSpecFor: machine client %q has machineProtocol %q, not rest or mcp (SYS-CLIENT-PROTOCOL)", componentID, protocol)
-}
-
-// The transports a machine client can be (Component.MachineProtocol).
-const (
-	machineProtocolREST = "rest"
-	machineProtocolMCP  = "mcp"
-)
-
 // lookupSystemComponent finds a component of the committed System by id.
 func lookupSystemComponent(p *Project, id string) *Component {
 	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
@@ -12616,42 +12590,6 @@ func lookupSystemComponent(p *Project, id string) *Component {
 	}
 	return nil
 }
-
-// machineClientScopeAndChecks is a machine client's gate. Its code is all generated, so nothing
-// here depends on a contract: the checks are what any generated Go package owes, the composition
-// root it changes, and its generated proof, which is what stands in for scenario checks. It
-// carries none of those: a machine client has no plan for them to ever get a verdict from.
-func machineClientScopeAndChecks(p *Project, componentID string) (SpecEditScope, []SpecCheck, error) {
-	pkg, err := machineClientPackage(p, componentID)
-	if err != nil {
-		return SpecEditScope{}, nil, err
-	}
-	dir := p.ModuleDir
-	tree := "./" + pkg + "/..."
-	scope := SpecEditScope{
-		Components: []SpecScopeComponent{{ID: componentID, Paths: packageGlobs(p, []string{pkg})}},
-		Extra:      append([]string{inModule(p, "go.mod"), inModule(p, "go.sum"), inModule(p, "cmd/server/hooks.go")}, compositionPaths(p)...),
-	}
-	wire := commandCheck(machineClientWireCheck, "The client's generated proof passes: every route or tool reaches its Manager operation", []string{"go", "test", "-count=1", "-v", tree}, dir, commandCheckTimeoutSec)
-	wire.Source.RequireTests = true
-	composition := slices.DeleteFunc(compositionChecks(p, dir), func(c SpecCheck) bool { return c.ID == CheckKindCommand+":"+allClientsWireCheck })
-	checks := append([]SpecCheck{
-		commandCheck("gofmt", "gofmt", []string{"sh", "-c", `test -z "$(gofmt -l ` + pkg + `)"`}, dir, commandCheckTimeoutSec),
-		commandCheck("build", "go build", []string{"go", "build", tree}, dir, commandCheckTimeoutSec),
-		commandCheck("vet", "go vet", []string{"go", "vet", tree}, dir, commandCheckTimeoutSec),
-		commandCheck("lint", "golangci-lint", []string{"golangci-lint", "run", tree}, dir, lintCheckTimeoutSec),
-		archCheck(dir),
-		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
-		wire,
-	}, composition...)
-	slices.Sort(scope.Extra)
-	scope.Extra = slices.Compact(scope.Extra)
-	sortChecks(checks)
-	return scope, checks, nil
-}
-
-// machineClientWireCheck names the check that runs a machine client's generated proof.
-const machineClientWireCheck = "client-wire"
 
 // composesServer reports whether integrating these contracts builds the composition root: a
 // Manager's or a Client's does, since either changes what the server wires or serves. A
@@ -12693,13 +12631,8 @@ func compositionChecks(p *Project, dir string) []SpecCheck {
 		}
 		out = append(out, commandCheck("gen-"+sub+"-check", "appgen "+sub+" output is current", appgenArgv(p, sub, "-check"), dir, commandCheckTimeoutSec))
 	}
-	// Every machine client's generated proof runs wherever it is regenerated, so one the design
-	// marks constructionProfile generated, which no activity builds, still has a gate that runs it.
-	return append(out, commandCheck(allClientsWireCheck, "The machine clients' generated proofs pass", []string{"go", "test", "-count=1", "./internal/client/..."}, dir, commandCheckTimeoutSec))
+	return out
 }
-
-// allClientsWireCheck names the check that runs every machine client's generated proof.
-const allClientsWireCheck = "clients-wire"
 
 // webProjectDir is the one web project every browser surface of an app shares, at the repo
 // root whatever the module dir is.
@@ -12731,8 +12664,6 @@ func generatorsOf(p *Project, command, componentID string) []SpecGenerator {
 		if composesServer(p, componentContracts(p, componentID)) {
 			out = append(out, compositionGeneratorsSpec(p)...)
 		}
-	case machineClientCommand:
-		out = append(out, compositionGeneratorsSpec(p)...)
 	}
 	return out
 }
@@ -13046,5 +12977,136 @@ func browserContract(key, name string, ops []string) (ServiceContract, error) {
 	if err := json.Unmarshal(raw, &sc); err != nil {
 		return ServiceContract{}, fmt.Errorf("the derived contract does not fit its schema: %w", err)
 	}
+	return sc, nil
+}
+
+// RecordMachineClientContracts writes every built machine client's contract from the design and the
+// Manager contracts recorded so far, in the mutation that records a Manager's. Nobody authors one: its
+// operations are the Manager operations the views reach through that client, spelled as its generated
+// routes or tools, over the Manager's own params, results and types. One Manager's goes under the
+// client's contract key and each further one under a facet of it, because a package serves one
+// surface. A family already holding exactly those names is left alone.
+func RecordMachineClientContracts(p *Project) error {
+	sys, ok := p.SystemDesign.Model.(*System)
+	if !ok || sys == nil {
+		return nil
+	}
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return err
+	}
+	for i := range sys.Components {
+		c := &sys.Components[i]
+		if c.Kind != CompClient || c.UiSurface == nil || *c.UiSurface || c.MachineProtocol == nil {
+			continue
+		}
+		if err := recordMachineClient(p, in, c); err != nil {
+			return fmt.Errorf("deriving the contract of machine client %q: %w", c.ID, err)
+		}
+	}
+	return nil
+}
+
+func recordMachineClient(p *Project, in scenario.Input, c *Component) error {
+	reached := machineClientManagerOps(in, c.ID)
+	if len(reached) == 0 {
+		return nil
+	}
+	key, _ := ContractKeyFor(*c)
+	var want []string
+	for _, ops := range reached {
+		for _, op := range ops {
+			want = append(want, op.Name())
+		}
+	}
+	slices.Sort(want)
+	if have, _ := scenario.FamilyOps(in, c.ID); slices.Equal(have, want) {
+		return nil
+	}
+	maps.DeleteFunc(p.ServiceContracts, func(name string, other ServiceContract) bool { return other.Component == key && name != key })
+	for n, manager := range slices.Sorted(maps.Keys(reached)) {
+		sc, err := machineClientContract(p, c, key, manager, reached[manager])
+		if err != nil {
+			return err
+		}
+		filed := key
+		if n > 0 {
+			filed = key + strings.TrimSuffix(p.ServiceContracts[manager].Interface.Name, "Manager")
+		}
+		p.ServiceContracts[filed] = sc
+	}
+	return nil
+}
+
+// machineClientManagerOps is what the views reach through a client, by Manager contract key: the
+// client's calls into a Manager in each step someone calls the client in.
+func machineClientManagerOps(in scenario.Input, clientID string) map[string][]scenario.ManagerOp {
+	out := map[string][]scenario.ManagerOp{}
+	seen := map[scenario.ManagerOp]bool{}
+	for _, v := range in.Views {
+		for _, st := range v.Steps {
+			if !scenario.ReachesClient(clientID, st.Calls) {
+				continue
+			}
+			for _, op := range scenario.ClientManagerOps(in, clientID, st.Calls) {
+				if !seen[op] {
+					seen[op] = true
+					out[op.Contract] = append(out[op.Contract], op)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// The transports a machine client can be (Component.MachineProtocol).
+const (
+	machineProtocolREST = "rest"
+	machineProtocolMCP  = "mcp"
+)
+
+// mcpOutputSchema is what an MCP tool returns for a Manager's result: its structured output.
+func mcpOutputSchema(result json.RawMessage) json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"result":` + string(result) + `},"required":["result"],"additionalProperties":false}`)
+}
+
+// machineClientContract is the client's view of one Manager's contract, kept to the reached ops and
+// the types they use, filed where its generated code lands.
+func machineClientContract(p *Project, c *Component, key, manager string, ops []scenario.ManagerOp) (ServiceContract, error) {
+	source := p.ServiceContracts[manager]
+	if !strings.EqualFold(contractLayer(p, manager), "manager") {
+		return ServiceContract{}, fmt.Errorf("it calls %q, which is not a Manager", manager)
+	}
+	raw, err := json.Marshal(source)
+	if err != nil {
+		return ServiceContract{}, err
+	}
+	names := make([]string, 0, len(ops))
+	for _, op := range ops {
+		names = append(names, op.Op)
+	}
+	exposed, err := clientgen.ExposedContract(raw, names)
+	if err != nil {
+		return ServiceContract{}, err
+	}
+	var sc ServiceContract
+	if err := json.Unmarshal(exposed, &sc); err != nil {
+		return ServiceContract{}, err
+	}
+	for i := range sc.Interface.Operations {
+		op := &sc.Interface.Operations[i]
+		op.Name = scenario.ClientOpName(source.Interface.Name, op.Name)
+		if *c.MachineProtocol == machineProtocolMCP && len(op.Result) > 0 {
+			op.Result = mcpOutputSchema(op.Result)
+		}
+	}
+	leaf := path.Base(source.GoPackage)
+	sc.GoPackage = path.Join(clientgen.ClientPackage(c.Name), leaf)
+	if *c.MachineProtocol == machineProtocolREST {
+		sc.GoPackage = path.Join("internal/client/web", leaf)
+	}
+	sc.Component, sc.Layer, sc.Title = key, "Client", key+" contract, derived from "+manager
+	sc.Interface.Name, sc.Interface.Layer = c.Name+strings.TrimSuffix(source.Interface.Name, "Manager"), "client"
+	sc.Deps, sc.Infra = nil, nil
 	return sc, nil
 }
