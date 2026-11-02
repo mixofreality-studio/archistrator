@@ -982,13 +982,12 @@ func (wf *csWorkflows) pumpLoop(
 		if err != nil {
 			return PumpResult{}, err
 		}
-		switch verdict {
-		case pumpDrainQuiescent:
+		// A pump that just halted parks below, exactly as a halt on a failed child does.
+		if verdict == pumpDrainQuiescent {
 			return pumpDispatchedResult(frontier), nil
-		case pumpDrainMoved:
+		}
+		if verdict == pumpDrainMoved {
 			continue
-		case pumpDrainHalted, pumpNotIdle:
-			// A halted pump parks below, exactly as a halt on a failed child does.
 		}
 
 		if res, can, err := wf.pumpContinueAsNew(ctx, in, st, chans, frontier); can || err != nil {
