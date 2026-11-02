@@ -4821,6 +4821,18 @@ func flipBindingHook(plan map[string]any, scenario string) {
 	}
 }
 
+// markBinding changes one binding of a plan by a mark on its first input.
+func markBinding(plan map[string]any, scenario, mark string) {
+	for _, b := range plan["bindings"].([]any) {
+		binding := b.(map[string]any)
+		if binding["scenario"] != scenario {
+			continue
+		}
+		input := binding["steps"].([]any)[0].(map[string]any)["inputs"].([]any)[0].(map[string]any)
+		input["schemaRef"] = mark
+	}
+}
+
 // jobCount counts the driven activity's runs of one command.
 func jobCount(s *stack, command string) int {
 	n := 0
@@ -5011,10 +5023,15 @@ func TestPlanDefectTripsAreBounded(t *testing.T) {
 		scenario.Store(sc[0])
 		return planStep{failed: sc[:1], report: sc[:1]}
 	}, vibes, func(run int, plan map[string]any) {
-		if name, ok := scenario.Load().(string); ok && run > 1 {
-			if run%2 == 0 {
-				flipBindingHook(plan, name)
-			}
+		name, ok := scenario.Load().(string)
+		if !ok || run < 2 {
+			return
+		}
+		// Each redraft binds the design's plan afresh, so each differs from it its own way: a
+		// redraft back to an earlier binding is that binding upheld.
+		flipBindingHook(plan, name)
+		if run > 2 {
+			markBinding(plan, name, fmt.Sprintf("redraft-%d", run))
 		}
 	})
 	eventually(t, 3*walkWindow, "the third report escalating", func() (bool, string) {

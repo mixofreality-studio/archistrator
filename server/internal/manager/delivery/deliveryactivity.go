@@ -5876,6 +5876,11 @@ func (wf *csWorkflows) resolveWorkAttempt(
 	if obs.Episode != nil {
 		rec.EvidenceKind, rec.EvidenceRef = projectstate.EvidenceEpisode, obs.Episode.EpisodeID
 	}
+	// The sentence the variance loop acts on, durably: a retried attempt leaves the ledger by no
+	// other path, so a refused plan-defect report would otherwise say nothing about why.
+	if rec.Outcome == projectstate.OutcomeFailed {
+		rec.Detail = dispatchJobFailedDetail(jobLabelConstruction, string(task), obs)
+	}
 	return wf.recordAttempt(ctx, in, state, headVersion, cred, rec)
 }
 
