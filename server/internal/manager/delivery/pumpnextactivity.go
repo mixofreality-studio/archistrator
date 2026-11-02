@@ -938,7 +938,6 @@ func (st *pumpState) replayCarried(ctx workflow.Context, in pumpInput) {
 func (wf *csWorkflows) pumpLoop(
 	ctx workflow.Context, in pumpInput, st *pumpState, chans pumpChannels, dispatch *pumpDispatch,
 ) (PumpResult, error) {
-	logger := workflow.GetLogger(ctx)
 	var frontier []ActivityID
 	// decide marks the next frontier pass as THIS RUN'S DECISION POINT (G-P8): the first pass,
 	// and the first pass after a resume — which is the Begin-equivalent moment of a halted run.
