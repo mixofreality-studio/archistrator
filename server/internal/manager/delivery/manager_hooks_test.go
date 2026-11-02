@@ -1813,6 +1813,20 @@ func settleCommitment(t *testing.T, h *scenariohost.Host, subject delivery.Deliv
 		time.Sleep(250 * time.Millisecond)
 	}
 	if sealed {
+		id := planProject
+		v, qerr := subject.QueryProjectView(callContext(t, h, ""), delivery.ProjectViewQuery{Kind: delivery.ProjectViewPump, ProjectID: &id})
+		// A re-plan's walk is dispatched on its own, with no pump chain behind it, so nothing fans the
+		// frontier out when it exits. The next sweep starts the chain, as it does in a deployment.
+		if qerr == nil && v.Pump != nil && !v.Pump.Open {
+			ctx, cancel := context.WithTimeout(h.Context(t), walkWindow)
+			defer cancel()
+			if werr := h.TemporalClient().GetWorkflow(ctx, planProject+":activity:projectDesign", "").Get(ctx, nil); werr != nil {
+				t.Fatalf("hooks: the re-plan walk did not end cleanly: %v", werr)
+			}
+			if pumped := tickSweep(t, h, 1); !slices.Contains(pumped, planProject) {
+				t.Fatalf("hooks: the sweep left the sealed project unpumped (pumped %v)", pumped)
+			}
+		}
 		awaitFrontierBorn(t, h, subject, s)
 		return out, err
 	}
