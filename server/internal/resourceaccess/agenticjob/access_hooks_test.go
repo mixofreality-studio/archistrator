@@ -2395,6 +2395,13 @@ func TestLocalMergeRefusesARealStateConflict(t *testing.T) {
 	item := func(id, v string) string {
 		return "\n    {\n      \"id\": \"" + id + "\",\n      \"v\": " + v + "\n    }\n  "
 	}
+	keyed := func(version string, keys ...string) []byte {
+		members := make([]string, len(keys))
+		for i, k := range keys {
+			members[i] = "\"" + k + "\": 1"
+		}
+		return fmt.Appendf(nil, "{\n  \"version\": %s,\n  \"m\": {\n    %s\n  },\n  \"updatedAt\": \"t%s\"\n}\n", version, strings.Join(members, ",\n    "), version)
+	}
 	for _, tc := range []struct {
 		name             string
 		base, ours, tip  []byte
@@ -2407,6 +2414,8 @@ func TestLocalMergeRefusesARealStateConflict(t *testing.T) {
 		{name: "one id added twice with no leaf in common", base: stage("1", `"a"`, ""), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, strings.ReplaceAll(item("x", "1"), `"v"`, `"w"`)), want: "items[x]"},
 		{name: "an inherited element's leaf changed differently", base: stage("1", `"a"`, item("x", "0")), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("x", "2")), want: "items[x].v"},
 		{name: "a stage not in the encoder's form", base: stage("1", `"a"`, ""), ours: []byte(`{"id":"p","version":2,"name":"b","items":[],"updatedAt":"t2"}`), tip: stage("3", `"c"`, ""), want: "form the state store writes"},
+		{name: "a map's new key takes its sorted place", base: keyed("1", "a", "c"), ours: keyed("2", "a", "c", "d"), tip: keyed("3", "a", "b", "c"), wantLanded: true, wantInLandedText: "\"a\": 1,\n    \"b\": 1,\n    \"c\": 1,\n    \"d\": 1"},
+		{name: "a struct's new field follows its predecessor", base: keyed("1", "z", "y"), ours: keyed("2", "z", "y"), tip: keyed("3", "z", "q", "y"), wantLanded: true, wantInLandedText: "\"z\": 1,\n    \"q\": 1,\n    \"y\": 1"},
 		{name: "both add different ids", base: stage("1", `"a"`, ""), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("y", "2")), wantLanded: true, wantInLandedText: `"id": "y"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
