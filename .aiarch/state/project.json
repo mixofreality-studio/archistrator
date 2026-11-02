@@ -22924,7 +22924,7 @@
               "items": {
                 "$ref": "#/$defs/ActivityID"
               },
-              "description": "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them."
+              "description": "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns each of them, except a failed merge tail, which an operator re-opens after the resume."
             }
           },
           "required": [
@@ -29720,7 +29720,7 @@
               "items": {
                 "$ref": "#/$defs/ActivityID"
               },
-              "description": "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them."
+              "description": "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns each of them, except a failed merge tail, which an operator re-opens after the resume."
             }
           },
           "required": [

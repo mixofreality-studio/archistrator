@@ -1004,7 +1004,7 @@ export interface components {
       activityId: components['schemas']['DeliveryActivityID'];
       /** @description The failure as the pump saw it: the activity execution's error, or the reason its row records. */
       cause: string;
-      /** @description Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them. */
+      /** @description Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns each of them, except a failed merge tail, which an operator re-opens after the resume. */
       failed?: components['schemas']['DeliveryActivityID'][];
       /**
        * Format: date-time

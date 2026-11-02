@@ -74,6 +74,7 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
+	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp/testinfra"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -1948,6 +1949,8 @@ var expectHalt = map[string]string{
 	"TestAnEscalationTimeoutCountsTowardTheHalt":      "the seeded timeout stays unresolved, by design",
 	"TestACarriedNoteRestartsTheNoProgressComparison": "the activity still gives up after the note, by design",
 	"TestNoProgressIsComparedPerTask":                 "the activity gives up by design",
+	"TestALiveRowHoldsTheDrainHalt":                   "the live row's end drains the network, by design",
+	"TestAGiveUpAfterAHaltJoinsIt":                    "the halt is what the test reads, by design",
 }
 
 // recordedPumpHalt answers the project pump's halt Query on its LATEST run, running or not:
@@ -4145,11 +4148,112 @@ func TestAResumeGivesAFreshAttemptBudget(t *testing.T) {
 // a long operator wait. The pump's chains read it as any other row.
 func seedOutcome(t *testing.T, h *scenariohost.Host, s *stack, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string) {
 	t.Helper()
+	seedOutcomeOn(t, h, s, drivenActivity, outcome, reason, detail)
+}
+
+func seedOutcomeOn(t *testing.T, h *scenariohost.Host, s *stack, activity string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string) {
+	t.Helper()
 	access := projectstate.NewGitLocalActivityExecutionAccess(s.repo.URL)
 	if _, err := access.RecordActivityOutcome(h.ResourceAccessContext(t, "seed-outcome"), planProject,
-		projectstate.NoActivityVersionExpectation, drivenActivity, outcome, reason, detail, projectstate.RepoCredential{}, "seed-outcome"); err != nil {
+		projectstate.NoActivityVersionExpectation, activity, outcome, reason, detail, projectstate.RepoCredential{}, fwra.IdempotencyKey("seed-outcome-"+activity)); err != nil {
 		t.Fatalf("seed the outcome: %v", err)
 	}
+}
+
+// TestALiveRowHoldsTheDrainHalt: a chain the sweep starts holds no future for a child that outlived
+// the chain before it, so only the row says something is still in flight. The project keeps reading
+// running until that row ends, and only then halts.
+func TestALiveRowHoldsTheDrainHalt(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.script(func(int, agentJob) runOutcome { return runSucceeds })
+	keepSiblingInPlan(t)
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	seedLiveSibling(t, h, s)
+	seedOutcome(t, h, s, projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted, "out of attempts")
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-liverow-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitPumpIdle(t, h, subject)
+	if got := runStateOf(t, h, subject); got != delivery.ProjectRunning {
+		t.Fatalf("the project reads %s with a live row, want running", got)
+	}
+	seedOutcomeOn(t, h, s, siblingActivity, projectstate.ActivityOutcomeUnknown, projectstate.NoProgress, "no change")
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-liverow-0002"); err != nil {
+		t.Fatalf("tick the pump again: %v", err)
+	}
+	halt := awaitHalt(t, h, subject)
+	if !slices.Contains(halt.Failed, siblingActivity) {
+		t.Errorf("the halt's Failed is %v, want it to list %s too", halt.Failed, siblingActivity)
+	}
+}
+
+// TestAGiveUpAfterAHaltJoinsIt: a sibling can give up after a failed child halted the pump, and
+// the halt lists every give-up it holds, without rewriting the cause the operator is reading.
+func TestAGiveUpAfterAHaltJoinsIt(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.script(func(int, agentJob) runOutcome { return runSucceeds })
+	keepSiblingInPlan(t)
+	arrangeProject(t, h, subject, s, "")
+	seedLiveSibling(t, h, s)
+	refuseStoreWrites(t, s.repo)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-joins-0001"); err != nil {
+		t.Fatalf("tick the pump into the refusing store: %v", err)
+	}
+	cause := awaitHalt(t, h, subject).Cause
+	healStoreWrites(t, s.repo)
+	seedOutcomeOn(t, h, s, siblingActivity, projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted, "out of attempts")
+	eventually(t, 2*haltReconcileWait, "the sibling's give-up joining the halt", func() (bool, string) {
+		halt := awaitHalt(t, h, subject)
+		if halt.Cause != cause {
+			t.Fatalf("the halt's cause moved from %q to %q", cause, halt.Cause)
+		}
+		return slices.Contains(halt.Failed, siblingActivity), fmt.Sprintf("failed: %v", halt.Failed)
+	})
+}
+
+// TestARequeueRedispatchesWhileASiblingHoldsTheChain: a sibling at work keeps the pump's chain
+// open, and an activity that chain already finished must still come back when an operator re-arms
+// it, within a reconcile tick and not when the sibling ends.
+func TestARequeueRedispatchesWhileASiblingHoldsTheChain(t *testing.T) {
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h, siblingActivity)
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	release := make(chan struct{})
+	var letGo sync.Once
+	open := func() { letGo.Do(func() { close(release) }) }
+	t.Cleanup(open)
+	s.venue.setRedChecks(true)
+	t.Cleanup(func() { s.venue.setRedChecks(false) })
+	s.venue.script(func(_ int, j agentJob) runOutcome {
+		if j.Activity == siblingActivity {
+			<-release
+		}
+		return runSucceeds
+	})
+	keepSiblingInPlan(t)
+	arrangeProject(t, h, subject, s, "")
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-rearm-0001"); err != nil {
+		t.Fatalf("tick the pump: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewFailed)
+	s.venue.setRedChecks(false)
+	if err := subject.OverrideActivity(callContext(t, h, ""), planProject, drivenActivity,
+		delivery.ActivityOverride{Kind: delivery.OverrideRetry, Notes: "fixed the import path"}); err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	awaitActivityState(t, h, subject, drivenActivity, delivery.ActivityViewDone)
 }
 
 // TestAnEscalationTimeoutCountsTowardTheHalt: an escalation nobody answered does not halt at once,

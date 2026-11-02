@@ -156,8 +156,8 @@ type pumpHalt struct {
 	HeadVersion projectstate.Version `json:"headVersion"`
 	// Failed is every activity the pump judged broken while halted, the halting one first. A
 	// resume hands each back to the frontier: an activity whose failure was never recorded
-	// has no row, so the frontier re-selects it, and one that was recorded is re-armed by
-	// ResumeProject first.
+	// has no row, so the frontier re-selects it, and one that gave up is re-armed by ResumeProject
+	// first. A failed merge tail's row is neither: it stays until an operator re-opens it.
 	Failed []ActivityID `json:"failed"`
 }
 

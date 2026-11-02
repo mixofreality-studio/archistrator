@@ -454,7 +454,7 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 	reflect.TypeFor[mgr.PumpHalt](): {
 		"activityId": "The activity whose execution failed (or vanished without recording a terminal) and stopped the cascade, or the first activity that gave up when the network drained.",
 		"cause":      "The failure as the pump saw it: the activity execution's error, or the reason its row records.",
-		"failed":     "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns them.",
+		"failed":     "Every activity this halt holds, the one named by activityId first: the failed activity and each activity that gave up. ResumeProject returns each of them, except a failed merge tail, which an operator re-opens after the resume.",
 		"haltedAt":   "When the pump halted.",
 	},
 	reflect.TypeFor[mgr.PumpResult](): {
