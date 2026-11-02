@@ -8,6 +8,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -252,6 +253,53 @@ func TestFreshReportPlanDefect(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertReportStamped(t, s, revision, scenarioID)
+}
+
+// "Binding stands" is a legal answer to a report, and the job fails a run that leaves the branch
+// where it was, so an unchanged re-record must still advance it, with the plan's digests unmoved:
+// they are how the upheld binding is recognised and the re-plan judged.
+func TestFreshPlanReRecordedUnchangedAdvancesTheBranch(t *testing.T) {
+	repo := bornRepo(t, run008State(t))
+	session := func() *Session {
+		return &Session{Mode: jobModeConstruct, StateRoot: repo, ActivityID: run008Activity, TaskID: "stp", ComponentID: run008Component, git: runGit}
+	}
+	plan := run008Plan(t, run008Component)
+	first := session()
+	if err := first.recordPhaseArtifact(run008Component, map[string]any{"testPlan": plan}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.publishDraft("the plan"); err != nil {
+		t.Fatal(err)
+	}
+	digests := func() map[string]string {
+		proj, _, err := session().readProject()
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := projectstate.PlanBindingDigests(&proj, []string{run008Contract})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	before, tip := digests(), inRepo(t, repo, "git", "rev-parse", "HEAD")
+
+	redraft := session()
+	if _, err := redraft.publishDraft("nothing recorded"); err == nil {
+		t.Fatal("a redraft that records nothing must be refused, which is why the prompt says to re-record")
+	}
+	if err := redraft.recordPhaseArtifact(run008Contract, map[string]any{"testPlan": run008Plan(t, run008Component)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := redraft.publishDraft("binding stands"); err != nil {
+		t.Fatal(err)
+	}
+	if got := inRepo(t, repo, "git", "rev-parse", "HEAD"); got == tip {
+		t.Error("the branch did not advance, so the job would fail the redraft")
+	}
+	if !maps.Equal(before, digests()) {
+		t.Error("re-recording an unchanged plan moved its digests, so the binding would read as changed")
+	}
 }
 
 // assertReportRefusals checks what the verb refuses whatever the run says.

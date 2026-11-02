@@ -2404,6 +2404,7 @@ func TestLocalMergeRefusesARealStateConflict(t *testing.T) {
 	}{
 		{name: "a leaf changed differently on both sides", base: stage("1", `"a"`, ""), ours: stage("2", `"b"`, ""), tip: stage("3", `"c"`, ""), want: "CONTENT"},
 		{name: "one id added twice with different content", base: stage("1", `"a"`, ""), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("x", "2")), want: "items[x]"},
+		{name: "one id added twice with no leaf in common", base: stage("1", `"a"`, ""), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, strings.ReplaceAll(item("x", "1"), `"v"`, `"w"`)), want: "items[x]"},
 		{name: "an inherited element's leaf changed differently", base: stage("1", `"a"`, item("x", "0")), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("x", "2")), want: "items[x].v"},
 		{name: "a stage not in the encoder's form", base: stage("1", `"a"`, ""), ours: []byte(`{"id":"p","version":2,"name":"b","items":[],"updatedAt":"t2"}`), tip: stage("3", `"c"`, ""), want: "form the state store writes"},
 		{name: "both add different ids", base: stage("1", `"a"`, ""), ours: stage("2", `"a"`, item("x", "1")), tip: stage("3", `"a"`, item("y", "2")), wantLanded: true, wantInLandedText: `"id": "y"`},
