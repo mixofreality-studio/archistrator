@@ -397,32 +397,7 @@ func TestMachineClientContractFollowsItsManagers(t *testing.T) {
 		t.Errorf("a re-record follows the design, got %+v", got)
 	}
 
-	// A Manager re-recorded under the same operation names, as a design review sends back, carries
-	// its new params to the client: the client's tests would call the old ones otherwise.
-	revised := proj.ServiceContracts["listKeepingManager"]
-	revised.Interface.Operations = slices.Clone(revised.Interface.Operations)
-	revised.Interface.Operations[0].Params = append(slices.Clone(revised.Interface.Operations[0].Params), revised.Interface.Operations[0].Params[0])
-	revised.Interface.Operations[0].Params[1].Name = "title"
-	proj.ServiceContracts["listKeepingManager"] = revised
-	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
-		t.Fatal(err)
-	}
-	if got := proj.ServiceContracts["mcpServer"].Interface.Operations[0].Params; len(got) != 2 || got[1].Name != "title" {
-		t.Errorf("a re-recorded Manager's params must reach its client, got %+v", got)
-	}
-
-	// A hand-written family with exactly those names stays: nothing here wrote it.
-	handWritten := proj.ServiceContracts["mcpServer"]
-	handWritten.Title = "written by hand"
-	proj.ServiceContracts["mcpServer"] = handWritten
-	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
-		t.Fatal(err)
-	}
-	if got := proj.ServiceContracts["mcpServer"].Title; got != "written by hand" {
-		t.Errorf("a hand-written family holding the same names was rewritten: %q", got)
-	}
-	handWritten.Title = "mcpServer contract, derived from listKeepingManager"
-	proj.ServiceContracts["mcpServer"] = handWritten
+	requireDerivedContractFollowsRevisions(t, &proj)
 
 	second := proj.ServiceContracts["listKeepingManager"]
 	second.Interface.Name, second.GoPackage = "AuditManager", "internal/manager/audit"
@@ -441,6 +416,38 @@ func TestMachineClientContractFollowsItsManagers(t *testing.T) {
 	if audit.GoPackage != "internal/client/mcpserver/audit" || audit.Interface.Operations[0].Name != "AuditReviewList" {
 		t.Errorf("the first Manager's: %+v", audit)
 	}
+}
+
+// requireDerivedContractFollowsRevisions: a Manager re-recorded under the same operation names, as
+// a design review sends back, carries its new params to the client, whose tests would call the old
+// ones otherwise; a hand-written family holding those names is not this derivation's to rewrite.
+func requireDerivedContractFollowsRevisions(t *testing.T, proj *projectstate.Project) {
+	t.Helper()
+	revised := proj.ServiceContracts["listKeepingManager"]
+	revised.Interface.Operations = slices.Clone(revised.Interface.Operations)
+	revised.Interface.Operations[0].Params = append(slices.Clone(revised.Interface.Operations[0].Params), revised.Interface.Operations[0].Params[0])
+	revised.Interface.Operations[0].Params[1].Name = "title"
+	proj.ServiceContracts["listKeepingManager"] = revised
+	if err := projectstate.RecordMachineClientContracts(proj); err != nil {
+		t.Fatal(err)
+	}
+	if got := proj.ServiceContracts["mcpServer"].Interface.Operations[0].Params; len(got) != 2 || got[1].Name != "title" {
+		t.Errorf("a re-recorded Manager's params must reach its client, got %+v", got)
+	}
+
+	// A hand-written family with exactly those names stays: nothing here wrote it.
+	handWritten := proj.ServiceContracts["mcpServer"]
+	handWritten.Title = "written by hand"
+	proj.ServiceContracts["mcpServer"] = handWritten
+	if err := projectstate.RecordMachineClientContracts(proj); err != nil {
+		t.Fatal(err)
+	}
+	if got := proj.ServiceContracts["mcpServer"].Title; got != "written by hand" {
+		t.Errorf("a hand-written family holding the same names was rewritten: %q", got)
+	}
+	handWritten.Title = "mcpServer contract, derived from listKeepingManager"
+	proj.ServiceContracts["mcpServer"] = handWritten
+
 }
 
 // requireDerivedMachineShape holds RUN-009's two machine contracts to what derivation promises.
