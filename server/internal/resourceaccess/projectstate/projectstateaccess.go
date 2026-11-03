@@ -12985,7 +12985,9 @@ func browserContract(key, name string, ops []string) (ServiceContract, error) {
 // operations are the Manager operations the views reach through that client, spelled as its generated
 // routes or tools, over the Manager's own params, results and types. One Manager's goes under the
 // client's contract key and each further one under a facet of it, because a package serves one
-// surface. A family already holding exactly those names is left alone.
+// surface. A derived contract is rewritten every time, so a Manager re-recorded with new params or
+// types carries them to its clients. A hand-written family already holding exactly those names is
+// left alone.
 func RecordMachineClientContracts(p *Project) error {
 	sys, ok := p.SystemDesign.Model.(*System)
 	if !ok || sys == nil {
@@ -13020,7 +13022,7 @@ func recordMachineClient(p *Project, in scenario.Input, c *Component) error {
 		}
 	}
 	slices.Sort(want)
-	if have, _ := scenario.FamilyOps(in, c.ID); slices.Equal(have, want) {
+	if have, _ := scenario.FamilyOps(in, c.ID); slices.Equal(have, want) && !machineFamilyDerived(p, key) {
 		return nil
 	}
 	maps.DeleteFunc(p.ServiceContracts, func(name string, other ServiceContract) bool { return other.Component == key && name != key })
@@ -13036,6 +13038,14 @@ func recordMachineClient(p *Project, in scenario.Input, c *Component) error {
 		p.ServiceContracts[filed] = sc
 	}
 	return nil
+}
+
+// derivedContractMark is in the title of every contract derived from a Manager's.
+const derivedContractMark = " contract, derived from "
+
+// machineFamilyDerived reports whether a client's contract family is one this derivation wrote.
+func machineFamilyDerived(p *Project, key string) bool {
+	return strings.Contains(p.ServiceContracts[key].Title, derivedContractMark)
 }
 
 // machineClientManagerOps is what the views reach through a client, by Manager contract key: the
@@ -13105,7 +13115,7 @@ func machineClientContract(p *Project, c *Component, key, manager string, ops []
 	if *c.MachineProtocol == machineProtocolREST {
 		sc.GoPackage = path.Join("internal/client/web", leaf)
 	}
-	sc.Component, sc.Layer, sc.Title = key, "Client", key+" contract, derived from "+manager
+	sc.Component, sc.Layer, sc.Title = key, "Client", key+derivedContractMark+manager
 	sc.Interface.Name, sc.Interface.Layer = c.Name+strings.TrimSuffix(source.Interface.Name, "Manager"), "client"
 	sc.Deps, sc.Infra = nil, nil
 	return sc, nil

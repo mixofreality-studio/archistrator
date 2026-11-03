@@ -97,6 +97,17 @@ func run009State(t *testing.T) []byte {
 func run009Repo(t *testing.T) string {
 	t.Helper()
 	repo := bornRepo(t, run009State(t))
+	methods := make([]string, 0, len(run009ManagerOps))
+	for _, op := range run009ManagerOps {
+		methods = append(methods, fmt.Sprintf("func (*listKeepingManager) %s(_ manager.Context, proof Proof) (Proof, error) {\n\treturn proof, nil\n}\n", op))
+	}
+	buildRun009Components(t, repo, strings.TrimRight(strings.Join(methods, "\n"), "\n"))
+	return repo
+}
+
+// buildRun009Components commits RUN-009's three components and a Manager with these methods.
+func buildRun009Components(t *testing.T, repo, methods string) {
+	t.Helper()
 	module := strings.TrimSpace(inRepo(t, repo, "go", "list", "-m"))
 	inRepo(t, repo, "make", "gen-models", "CONTRACTS=pubSub recognizingEngine todoListAccess listKeepingManager")
 	for file, dest := range map[string]string{
@@ -111,17 +122,12 @@ func run009Repo(t *testing.T) string {
 		writeRepoFile(t, repo, dest, src)
 	}
 	runGenerators(t, repo, activitySpec(t, repo, run009Activity, "construction"))
-	methods := make([]string, 0, len(run009ManagerOps))
-	for _, op := range run009ManagerOps {
-		methods = append(methods, fmt.Sprintf("func (*listKeepingManager) %s(_ manager.Context, proof Proof) (Proof, error) {\n\treturn proof, nil\n}\n", op))
-	}
-	impl := strings.NewReplacer("METHODS", strings.TrimRight(strings.Join(methods, "\n"), "\n"), "MODULE", module).Replace(run009ManagerImpl)
+	impl := strings.NewReplacer("METHODS", methods, "MODULE", module).Replace(run009ManagerImpl)
 	writeRepoFile(t, repo, "internal/manager/listkeeping/listkeepingmanager.go", []byte(impl))
 	inRepo(t, repo, "make", "gen-tests")
 	inRepo(t, repo, "go", "mod", "tidy")
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "build the components")
-	return repo
 }
 
 // RUN-009's Manager path: it constructs, it composes the server, and both machine clients over it
@@ -390,6 +396,33 @@ func TestMachineClientContractFollowsItsManagers(t *testing.T) {
 	if got := proj.ServiceContracts["mcpServer"].Interface.Operations; len(got) != 1 || got[0].Name != "ListKeepingAddTodo" {
 		t.Errorf("a re-record follows the design, got %+v", got)
 	}
+
+	// A Manager re-recorded under the same operation names, as a design review sends back, carries
+	// its new params to the client: the client's tests would call the old ones otherwise.
+	revised := proj.ServiceContracts["listKeepingManager"]
+	revised.Interface.Operations = slices.Clone(revised.Interface.Operations)
+	revised.Interface.Operations[0].Params = append(slices.Clone(revised.Interface.Operations[0].Params), revised.Interface.Operations[0].Params[0])
+	revised.Interface.Operations[0].Params[1].Name = "title"
+	proj.ServiceContracts["listKeepingManager"] = revised
+	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
+		t.Fatal(err)
+	}
+	if got := proj.ServiceContracts["mcpServer"].Interface.Operations[0].Params; len(got) != 2 || got[1].Name != "title" {
+		t.Errorf("a re-recorded Manager's params must reach its client, got %+v", got)
+	}
+
+	// A hand-written family with exactly those names stays: nothing here wrote it.
+	handWritten := proj.ServiceContracts["mcpServer"]
+	handWritten.Title = "written by hand"
+	proj.ServiceContracts["mcpServer"] = handWritten
+	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
+		t.Fatal(err)
+	}
+	if got := proj.ServiceContracts["mcpServer"].Title; got != "written by hand" {
+		t.Errorf("a hand-written family holding the same names was rewritten: %q", got)
+	}
+	handWritten.Title = "mcpServer contract, derived from listKeepingManager"
+	proj.ServiceContracts["mcpServer"] = handWritten
 
 	second := proj.ServiceContracts["listKeepingManager"]
 	second.Interface.Name, second.GoPackage = "AuditManager", "internal/manager/audit"

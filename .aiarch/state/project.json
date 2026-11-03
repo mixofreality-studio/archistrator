@@ -8045,7 +8045,7 @@
             "from": "operations-manager",
             "to": "message-bus",
             "mode": "sync",
-            "label": "registerSchedule(operatedStateReconcile)",
+            "label": "registerSchedule(operatedStateReconcile) — once at process start, from the composition root; no use case's flow runs it",
             "ambient": true
           },
           {
