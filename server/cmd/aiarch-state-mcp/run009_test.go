@@ -380,22 +380,7 @@ func TestMachineClientContractFollowsItsManagers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	web := proj.ServiceContracts["webApi"]
-	if len(web.Interface.Operations) != len(run009ManagerOps) {
-		t.Errorf("webApi has %d operations, want the %d its views reach", len(web.Interface.Operations), len(run009ManagerOps))
-	}
-	if web.Layer != "Client" || web.Deps != nil || web.Infra != nil {
-		t.Errorf("a derived contract is a Client's and depends on nothing: %+v", web)
-	}
-	for _, op := range web.Interface.Operations {
-		if len(op.Params) != 1 || op.Params[0].Name != "proof" {
-			t.Errorf("%s keeps the Manager's params: %+v", op.Name, op.Params)
-		}
-	}
-	mcp := proj.ServiceContracts["mcpServer"]
-	if !strings.Contains(string(mcp.Interface.Operations[0].Result), `"result"`) || strings.Contains(string(web.Interface.Operations[0].Result), `"result"`) {
-		t.Errorf("an MCP tool's result is its structured output and a route's is bare: %s, %s", mcp.Interface.Operations[0].Result, web.Interface.Operations[0].Result)
-	}
+	requireDerivedMachineShape(t, proj)
 
 	sys, _ := proj.SystemDesign.Model.(*projectstate.System)
 	rewriteClientCalls(sys, "mcp-server", "list-keeping-manager", "addTodo(proof)")
@@ -422,6 +407,27 @@ func TestMachineClientContractFollowsItsManagers(t *testing.T) {
 	}
 	if audit.GoPackage != "internal/client/mcpserver/audit" || audit.Interface.Operations[0].Name != "AuditReviewList" {
 		t.Errorf("the first Manager's: %+v", audit)
+	}
+}
+
+// requireDerivedMachineShape holds RUN-009's two machine contracts to what derivation promises.
+func requireDerivedMachineShape(t *testing.T, proj projectstate.Project) {
+	t.Helper()
+	web := proj.ServiceContracts["webApi"]
+	if len(web.Interface.Operations) != len(run009ManagerOps) {
+		t.Errorf("webApi has %d operations, want the %d its views reach", len(web.Interface.Operations), len(run009ManagerOps))
+	}
+	if web.Layer != "Client" || web.Deps != nil || web.Infra != nil {
+		t.Errorf("a derived contract is a Client's and depends on nothing: %+v", web)
+	}
+	for _, op := range web.Interface.Operations {
+		if len(op.Params) != 1 || op.Params[0].Name != "proof" {
+			t.Errorf("%s keeps the Manager's params: %+v", op.Name, op.Params)
+		}
+	}
+	mcp := proj.ServiceContracts["mcpServer"]
+	if !strings.Contains(string(mcp.Interface.Operations[0].Result), `"result"`) || strings.Contains(string(web.Interface.Operations[0].Result), `"result"`) {
+		t.Errorf("an MCP tool's result is its structured output and a route's is bare: %s, %s", mcp.Interface.Operations[0].Result, web.Interface.Operations[0].Result)
 	}
 }
 

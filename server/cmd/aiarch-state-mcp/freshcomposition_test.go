@@ -154,6 +154,31 @@ func composedState(t *testing.T) []byte {
 	return withBrowserContracts(t, withManagerDeps(t, out))
 }
 
+// recordClientContracts derives every Client's contract into contracts.
+func recordClientContracts(t *testing.T, proj *projectstate.Project, sys *projectstate.System, contracts map[string]json.RawMessage) {
+	t.Helper()
+	for _, c := range sys.Components {
+		if c.Kind != projectstate.CompClient || c.UiSurface == nil || !*c.UiSurface {
+			continue
+		}
+		if err := projectstate.RecordBrowserContract(proj, c.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := projectstate.RecordMachineClientContracts(proj); err != nil {
+		t.Fatal(err)
+	}
+	for key, sc := range proj.ServiceContracts {
+		if strings.EqualFold(sc.Layer, "client") {
+			raw, err := json.Marshal(sc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contracts[key] = raw
+		}
+	}
+}
+
 // withManagerDeps draws the Manager's Engine and Utility into the System: the components, their
 // edges, and a call to each in a step the Manager already works in, so every operation is reached.
 func withManagerDeps(t *testing.T, state []byte) []byte {
@@ -299,26 +324,7 @@ func withBrowserContracts(t *testing.T, state []byte) []byte {
 	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range sys.Components {
-		if c.Kind != projectstate.CompClient || c.UiSurface == nil || !*c.UiSurface {
-			continue
-		}
-		if err := projectstate.RecordBrowserContract(&proj, c.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := projectstate.RecordMachineClientContracts(&proj); err != nil {
-		t.Fatal(err)
-	}
-	for key, sc := range proj.ServiceContracts {
-		if strings.EqualFold(sc.Layer, "client") {
-			raw, err := json.Marshal(sc)
-			if err != nil {
-				t.Fatal(err)
-			}
-			contracts[key] = raw
-		}
-	}
+	recordClientContracts(t, &proj, sys, contracts)
 	raw, err := json.Marshal(contracts)
 	if err != nil {
 		t.Fatal(err)
