@@ -517,3 +517,46 @@ func TestRecordingAManagerDerivesItsClients(t *testing.T) {
 		t.Error("the MCP client's contract must be derived")
 	}
 }
+
+// A machine client reaches no task spec without its derived contract or with no scenario through
+// it: either would integrate a generated surface that nothing ever tests.
+func TestMachineClientWithNothingToTestHasNoSpec(t *testing.T) {
+	var anyProject projectstate.ProjectID
+	proj, _, err := projectstate.DecodeProjectJSON(run009State(t), anyProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectstate.TaskSpecFor(&proj, "C-web-api", "integration"); err != nil {
+		t.Fatalf("with its contract and its views it has a spec: %v", err)
+	}
+	contract := proj.ServiceContracts["webApi"]
+	delete(proj.ServiceContracts, "webApi")
+	if _, err := projectstate.TaskSpecFor(&proj, "C-web-api", "integration"); err == nil || !strings.Contains(err.Error(), "has no contract") {
+		t.Errorf("no contract: %v", err)
+	}
+	proj.ServiceContracts["webApi"] = contract
+	sys, _ := proj.SystemDesign.Model.(*projectstate.System)
+	for i := range sys.DynamicViews {
+		for j := range sys.DynamicViews[i].Steps {
+			st := &sys.DynamicViews[i].Steps[j]
+			st.Calls = slices.DeleteFunc(st.Calls, func(c projectstate.TraceCall) bool { return c.To == "web-api" })
+		}
+	}
+	if _, err := projectstate.TaskSpecFor(&proj, "C-web-api", "integration"); err == nil || !strings.Contains(err.Error(), "no scenario to integrate against") {
+		t.Errorf("no scenario: %v", err)
+	}
+}
+
+// A machine client's generated scenarios are in its integration's edit scope, beside its other
+// generated files.
+func TestGeneratedScenariosAreInTheGeneratedScope(t *testing.T) {
+	glob := "internal/client/web/listkeeping/**/*.gen.*"
+	for _, p := range []string{"internal/client/web/listkeeping/client_scenarios.gen_test.go", "internal/client/web/listkeeping/x_handlers.gen.go"} {
+		if !projectstate.EditScopeGlobMatch(glob, p) {
+			t.Errorf("%s is not in %s", p, glob)
+		}
+	}
+	if projectstate.EditScopeGlobMatch(glob, "internal/client/web/listkeeping/client_hooks_test.go") {
+		t.Error("a hand-filled hooks file is not generated")
+	}
+}

@@ -760,3 +760,41 @@ func TestMachineClientLifecycleBindsAPlan(t *testing.T) {
 		t.Error("a machine client binds a test plan")
 	}
 }
+
+// Recording a surface's UI design through the verb writes its contract in the same mutation, so
+// the plan after it has operations to bind.
+func TestRecordingAUIDesignDerivesTheSurfaceContract(t *testing.T) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(composedState(t), &top); err != nil {
+		t.Fatal(err)
+	}
+	var contracts map[string]json.RawMessage
+	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
+		t.Fatal(err)
+	}
+	delete(contracts, "webApp")
+	raw, err := json.Marshal(contracts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	top["serviceContracts"] = raw
+	state, err := json.Marshal(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var anyProject projectstate.ProjectID
+	proj, _, err := projectstate.DecodeProjectJSON(state, anyProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := seedProject(t, proj, jobModeConstruct, 0)
+	s.ActivityID, s.ComponentID = freshSurfaceActivity, "web-app"
+	if err := s.recordPhaseArtifact("web-app", map[string]any{"UIDesign": map[string]any{"component": "web-app", "content": "the concept"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.readProject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireDerivedShape(t, got.ServiceContracts["webApp"])
+}
