@@ -8094,7 +8094,7 @@
             "from": "delivery-manager",
             "to": "operation-estimation-engine",
             "mode": "sync",
-            "label": "EstimateOperatingCost(option) → the SDP review's operating-cost headline (§6)"
+            "label": "EstimateForOption(option, declaredUsageAssumptions, infrastructureKind) → the SDP review's operating-cost headline (§6)"
           },
           {
             "from": "delivery-manager",
@@ -11070,7 +11070,7 @@
                     "from": "delivery-manager",
                     "to": "operation-estimation-engine",
                     "mode": "sync",
-                    "label": "EstimateOperatingCost(option) → the operating-cost headline of the projectDesign activity's M0 gate (§6)"
+                    "label": "EstimateForOption(option, declaredUsageAssumptions, infrastructureKind) → the operating-cost headline of the projectDesign activity's M0 gate (§6)"
                   },
                   {
                     "from": "delivery-manager",
