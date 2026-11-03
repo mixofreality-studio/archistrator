@@ -397,7 +397,7 @@ func TestFreshBirthIsGreen(t *testing.T) {
 		}
 	}
 	inRepo(t, repo, "go", "mod", "tidy", "-diff")
-	out := inRepo(t, repo, "go", "test", "-count=1", "-v", "-run", projectstate.ArchGateRun, "./internal/")
+	out := inRepo(t, repo, "go", "test", "-count=1", "-v", "-run", archGateRun, "./internal/")
 	for _, name := range []string{"TestFileLayout", "TestGeneratedOnlyPublic", "TestMethodLayering", "TestMethod", "TestProjectModel"} {
 		if !strings.Contains(out, "--- PASS: "+name) {
 			t.Errorf("%s did not pass at birth:\n%s", name, out)

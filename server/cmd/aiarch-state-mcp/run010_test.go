@@ -22,6 +22,9 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
+// archGateRun is the seated gate's -run pattern, as the arch check runs it (projectstate.archCheck).
+const archGateRun = "^(TestFileLayout|TestGeneratedOnlyPublic|TestMethodLayering|TestMethod|TestProjectModel)$"
+
 // run010Components is each RUN-010 contract by the component that recorded it.
 var run010Components = map[string]string{"listAccess": "list-access", "identityAccess": "identity-access", "messageBus": "message-bus"}
 
@@ -230,7 +233,7 @@ func mergedContract(t *testing.T, base, extra map[string]any) map[string]any {
 // that recorded it, where its agent could still fix it, and green once recorded through the verb.
 func TestRun010SeatedGateLoadsTheState(t *testing.T) {
 	repo := bornRepo(t, run010Raw(t))
-	cmd := exec.Command("go", "test", "-count=1", "-v", "-run", projectstate.ArchGateRun, "./internal/")
+	cmd := exec.Command("go", "test", "-count=1", "-v", "-run", archGateRun, "./internal/")
 	cmd.Dir = repo
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "--- FAIL: TestProjectModel") || !strings.Contains(string(out), `unknown layer "resourceaccess"`) {
