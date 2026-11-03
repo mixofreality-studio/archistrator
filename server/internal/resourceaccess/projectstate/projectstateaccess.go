@@ -12677,12 +12677,15 @@ func compositionGeneratorsSpec(p *Project) []SpecGenerator {
 	return out
 }
 
+// ArchGateRun is the -run pattern of the seated gate's tests (internal/aiarch_arch_test.go).
+const ArchGateRun = "^(TestFileLayout|TestGeneratedOnlyPublic|TestMethodLayering|TestMethod|TestProjectModel)$"
+
 // archCheck is the seated gate, the same argv in every app (internal/aiarch_arch_test.go):
-// file layout, the generated-only public surface, layering and the dependency menu, and the
-// design rules with design-to-code alignment.
+// file layout, the generated-only public surface, layering and the dependency menu, the
+// design rules with design-to-code alignment, and a state every generator loads.
 func archCheck(dir string) SpecCheck {
-	c := commandCheck("arch", "Architecture gates (file layout, public surface, layering, design alignment)",
-		[]string{"go", "test", "-count=1", "-v", "-run", "^(TestFileLayout|TestGeneratedOnlyPublic|TestMethodLayering|TestMethod)$", "./internal/"}, dir, commandCheckTimeoutSec)
+	c := commandCheck("arch", "Architecture gates (file layout, public surface, layering, design alignment, loadable state)",
+		[]string{"go", "test", "-count=1", "-v", "-run", ArchGateRun, "./internal/"}, dir, commandCheckTimeoutSec)
 	c.Source.RequireTests = true
 	return c
 }

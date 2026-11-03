@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
+	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -79,6 +80,11 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 	}
 	if _, _, derr := projectstate.DecodeProjectJSON(newBytes, s.ProjectID); derr != nil {
 		return fmt.Errorf("the %s change would be rejected by the server on read-back: %w", what, derr)
+	}
+	// Every generator loads the state through projectmodel.Load before anything else, so a
+	// state it refuses aborts the generation of every later task, none of which may change it.
+	if _, lerr := projectmodel.Load(newBytes); lerr != nil {
+		return fmt.Errorf("the %s change would leave a state no generator can load: %w — fix it and record again", what, lerr)
 	}
 	findings, ferr := methodcheck.ValidateProjectJSON(newBytes)
 	if ferr != nil {
@@ -149,11 +155,14 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 			" — fix the field and call recordServiceContract again", err)
 	}
 	return s.applyConstructionMutation("service contract", func(p *projectstate.Project) error {
-		key, err := contractKeyFor(*p, s.ComponentID)
+		comp, key, err := contractComponent(*p, s.ComponentID)
 		if err != nil {
 			return err
 		}
 		if err := refuseClientContract(*p, s.ComponentID, sc); err != nil {
+			return err
+		}
+		if err := layerFromSystem(comp, &sc); err != nil {
 			return err
 		}
 		if err := canonicalizeContract(key, &sc); err != nil {
@@ -184,12 +193,19 @@ func refuseClientContract(p projectstate.Project, componentID string, sc project
 // past modelgen would abort generation for the whole project much later, far from the agent
 // that can fix it; a capitalised layer used to silently emit a package with no call Context
 // and no constructor.
+//
+// The top-level layer takes projectmodel's spelling, the one every generator's projectmodel.Load
+// accepts: methodcheck and modelgen match a layer ignoring case, so "resourceaccess" passed
+// every gate of the task that recorded it and aborted every generator after it.
 func canonicalizeContract(key string, sc *projectstate.ServiceContract) error {
 	if sc.Interface.Layer == "" {
 		sc.Interface.Layer = sc.Layer
 	}
 	if layer, ok := modelgen.CanonicalLayer(sc.Interface.Layer); ok {
 		sc.Interface.Layer = layer
+	}
+	if layer, ok := projectmodel.CanonicalLayer(sc.Layer); ok {
+		sc.Layer = layer
 	}
 	raw, err := json.Marshal(sc)
 	if err != nil {
@@ -201,13 +217,30 @@ func canonicalizeContract(key string, sc *projectstate.ServiceContract) error {
 	return nil
 }
 
-// contractKeyFor resolves the System component componentID to the key its contract is
+// layerFromSystem sets the contract's layer from the component's kind in the System, spelled as
+// projectmodel spells it. The layer is the design's, not the agent's: a supplied layer, top-level
+// or the interface's, that names another one is refused rather than silently replaced.
+func layerFromSystem(c projectstate.Component, sc *projectstate.ServiceContract) error {
+	want, ok := projectmodel.CanonicalLayer(c.Kind.String())
+	if !ok {
+		return fmt.Errorf("recordServiceContract: component %q is a %s, which has no contract layer", c.ID, c.Kind)
+	}
+	for _, supplied := range []string{sc.Layer, sc.Interface.Layer} {
+		if supplied != "" && !strings.EqualFold(supplied, want) {
+			return fmt.Errorf("recordServiceContract: component %q is a %s in the System, so its contract's layer is %q, not %q; the layer follows the design, so leave it out or correct it, and record again", c.ID, c.Kind, want, supplied)
+		}
+	}
+	sc.Layer = want
+	return nil
+}
+
+// contractComponent resolves the System component componentID, and the key its contract is
 // filed under (projectstate.ContractKeyFor). A project with no System model, a
 // component the System does not name, or a Resource has no contract to record.
-func contractKeyFor(p projectstate.Project, componentID string) (string, error) {
+func contractComponent(p projectstate.Project, componentID string) (projectstate.Component, string, error) {
 	sys, ok := p.SystemDesign.Model.(*projectstate.System)
 	if !ok || sys == nil {
-		return "", fmt.Errorf("recordServiceContract: the project has no System model, so component %q has no contract to record", componentID)
+		return projectstate.Component{}, "", fmt.Errorf("recordServiceContract: the project has no System model, so component %q has no contract to record", componentID)
 	}
 	for _, c := range sys.Components {
 		if c.ID != componentID {
@@ -215,11 +248,11 @@ func contractKeyFor(p projectstate.Project, componentID string) (string, error) 
 		}
 		key, ok := projectstate.ContractKeyFor(c)
 		if !ok {
-			return "", fmt.Errorf("recordServiceContract: component %q is a Resource — a Resource is provisioned, it has no service contract", componentID)
+			return projectstate.Component{}, "", fmt.Errorf("recordServiceContract: component %q is a Resource — a Resource is provisioned, it has no service contract", componentID)
 		}
-		return key, nil
+		return c, key, nil
 	}
-	return "", fmt.Errorf("recordServiceContract: the System names no component %q", componentID)
+	return projectstate.Component{}, "", fmt.Errorf("recordServiceContract: the System names no component %q", componentID)
 }
 
 // recordPhaseArtifact routes a phase-artifact payload into .phaseArtifacts under mapKey,
