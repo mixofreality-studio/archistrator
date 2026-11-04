@@ -4679,6 +4679,10 @@ func sandboxAllowedDomains(repoURL string) []string {
 	return append(domains, u.Hostname())
 }
 
+// claudeDisableAutoMemory turns Claude Code's auto-memory off for every agent run
+// (see claudeSubprocessEnv).
+const claudeDisableAutoMemory = "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
+
 // claudeSubprocessEnv builds the CHILD claude process's environment as a
 // CONSTRUCTED ALLOWLIST (Tier 1, see the SECURITY POSTURE doc block above) —
 // replacing the former full-parent-env passthrough (which forwarded every
@@ -4708,6 +4712,12 @@ func sandboxAllowedDomains(repoURL string) []string {
 //     conventional name (some tools read it instead of USER); neither carries a
 //     credential. This is the ONE var that separates a working local login from
 //     a dead one.
+//   - CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 — a FIXED value, not forwarded. HOME
+//     crosses (above), so with Claude Code's auto-memory on, an autonomous
+//     agent writes notes into the operator's own ~/.claude/projects/<path>/memory
+//     and a later episode in the same worktree path reads them back: context
+//     no episode recorded, which breaks per-episode determinism. It comes
+//     before the rig so nothing the host exports can switch it back on.
 //   - the AIARCH_* rig vars (rig, passed in from dispatch) — the SAME fixed
 //     ambient-context envelope also carried on the attached aiarch-state MCP
 //     server's OWN env (writeStateMCPConfig), so anything that inspects this
@@ -4726,7 +4736,7 @@ func sandboxAllowedDomains(repoURL string) []string {
 // environment can no longer leak into an autonomous,
 // --dangerously-skip-permissions agent process.
 func claudeSubprocessEnv(rig map[string]string) []string {
-	out := make([]string, 0, 5+len(rig))
+	out := make([]string, 0, 6+len(rig))
 	if v := os.Getenv("PATH"); v != "" {
 		out = append(out, "PATH="+v)
 	}
@@ -4745,6 +4755,7 @@ func claudeSubprocessEnv(rig map[string]string) []string {
 	if v := os.Getenv("LOGNAME"); v != "" {
 		out = append(out, "LOGNAME="+v)
 	}
+	out = append(out, claudeDisableAutoMemory)
 	for k, v := range rig {
 		out = append(out, k+"="+v)
 	}

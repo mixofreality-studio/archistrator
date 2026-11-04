@@ -414,6 +414,7 @@ type agentDouble struct {
 	argv      string // the last run's argv, one argument per line
 	settings  string // a copy of the last run's --settings file
 	switchTo  string // present ⇒ after its commit, the next run switches to a scratch branch and commits there
+	env       string // the last run's environment, one VAR=value per line
 }
 
 func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
@@ -431,6 +432,7 @@ func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
 		switchTo:  filepath.Join(ctl, "switch-next"),
 		goCache:   filepath.Join(ctl, "gocache"),
 		treeNext:  filepath.Join(ctl, "tree-next"),
+		env:       filepath.Join(ctl, "env"),
 	}
 	a.claude = writeExecutable(t, filepath.Join(a.binDir, "claude"), fmt.Sprintf(`#!/bin/sh
 # Agent double for the Claude Code CLI. Started by agenticJobAccess in the run's
@@ -439,6 +441,7 @@ func newAgentDouble(t *testing.T, root, gitBin string) *agentDouble {
 printf '%%s\n' "$@" > %[6]q
 cp ../aiarch-settings.json %[7]q 2>/dev/null || :
 printf '%%s' "$GOCACHE" > %[9]q
+env > %[11]q
 if [ -f %[10]q ]; then
   cp %[10]q progress.txt && %[3]q add progress.txt || exit 1
 fi
@@ -462,7 +465,7 @@ if [ -f %[8]q ]; then
   %[3]q -c user.name=agent-double -c user.email=agent-double@example.invalid -c commit.gpgsign=false \
     commit --no-verify --quiet -m "agent double: left on scratch" || exit 1
 fi
-`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath, a.argv, a.settings, a.switchTo, a.goCache, a.treeNext))
+`, a.failFlag, a.nextState, gitBin, filepath.Dir(stateDocPath), stateDocPath, a.argv, a.settings, a.switchTo, a.goCache, a.treeNext, a.env))
 	return a
 }
 
@@ -1379,6 +1382,32 @@ func TestLocalRailForwardsTheHostsModuleEnv(t *testing.T) {
 		if !strings.Contains(string(raw), k+"=probe-"+strings.ToLower(k)+"\n") {
 			t.Errorf("the gate does not get %s:\n%s", k, raw)
 		}
+	}
+}
+
+// TestClaudeSubprocessEnvDisablesAutoMemory: the agent runs with Claude Code's auto-memory
+// off, whatever the host says. HOME is forwarded, so with auto-memory on an autonomous agent
+// writes notes into the operator's own ~/.claude/projects/<path>/memory, and a later episode
+// in the same worktree path reads them back: context no episode recorded.
+func TestClaudeSubprocessEnvDisablesAutoMemory(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "0")
+	h := scenariohost.Start(t)
+	v := newGateVenue(t, h)
+	if obs := v.runToEnd(t, h, constructSpec("construction")); obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("run ended %s (%s), want succeeded", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	raw, err := os.ReadFile(v.env.agent.env)
+	if err != nil {
+		t.Fatalf("the agent never ran: %v", err)
+	}
+	var got []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=") {
+			got = append(got, line)
+		}
+	}
+	if !slices.Equal(got, []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"}) {
+		t.Errorf("agent env carries %q, want exactly CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", got)
 	}
 }
 
