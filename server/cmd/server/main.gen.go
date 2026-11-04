@@ -643,6 +643,9 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if _, err := cfg.LocalDevPrincipal(hooks.ResolveProfile(cfg)); err != nil {
+		return err
+	}
 	dev := hooks.DevConfig(cfg)
 
 	webManagers := WebManagers{

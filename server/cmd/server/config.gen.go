@@ -56,6 +56,10 @@ type Config struct {
 	ArtifactRepoOwner             string
 	ArtifactRepoLocal             bool
 	AuthDevMode                   bool
+
+	// DevPrincipal is the framework's local-profile edge principal (devPrincipalEnv):
+	// read it through LocalDevPrincipal, never directly.
+	DevPrincipal string
 }
 
 // LoadConfig reads the environment into a Config, returning a single error
@@ -91,6 +95,7 @@ func LoadConfig() (*Config, error) {
 		ArtifactRepoOwner:             getenvString("ARCHISTRATOR_ARTIFACT_REPO_OWNER", ""),
 		ArtifactRepoLocal:             getenvBool("ARCHISTRATOR_ARTIFACT_REPO_LOCAL", "false"),
 		AuthDevMode:                   getenvBool("ARCHISTRATOR_AUTH_DEV_MODE", "false"),
+		DevPrincipal:                  getenv(devPrincipalEnv),
 	}
 
 	var missing []string
@@ -124,6 +129,22 @@ func MissingFor(profile string) []string {
 func (c *Config) DormantWarnings() []string {
 	var w []string
 	return w
+}
+
+// devPrincipalEnv names the variable Config.DevPrincipal is read from.
+const devPrincipalEnv = "ARCHISTRATOR_DEV_PRINCIPAL"
+
+// LocalDevPrincipal is the subject the auth edge may inject under profile: the
+// configured one under the "local" profile, "" (deny) when unset. Set under any other
+// profile it is an error naming the variable: the app must refuse to boot.
+func (c *Config) LocalDevPrincipal(profile string) (string, error) {
+	if c.DevPrincipal == "" {
+		return "", nil
+	}
+	if profile != "local" {
+		return "", fmt.Errorf("%s is set under the %q profile: the dev principal authenticates every request and is honoured only under the local profile; unset it", devPrincipalEnv, profile)
+	}
+	return c.DevPrincipal, nil
 }
 
 // getenv reads and trims an environment variable.
