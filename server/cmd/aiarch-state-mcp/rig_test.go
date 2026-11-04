@@ -395,7 +395,7 @@ func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
 	}
 
 	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
-		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine", "interface": map[string]any{"name": "BillingEngine"}},
+		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine", "interface": map[string]any{"name": "BillingEngine", "operations": []any{map[string]any{"name": "PriceUsage", "params": []any{}, "error": true}}}},
 	})
 	if res.IsError {
 		t.Fatalf("recordServiceContract failed: %s", contentText(res))
@@ -749,7 +749,8 @@ func rigOpsOf(t *testing.T, repo, branch, componentID string) []map[string]any {
 					continue
 				}
 				clause, _, _ := strings.Cut(strings.ReplaceAll(call.Label, "→", "—"), "—")
-				if !strings.Contains(clause, "|") {
+				// A label names its operations as "|" alternatives, or as one call: "op(args) → …".
+				if first, _, _ := strings.Cut(strings.TrimSpace(clause), " "); !strings.Contains(clause, "|") && !strings.Contains(first, "(") {
 					continue
 				}
 				for alt := range strings.SplitSeq(clause, "|") {
