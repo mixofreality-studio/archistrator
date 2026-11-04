@@ -1,0 +1,266 @@
+{
+ "component": "todo-keeping-manager",
+ "goPackage": "internal/manager/todokeeping",
+ "title": "TodoKeepingManager — the one workflow that recognizes the actor, applies or reviews one todo-list change, re-tallies, and makes the change known, identically for every channel",
+ "$defs": {
+  "ActorProof": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "Channel-neutral, opaque credential the Client received from the actor (a member's own proof, or an assistant's delegation grant). The Manager passes it untouched to ActorIdentityAccess; it is never logged, echoed or parsed. No protocol detail (header, cookie, MCP session) appears here.",
+   "properties": {
+    "credential": {
+     "type": "string",
+     "description": "The opaque credential text as presented by the actor."
+    }
+   },
+   "required": [
+    "credential"
+   ]
+  },
+  "TodoID": {
+   "type": "string",
+   "description": "Opaque, stable todo id as minted by the record. Callers must not parse it."
+  },
+  "View": {
+   "type": "string",
+   "enum": [
+    "all",
+    "active",
+    "completed"
+   ],
+   "description": "Which todos of the list to show."
+  },
+  "Todo": {
+   "type": "object",
+   "description": "One item in the member's list.",
+   "properties": {
+    "id": {
+     "$ref": "#/$defs/TodoID"
+    },
+    "title": {
+     "type": "string"
+    },
+    "completed": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "completed"
+   ]
+  },
+  "AddOutcome": {
+   "type": "object",
+   "description": "Result of AddTodo. accepted=false means the wording was not a usable title and nothing was added (todo is then the zero value). itemsLeft is the active count after the request.",
+   "properties": {
+    "accepted": {
+     "type": "boolean"
+    },
+    "todo": {
+     "$ref": "#/$defs/Todo"
+    },
+    "itemsLeft": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "accepted",
+    "todo",
+    "itemsLeft"
+   ]
+  },
+  "ChangeOutcome": {
+   "type": "object",
+   "description": "Result of every other list change: the member's active count after the change, so the acting channel shows the current tally.",
+   "properties": {
+    "itemsLeft": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "itemsLeft"
+   ]
+  },
+  "ListReview": {
+   "type": "object",
+   "description": "Result of ReviewList: the todos in the chosen view in added order, plus whole-list counts the channel needs (items left; completed count, which decides whether clear-completed and the all-done toggle state apply).",
+   "properties": {
+    "view": {
+     "$ref": "#/$defs/View"
+    },
+    "todos": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/Todo"
+     }
+    },
+    "itemsLeft": {
+     "type": "integer"
+    },
+    "completedCount": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "view",
+    "todos",
+    "itemsLeft",
+    "completedCount"
+   ]
+  }
+ },
+ "interface": {
+  "name": "TodoKeepingManager",
+  "operations": [
+   {
+    "name": "AddTodo",
+    "params": [
+     {
+      "name": "proof",
+      "schema": {
+       "$ref": "#/$defs/ActorProof"
+      }
+     },
+     {
+      "name": "title",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "result": {
+     "$ref": "#/$defs/AddOutcome"
+    },
+    "error": true
+   },
+   {
+    "name": "RewordTodo",
+    "params": [
+     {
+      "name": "proof",
+      "schema": {
+       "$ref": "#/$defs/ActorProof"
+      }
+     },
+     {
+      "name": "todo",
+      "schema": {
+       "$ref": "#/$defs/TodoID"
+      }
+     },
+     {
+      "name": "title",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "result": {
+     "$ref": "#/$defs/ChangeOutcome"
+    },
+    "error": true
+   },
+   {
+    "name": "RemoveTodo",
+    "params": [
+     {
+      "name": "proof",
+      "schema": {
+       "$ref": "#/$defs/ActorProof"
+      }
+     },
+     {
+      "name": "todo",
+      "schema": {
+       "$ref": "#/$defs/TodoID"
+      }
+     }
+    ],
+    "result": {
+     "$ref": "#/$defs/ChangeOutcome"
+    },
+    "error": true
+   },
+   {
+    "name": "MarkTodo",
+    "params": [
+     {
+      "name": "proof",
+      "schema": {
+       "$ref": "#/$defs/ActorProof"
+      }
+     },
+     {
+      "name": "todo",
+      "schema": {
+       "$ref": "#/$defs/TodoID"
+      }
+     },
+     {
+      "name": "completed",
+      "schema": {
+       "type": "boolean"
+      }
+     }
+    ],
+    "result": {
+     "$ref": "#/$defs/ChangeOutcome"
+    },
+    "error": true
+   },
+   {
+    "name": "MarkEveryTodo",
+    "params": [
+     {
+      "name": "proof",
+      "schema": {
+       "$ref": "#/$defs/ActorProof"
+      }
+     }
+    ],
+    "result": {
+     "$ref": "#/$defs/ChangeOutcome"
+    },
+    "error": true
+   },
+   {
+    "name": "ClearCompleted",
+    "params": [
+     {
+      "name": "proof",
+      "schema": {
+       "$ref": "#/$defs/ActorProof"
+      }
+     }
+    ],
+    "result": {
+     "$ref": "#/$defs/ChangeOutcome"
+    },
+    "error": true
+   },
+   {
+    "name": "ReviewList",
+    "params": [
+     {
+      "name": "proof",
+      "schema": {
+       "$ref": "#/$defs/ActorProof"
+      }
+     },
+     {
+      "name": "view",
+      "schema": {
+       "$ref": "#/$defs/View"
+      }
+     }
+    ],
+    "result": {
+     "$ref": "#/$defs/ListReview"
+    },
+    "error": true
+   }
+  ]
+ },
+ "notes": "STATUS: FROZEN once architect review passes. DESIGNER: senior-developer (detailed design). REVIEWER: system-architect. IMPLEMENTER: junior-developer (construction only, against this frozen contract).\n\nFACET: one contract, TodoKeepingManager — keeping one member's todo list on behalf of any channel. Encapsulates change-propagation volatility: the fixed sequence recognize -> change -> tally -> make known, and how the other channels learn of a change. Callers: todo-web-app, embedded-todo-screen, todo-api, todo-mcp-server, all synchronous request/response; all four get identical behaviour (the reason this Manager exists). Downstream (all sync): actor-identity-access.RecognizeActor, todo-list-access (RecordTodo, RewordTodo, StrikeTodo, MarkTodo, MarkEveryTodo, PurgeCompleted, RecallList, SelectInView, TallyItemsLeft), message-bus.Publish. Calls no Engine (none exists), no other Manager; nothing queued. Publishes ListChanged via MessageBus; subscribes to nothing.\n\nEXECUTION MODEL: plain synchronous in-process Manager; every public op is a request/response call, not a Temporal Workflow/Signal/Query/Update. Rationale: operational concepts are not committed, the SRS fixes every inbound and outbound edge as sync with nothing queued, the Manager is stateless between calls, and load/scale volatility was rejected — there is no long-running, durable or resumable workflow to host. Therefore it registers no Activities and imports no Temporal. If operational concepts later make the Manager Temporal-hosted, each op maps 1:1 to an Update (validated write with response) and ReviewList to a Query, with one Activity per downstream RA call (TodoListAccess guidance: StartToClose 5s, retry only ErrRecordUnavailable; ActorIdentityAccess ~2s, retry only refusal=unavailable) — that is a revision, not a contract-shape change.\n\nCOMMON PRELUDE (every op, step n3 of all 13 views): RecognizeActor(proof). recognized=false, refusal=unrecognized -> return ErrActorRefused; refusal=unavailable -> return ErrIdentityUnavailable. On refusal touch nothing: no read, no write, no tally, no publish, and the error reveals nothing about the list. The member used for every downstream call is ONLY Recognition.memberID — no op accepts a member id from the caller, so a caller can never name another member; an assistant (onBehalf=true) acts with exactly the delegating member's abilities and rules.\n\nCOMMON POSTLUDE (every state-changing op, after the change is committed): TallyItemsLeft(member) -> itemsLeft returned to the caller (reflects this request's change); then Publish({topic: \"ListChanged\", scope: memberID}). ListChanged carries member scope only — no todo content, no counts. Publish is fire-and-forget: a Publish error is logged (without credential or titles) and the request still SUCCEEDS, because the change is persisted and readers re-read on return. Publish never runs before the change is committed.\n\nUSABLE-TITLE RULE (plain Manager logic; title-acceptance was ruled variableNotVolatile): trim leading/trailing whitespace; the title is usable iff the trimmed text is non-empty. The trimmed text is what is stored. No length cap in this release.\n\nOPERATIONS (error model: package sentinels checked with errors.Is, below):\n- AddTodo(proof, title) -> AddOutcome. Views: add-a-todo, work-the-todo-list, let-the-team-s-agent-tooling-drive-the-list. Usable -> RecordTodo(member, trimmed) -> accepted=true, todo=the recorded todo. Unusable -> nothing recorded, accepted=false, todo zero value; per the committed activity graph (n6 merges into n7) the refused path still re-tallies and publishes (a no-change ListChanged is harmless: notices coalesce to 're-read'). A refused add is a normal outcome, not an error. Not idempotent (each accepted call appends one todo) — callers must not blindly retry an accepted add.\n- RewordTodo(proof, todo, title) -> ChangeOutcome. Views: fix-a-todo-s-wording, work-the-todo-list. Usable -> RewordTodo(member, todo, trimmed); unusable (blank) -> StrikeTodo(member, todo) (retitle-to-blank removes). Then postlude. Idempotent. Todo absent -> ErrTodoNotFound (no tally, no publish).\n- RemoveTodo(proof, todo) -> ChangeOutcome. Views: remove-a-todo, work-the-todo-list. StrikeTodo(member, todo), then postlude. Idempotent: an already-removed todo (e.g. removed by the other actor) succeeds.\n- MarkTodo(proof, todo, completed) -> ChangeOutcome. Views: mark-a-todo-done-or-not-done, work-the-todo-list. MarkTodo(member, todo, completed), then postlude. Idempotent. Todo absent -> ErrTodoNotFound (no tally, no publish).\n- MarkEveryTodo(proof) -> ChangeOutcome. Views: mark-everything-done-at-once-and-undo-it, work-the-todo-list. The caller does not choose the direction; the Manager decides against current state (natureOfTheBusiness rule): TallyItemsLeft(member); if itemsLeft == 0 (every todo already completed, including the empty list) -> MarkEveryTodo(member, completed=false), else -> MarkEveryTodo(member, completed=true). Then postlude (the second tally). The bulk write is atomic in TodoListAccess, so a single request never leaves a mixed state.\n- ClearCompleted(proof) -> ChangeOutcome. Views: sweep-away-finished-todos, work-the-todo-list. PurgeCompleted(member), then postlude. Idempotent; active todos untouched.\n- ReviewList(proof, view) -> ListReview. Views: review-the-todo-list, switch-between-all-active-and-done-todos, find-the-list-as-it-was-left-on-returning, use-the-todo-list-embedded-in-an-mcp-hosted-screen, see-how-many-todos-are-left. Read-only: changes nothing, publishes nothing. RecallList(member) (whole list in added order; completedCount = number completed in it); for view active/completed -> SelectInView(member, view) gives todos; for view all the recalled list IS the view (SelectInView may be skipped, as in see-how-many-todos-are-left); TallyItemsLeft(member) -> itemsLeft. The recall, select and tally may run concurrently (fork n5 / join n8). Empty or unset view is ErrInvalidRequest (clients default to all). Safe and idempotent.\n\nERROR MODEL (exported sentinels; the only errors that cross the contract — no storage, identity-scheme or bus types leak):\n- ErrActorRefused (terminal): proof not recognized. Clients map to unauthenticated/forbidden.\n- ErrIdentityUnavailable (transient): identity provider unreachable within the bounded wait; caller may retry.\n- ErrTodoNotFound (terminal): the named todo is not in the recognized member's list (includes another member's todo; never revealed). Clients should re-read with ReviewList.\n- ErrInvalidRequest (terminal): empty todo id, or view outside all/active/completed (maps TodoListAccess ErrInvalidArgument).\n- ErrListUnavailable (transient): TodoListAccess ErrRecordUnavailable after the Manager's bounded wait; the request did not complete; retrying idempotent ops is safe.\nAny other downstream fault is wrapped as ErrListUnavailable, never a hang or raw technical error. Every downstream call runs under a bounded wait (identity ~2s, record ~5s) derived from the caller's context.\n\nIDEMPOTENCY: all ops except AddTodo are idempotent; ReviewList is side-effect free. CONCURRENCY: last-committed-write-wins (TodoListAccess exposes no version); accepted for this release — a person and an assistant acting at once each get a consistent whole-list result, and toggle-all always applies one uniform state. Live conflict signalling is deferred to the change-propagation volatility (future subscribers/live updates absorbed behind Publish, no op change).\n\nFACTORING DECISIONS: one facet; the seven ops are exactly the seven behaviours the committed inbound edge and the 13 dynamic views name, each reached (TP-OP-REACHED). Collapsing them into a generic ApplyChange(kind, ...) was rejected — it would hide the business verbs, turn the contract into a dispatcher and push UI flow into a discriminator. Splitting reads (ReviewList) from writes was rejected — one cohesive facet over one list; a 1-op contract is a red flag. No GetX/SetX: MarkEveryTodo takes no direction (the toggle rule is the Manager's), ReviewList returns a business view, not raw state. Rejected/omitted: Subscribe/live push (no view calls it), undo, sharing, member id params.\n\nREUSE: any channel (new protocol, new UI host) reuses this contract unchanged; a second team keeping a todo list behind recognized actors would implement the same seven verbs; swapping the store, identity scheme or bus transport changes none of them.\n\nAPP C SS6 CHECK: 1 reusable PASS. 2a PASS (7 ops). 2b WAIVED: 7 ops, above the 3-5 target — the committed System fixes these seven behaviours on every inbound edge and each is a distinct business verb called by its own dynamic view; the only collapses available (generic dispatcher, read/write split) worsen cohesion. 2c PASS (7 <= 12). 2d PASS. 3 PASS (no property-like ops, no CRUD shape). 4 PASS (1 contract). 5 PASS (designed by senior-developer; junior constructs only). 6 PASS (senior-developer designer, system-architect reviewer).\n\nRESOLVED SRS QUESTIONS: Q1 sync, publish fire-and-forget; Q2 publish failure logged, request succeeds; Q3 last-write-wins, atomic bulk toggle; Q4 refused add is accepted=false (not an error) and, per the committed graph, still tallies + publishes; Q5 ListChanged = topic + member scope only; Q6 writes return itemsLeft (AddTodo also the new todo), channels re-read via ReviewList; Q7 ErrTodoNotFound for reword/mark, remove is idempotent success; Q8 trim, non-empty, no cap; Q9 opaque ActorProof passed through; Q10 7 ops, waived above."
+}

@@ -12997,6 +12997,71 @@ func browserContract(key, name string, ops []string) (ServiceContract, error) {
 	return sc, nil
 }
 
+// TemporalClientDep is the Temporal control-plane client every Manager's constructor takes first:
+// durable execution is mandatory for every Manager (platform-runtime-doctrine), and the
+// composition root threads the dialed client to this dep.
+var TemporalClientDep = ContractDep{Name: "client", GoType: "client.Client", GoImport: "go.temporal.io/sdk/client"}
+
+// ManagerDepsFromSystem is the ONE derivation of a Manager's constructor deps from the design: the
+// Temporal client, then one component dep per Engine, ResourceAccess or Utility the System draws
+// an edge to from the Manager, in relationship order, without duplicates, each named and keyed by
+// the target's contract key. A Resource is reached through its ResourceAccess and a peer Manager
+// through the bus, so neither is a dep; an edge's mode does not matter. A target whose recorded
+// contract has no Go package is external and built nowhere, so it is no constructor param. A
+// target with no recorded contract yet is refused, naming it and its activity: the network orders
+// a Manager's dependency activities before it. The deps are the design's, as the layer is: nobody
+// authors them.
+func ManagerDepsFromSystem(p Project, componentID string) ([]ContractDep, error) {
+	sys, ok := p.SystemDesign.Model.(*System)
+	if !ok || sys == nil {
+		return nil, fmt.Errorf("the project has no System model, so the Manager %q has no deps to derive", componentID)
+	}
+	byID := make(map[string]Component, len(sys.Components))
+	for _, c := range sys.Components {
+		byID[c.ID] = c
+	}
+	if c, ok := byID[componentID]; !ok || c.Kind != CompManager {
+		return nil, fmt.Errorf("the System names no Manager %q, so it has no deps to derive", componentID)
+	}
+	deps := []ContractDep{TemporalClientDep}
+	seen := map[string]bool{}
+	for _, r := range sys.Relationships {
+		target, ok := byID[r.To]
+		if r.From != componentID || !ok || seen[r.To] || !managerDepKind(target.Kind) {
+			continue
+		}
+		seen[r.To] = true
+		key, _ := ContractKeyFor(target)
+		sc, recorded := p.ServiceContracts[key]
+		if !recorded {
+			return nil, fmt.Errorf("the Manager %q depends on %s %q, which has no recorded contract (%s); its constructor takes that contract's interface, so record %q's contract first",
+				componentID, target.Kind, target.ID, componentActivityPhrase(p, target.ID), key)
+		}
+		if sc.GoPackage == "" {
+			continue
+		}
+		deps = append(deps, ContractDep{Name: key, Component: key})
+	}
+	return deps, nil
+}
+
+// managerDepKind is whether a Manager's edge to a component of kind k is a constructor dep.
+func managerDepKind(k ComponentKind) bool {
+	return k == CompEngine || k == CompResourceAccess || k == CompUtility
+}
+
+// componentActivityPhrase names the planned activity that builds a component, for a refusal.
+func componentActivityPhrase(p Project, componentID string) string {
+	if list, ok := p.ActivityList.Model.(*ActivityList); ok && list != nil {
+		for _, a := range list.Activities {
+			if a.ComponentID == componentID {
+				return "it is built by activity " + a.Name
+			}
+		}
+	}
+	return "no planned activity builds it"
+}
+
 // RecordMachineClientContracts writes every built machine client's contract from the design and the
 // Manager contracts recorded so far, in the mutation that records a Manager's. Nobody authors one: its
 // operations are the Manager operations the views reach through that client, spelled as its generated

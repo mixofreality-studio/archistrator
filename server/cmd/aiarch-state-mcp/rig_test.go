@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"maps"
@@ -444,15 +445,40 @@ func TestRig_FreshSystemReachesRecordServiceContract(t *testing.T) {
 			for _, c := range sys.Components {
 				assertPublishedKey(t, c)
 			}
-			for _, c := range sys.Components {
+			// The network orders a Manager after the components it calls, and its deps are derived
+			// from their recorded contracts, so each activity branches from the last one's result
+			// and the Managers come last.
+			ordered := slices.Clone(sys.Components)
+			slices.SortStableFunc(ordered, func(a, b projectstate.Component) int {
+				return cmp.Compare(boolRank(a.Kind == projectstate.CompManager), boolRank(b.Kind == projectstate.CompManager))
+			})
+			base := draftBranch
+			for _, c := range ordered {
 				branch := "activity/C-" + c.ID
-				mustGit(t, repo, "checkout", "-q", "-b", branch, draftBranch)
+				mustGit(t, repo, "checkout", "-q", "-b", branch, base)
 				mustGit(t, repo, "push", "-q", "-u", "origin", branch)
 				res, contracts := rigRecordContract(t, bin, repo, branch, c)
 				assertContractRecorded(t, c, res, contracts)
+				base = "origin/" + branch
 			}
 		})
 	}
+}
+
+// assertDerivedDeps fails t unless a Manager's recorded constructor deps were derived from the
+// System, which leads them with the Temporal client.
+func assertDerivedDeps(t *testing.T, c projectstate.Component, sc projectstate.ServiceContract) {
+	t.Helper()
+	if c.Kind == projectstate.CompManager && (len(sc.Deps) == 0 || sc.Deps[0] != projectstate.TemporalClientDep) {
+		t.Errorf("Manager %q's constructor deps were not derived from the System: %+v", c.ID, sc.Deps)
+	}
+}
+
+func boolRank(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // assertPublishedKey fails t unless the published component carries the key the test
@@ -492,6 +518,7 @@ func assertContractRecorded(t *testing.T, c projectstate.Component, res *mcp.Cal
 		return
 	}
 	key := lowerCamelOfID(c.ID)
+	assertDerivedDeps(t, c, contracts[key])
 	if c.Kind == projectstate.CompManager && !slices.ContainsFunc(slices.Collect(maps.Values(contracts)), func(sc projectstate.ServiceContract) bool { return sc.Layer == "Client" }) {
 		t.Errorf("recording Manager %q derived no machine client's contract: %v", c.ID, keysOfContracts(contracts))
 	}

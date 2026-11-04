@@ -3492,3 +3492,63 @@ func TestValidateModelIdentities_RefusesAnObjectiveWithNoStatement(t *testing.T)
 		t.Errorf("a stated objective is refused: %v", err)
 	}
 }
+
+// TestManagerDepsFromSystem: a Manager's constructor deps are the Temporal client, then each
+// Engine, ResourceAccess and Utility it draws an edge to, once, in edge order, by contract key.
+// A Resource and a peer Manager are no dep, an external Utility (a contract with no Go package)
+// is built nowhere, and a target with no recorded contract is refused, naming its activity.
+func TestManagerDepsFromSystem(t *testing.T) {
+	comp := func(id string, kind projectstate.ComponentKind) projectstate.Component {
+		return projectstate.Component{ID: id, Name: id, Kind: kind}
+	}
+	edge := func(from, to string, mode projectstate.CallMode) projectstate.Relationship {
+		return projectstate.Relationship{From: from, To: to, Mode: mode, Label: "x"}
+	}
+	sys := &projectstate.System{
+		Components: []projectstate.Component{
+			comp("list-manager", projectstate.CompManager), comp("peer-manager", projectstate.CompManager),
+			comp("rules-engine", projectstate.CompEngine), comp("list-access", projectstate.CompResourceAccess),
+			comp("list-store", projectstate.CompResource), comp("message-bus", projectstate.CompUtility),
+			comp("security", projectstate.CompUtility), comp("other-access", projectstate.CompResourceAccess),
+		},
+		Relationships: []projectstate.Relationship{
+			edge("list-manager", "list-access", projectstate.CallSync),
+			edge("list-manager", "list-store", projectstate.CallSync),
+			edge("list-manager", "peer-manager", projectstate.CallQueued),
+			edge("list-manager", "rules-engine", projectstate.CallSync),
+			edge("list-manager", "list-access", projectstate.CallQueued),
+			edge("list-manager", "security", projectstate.CallSync),
+			edge("list-manager", "message-bus", projectstate.CallQueued),
+			edge("peer-manager", "other-access", projectstate.CallSync),
+		},
+	}
+	p := projectstate.Project{
+		SystemDesign: projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: sys},
+		ServiceContracts: map[string]projectstate.ServiceContract{
+			"listAccess":  {GoPackage: "internal/resourceaccess/list"},
+			"rulesEngine": {GoPackage: "internal/engine/rules"},
+			"security":    {},
+			"messageBus":  {GoPackage: "internal/utility/messagebus"},
+		},
+		ActivityList: projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.ActivityList{
+			Activities: []projectstate.ActivityItem{{Name: "C-message-bus", ComponentID: "message-bus"}},
+		}},
+	}
+	got, err := projectstate.ManagerDepsFromSystem(p, "list-manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []projectstate.ContractDep{projectstate.TemporalClientDep,
+		{Name: "listAccess", Component: "listAccess"}, {Name: "rulesEngine", Component: "rulesEngine"}, {Name: "messageBus", Component: "messageBus"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("deps = %+v\nwant %+v", got, want)
+	}
+
+	delete(p.ServiceContracts, "messageBus")
+	if _, err := projectstate.ManagerDepsFromSystem(p, "list-manager"); err == nil || !strings.Contains(err.Error(), `"message-bus"`) || !strings.Contains(err.Error(), "C-message-bus") {
+		t.Errorf("a dep with no contract must be refused, naming it and its activity: %v", err)
+	}
+	if _, err := projectstate.ManagerDepsFromSystem(p, "rules-engine"); err == nil {
+		t.Error("only a Manager has derived deps")
+	}
+}

@@ -26,9 +26,10 @@ const (
 	freshSurfaceActivity = "U-SPA-web-app"
 )
 
+// listManagerContract is the Manager's contract as a designer writes it: no deps. Recording it
+// through the verb derives them from the System's edges.
 const listManagerContract = `{
  "component": "listManager", "layer": "Manager", "goPackage": "internal/manager/list", "title": "list",
- "deps": [{"name": "todos", "component": "todoListAccess"}, {"name": "caller", "component": "callerAccess"}, {"name": "rules", "component": "rulesEngine"}, {"name": "clock", "component": "clock"}],
  "$defs": {"OwnerName": {"type": "string"}},
  "interface": {"name": "ListManager", "layer": "manager", "operations": [
    {"name": "TakeStock", "params": [{"name": "owner", "schema": {"$ref": "#/$defs/OwnerName"}}], "result": {"$ref": "#/$defs/OwnerName"}, "error": true}
@@ -100,6 +101,7 @@ package list
 
 import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	"go.temporal.io/sdk/client"
 
 	"example/internal/engine/rules"
 	"example/internal/resourceaccess/caller"
@@ -108,14 +110,15 @@ import (
 )
 
 type listManager struct {
-	todos  todolist.TodoListAccess
+	client client.Client
 	caller caller.CallerAccess
+	todos  todolist.TodoListAccess
 	rules  rules.RulesEngine
 	clock  clock.Clock
 }
 
-func newListManager(todos todolist.TodoListAccess, caller caller.CallerAccess, rules rules.RulesEngine, clock clock.Clock) *listManager {
-	return &listManager{todos: todos, caller: caller, rules: rules, clock: clock}
+func newListManager(c client.Client, caller caller.CallerAccess, todos todolist.TodoListAccess, rules rules.RulesEngine, clock clock.Clock) *listManager {
+	return &listManager{client: c, caller: caller, todos: todos, rules: rules, clock: clock}
 }
 
 func (*listManager) TakeStock(_ manager.Context, owner OwnerName) (OwnerName, error) {
@@ -124,11 +127,12 @@ func (*listManager) TakeStock(_ manager.Context, owner OwnerName) (OwnerName, er
 
 // WorkerManifest supplies this Manager's workflows to the generated RegisterManagerWorker.
 func (m *listManager) WorkerManifest() genWorkerManifest {
-	return genWorkerManifest{Activities: genActivities{Todos: m.todos, Caller: m.caller, Clock: m.clock}}
+	return genWorkerManifest{Activities: genActivities{CallerAccess: m.caller, TodoListAccess: m.todos, Clock: m.clock}}
 }
 `
 
-// composedState is the fresh state with the Manager and machine client contracts recorded.
+// composedState is the fresh state with the Manager and machine client contracts recorded. The
+// Manager's goes through the verb, which derives its constructor deps from the System.
 func composedState(t *testing.T) []byte {
 	t.Helper()
 	var top map[string]json.RawMessage
@@ -139,7 +143,6 @@ func composedState(t *testing.T) []byte {
 	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
 		t.Fatal(err)
 	}
-	contracts["listManager"] = json.RawMessage(listManagerContract)
 	contracts["rulesEngine"] = json.RawMessage(rulesEngineContract)
 	contracts["clock"] = json.RawMessage(clockContract)
 	raw, err := json.Marshal(contracts)
@@ -151,7 +154,32 @@ func composedState(t *testing.T) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return withBrowserContracts(t, withManagerDeps(t, out))
+	return withBrowserContracts(t, withRecordedManager(t, withManagerDeps(t, out)))
+}
+
+// withRecordedManager records listManagerContract through the verb, as the Manager's detailed
+// design does.
+func withRecordedManager(t *testing.T, state []byte) []byte {
+	t.Helper()
+	var anyProject projectstate.ProjectID
+	proj, _, err := projectstate.DecodeProjectJSON(state, anyProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := seedProject(t, proj, jobModeConstruct, 0)
+	s.ActivityID, s.ComponentID = freshManagerActivity, "list-manager"
+	var contract map[string]any
+	if err := json.Unmarshal([]byte(listManagerContract), &contract); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.recordServiceContract(contract); err != nil {
+		t.Fatalf("the Manager's contract: %v", err)
+	}
+	out, err := os.ReadFile(filepath.Join(s.StateRoot, statePathPrefix, projectFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // recordClientContracts derives every Client's contract into contracts.

@@ -190,7 +190,8 @@ func TestRun010ManagerRecordKeepsTheLabelsResolved(t *testing.T) {
 	}
 }
 
-// RUN-010's Manager, with the operations the actor calls into its clients name.
+// RUN-010's Manager, with the operations the actor calls into its clients name. Its deps are
+// derived from the System when it is recorded.
 var run010ManagerOps = []string{"AddTodo", "RewordTodo", "DiscardTodo", "SetTodoDone", "ToggleAll", "ClearCompleted", "ReviewList"}
 
 func run010ManagerContract(t *testing.T) map[string]any {
@@ -201,7 +202,6 @@ func run010ManagerContract(t *testing.T) map[string]any {
 	}
 	return map[string]any{
 		"component": "listManager", "goPackage": "internal/manager/list", "title": "list manager",
-		"deps":      []any{map[string]any{"name": "identity", "component": "identityAccess"}, map[string]any{"name": "lists", "component": "listAccess"}, map[string]any{"name": "bus", "component": "messageBus"}},
 		"$defs":     map[string]any{"Proof": map[string]any{"type": "string"}},
 		"interface": map[string]any{"name": "ListManager", "operations": ops},
 	}

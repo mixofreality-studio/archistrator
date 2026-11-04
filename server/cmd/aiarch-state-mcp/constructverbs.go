@@ -165,6 +165,9 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		if err := layerFromSystem(comp, &sc); err != nil {
 			return err
 		}
+		if err := depsFromSystem(*p, comp, &sc); err != nil {
+			return err
+		}
 		if err := canonicalizeContract(key, &sc); err != nil {
 			return err
 		}
@@ -231,6 +234,45 @@ func layerFromSystem(c projectstate.Component, sc *projectstate.ServiceContract)
 		}
 	}
 	sc.Layer = want
+	return nil
+}
+
+// depsFromSystem sets a Manager contract's constructor deps from the System's edges
+// (projectstate.ManagerDepsFromSystem), as layerFromSystem sets its layer: the Temporal client,
+// then each Engine, ResourceAccess and Utility the Manager calls, by contract key. A plain dep
+// the agent supplies (a config scalar, a resolver func) is kept after the client; the client
+// itself is kept once. A supplied component dep is the design's to name, so one the System does
+// not draw, or draws under another name, is refused rather than silently replaced.
+func depsFromSystem(p projectstate.Project, c projectstate.Component, sc *projectstate.ServiceContract) error {
+	if c.Kind != projectstate.CompManager {
+		return nil
+	}
+	derived, err := projectstate.ManagerDepsFromSystem(p, c.ID)
+	if err != nil {
+		return fmt.Errorf("recordServiceContract: %w", err)
+	}
+	want := map[string]projectstate.ContractDep{}
+	var drawn []string
+	for _, d := range derived[1:] {
+		want[d.Component] = d
+		drawn = append(drawn, d.Component)
+	}
+	deps := []projectstate.ContractDep{derived[0]}
+	for _, d := range sc.Deps {
+		switch {
+		case d.Component == "" && (d.Name == derived[0].Name || (d.GoType == derived[0].GoType && d.GoImport == derived[0].GoImport)):
+			if d != derived[0] {
+				return fmt.Errorf("recordServiceContract: Manager %q's dep %q is the Temporal client, which is %+v; leave it out and record again", c.ID, d.Name, derived[0])
+			}
+		case d.Component == "":
+			deps = append(deps, d)
+		case want[d.Component] != d:
+			return fmt.Errorf("recordServiceContract: Manager %q's dep %+v is not one the System draws: its deps follow the design's edges, one per Engine, ResourceAccess and Utility it calls, named by contract key (%s); leave the component deps out, they are derived, and record again",
+				c.ID, d, strings.Join(drawn, ", "))
+		}
+	}
+	deps = append(deps, derived[1:]...)
+	sc.Deps = deps
 	return nil
 }
 

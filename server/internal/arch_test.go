@@ -1022,6 +1022,11 @@ var encapsulationAllowlistData = map[string][]string{
 		"RecordBrowserContract",
 		"IsClientComponent",
 		"RecordMachineClientContracts",
+		// ManagerDepsFromSystem / TemporalClientDep (FIX-032): a Manager's constructor deps are the
+		// design's, derived from its System edges as its layer is. aiarch-state-mcp's
+		// recordServiceContract derives them over the document; same category as ContractKeyFor.
+		"ManagerDepsFromSystem",
+		"TemporalClientDep",
 		// PlanBindingDigests / ActivityLifecycle (FIX-022): pure reads of the document model, with
 		// the same two callers as ContractKeyOf. aiarch-state-mcp's reportPlanDefect stamps the
 		// baseline and resolves the route through them, and the delivery Manager's replan hold
