@@ -661,6 +661,17 @@ func (wf *csWorkflows) submitDesignJob(
 	if terr != nil {
 		return pipelineHandle{}, terr
 	}
+	// The branch is refreshed from main BEFORE its spec is hashed (FIX-038). A refused
+	// refresh is a terminal fault for this dispatch: a draft fails, a critique holds its gate
+	// (produceDesignArtifact). EARMARK: the design arm has no per-task operator hold, so a
+	// refused DRAFT refresh fails the walk rather than parking it as construction does.
+	refreshed, rerr := wf.refreshActivityBranch(ctx, tc.In)
+	if rerr != nil {
+		return pipelineHandle{}, rerr
+	}
+	if refreshed.RefreshRefused {
+		return pipelineHandle{}, temporal.NewNonRetryableApplicationError(refreshed.Diagnostic, "ActivityBranchRefreshRefused", nil)
+	}
 	specHash, err := wf.dispatchSpecHash(ctx, tc)
 	if err != nil {
 		return pipelineHandle{}, err
@@ -1350,6 +1361,13 @@ func (wf *csWorkflows) runTaskVariance(
 		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "attempt", attempt+1,
 		"failureReason", int(deriveFailureReason(obs.Phase, obs.Diagnostic)),
 		"detail", detail)
+	// A REFUSED REFRESH IS HELD, NEVER RETRIED (FIX-038, architect ruling). main conflicts with
+	// the branch outside what the structural resolver may settle; another dispatch would meet
+	// the same conflict. The operator decides — resolve on the branch and Retry, or Skip — and
+	// the conflicting paths are the variance's summary and the failed attempt's diagnostic.
+	if obs.RefreshRefused {
+		return wf.escalateTaskVariance(ctx, tc, detail, deferred)
+	}
 
 	kind := intervention.WorkerMiss
 	count := int64(attempt)
@@ -1562,6 +1580,15 @@ func (wf *csWorkflows) submitConstructionJob(
 		if obs, ok := wf.syncScaffoldBeforeDispatch(ctx, in, &tc.State.walk.gf); !ok {
 			return constructionDispatch{obs: obs}, false, nil
 		}
+	}
+	// Refresh BEFORE the hash (FIX-038): the spec the job checks out must be the one hashed
+	// here. A refused refresh dispatched nothing; its observation is the attempt's failure.
+	refreshed, rerr := wf.refreshActivityBranch(ctx, tc.In)
+	if rerr != nil {
+		return constructionDispatch{}, false, rerr
+	}
+	if refreshed.RefreshRefused {
+		return constructionDispatch{obs: refreshed}, false, nil
 	}
 	specHash, err := wf.dispatchSpecHash(ctx, tc)
 	if err != nil {
@@ -6289,6 +6316,67 @@ func (wf *csWorkflows) syncScaffoldBeforeDispatch(ctx workflow.Context, in const
 			"activityId", string(in.ActivityID))
 	}
 	return csPipelineObservation{}, true
+}
+
+// changeRefreshFromMain versions refreshActivityBranch: it adds an activity call ahead of
+// every task dispatch, which a history recorded before it does not hold.
+const changeRefreshFromMain = "delivery-refresh-activity-branch-from-main"
+
+// refreshActivityBranch merges main into activity/<id> before a task dispatches (FIX-038):
+// the local stand-in for the cloud Action's refresh-from-main step, which addWorktree's
+// EARMARK named as missing. It is the WORKFLOW's step, one generated agenticJobAccess call
+// (the "refresh" job kind beside "merge"), because it must run BEFORE dispatchSpecHash reads
+// the branch: the job refuses a spec whose hash differs from the one the dispatch carries.
+//
+// THE INVARIANT it holds: every task dispatches on a branch whose merge-base with main is
+// main's tip — except while the activity is held on a refused refresh. Siblings that landed
+// a shared seat while this branch was open are then the baseline the task works from, rather
+// than something the task re-does and the merge tail later conflicts on.
+//
+// A failed observation comes back with RefreshRefused set and NO error: nothing was pushed,
+// and the variance loop holds it for the operator. The cloud arm and the dry-run venue answer
+// success at once.
+func (wf *csWorkflows) refreshActivityBranch(ctx workflow.Context, in deliveryActivityInput) (csPipelineObservation, error) {
+	if workflow.GetVersion(ctx, changeRefreshFromMain, workflow.DefaultVersion, 1) < 1 {
+		return csPipelineObservation{Phase: PipelineSucceeded}, nil
+	}
+	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, agenticjob.PipelineSpec{
+		ProjectID:  agenticjob.ProjectID(string(in.ProjectID)),
+		ActivityID: agenticjob.ConstructionActivityID(string(in.ActivityID)),
+		Steps: []agenticjob.PipelineStep{{
+			Name:      agenticjob.DispatchJobRefresh,
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		DispatchInputs: map[string]string{
+			agenticjob.DispatchInputJobKey: agenticjob.DispatchJobRefresh,
+			"activity_id":                  string(in.ActivityID),
+		},
+	})
+	if err != nil {
+		return csPipelineObservation{}, err
+	}
+	h := pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}
+	for poll := range maxObserveTotalPolls {
+		obs, oerr := wf.observePipeline(ctx, h)
+		if oerr != nil {
+			return csPipelineObservation{}, oerr
+		}
+		switch obs.Phase {
+		case PipelineSucceeded:
+			return obs, nil
+		case PipelineFailed, PipelineCancelled:
+			obs.RefreshRefused = true
+			obs.Diagnostic = "the activity branch could not be refreshed from main, so nothing was dispatched: " + obs.Diagnostic
+			workflow.GetLogger(ctx).Warn("delivery.activityBranch.refreshRefused",
+				"activityId", in.ActivityID, "detail", obs.Diagnostic)
+			return obs, nil
+		case PipelinePhaseUnknown, PipelinePending, PipelineRunning:
+		}
+		_ = workflow.Sleep(ctx, observeInterval(poll))
+	}
+	return csPipelineObservation{Phase: PipelineFailed, RefreshRefused: true,
+		Diagnostic: "the activity branch refresh did not reach a terminal phase within the poll budget, so nothing was dispatched"}, nil
 }
 
 // runMergePipeline dispatches the merge job through the pipeline seam and polls

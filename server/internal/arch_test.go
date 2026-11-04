@@ -514,6 +514,9 @@ var encapsulationAllowlistData = map[string][]string{
 		// Manager and this RA cannot drift on the wire strings.
 		"DispatchInputJobKey",
 		"DispatchJobMerge",
+		// The refresh job (FIX-038): main merged into activity/<id> before a task
+		// dispatches, ordered by the delivery walk ahead of its spec hash.
+		"DispatchJobRefresh",
 		"Error",
 		"ParsePipelineHandle",
 		"PipelineHandleEqual",

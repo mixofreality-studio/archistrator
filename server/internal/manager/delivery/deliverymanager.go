@@ -12677,6 +12677,11 @@ type csPipelineObservation struct {
 	// — on a CANCELLED run's FIRST terminal observation, whose summary lands only once
 	// the subprocess has unwound (see awaitLateEpisode).
 	Episode *agenticjob.EpisodeSummary
+	// RefreshRefused marks a failed observation of the REFRESH job (FIX-038): main could not
+	// be merged into the activity branch, nothing was pushed, and the diagnostic names the
+	// conflicting paths. No retry can change that, so the variance loop holds it for a human
+	// instead of asking the intervention Engine.
+	RefreshRefused bool
 }
 
 // constructWorkflowFileName is the per-project CONSTRUCTION workflow file the agentic

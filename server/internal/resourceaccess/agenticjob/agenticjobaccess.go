@@ -239,6 +239,12 @@ func newAccess(client ghActionsClient) (*access, error) {
 	}, nil
 }
 
+// actionsRefreshHandle is the handle this arm answers a refresh job with: the Action's
+// refresh-from-main step refreshes the branch inside the job, so there is no run to observe.
+// EARMARK: that in-job refresh runs AFTER the server hashed the task spec over the branch,
+// so a cloud dispatch can still see a spec drift that the local venue's ordering rules out.
+const actionsRefreshHandle PipelineHandle = "refresh/in-job"
+
 // runNamePrefix is the deterministic run-name prefix the dispatched aiarch workflow
 // stamps from the idempotency-token input. It MUST equal the satellite's
 // RunNamePrefix; the concrete seam bridges them. Kept here as a package constant so
@@ -272,6 +278,11 @@ func (a *access) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (PipelineH
 	}
 	if err := validateSpec(spec); err != nil {
 		return "", err
+	}
+	// The refresh job (FIX-038) is the local venue's stand-in for the Action's own
+	// refresh-from-main step, which still owns it on this arm: nothing to dispatch.
+	if spec.DispatchInputs[DispatchInputJobKey] == DispatchJobRefresh {
+		return actionsRefreshHandle, nil
 	}
 	token := dedupToken(idempotencyKey)
 	runName := runNamePrefix + token
@@ -386,6 +397,9 @@ func (a *access) resolveAfterDispatch(ctx context.Context, tgt ghTarget, runName
 // GC'd handle surfaces as fwra.NotFound.
 func (a *access) ObserveAgenticJob(rc fwra.Context, handle PipelineHandle) (PipelineObservation, error) {
 	ctx := rc.Context
+	if handle == actionsRefreshHandle {
+		return PipelineObservation{Handle: handle, Phase: PhaseSucceeded}, nil
+	}
 	runID, tgt, err := a.runIDFromHandle(handle)
 	if err != nil {
 		return PipelineObservation{}, err
@@ -1375,6 +1389,11 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 	if spec.DispatchInputs[DispatchInputJobKey] == DispatchJobMerge {
 		return a.submitMergeJob(rc, activityID)
 	}
+	// The refresh job (FIX-038): main merged INTO activity/<id> before a task dispatches, so
+	// the task works on what its siblings have already landed. Not a claude run either.
+	if spec.DispatchInputs[DispatchInputJobKey] == DispatchJobRefresh {
+		return a.submitRefreshJob(rc, activityID)
+	}
 	command := strings.TrimSpace(spec.DispatchInputs[dispatchInputCommandKey])
 	if command == "" {
 		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["command"]`)
@@ -1789,8 +1808,9 @@ const (
 // the two venues gate a run the same way:
 //
 //  1. keep check output out of commits (R28: .git/info/exclude);
-//  2. resolve the task spec over the worktree — the unmerged branch tip the server hashed
-//     (R31/R34; this rail never merges main into it) — and REFUSE the run when its hash
+//  2. resolve the task spec over the worktree — the branch tip the server hashed (R31/R34;
+//     nothing here merges main into it: the walk's refresh job did that BEFORE the hash,
+//     FIX-038) — and REFUSE the run when its hash
 //     differs from the dispatched one; capture the edit-scope base and main SHAs (R26);
 //  3. for the integration task, generate the scenario tests;
 //  4. run the agent on the spec's model and built-in tool allowlist;
@@ -4777,12 +4797,11 @@ const localWorktreeName = "wt"
 // first use. A fresh branch off main == the cloud's refreshed-from-main state, so the
 // drafting/constructing agent sees the same committed base either way.
 //
-// EARMARK (NOT implemented — acceptable single-user-local gap): the cloud refresh ALSO
-// merges origin/main into an EXISTING session branch on every job (stale-base heal / the
-// F82 self-heal). The local arm does not re-merge main into an existing branch, so a
-// long-lived local session branch can drift from a main that advanced under it. Fine for
-// the single-developer-one-pump local profile; revisit if local mode grows concurrent
-// writers or long-lived branches.
+// The cloud refresh ALSO merges origin/main into an EXISTING session branch on every job
+// (stale-base heal / the F82 self-heal). Locally that is NOT done here: local mode grew
+// concurrent writers (sibling activities in parallel), so the delivery walk now submits the
+// refresh job (DispatchJobRefresh, FIX-038) before it hashes each task's spec. Doing it here,
+// after the hash, would make the job refuse its own dispatch as "task spec drifted".
 //
 // HOW, with no branch name or path on git's argv: the branch is resolved (and, when
 // missing, created at main's tip) through go-git; a branch some worktree already has
@@ -4966,19 +4985,28 @@ const DispatchJobMerge = "merge"
 // deterministic conflict pointlessly, while the recorded failure flows into the
 // Manager's existing intervention path.
 func (a *localExecAccess) submitMergeJob(rc fwra.Context, activityID string) (PipelineHandle, error) {
+	return a.runSyncGitJob(rc, "", func() (string, bool) {
+		return a.mergeActivityBranch(rc.Context, localBranchName(activityID))
+	}), nil
+}
+
+// runSyncGitJob is the shape both synchronous git jobs (merge, refresh) share: converge the
+// idempotencyKey on one run record, do the work before Submit returns, and record the run
+// terminal with its diagnostic. step is the FailedStep a failed run reports ("" for none).
+func (a *localExecAccess) runSyncGitJob(rc fwra.Context, step string, work func() (string, bool)) PipelineHandle {
 	token := dedupToken(rc.IdempotencyKey)
 	handle := PipelineHandle(localHandlePrefix + token)
 
 	a.mu.Lock()
 	if existing, ok := a.runs[token]; ok {
 		a.mu.Unlock()
-		return existing.handle, nil
+		return existing.handle
 	}
-	run := &localRun{handle: handle, status: localRunRunning}
+	run := &localRun{handle: handle, status: localRunRunning, agentStep: step}
 	a.runs[token] = run
 	a.mu.Unlock()
 
-	diag, ok := a.mergeActivityBranch(rc.Context, localBranchName(activityID))
+	diag, ok := work()
 
 	run.mu.Lock()
 	defer run.mu.Unlock()
@@ -4988,7 +5016,7 @@ func (a *localExecAccess) submitMergeJob(rc fwra.Context, activityID string) (Pi
 		run.status = localRunFailed
 		run.diagnostic = diag
 	}
-	return handle, nil
+	return handle
 }
 
 // mergeActivityBranch merges the activity branch into the repo's default branch
@@ -5108,7 +5136,7 @@ func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic 
 	if diag, merged := mergePinnedHead(cloneDir, branch); !merged {
 		return diag, false
 	}
-	if diag := tidyMergedModule(cloneDir, branch); diag != "" {
+	if diag := tidyMergedModule(cloneDir, branch+" into "+localMainBranch); diag != "" {
 		return diag, false
 	}
 	if out, err := gitExec(cloneDir, exec.Command("git", "push", localMergeRemote, localMainBranch)); err != nil {
@@ -5136,8 +5164,9 @@ const mergeTidyTimeout = 3 * time.Minute
 // not the same as a tidy module. So when the merge touched the module files, tidy in the
 // throwaway clone and fold the result into the merge commit. A tidy that cannot settle the
 // graph is an honest conflict: nothing is pushed, so the shared repo is untouched. The
-// return value is the failure diagnostic, or "".
-func tidyMergedModule(cloneDir, branch string) string {
+// return value is the failure diagnostic, or "". what names the merge ("<branch> into main",
+// or "main into <branch>" for a refresh) in that diagnostic.
+func tidyMergedModule(cloneDir, what string) string {
 	// The merge commit is the truth. When the state document's bookkeeping conflict was
 	// resolved through the index, the working copy still holds the conflict markers, so bring
 	// it to the commit before reading the module dir from it or building in it.
@@ -5170,7 +5199,7 @@ func tidyMergedModule(cloneDir, branch string) string {
 	tidy.Env = append(allowlistedEnv(), "GOWORK=off", "GOTOOLCHAIN=local")
 	tidy.WaitDelay = localExecWaitDelay
 	if out, err := tidy.CombinedOutput(); err != nil {
-		return "local merge: merge conflict merging " + branch + " into " + localMainBranch +
+		return "local merge: merge conflict merging " + what +
 			": the merged module does not tidy: " + err.Error() + ": " + outputTail(string(out), 500)
 	}
 	for _, f := range files {
@@ -5334,6 +5363,159 @@ func pushRejectionLines(out string) string {
 		return ""
 	}
 	return strings.Join(kept, "; ") + " … "
+}
+
+// ---------------------------------------------------------------------------
+// THE REFRESH JOB: main merged into an EXISTING activity branch (FIX-038).
+//
+// addWorktree's EARMARK named the gap and its condition: the local arm never brought main
+// into a branch that already existed, "revisit if local mode grows concurrent writers". It
+// did. Sibling activities now run in parallel, so a branch cut at 11:04 stayed at 11:04 while
+// C-todo-mcp-server landed its /mcp mount on main at 11:13, and U-SPA-todo-mcp-app's
+// integration 30 minutes later saw no mount, re-did it differently, and the merge tail then
+// met a content conflict no resolver can settle.
+//
+// THE MANAGER ORDERS IT; THIS RA ONLY DOES IT. The delivery walk submits this job before it
+// reads the branch to hash the task spec, so the spec the job checks out is the spec the
+// server hashed. Running it inside addWorktree, after the hash, would trip "task spec
+// drifted" (architect ruling, FIX-038).
+//
+// WHAT IT WRITES. Only activity/<id>, and only fast-forward from the tip it read: the clone
+// checks the branch out, merges main into it, and pushes the result back. A state-document
+// conflict that is nothing but bookkeeping or disjoint sibling records is settled by the same
+// structural resolver the merge tail uses, unchanged — its "ours" stage is the ref being
+// written, which here is the BRANCH, so the branch keeps its own envelope (its version token
+// is the one the branch's own CAS writes compare against). Any other conflict pushes NOTHING:
+// the branch stays exactly as it was and the failure names every conflicting path, with
+// FailedStep = DispatchJobRefresh so the walk can tell it from a failed agent run and hold
+// the activity for a human rather than retrying a conflict no retry can change.
+//
+// EARMARK (cloud arm). The GitHub-Actions arm answers this job with an immediate success,
+// because the Action's own refresh-from-main step still owns it there — and that step runs
+// AFTER the server has hashed the spec, the ordering this job exists to get right locally.
+// ---------------------------------------------------------------------------
+
+// DispatchJobRefresh is the DispatchInputJobKey value selecting the refresh job: merge the
+// repo's default branch into activity/<id>. It is also the FailedStep a refused refresh
+// reports.
+const DispatchJobRefresh = "refresh"
+
+// submitRefreshJob runs the refresh synchronously, exactly as submitMergeJob runs the merge.
+func (a *localExecAccess) submitRefreshJob(rc fwra.Context, activityID string) (PipelineHandle, error) {
+	return a.runSyncGitJob(rc, DispatchJobRefresh, func() (string, bool) {
+		return a.refreshActivityBranch(rc.Context, localBranchName(activityID))
+	}), nil
+}
+
+// localRefreshResultRef is the fixed ref the refreshed tip is pinned at before it is pushed
+// to the branch, so the branch name never reaches git's argv.
+const localRefreshResultRef = "refs/aiarch/refresh-result"
+
+// refreshActivityBranch is the refresh under the repo's push lock, re-run when the branch
+// moved between the clone and the push (the same compare-and-swap discipline as the merge).
+func (a *localExecAccess) refreshActivityBranch(ctx context.Context, branch string) (diagnostic string, ok bool) {
+	for attempt := 1; ; attempt++ {
+		var raced bool
+		if err := fwgithub.PushLocal(ctx, a.repoPath, func() error {
+			diagnostic, ok, raced = a.attemptRefreshActivityBranch(branch)
+			return nil
+		}); err != nil {
+			return "local refresh: wait for the shared repo's push lock: " + err.Error(), false
+		}
+		if ok || !raced {
+			return diagnostic, ok
+		}
+		if attempt >= maxMergePushAttempts {
+			return diagnostic + " — re-merged against a moving " + branch + " " +
+				strconv.Itoa(maxMergePushAttempts) + " times and lost the race every time", false
+		}
+	}
+}
+
+// attemptRefreshActivityBranch is ONE pass of the refresh: clone, merge main into the branch,
+// push the branch. raced reports a push the branch's own movement refused.
+func (a *localExecAccess) attemptRefreshActivityBranch(branch string) (diagnostic string, ok, raced bool) {
+	parentDir, err := os.MkdirTemp("", "aiarch-refresh-*")
+	if err != nil {
+		return "local refresh: create work dir: " + err.Error(), false, false
+	}
+	defer func() { _ = os.RemoveAll(parentDir) }()
+
+	cloneDir, clone, diag := cloneMainForMerge(parentDir, a.repoPath)
+	if diag != "" {
+		return "local refresh: " + strings.TrimPrefix(diag, "local merge: "), false, false
+	}
+	found, err := pinMergeHead(clone, branch)
+	if err != nil {
+		return "local refresh: activity branch " + branch + ": " + err.Error(), false, false
+	}
+	if !found {
+		// Nothing cut the branch yet: addWorktree creates it off main's tip, which is current.
+		return "", true, false
+	}
+	// main is already in the branch: nothing to bring in.
+	if _, err := gitExec(cloneDir, exec.Command("git", "merge-base", "--is-ancestor", "HEAD", localMergeHeadRef)); err == nil {
+		return "", true, false
+	}
+	if err := refuseBranchCheckedOut(a.repoPath, plumbing.NewBranchReferenceName(branch)); err != nil {
+		return "local refresh: " + err.Error(), false, false
+	}
+	if diag := mergeMainIntoPinnedHead(cloneDir, branch); diag != "" {
+		return diag, false, false
+	}
+	head, err := clone.Head()
+	if err != nil {
+		return "local refresh: read the refreshed tip: " + err.Error(), false, false
+	}
+	if err := clone.Storer.SetReference(plumbing.NewHashReference(localRefreshResultRef, head.Hash())); err != nil {
+		return "local refresh: pin the refreshed tip: " + err.Error(), false, false
+	}
+	refspec := gitconfig.RefSpec(localRefreshResultRef + ":" + plumbing.NewBranchReferenceName(branch).String())
+	err = clone.Push(&git.PushOptions{RemoteName: localMergeRemote, RefSpecs: []gitconfig.RefSpec{refspec}})
+	switch {
+	case err == nil, errors.Is(err, git.NoErrAlreadyUpToDate):
+		return "", true, false
+	case errors.Is(err, git.ErrNonFastForwardUpdate):
+		return "local refresh: push of refreshed " + branch + " was refused: the branch moved", false, true
+	default:
+		return "local refresh: push of refreshed " + branch + " failed: " + err.Error(), false, false
+	}
+}
+
+// mergeMainIntoPinnedHead checks the pinned branch tip out (detached) and merges main into
+// it. A branch with no commits of its own simply takes main's tip; otherwise it is a real
+// --no-ff merge, tidied as the merge tail tidies. "" is success; anything else is the refusal,
+// and the clone is abandoned with nothing pushed.
+func mergeMainIntoPinnedHead(cloneDir, branch string) string {
+	mainRef := "refs/remotes/" + localMergeRemote + "/" + localMainBranch
+	if _, err := gitExec(cloneDir, exec.Command("git", "merge-base", "--is-ancestor", localMergeHeadRef, "HEAD")); err == nil {
+		// The branch holds nothing main lacks: its refreshed tip IS main's (HEAD is main).
+		return ""
+	}
+	if out, err := gitExec(cloneDir, exec.Command("git", "checkout", "--quiet", "--detach", localMergeHeadRef)); err != nil {
+		return "local refresh: check out " + branch + ": " + outputTail(out, 500)
+	}
+	if err := writeCloneScratch(cloneDir, localMergeMsgFile, "aiarch: refresh "+branch+" from "+localMainBranch+"\n"); err != nil {
+		return "local refresh: stage the merge message: " + err.Error()
+	}
+	mergeOut, err := gitExec(cloneDir, exec.Command("git",
+		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"merge", "--no-ff", "-F", localMergeMsgFile, mainRef))
+	if err != nil {
+		if !strings.Contains(mergeOut, "CONFLICT") {
+			_, _ = gitExec(cloneDir, exec.Command("git", "merge", "--abort"))
+			return "local refresh: merge of " + localMainBranch + " into " + branch + " failed: " + outputTail(mergeOut, 500)
+		}
+		unmerged, _ := gitExec(cloneDir, exec.Command("git", "diff", "--name-only", "--diff-filter=U"))
+		envDiag, resolved := resolveStateDocEnvelopeConflict(cloneDir)
+		if !resolved {
+			_, _ = gitExec(cloneDir, exec.Command("git", "merge", "--abort"))
+			return "local refresh: merging " + localMainBranch + " into " + branch + " conflicts on " +
+				strings.Join(nonEmptyLines(unmerged), ", ") + envDiag +
+				"; nothing was pushed and the branch is as it was. Resolve it on the branch with main's landed work as the baseline, then retry"
+		}
+	}
+	return tidyMergedModule(cloneDir, localMainBranch+" into "+branch)
 }
 
 // ---------------------------------------------------------------------------

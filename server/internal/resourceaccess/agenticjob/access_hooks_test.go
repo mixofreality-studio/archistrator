@@ -2442,3 +2442,139 @@ func TestLocalMergeRefusesARealStateConflict(t *testing.T) {
 		})
 	}
 }
+
+// refresh runs the refresh job for activityID and returns its observation.
+func (r *raceRig) refresh(activityID string) agenticjob.PipelineObservation {
+	r.t.Helper()
+	rc := callContext(r.t, r.h, "refresh-"+activityID)
+	handle, err := r.jobs.SubmitAgenticJob(rc, agenticjob.PipelineSpec{
+		ProjectID:      agenticjob.ProjectID(raceProject),
+		ActivityID:     agenticjob.ConstructionActivityID(activityID),
+		Steps:          []agenticjob.PipelineStep{{Name: "refresh"}},
+		DispatchInputs: map[string]string{agenticjob.DispatchInputJobKey: agenticjob.DispatchJobRefresh},
+	})
+	if err != nil {
+		r.t.Fatalf("submit the refresh of %s: %v", activityID, err)
+	}
+	obs, err := r.jobs.ObserveAgenticJob(rc, handle)
+	if err != nil {
+		r.t.Fatalf("observe the refresh of %s: %v", activityID, err)
+	}
+	return obs
+}
+
+// commitOnBranch commits one file with body on branch of the rig's repo, through a clone.
+func commitOnBranch(t *testing.T, repo, branch, name, body string) {
+	t.Helper()
+	work := filepath.Join(t.TempDir(), "file")
+	runGit(t, "", "clone", "--quiet", "--branch", branch, repo, work)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(work, name)), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, name), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, work, "add", "--", name)
+	runGit(t, work, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "commit "+name)
+	runGit(t, work, "push", "--quiet", "origin", "HEAD:"+branch)
+}
+
+// TestLocalRefreshBringsMainIntoTheActivityBranch (FIX-038): U-SPA-todo-mcp-app's branch
+// forked at 11:04, C-todo-mcp-server landed its /mcp mount on main at 11:13, and the SPA's
+// integration ran on the stale branch and re-did the mount. Before a task dispatches, the
+// branch is refreshed from main: a sibling's file and a sibling's state row reach it, the
+// branch keeps its own work and its own envelope, and main does not move.
+func TestLocalRefreshBringsMainIntoTheActivityBranch(t *testing.T) {
+	rig := newRaceRig(t)
+	const branch = "activity/U-fresh"
+	project := func(version int, rows ...string) projectstate.Project {
+		p := projectstate.Project{ID: raceProject, Version: projectstate.Version(version), Phase: projectstate.PhaseConstruction, Name: "FIX-002",
+			ActivityExecution: map[string]projectstate.ActivityExecution{}}
+		for _, id := range rows {
+			p.ActivityExecution[id] = projectstate.ActivityExecution{ActivityID: id}
+		}
+		return p
+	}
+	commitStateDoc(t, rig.repo.Dir, "main", project(2, "D-base"))
+	commitStateDoc(t, rig.repo.Dir, branch, project(7, "D-base", "U-fresh"))
+	commitOnBranch(t, rig.repo.Dir, branch, "webApp/src/own.ts", "export const own = 1\n")
+	commitStateDoc(t, rig.repo.Dir, "main", project(9, "D-base", "C-sibling"))
+	commitOnBranch(t, rig.repo.Dir, "main", "cmd/server/mcp.go", "package main\n")
+	mainBefore := gitOut(t, rig.repo.Dir, "rev-parse", "main")
+
+	if obs := rig.refresh("U-fresh"); obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("refresh ended %s: %s", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if got := gitOut(t, rig.repo.Dir, "rev-parse", "main"); got != mainBefore {
+		t.Errorf("main moved on a refresh: %s -> %s", mainBefore, got)
+	}
+	runGitOK := func(args ...string) bool {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = rig.repo.Dir
+		return cmd.Run() == nil
+	}
+	if !runGitOK("merge-base", "--is-ancestor", "main", branch) {
+		t.Fatal("the refreshed branch does not contain main")
+	}
+	for _, f := range []string{"cmd/server/mcp.go", "webApp/src/own.ts"} {
+		if gitOut(t, rig.repo.Dir, "ls-tree", "--name-only", branch, f) == "" {
+			t.Errorf("the refreshed branch lacks %s", f)
+		}
+	}
+	doc := []byte(gitOutRaw(t, rig.repo.Dir, "show", branch+":"+stateDocPath))
+	p, ok, err := projectstate.DecodeProjectJSON(doc, "")
+	if err != nil || !ok {
+		t.Fatalf("the refreshed state document does not decode: ok=%v err=%v", ok, err)
+	}
+	for _, id := range []string{"U-fresh", "C-sibling"} {
+		if _, has := p.ActivityExecution[id]; !has {
+			t.Errorf("the refreshed state document lacks the %s row", id)
+		}
+	}
+	if p.Version != 7 {
+		t.Errorf("the refreshed branch's envelope version = %d, want the branch's own 7", p.Version)
+	}
+	// An already-current branch refreshes to itself.
+	tip := gitOut(t, rig.repo.Dir, "rev-parse", branch)
+	if obs := rig.refresh("U-fresh"); obs.Phase != agenticjob.PhaseSucceeded {
+		t.Fatalf("second refresh ended %s: %s", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+	if got := gitOut(t, rig.repo.Dir, "rev-parse", branch); got != tip {
+		t.Errorf("a current branch moved on a refresh: %s -> %s", tip, got)
+	}
+	// A branch nothing cut yet has nothing to refresh.
+	if obs := rig.refresh("U-never-opened"); obs.Phase != agenticjob.PhaseSucceeded {
+		t.Errorf("refreshing an absent branch ended %s: %s", agenticjob.PipelinePhaseString(obs.Phase), obs.Diagnostic)
+	}
+}
+
+// TestLocalRefreshRefusesASiblingContentConflict (FIX-038): a sibling landed a different
+// cmd/server/hooks.go than the branch holds. Nothing is pushed — the branch stays where it
+// was — and the failure names the conflicting path, so the walk can hold it for a human.
+func TestLocalRefreshRefusesASiblingContentConflict(t *testing.T) {
+	rig := newRaceRig(t)
+	const branch = "activity/U-stale"
+	commitOnBranch(t, rig.repo.Dir, "main", "cmd/server/hooks.go", "package main\n\n// base\n")
+	runGit(t, rig.repo.Dir, "branch", branch, "main")
+	commitOnBranch(t, rig.repo.Dir, branch, "cmd/server/hooks.go", "package main\n\n// the branch's mount\n")
+	commitOnBranch(t, rig.repo.Dir, "main", "cmd/server/hooks.go", "package main\n\n// the sibling's mount\n")
+	before := gitOut(t, rig.repo.Dir, "rev-parse", branch)
+	mainBefore := gitOut(t, rig.repo.Dir, "rev-parse", "main")
+
+	obs := rig.refresh("U-stale")
+	if obs.Phase != agenticjob.PhaseFailed {
+		t.Fatalf("a conflicted refresh ended %s, want Failed", agenticjob.PipelinePhaseString(obs.Phase))
+	}
+	if !strings.Contains(obs.Diagnostic, "cmd/server/hooks.go") {
+		t.Errorf("the refusal does not name the conflicting path: %s", obs.Diagnostic)
+	}
+	if obs.FailedStep != agenticjob.DispatchJobRefresh {
+		t.Errorf("the refusal's FailedStep = %q, want %q", obs.FailedStep, agenticjob.DispatchJobRefresh)
+	}
+	if got := gitOut(t, rig.repo.Dir, "rev-parse", branch); got != before {
+		t.Errorf("the branch moved on a refused refresh: %s -> %s", before, got)
+	}
+	if got := gitOut(t, rig.repo.Dir, "rev-parse", "main"); got != mainBefore {
+		t.Errorf("main moved on a refused refresh")
+	}
+}
