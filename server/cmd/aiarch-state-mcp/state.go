@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -237,6 +238,57 @@ func (s *Session) setCritiqueVerdict(verdict, notes string) error {
 	}
 	s.wroteState = true
 	return nil
+}
+
+// reportUpstreamDefectInput is a design draft's report that committed upstream nodes have no
+// call to make. The attempt is not an input: the verb stamps it, so an agent cannot report for
+// another attempt.
+type reportUpstreamDefectInput struct {
+	Gate      string                         `json:"gate" jsonschema:"the upstream review gate your task's lifecycle declares (for the architecture draft: coreUseCasesReview)"`
+	NodeRefs  []projectstate.UpstreamNodeRef `json:"nodeRefs" jsonschema:"the committed nodes no honest call realizes: each {useCase, node} names a use case by its name or id and an action/timeEvent/acceptEvent node by its id"`
+	Rationale string                         `json:"rationale" jsonschema:"per node, which earlier node already produced what it shows, and why no component makes a new call there"`
+}
+
+// reportUpstreamDefect records the allegation on this attempt (design draft mode). It writes
+// no upstream slot: the Manager admits the report and sends the upstream artifact back through
+// its own review. It holds the report to everything the Manager's admission holds it to that
+// this document can answer (the route the task declares, nodes of the committed artifact of a
+// kind that must be realized, a rationale), so a report the Manager would refuse is refused
+// here, while the agent can still act on why. It writes through the evidence path: the draft
+// it stands in for does not exist, so the Method rules have nothing to pass.
+func (s *Session) reportUpstreamDefect(in reportUpstreamDefectInput) (string, error) {
+	revision := strings.TrimSpace(os.Getenv(envRevision))
+	if s.ActivityID == "" || s.TaskID == "" || revision == "" {
+		return "", fmt.Errorf("reportUpstreamDefect needs the ambient activity, task and attempt; this job has none")
+	}
+	in.Gate, in.Rationale = strings.TrimSpace(in.Gate), strings.TrimSpace(in.Rationale)
+	if in.Rationale == "" {
+		return "", fmt.Errorf("reportUpstreamDefect needs a rationale: per node, which earlier node already produced what it shows and why no call realizes it")
+	}
+	var nodes []projectstate.UpstreamNode
+	err := s.applyEvidenceMutation("upstream defect report", func(p *projectstate.Project) error {
+		route, err := projectstate.UpstreamRouteOf(p, s.ActivityID, s.TaskID, in.Gate)
+		if err != nil {
+			return err
+		}
+		if nodes, err = projectstate.AdmitUpstreamNodes(p, route, in.NodeRefs); err != nil {
+			return err
+		}
+		refs := make([]projectstate.UpstreamNodeRef, 0, len(nodes))
+		for _, n := range nodes {
+			refs = append(refs, projectstate.UpstreamNodeRef{UseCase: n.UseCaseID, Node: n.NodeID})
+		}
+		projectstate.UpsertUpstreamDefect(p, projectstate.UpstreamDefectReport{
+			ID: projectstate.UpstreamDefectID(revision, route), Activity: s.ActivityID, Task: s.TaskID, Revision: revision,
+			ActivityType: route.ActivityType, Gate: route.Gate, NodeRefs: refs, Rationale: in.Rationale,
+		})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("The report naming %d node(s) was recorded. Call publishDraft, then finish without a draft: "+
+		"the system decides whether %s re-opens, and re-dispatches this draft once the amendment is committed.", len(nodes), in.Gate), nil
 }
 
 // filterErrorFindings keeps only SeverityError findings — the ones that fail the CI

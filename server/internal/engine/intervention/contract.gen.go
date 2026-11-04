@@ -154,6 +154,7 @@ const (
 	EstimateOverrun          VarianceKind = 3
 	NoProgress               VarianceKind = 4
 	PlanDefectReported       VarianceKind = 5
+	UpstreamDefectReported   VarianceKind = 6
 )
 
 // InterventionEngine is the generated service-contract interface for this component.

@@ -839,6 +839,11 @@ type venue struct {
 	bindPlan  bool
 	replan    func(run int, plan map[string]any)
 	testPlans int
+	// upstreamReport, when it answers for a design draft, makes that run report an upstream
+	// defect through the state tool instead of drafting; run counts the command's drafts from 1.
+	// draftRuns holds those counts, under mu.
+	upstreamReport func(run int, j agentJob) map[string]any
+	draftRuns      map[string]int
 }
 
 // openVenue points the venue at this scenario: the doubles first on PATH (never the
@@ -1117,6 +1122,21 @@ func (v *venue) draftFor(kind string) json.RawMessage {
 // model the app's own design state holds for the slot — through putDraftModel, and
 // publishes it.
 func (v *venue) draft(j agentJob) error {
+	v.mu.Lock()
+	if v.draftRuns == nil {
+		v.draftRuns = map[string]int{}
+	}
+	v.draftRuns[j.Command]++
+	run, report := v.draftRuns[j.Command], v.upstreamReport
+	v.mu.Unlock()
+	if report != nil {
+		if args := report(run, j); args != nil {
+			return v.withStateTool(j, func(s *stateSession) error {
+				_, err := s.call("reportUpstreamDefect", args)
+				return err
+			})
+		}
+	}
 	doc, err := readWorktreeProject(j.dir)
 	if err != nil {
 		return err
@@ -5314,5 +5334,154 @@ func assertResumedRedraftFirst(t *testing.T, jobs []agentJob) {
 	}
 	if len(order) != 2 || order[0] != "service-test-plan" || order[1] != "service-integration" {
 		t.Fatalf("after the resume the jobs are %v, want the plan's redraft and then integration", order)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The upstream defect route (FIX-044)
+// ---------------------------------------------------------------------------
+
+// upstreamProject arranges the project with every requirements artifact committed and the
+// architecture draft first to run, under vibes so the agent critics decide every gate, and ticks
+// the pump. The architecture draft's runs report what report says.
+func upstreamProject(t *testing.T, report func(run int, j agentJob) map[string]any) (*stack, *scenariohost.Host, delivery.DeliveryManager) {
+	t.Helper()
+	h := scenariohost.Start(t)
+	endHeldWorkflows(t, h, "requirements", "architecture", "projectDesign")
+	subject := newSubject(t, h)
+	s := stackOf(t, subject)
+	s.serve()
+	s.venue.mu.Lock()
+	s.venue.upstreamReport = report
+	s.venue.mu.Unlock()
+	src := source(t)
+	w := &writer{t: t, h: h, s: s}
+	w.create()
+	w.research(src.research)
+	for _, kind := range projectstate.AllArtifactKinds() {
+		if owner, drafted := designOwner[kind]; kind == projectstate.KindStandardCheck || drafted && owner != "requirements" {
+			continue
+		}
+		w.commit(kind, src.model(t, kind))
+	}
+	setPolicy(t, h, subject, vibes)
+	if _, err := subject.ExecuteNextActivity(callContext(t, h, ""), planProject, "dct-dm-upstream"); err != nil {
+		t.Fatalf("hooks: tick the pump: %v", err)
+	}
+	return s, h, subject
+}
+
+// firstActionNode is a node of the design state's core use cases that a call chain must realize.
+func firstActionNode(t *testing.T) map[string]any {
+	t.Helper()
+	m, err := source(t).models[projectstate.KindCoreUseCases].Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range m.(*projectstate.CoreUseCases).Decisions {
+		if d.UseCase.Activity == nil {
+			continue
+		}
+		for _, n := range d.UseCase.Activity.Nodes {
+			if n.Kind == projectstate.NodeAction {
+				return map[string]any{"useCase": string(d.UseCase.ID), "node": n.ID}
+			}
+		}
+	}
+	t.Fatal("the design state's core use cases hold no action node")
+	return nil
+}
+
+// upstreamArgs is a report naming node.
+func upstreamArgs(node map[string]any) map[string]any {
+	return map[string]any{"gate": "coreUseCasesReview", "nodeRefs": []any{node},
+		"rationale": "it only hands back what the node before it already produced"}
+}
+
+// designJobs is the run order of the design drafts and critiques of the two activities.
+func designJobs(s *stack) []string {
+	var out []string
+	for _, j := range s.venue.jobs() {
+		if j.Activity == "requirements" || j.Activity == "architecture" {
+			out = append(out, j.Activity+"/"+j.Command)
+		}
+	}
+	return out
+}
+
+// TestAnUpstreamDefectAmendsTheCoreUseCasesThroughTheirReview is the route end to end, on the
+// RUN-014 shape: the architecture draft reports a core-use-case node it cannot realize and
+// stops. The activity does not fail. The core use cases go back through their own draft and
+// critique carrying the architect's note, commit again, and only then does the architecture
+// draft run again, and the activity finishes.
+func TestAnUpstreamDefectAmendsTheCoreUseCasesThroughTheirReview(t *testing.T) {
+	node := firstActionNode(t)
+	s, h, subject := upstreamProject(t, func(run int, j agentJob) map[string]any {
+		if j.Command == "system-draft" && run == 1 {
+			return upstreamArgs(node)
+		}
+		return nil
+	})
+	awaitActivityState(t, h, subject, "architecture", delivery.ActivityViewDone)
+	want := []string{"architecture/system-draft", "requirements/core-use-cases-draft", "requirements/core-use-cases-critique",
+		"architecture/system-draft", "architecture/system-critique"}
+	if got := designJobs(s); !slices.Equal(got, want) {
+		t.Errorf("design jobs ran %v, want %v", got, want)
+	}
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "upstream-read"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reporter := projectstate.AttemptID("architecture", "architectureDraft", 1)
+	marker := "[upstream defect report " + reporter + "]"
+	if !slices.ContainsFunc(proj.CoreUseCases.ReviewThread, func(c projectstate.ReviewComment) bool {
+		return strings.Contains(c.Text, marker) && strings.Contains(c.Text, node["node"].(string))
+	}) {
+		t.Errorf("the committed core use cases' thread carries no note for the amendment: %+v", proj.CoreUseCases.ReviewThread)
+	}
+	if !slices.ContainsFunc(proj.ActivityExecution["requirements"].OperatorNotes, func(n projectstate.OperatorNote) bool {
+		return n.NoteID == "requirements:note:upstream:"+reporter && n.Kind == projectstate.NoteRequeue
+	}) {
+		t.Errorf("the requirements row holds no requeue note for the round trip: %+v", proj.ActivityExecution["requirements"].OperatorNotes)
+	}
+	var drafts []projectstate.TaskAttempt
+	for _, a := range proj.ActivityExecution["architecture"].Attempts {
+		if a.Task == "architectureDraft" {
+			drafts = append(drafts, a)
+		}
+	}
+	if len(drafts) != 2 || drafts[0].Outcome != projectstate.OutcomeFailed || !strings.Contains(drafts[0].Detail, "sent back to requirements.coreUseCasesReview") ||
+		drafts[1].Outcome != projectstate.OutcomePassed {
+		t.Errorf("the architecture draft's attempts are %+v, want the report sent back and then a passing redraft", drafts)
+	}
+}
+
+// TestANodeSentBackTwiceHoldsForTheOperator: the amendment kept the node as an action, and the
+// redraft reports it again. One bounce per node is the cap, so the second report re-opens
+// nothing; it holds the architecture draft for the operator with both rationales.
+func TestANodeSentBackTwiceHoldsForTheOperator(t *testing.T) {
+	node := firstActionNode(t)
+	s, h, subject := upstreamProject(t, func(_ int, j agentJob) map[string]any {
+		if j.Command == "system-draft" {
+			return upstreamArgs(node)
+		}
+		return nil
+	})
+	awaitActivityState(t, h, subject, "architecture", delivery.ActivityViewAwaitingHuman)
+	want := []string{"architecture/system-draft", "requirements/core-use-cases-draft", "requirements/core-use-cases-critique",
+		"architecture/system-draft"}
+	if got := designJobs(s); !slices.Equal(got, want) {
+		t.Errorf("design jobs ran %v, want %v and then a hold", got, want)
+	}
+	proj, err := s.ps.ReadProject(h.ResourceAccessContext(t, "upstream-repeat-read"), planProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts := proj.ActivityExecution["architecture"].Attempts
+	if last := attempts[len(attempts)-1]; last.Outcome != projectstate.OutcomeFailed || !strings.Contains(last.Detail, "came back as an action") {
+		t.Errorf("the held attempt is %+v, want it to name the repeat", last)
+	}
+	if row := proj.ActivityExecution["architecture"]; row.FailureReason != projectstate.FailureReasonUnknown || row.CompletedAt != nil {
+		t.Errorf("the architecture activity ended (%v), want it held", row.FailureReason)
 	}
 }

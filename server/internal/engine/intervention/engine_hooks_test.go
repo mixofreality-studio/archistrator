@@ -286,14 +286,17 @@ func TestPlanDefectTripsAreBoundedUnderTiers(t *testing.T) {
 		return got
 	}
 	tiered := intervention.InterventionPolicy{Mode: intervention.Tiered, RetryBudget: 2}
-	for trips, want := range []intervention.VarianceDirective{intervention.VarianceSendBack, intervention.VarianceSendBack, intervention.VarianceEscalate, intervention.VarianceEscalate} {
-		if got := decide(tiered, intervention.PlanDefectReported, int64(trips)); got != want {
-			t.Errorf("after %d trips the directive is %v, want %v", trips, got, want)
-		}
-	}
 	everything := intervention.InterventionPolicy{Mode: intervention.EscalateEverything}
-	if got := decide(everything, intervention.PlanDefectReported, 0); got != intervention.VarianceEscalate {
-		t.Errorf("escalate-everything answered %v, want an escalation", got)
+	// A design draft's report against an upstream artifact is held to the same bound.
+	for _, kind := range []intervention.VarianceKind{intervention.PlanDefectReported, intervention.UpstreamDefectReported} {
+		for trips, want := range []intervention.VarianceDirective{intervention.VarianceSendBack, intervention.VarianceSendBack, intervention.VarianceEscalate, intervention.VarianceEscalate} {
+			if got := decide(tiered, kind, int64(trips)); got != want {
+				t.Errorf("kind %v: after %d trips the directive is %v, want %v", kind, trips, got, want)
+			}
+		}
+		if got := decide(everything, kind, 0); got != intervention.VarianceEscalate {
+			t.Errorf("kind %v: escalate-everything answered %v, want an escalation", kind, got)
+		}
 	}
 	if got := decide(tiered, intervention.NoProgress, 0); got != intervention.VarianceGiveUp {
 		t.Errorf("no progress answered %v, want a give-up", got)

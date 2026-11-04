@@ -1993,6 +1993,8 @@ type projectDoc struct {
 	// (system test plan, harness, perf rig, quality gates, test runs, defects). Omitted
 	// until the first testing activity produces output.
 	TestingState *TestingState `json:"testingState,omitempty"`
+	// UpstreamDefects: see Project.UpstreamDefects. Omitted until a draft reports one.
+	UpstreamDefects []UpstreamDefectReport `json:"upstreamDefects,omitempty"`
 	// OperatorPaused is set when an operator pauses the project's construction
 	// (RecordOperatorPaused). Omitted when false so older project.json documents
 	// decode cleanly as the zero value (false = not paused).
@@ -2080,6 +2082,7 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		ServiceContracts:     doc.ServiceContracts,
 		PhaseArtifacts:       doc.PhaseArtifacts,
 		TestingState:         doc.TestingState,
+		UpstreamDefects:      doc.UpstreamDefects,
 		OperatorPaused:       doc.OperatorPaused,
 		PauseReason:          doc.PauseReason,
 		ReviewPolicy:         doc.ReviewPolicy,
@@ -2266,6 +2269,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		ServiceContracts:     p.ServiceContracts,
 		PhaseArtifacts:       p.PhaseArtifacts,
 		TestingState:         p.TestingState,
+		UpstreamDefects:      p.UpstreamDefects,
 		OperatorPaused:       p.OperatorPaused,
 		PauseReason:          p.PauseReason,
 		ReviewPolicy:         p.ReviewPolicy,
@@ -4229,6 +4233,9 @@ type ProjectEnvelope struct {
 	// plans themselves would risk the payload limit. A plan's review compares them against a plan
 	// defect report's baseline (PlanBindingDigests). omitempty keeps a planless payload as it was.
 	PlanBindingDigests map[string]string `json:"planBindingDigests,omitempty"`
+	// UpstreamDefects cross this boundary for the reporting activity's walk, which reads them
+	// off its branch. omitempty keeps a payload without one byte-identical to before.
+	UpstreamDefects []UpstreamDefectReport `json:"upstreamDefects,omitempty"`
 	// ModuleDir is the project's Go module directory (agent task spec): the task spec's
 	// edit scope and command checks are rooted there, so a spec resolved off this envelope
 	// must see it to hash the same as one resolved off the checkout. omitempty keeps every
@@ -4257,6 +4264,7 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 	out.ActivityExecution = p.ActivityExecution
 	out.ServiceContracts = p.ServiceContracts
 	out.TestingState = p.TestingState
+	out.UpstreamDefects = p.UpstreamDefects
 	if p.PhaseArtifacts != nil && len(p.PhaseArtifacts.TestPlan) > 0 {
 		digests, err := PlanBindingDigests(&p, slices.Sorted(maps.Keys(p.PhaseArtifacts.TestPlan)))
 		if err != nil {
@@ -4304,6 +4312,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	p.ServiceContracts = e.ServiceContracts
 	p.TestingState = e.TestingState
 	p.PlanDigests = e.PlanBindingDigests
+	p.UpstreamDefects = e.UpstreamDefects
 	p.ModuleDir = e.ModuleDir
 	p.OperatorPaused = e.OperatorPaused
 	p.PauseReason = e.PauseReason
@@ -5852,6 +5861,188 @@ type PlanDefectReport struct {
 	Baseline map[string]string `json:"baseline"`
 }
 
+// UpstreamDefectReport is one design draft's report that committed nodes of an UPSTREAM
+// artifact have no call to make: the architecture draft could not honestly realize them, so
+// the use-case model, not the architecture, is what is wrong (system-architect ruling on
+// FIX-044). An allegation and nothing more: it writes no upstream slot. The Manager admits it
+// mechanically and re-opens the upstream gate's judged pair, so the amendment goes through
+// that gate's critique and human commit. The agent names Gate, NodeRefs and Rationale; the
+// verb stamps the rest, so an agent cannot report for another attempt.
+type UpstreamDefectReport struct {
+	// ID is "<revision>:<activityType>:<gate>", so a repeat under one attempt replaces.
+	ID       string `json:"id"`
+	Activity string `json:"activity"`
+	Task     string `json:"task"`
+	Revision string `json:"revision"`
+	// ActivityType and Gate are the route the reporting task's lifecycle declares.
+	ActivityType string            `json:"activityType"`
+	Gate         string            `json:"gate"`
+	NodeRefs     []UpstreamNodeRef `json:"nodeRefs"`
+	Rationale    string            `json:"rationale"`
+}
+
+// UpstreamNodeRef names one activity-diagram node of a committed use case: the use case by
+// its name or id, the node by its id.
+type UpstreamNodeRef struct {
+	UseCase string `json:"useCase"`
+	Node    string `json:"node"`
+}
+
+// UpstreamNode is one admitted node reference, resolved: what the reader of the send-back sees.
+type UpstreamNode struct {
+	UseCaseID   string
+	UseCaseName string
+	NodeID      string
+	Kind        string
+	Label       string
+}
+
+// UpsertUpstreamDefect files r under its id: a repeat under one attempt replaces the earlier.
+func UpsertUpstreamDefect(p *Project, r UpstreamDefectReport) {
+	i := slices.IndexFunc(p.UpstreamDefects, func(o UpstreamDefectReport) bool { return o.ID == r.ID })
+	if i >= 0 {
+		p.UpstreamDefects[i] = r
+		return
+	}
+	p.UpstreamDefects = append(p.UpstreamDefects, r)
+}
+
+// UpstreamDefectID is the id a report made under revision against route is filed under.
+func UpstreamDefectID(revision string, route methodassets.UpstreamRoute) string {
+	return revision + ":" + route.ActivityType + ":" + route.Gate
+}
+
+// UpstreamRouteOf returns the route an activity's task declares to gate, or why it has none.
+func UpstreamRouteOf(p *Project, activity, task, gate string) (methodassets.UpstreamRoute, error) {
+	lc, err := ActivityLifecycle(p, activity)
+	if err != nil {
+		return methodassets.UpstreamRoute{}, err
+	}
+	for _, t := range lc.Tasks {
+		if t.ID != task {
+			continue
+		}
+		var gates []string
+		for _, r := range t.SendsUpstreamTo {
+			if r.Gate == gate {
+				return r, nil
+			}
+			gates = append(gates, r.ActivityType+"."+r.Gate)
+		}
+		if len(gates) == 0 {
+			return methodassets.UpstreamRoute{}, fmt.Errorf("task %s of activity %s declares no upstream route: fix this artifact yourself", task, activity)
+		}
+		return methodassets.UpstreamRoute{}, fmt.Errorf("task %s of activity %s may report only to %s, not to %q", task, activity, strings.Join(gates, ", "), gate)
+	}
+	return methodassets.UpstreamRoute{}, fmt.Errorf("activity %s's lifecycle has no task %q", activity, task)
+}
+
+// upstreamMustRealize reports whether an upstream defect may name a node of kind k: only the
+// kinds the architecture must realize with a call (methodcheck's CC-COVERAGE class). A note, a
+// decision or a merge carries no realization obligation, so nothing about it can block a chain.
+func upstreamMustRealize(k ActivityNodeKind) bool {
+	switch k {
+	case NodeAction, NodeTimeEvent, NodeAcceptEvent:
+		return true
+	case NodeStart, NodeDecision, NodeMerge, NodeFork, NodeJoin, NodeEnd, NodeSwimLane, NodeNote,
+		NodeLoop, NodeSwitch, NodeGoto, NodeInterruptEdge, NodeSendSignal, NodeObjectNode:
+		return false
+	}
+	return false
+}
+
+// AdmitUpstreamNodes is the mechanical admission of a report's node references against the
+// artifact the route's gate judges, as p has it committed. Every reference must resolve to a
+// node of a committed use case, of a kind the architecture must realize, and none may repeat.
+// Only the core use cases carry activity nodes, so a route to any other gate admits nothing.
+func AdmitUpstreamNodes(p *Project, route methodassets.UpstreamRoute, refs []UpstreamNodeRef) ([]UpstreamNode, error) {
+	kind, err := upstreamGateKind(route)
+	if err != nil {
+		return nil, err
+	}
+	if kind != KindCoreUseCases {
+		return nil, fmt.Errorf("gate %s judges %s, which has no activity nodes to name", route.Gate, kind.WireName())
+	}
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("name at least one node (nodeRefs)")
+	}
+	if p.CoreUseCases.Status != ReviewCommitted {
+		return nil, fmt.Errorf("the core use cases are not committed, so there is nothing upstream to report against")
+	}
+	cuc, ok := p.CoreUseCases.Model.(*CoreUseCases)
+	if !ok || cuc == nil {
+		return nil, fmt.Errorf("the committed core use cases carry no model")
+	}
+	seen := map[string]bool{}
+	out := make([]UpstreamNode, 0, len(refs))
+	for _, ref := range refs {
+		n, err := resolveUpstreamNode(cuc, ref)
+		if err != nil {
+			return nil, err
+		}
+		key := n.UseCaseID + "/" + n.NodeID
+		if seen[key] {
+			return nil, fmt.Errorf("node %s is named twice", key)
+		}
+		seen[key] = true
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// upstreamGateKind is the artifact kind the route's gate judges.
+func upstreamGateKind(route methodassets.UpstreamRoute) (ArtifactKind, error) {
+	lc, ok := methodassets.LifecycleFor(route.ActivityType)
+	if !ok {
+		return 0, fmt.Errorf("the method assets carry no lifecycle %q", route.ActivityType)
+	}
+	for _, g := range lc.Tasks {
+		if g.ID != route.Gate || g.Reviews == "" {
+			continue
+		}
+		for _, d := range lc.Tasks {
+			if d.ID != g.Reviews {
+				continue
+			}
+			name := d.ArtifactKind
+			if name != "" {
+				name = strings.ToLower(name[:1]) + name[1:]
+			}
+			if k, ok := ArtifactKindFromWireName(name); ok {
+				return k, nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("gate %s.%s judges no artifact slot", route.ActivityType, route.Gate)
+}
+
+// resolveUpstreamNode finds one reference among the committed use cases (by id, or by name
+// folded for case) and holds its node to the kinds a call chain must realize.
+func resolveUpstreamNode(cuc *CoreUseCases, ref UpstreamNodeRef) (UpstreamNode, error) {
+	want := strings.TrimSpace(ref.UseCase)
+	for _, d := range cuc.Decisions {
+		uc := d.UseCase
+		if string(uc.ID) != want && !strings.EqualFold(uc.Name, want) {
+			continue
+		}
+		if uc.Activity == nil {
+			return UpstreamNode{}, fmt.Errorf("use case %q has no activity diagram", uc.Name)
+		}
+		for _, n := range uc.Activity.Nodes {
+			if n.ID != strings.TrimSpace(ref.Node) {
+				continue
+			}
+			kind := activityNodeKindNames[n.Kind]
+			if !upstreamMustRealize(n.Kind) {
+				return UpstreamNode{}, fmt.Errorf("node %s of %q is a %s, which carries no realization obligation, so it cannot block a chain", n.ID, uc.Name, kind)
+			}
+			return UpstreamNode{UseCaseID: string(uc.ID), UseCaseName: uc.Name, NodeID: n.ID, Kind: kind, Label: n.Label}, nil
+		}
+		return UpstreamNode{}, fmt.Errorf("use case %q has no node %q", uc.Name, ref.Node)
+	}
+	return UpstreamNode{}, fmt.Errorf("no committed use case is named or identified %q", ref.UseCase)
+}
+
 // PlanBindingDigests digests each binding of the named contracts' plans, keyed
 // "<contract>:<scenario>". Equal digests mean the binding did not change.
 func PlanBindingDigests(p *Project, contracts []string) (map[string]string, error) {
@@ -6175,6 +6366,11 @@ type Project struct {
 	// plans (PlanBindingDigests); nil on a project read off the document, which has the plans.
 	PlanDigests  map[string]string `json:"-"`
 	TestingState *TestingState     `json:"testingState,omitempty"`
+
+	// UpstreamDefects are design drafts' reports that an upstream artifact's nodes have no
+	// call to make (UpstreamDefectReport). They live on the reporting activity's branch,
+	// where the Manager reads them; each carries an id, so siblings merge as a set.
+	UpstreamDefects []UpstreamDefectReport `json:"upstreamDefects,omitempty"`
 
 	// OperatorPaused is set when an operator pauses the project's construction
 	// (RecordOperatorPaused) and cleared when the operator resumes it

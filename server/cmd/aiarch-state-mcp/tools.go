@@ -255,6 +255,17 @@ func composedVerbs(s *Session) []composedVerb {
 				return "The draft passed the server codec and the Method CI rules and was written. Respond to any open review comments, then call publishDraft.", nil
 			}))
 		}},
+		{name: "reportUpstreamDefect", modes: []string{jobModeDraft}, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "reportUpstreamDefect",
+				Description: "Report that nodes of a COMMITTED upstream artifact cannot be honestly realized: an action/timeEvent/acceptEvent node at which no component makes a new call, " +
+					"because it only returns or renders a result an earlier node produced, or refuses on a verdict an earlier check already returned. You may not change the upstream artifact: " +
+					"the system sends it back through its own review with your rationale, and re-dispatches this draft once the amendment is committed. Only the gates your task declares are accepted. " +
+					"A missing component or edge is not an upstream defect: fix the decomposition in your own draft. Call publishDraft after it, and finish without a draft.",
+			}, textHandler(func(_ context.Context, in reportUpstreamDefectInput) (string, error) {
+				return s.reportUpstreamDefect(in)
+			}))
+		}},
 		{name: "respondToReviewComment", modes: []string{jobModeDraft, jobModeAnswer}, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "respondToReviewComment",

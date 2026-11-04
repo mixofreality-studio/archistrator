@@ -27200,7 +27200,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "x-enum-varnames": [
             "VarianceKindUnknown",
@@ -27208,7 +27209,8 @@
             "WorkerMiss",
             "EstimateOverrun",
             "NoProgress",
-            "PlanDefectReported"
+            "PlanDefectReported",
+            "UpstreamDefectReported"
           ],
           "x-go-base": "int"
         }

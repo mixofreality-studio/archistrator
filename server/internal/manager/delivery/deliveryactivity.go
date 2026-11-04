@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -423,6 +424,14 @@ func (wf *csWorkflows) produceDesignArtifact(
 		// a draft it fails the walk, because there is no artifact and no gate that could stand in
 		// for one.
 		return designFaultSubject(ctx, tc, attemptID, err.Error(), critique), critiqueSafeError(err, critique)
+	}
+	// A draft whose task declares an upstream route may have stopped on a defect upstream
+	// rather than drafting (FIX-044): its report is judged before its outcome is.
+	if !critique && len(tc.Task.SendsUpstreamTo) > 0 &&
+		workflow.GetVersion(ctx, changeUpstreamDefectRoute, workflow.DefaultVersion, 1) >= 1 {
+		if subject, routed, rerr := wf.routeUpstreamDefect(ctx, tc, attemptID, obs); routed {
+			return subject, rerr
+		}
 	}
 	if obs.Phase != PipelineSucceeded {
 		// The job RAN and FAILED (the draft failed, or the required CI check went red). Inferring
@@ -2107,6 +2116,9 @@ func (wf *csWorkflows) DeliveryActivityWorkflow(ctx workflow.Context, in deliver
 	overrides := workflow.GetSignalChannel(ctx, signalOperatorOverride)
 	redrafts := workflow.GetSignalChannel(ctx, lSignalRedraft)
 
+	if err := wf.rearmUpstream(ctx, in); err != nil {
+		return err
+	}
 	reviewPolicy, snap, err := wf.loadReviewSnapshot(ctx, in.csIn(), state)
 	if err != nil {
 		return err
@@ -2526,6 +2538,13 @@ func (wf *csWorkflows) runTask(
 		ws.produced[t.ID] = produced
 		ws.planDefects[t.ID] = produced.PlanDefectNote
 		return walkTaskSentBack, nil
+	}
+	if produced.UpstreamRedraft {
+		// The draft goes again at revision n+1: after its upstream round committed the
+		// amendment, after a refused report, or on the operator's retry of an escalation.
+		ws.produced[t.ID] = produced
+		ws.revision[t.ID]++
+		return walkTaskPending, nil
 	}
 	// The output is what a REVIEW task will cite, keyed by the task that produced it, so
 	// runGate can reach it through t.Reviews — a review task with a `reviews` target
@@ -7418,4 +7437,489 @@ func replanHold(reports []projectstate.PlanDefectReport, current map[string]stri
 	}
 	slices.Sort(changed)
 	return "this re-plan changed binding(s) the plan defect report did not name: " + strings.Join(changed, ", ")
+}
+
+// ---------------------------------------------------------------------------
+// THE ROUTE FROM A DESIGN DRAFT BACK TO AN UPSTREAM ARTIFACT (FIX-044)
+//
+// The architecture draft is checked against the core use cases, and a node at which no
+// component makes a new call cannot be realized honestly: CC-COVERAGE requires a call for it,
+// and inventing one, or demoting the node to clear the gate, makes the gate the reason the model
+// changed. The use case is then what is wrong, and the Method fixes a defect in the artifact
+// that owns it. So the draft alleges (reportUpstreamDefect) and stops, and this section decides
+// whether the allegation re-opens the upstream gate.
+//
+// It re-opens through that gate, never around it (system-architect ruling): the upstream
+// activity's walk re-opens the gate's judged pair, so the amendment is drafted against the
+// architect's rationale, critiqued by the PM and committed by the human gate. The reporting
+// task holds while that round is open, with the ratified artifact still in force, and is
+// re-dispatched against the amendment once it commits. Every refusal the route can reach that a
+// redraft cannot settle is a human intervention, never DesignJobFailed.
+//
+// Every fact lives on a ledger: the report on the reporting activity's branch, each admitted
+// round trip as the requeue note that re-armed the upstream row, keyed by the attempt that
+// caused it. Nothing resets across a continue-as-new or a fresh run.
+// ---------------------------------------------------------------------------
+
+// changeUpstreamDefectRoute fences the route: a history recorded before it never read the
+// reporting branch after a draft. Deploying it needs a workflow drain.
+const changeUpstreamDefectRoute = "upstream-defect-route"
+
+// upstreamDefectNoteGate is the gate the upstream row's requeue note is filed under: a re-open
+// the system made for a downstream report, not an operator's.
+const upstreamDefectNoteGate = "upstreamDefect"
+
+// upstreamReopen is what the upstream activity's walk is started with when a downstream draft's
+// report re-opens it: who reported, under which attempt, and the note the amendment answers.
+type upstreamReopen struct {
+	Reporter          ActivityID
+	ReporterAttemptID string
+	Note              string
+}
+
+// upstreamNoteID is the requeue note an admitted report leaves on the upstream row. It is keyed
+// by the reporting attempt, so a retried re-arm converges on one note, and its prefix is what
+// the round trips are counted by.
+func upstreamNoteID(target ActivityID, reporterAttemptID string) string {
+	return upstreamNotePrefix(target) + reporterAttemptID
+}
+
+func upstreamNotePrefix(target ActivityID) string {
+	return string(target) + ":note:upstream:"
+}
+
+// upstreamAdmission is an admitted report, resolved: everything the round needs.
+type upstreamAdmission struct {
+	report projectstate.UpstreamDefectReport
+	route  methodassets.UpstreamRoute
+	target ActivityID
+	nodes  []projectstate.UpstreamNode
+	trips  int64
+	note   string
+}
+
+// upstreamVerdict is what the judgement decided: admit, refuse (the redraft may correct the
+// report), or hold for a human. Exactly one of admitted, refusal and escalation is set.
+type upstreamVerdict struct {
+	admitted   *upstreamAdmission
+	refusal    string
+	escalation string
+}
+
+// routeUpstreamDefect is the route's entry from the design arm: it reads what the attempt
+// reported and, when it reported something, decides and runs the route. routed=false means the
+// attempt reported nothing (or its branch could not be read), and the design arm goes on as
+// before — a draft that committed nothing and filed no report stays DesignJobFailed.
+func (wf *csWorkflows) routeUpstreamDefect(
+	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation,
+) (producedSubject, bool, error) {
+	branch, err := wf.readActivityBranchProject(ctx, tc.In)
+	if err != nil {
+		workflow.GetLogger(ctx).Error("delivery.upstreamDefect.unreadable; the draft's outcome stands",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "err", err.Error())
+		return producedSubject{}, false, nil
+	}
+	report, ok := upstreamReportAt(&branch, string(tc.In.ActivityID), attemptID)
+	if !ok {
+		return producedSubject{}, false, nil
+	}
+	main, err := wf.readProject(ctx, tc.In.ProjectID)
+	if err != nil {
+		return producedSubject{}, true, err
+	}
+	detail := "the " + jobLabelDesign + " job for task " + tc.Task.ID + " reported an upstream defect against " +
+		report.ActivityType + "." + report.Gate + " (reached " + pipelinePhaseLabel(obs.Phase) + ")"
+	verdict := judgeUpstreamDefect(&main, &branch, tc.Task, string(tc.In.ActivityID), report)
+	if verdict.admitted != nil {
+		directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()},
+			intervention.ConstructionVariance{
+				// Fed from the ACTIVITY id, as runTaskVariance feeds it.
+				ProjectID:    intervention.ProjectID(tc.In.ActivityID),
+				ActivityID:   intervention.ActivityID(tc.In.ActivityID),
+				Kind:         intervention.UpstreamDefectReported,
+				AttemptCount: verdict.admitted.trips,
+				Policy:       wf.InterventionPolicy,
+			})
+		if derr != nil {
+			return producedSubject{}, true, fwmanager.MapError(derr)
+		}
+		if directive == intervention.VarianceSendBack {
+			subject, rerr := wf.runUpstreamRound(ctx, tc, attemptID, detail, *verdict.admitted)
+			return subject, true, rerr
+		}
+		verdict = upstreamVerdict{escalation: fmt.Sprintf("%d upstream round trip(s) already spent on %s.%s, and the drafts are not converging: %s",
+			verdict.admitted.trips, report.ActivityType, report.Gate, verdict.admitted.note)}
+	}
+	if verdict.refusal != "" {
+		workflow.GetLogger(ctx).Warn("delivery.upstreamDefect.refused", "activityId", tc.In.ActivityID,
+			"taskId", tc.Task.ID, "attemptId", attemptID, "reason", verdict.refusal)
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+			Detail: detail + " (the report was refused: " + verdict.refusal + ")", UpstreamRedraft: true}, true, nil
+	}
+	subject, eerr := wf.escalateUpstreamDefect(ctx, tc, attemptID, detail+" — held for the operator: "+verdict.escalation)
+	return subject, true, eerr
+}
+
+// upstreamReportAt is the report an attempt filed, if it filed one.
+func upstreamReportAt(p *projectstate.Project, activity, attemptID string) (projectstate.UpstreamDefectReport, bool) {
+	for _, r := range p.UpstreamDefects {
+		if r.Activity == activity && r.Revision == attemptID {
+			return r, true
+		}
+	}
+	return projectstate.UpstreamDefectReport{}, false
+}
+
+// judgeUpstreamDefect admits a report or says why not, over two recorded reads: main, which
+// holds the committed upstream artifact, the plan and the upstream row, and the reporting
+// branch, which holds the reports. Pure, so it replays deterministically.
+//
+//   - the route is one the task declares, the rationale is not blank, and every node is a node
+//     of the committed artifact the gate judges, of a kind a call chain must realize (the
+//     mechanical admission). A failure here is a refusal: the redraft can correct the report.
+//     A second refusal, or any rule below, holds for a human;
+//   - the target is the one activity of the route's type that precedes the reporter in the
+//     network, and nothing downstream of the target has passed without being downstream of the
+//     reporter too: a re-open must not leave a stale pass standing behind it;
+//   - no node comes back after an amendment it was already sent back for (the PM's cap: one
+//     bounce per node), so the two sides' reasoning goes to the operator instead.
+func judgeUpstreamDefect(
+	main, branch *projectstate.Project, task methodassets.LifecycleTask, activity string, report projectstate.UpstreamDefectReport,
+) upstreamVerdict {
+	if reason := upstreamMechanicalRefusal(main, task, report); reason != "" {
+		if prior := refusedUpstreamReports(main, branch, activity, report.Revision); prior > 0 {
+			return upstreamVerdict{escalation: "the report was refused again (" + reason + ")"}
+		}
+		return upstreamVerdict{refusal: reason}
+	}
+	route := methodassets.UpstreamRoute{ActivityType: report.ActivityType, Gate: report.Gate}
+	nodes, _ := projectstate.AdmitUpstreamNodes(main, route, report.NodeRefs)
+	target, reason := upstreamTarget(main, activity, route)
+	if reason != "" {
+		return upstreamVerdict{escalation: reason}
+	}
+	trips := upstreamTripReports(main, branch, activity, target)
+	if repeat := repeatedUpstreamNodes(report, trips); repeat != "" {
+		return upstreamVerdict{escalation: repeat}
+	}
+	return upstreamVerdict{admitted: &upstreamAdmission{
+		report: report, route: route, target: target, nodes: nodes, trips: int64(len(trips)),
+		note: upstreamDefectNote(activity, task.ID, report, nodes),
+	}}
+}
+
+// upstreamMechanicalRefusal is "" when the report names a declared route, a rationale and
+// committed nodes that must be realized, else why not.
+func upstreamMechanicalRefusal(main *projectstate.Project, task methodassets.LifecycleTask, report projectstate.UpstreamDefectReport) string {
+	route := methodassets.UpstreamRoute{ActivityType: report.ActivityType, Gate: report.Gate}
+	if !slices.Contains(task.SendsUpstreamTo, route) {
+		return "task " + task.ID + " declares no route to " + route.ActivityType + "." + route.Gate
+	}
+	if strings.TrimSpace(report.Rationale) == "" {
+		return "it carries no rationale"
+	}
+	if _, err := projectstate.AdmitUpstreamNodes(main, route, report.NodeRefs); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// upstreamTarget is the activity the route re-opens, or why the network forbids it.
+func upstreamTarget(main *projectstate.Project, reporter string, route methodassets.UpstreamRoute) (ActivityID, string) {
+	network, list, ok := committedPlanInputs(*main)
+	if !ok {
+		return "", "no committed plan says which activity precedes " + reporter
+	}
+	preds := networkPredecessors(network)
+	var targets []string
+	for _, a := range list.Activities {
+		if !preds[reporter][a.Name] {
+			continue
+		}
+		if lc, err := projectstate.ActivityLifecycle(main, a.Name); err == nil && lc.Type == route.ActivityType {
+			targets = append(targets, a.Name)
+		}
+	}
+	if len(targets) != 1 {
+		return "", fmt.Sprintf("%d activities of type %s precede %s in the network, want exactly one", len(targets), route.ActivityType, reporter)
+	}
+	target := targets[0]
+	for _, a := range list.Activities {
+		if a.Name == reporter || a.Name == target || !preds[a.Name][target] || preds[a.Name][reporter] {
+			continue
+		}
+		if row, held := main.ActivityExecution[a.Name]; held && projectstate.CoarsePhaseFor(row, nil) == projectstate.ActivityConstructionDone {
+			return "", "activity " + a.Name + " already passed behind " + target + " without depending on " + reporter + ", so re-opening " + target + " would leave its pass stale"
+		}
+	}
+	return ActivityID(target), ""
+}
+
+// networkPredecessors is, per activity, every activity it transitively depends on, through
+// milestones as well as activities.
+func networkPredecessors(n *projectstate.Network) map[string]map[string]bool {
+	direct := map[string][]string{}
+	for _, d := range n.Dependencies {
+		direct[d.Activity] = append(direct[d.Activity], d.DependsOn...)
+	}
+	for _, m := range n.Milestones {
+		direct[m.ID] = append(direct[m.ID], m.DependsOn...)
+	}
+	out := map[string]map[string]bool{}
+	var walk func(id string, into map[string]bool)
+	walk = func(id string, into map[string]bool) {
+		for _, dep := range direct[id] {
+			if !into[dep] {
+				into[dep] = true
+				walk(dep, into)
+			}
+		}
+	}
+	for id := range direct {
+		into := map[string]bool{}
+		walk(id, into)
+		out[id] = into
+	}
+	return out
+}
+
+// upstreamTripReports are the reporter's earlier reports that actually re-opened the target:
+// each left its requeue note on the target row, keyed by the attempt that made it.
+func upstreamTripReports(main, branch *projectstate.Project, reporter string, target ActivityID) []projectstate.UpstreamDefectReport {
+	tripped := map[string]bool{}
+	for _, n := range main.ActivityExecution[string(target)].OperatorNotes {
+		if attempt, ok := strings.CutPrefix(n.NoteID, upstreamNotePrefix(target)); ok {
+			tripped[attempt] = true
+		}
+	}
+	var out []projectstate.UpstreamDefectReport
+	for _, r := range branch.UpstreamDefects {
+		if r.Activity == reporter && tripped[r.Revision] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// refusedUpstreamReports counts the reporter's earlier reports that re-opened nothing.
+func refusedUpstreamReports(main, branch *projectstate.Project, reporter, revision string) int {
+	n := 0
+	for _, r := range branch.UpstreamDefects {
+		if r.Activity != reporter || r.Revision == revision {
+			continue
+		}
+		tripped := false
+		for _, note := range main.ActivityExecution {
+			tripped = tripped || slices.ContainsFunc(note.OperatorNotes, func(o projectstate.OperatorNote) bool {
+				return strings.HasSuffix(o.NoteID, ":note:upstream:"+r.Revision)
+			})
+		}
+		if !tripped {
+			n++
+		}
+	}
+	return n
+}
+
+// repeatedUpstreamNodes names a node an earlier round already sent back, with both sides'
+// reasoning, or "" when every node is new.
+func repeatedUpstreamNodes(report projectstate.UpstreamDefectReport, trips []projectstate.UpstreamDefectReport) string {
+	for _, prior := range trips {
+		for _, ref := range report.NodeRefs {
+			if slices.Contains(prior.NodeRefs, ref) {
+				return fmt.Sprintf("node %s/%s came back as an action after the amendment it was sent back for. Then: %s Now: %s",
+					ref.UseCase, ref.Node, prior.Rationale, report.Rationale)
+			}
+		}
+	}
+	return ""
+}
+
+// upstreamDefectNote is what the amendment is sent back with: the nodes, as committed, and the
+// architect's reasoning — a claim the amendment checks, and the customer behavior it must keep.
+func upstreamDefectNote(activity, task string, report projectstate.UpstreamDefectReport, nodes []projectstate.UpstreamNode) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "The %s draft (%s/%s) cannot realize these nodes with an honest call, so it reports them as defects in the committed core use cases:", activity, activity, task)
+	for _, n := range nodes {
+		fmt.Fprintf(&b, " %s/%s %q (%s);", n.UseCaseID, n.NodeID, n.Label, n.Kind)
+	}
+	fmt.Fprintf(&b, " Rationale: %s", report.Rationale)
+	b.WriteString(" Amend each named node so that an action is a place where some component makes a NEW call: a node that only returns or renders a result an earlier node produced, or refuses on a verdict an earlier check returned, is a note or a decision outcome. Keep the user-visible behavior (what the user sees or is told); reclassify it, never delete it.")
+	fmt.Fprintf(&b, " [upstream defect report %s]", report.Revision)
+	return b.String()
+}
+
+// runUpstreamRound sends the upstream artifact back and holds this task until the amendment
+// commits: the attempt is recorded first, so the ledger says why the task is waiting; the note
+// is seeded as an open comment on the committed artifact's thread, where the amendment's
+// drafter and critic read it; and the upstream walk is started re-opening the gate's judged
+// pair. Whatever stops the round short of the gate passing again holds for a human.
+func (wf *csWorkflows) runUpstreamRound(
+	ctx workflow.Context, tc taskContext, attemptID, detail string, adm upstreamAdmission,
+) (producedSubject, error) {
+	subject := producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+		Detail: detail + "; sent back to " + string(adm.target) + "." + adm.route.Gate + ": " + adm.note}
+	if err := wf.recordTaskAttempt(ctx, tc.In, tc.Task, tc, subject, tc.State); err != nil {
+		return subject, err
+	}
+	subject.AttemptRecorded = true
+	if err := wf.seedUpstreamComment(ctx, tc.In.ProjectID, adm); err != nil {
+		return wf.escalateRecordedUpstream(ctx, tc, subject, "the note could not be put on the core use cases' thread: "+err.Error())
+	}
+	workflow.GetLogger(ctx).Info("delivery.upstreamDefect.sentBack", "activityId", tc.In.ActivityID,
+		"target", adm.target, "gate", adm.route.Gate, "trips", adm.trips)
+	if reason := wf.awaitUpstreamRound(ctx, tc, attemptID, adm); reason != "" {
+		return wf.escalateRecordedUpstream(ctx, tc, subject, reason)
+	}
+	subject.UpstreamRedraft = true
+	return subject, nil
+}
+
+// seedUpstreamComment opens the note as a change request on the committed artifact's thread on
+// main, once: the upstream branch is refreshed from main before its redraft, so the drafter
+// must answer it, and the critic sees it.
+func (wf *csWorkflows) seedUpstreamComment(ctx workflow.Context, projectID ProjectID, adm upstreamAdmission) error {
+	main, err := wf.readProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	marker := "[upstream defect report " + adm.report.Revision + "]"
+	thread := main.CoreUseCases.ReviewThread
+	if slices.ContainsFunc(thread, func(c projectstate.ReviewComment) bool { return strings.Contains(c.Text, marker) }) {
+		return nil
+	}
+	var round int64 = 1
+	for _, c := range thread {
+		round = max(round, c.Round+1)
+	}
+	comment := projectstate.ReviewComment{
+		Anchor: "$.coreUseCases", AnchorText: "the committed core use cases", Text: adm.note,
+		AuthorRole: gateActorSystem, Type: projectstate.ReviewCommentTypeChangeRequest, Addressee: projectstate.ReviewAddresseeArchitect,
+	}
+	_, err = wf.applyRecovering(ctx, projectID, wf.readVersion(ctx, projectID), func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(projectID), expected, "",
+			projectstate.KindCoreUseCases, round, []projectstate.ReviewComment{comment}, nil)
+	})
+	return err
+}
+
+// awaitUpstreamRound starts the upstream walk re-opening the gate's judged pair and waits for
+// it, then checks the gate passed after the re-open. It answers "" when it did, else why not.
+func (wf *csWorkflows) awaitUpstreamRound(ctx workflow.Context, tc taskContext, attemptID string, adm upstreamAdmission) string {
+	main, err := wf.readProject(ctx, tc.In.ProjectID)
+	if err != nil {
+		return "the plan could not be read to re-open " + string(adm.target) + ": " + err.Error()
+	}
+	item, ok := committedActivityItem(main, string(adm.target))
+	if !ok {
+		return "activity " + string(adm.target) + " is not in the committed activity list"
+	}
+	sel := dispatchSelectionFor(main, string(adm.target), item)
+	if sel.Verdict != verdictDispatch {
+		return "activity " + string(adm.target) + " cannot be dispatched: " + sel.BlockedReason
+	}
+	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID:        deliveryActivityWorkflowID(tc.In.ProjectID, adm.target),
+		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
+	})
+	child := workflow.ExecuteChildWorkflow(cctx, executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: tc.In.ProjectID, ActivityID: adm.target, Activity: sel.Activity,
+		Reopen:   &redraftSignal{TaskID: adm.route.Gate, Feedback: &ReviewFeedback{Notes: adm.note}},
+		Upstream: &upstreamReopen{Reporter: tc.In.ActivityID, ReporterAttemptID: attemptID, Note: adm.note},
+	})
+	if err := child.Get(ctx, nil); err != nil {
+		if temporal.IsWorkflowExecutionAlreadyStartedError(err) {
+			return "activity " + string(adm.target) + " is already running, so it cannot be re-opened for this report"
+		}
+		return "the re-opened " + string(adm.target) + " did not finish: " + err.Error()
+	}
+	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(tc.In.ProjectID), string(adm.target))
+	if err != nil {
+		return "the re-opened " + string(adm.target) + " could not be read back: " + err.Error()
+	}
+	if !upstreamGatePassedAfter(row, adm.route.Gate, upstreamNoteID(adm.target, attemptID)) {
+		return "the re-opened " + string(adm.target) + " ended without " + adm.route.Gate + " passing again"
+	}
+	return ""
+}
+
+// upstreamGatePassedAfter reports whether the gate holds a passed round decided after the note
+// that re-armed the row for this report.
+func upstreamGatePassedAfter(row projectstate.ActivityExecution, gate, noteID string) bool {
+	i := slices.IndexFunc(row.OperatorNotes, func(n projectstate.OperatorNote) bool { return n.NoteID == noteID })
+	if i < 0 {
+		return false
+	}
+	rearmed := row.OperatorNotes[i].RecordedAt
+	for _, r := range row.Reviews {
+		decided, err := time.Parse(time.RFC3339Nano, r.DecidedAt)
+		if string(r.TaskID) == gate && r.Outcome == projectstate.RoundPassed && err == nil && decided.After(rearmed) {
+			return true
+		}
+	}
+	return false
+}
+
+// escalateUpstreamDefect records the attempt and holds it for the operator.
+func (wf *csWorkflows) escalateUpstreamDefect(ctx workflow.Context, tc taskContext, attemptID, detail string) (producedSubject, error) {
+	subject := producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: detail}
+	if err := wf.recordTaskAttempt(ctx, tc.In, tc.Task, tc, subject, tc.State); err != nil {
+		return subject, err
+	}
+	subject.AttemptRecorded = true
+	return wf.escalateRecordedUpstream(ctx, tc, subject, "")
+}
+
+// escalateRecordedUpstream holds an already-recorded attempt for the operator: a retry
+// re-dispatches the draft, a skip exits the activity skipped, and a window that closes with no
+// answer is the escalation's own timeout. It is the variance machinery's escalation, because the
+// failed attempt on the ledger is exactly what an operator's override names.
+func (wf *csWorkflows) escalateRecordedUpstream(ctx workflow.Context, tc taskContext, subject producedSubject, reason string) (producedSubject, error) {
+	detail := subject.Detail
+	if reason != "" {
+		detail += " — held for the operator: " + reason
+	}
+	verdict, held, err := wf.escalateTaskVariance(ctx, tc, detail, nil)
+	wf.reofferDeferred(ctx, tc, held)
+	if err != nil {
+		return subject, err
+	}
+	switch verdict {
+	case varianceRedispatch:
+		subject.UpstreamRedraft = true
+		return subject, nil
+	case varianceSkipped:
+		exited, gerr := wf.constructionGaveUp(ctx, tc, nil, projectstate.ActivityOutcomeSkipped, projectstate.FailureReasonUnknown, "")
+		return exited, gerr
+	case varianceEscalationTimedOut, varianceNoProgress, varianceSentBack:
+	}
+	return wf.constructionGaveUp(ctx, tc, nil, projectstate.ActivityOutcomeUnknown, projectstate.EscalationTimedOut,
+		"escalation timed out: no operator override within the escalation-wait window (underlying: "+detail+")")
+}
+
+// rearmUpstream re-arms this activity's exited row before its walk opens it, when the walk was
+// started by a downstream report. The requeue note it records is the round trip's ledger entry:
+// keyed by the reporting attempt, so a retry converges on it, and carrying the note.
+func (wf *csWorkflows) rearmUpstream(ctx workflow.Context, in deliveryActivityInput) error {
+	if in.Upstream == nil {
+		return nil
+	}
+	note := projectstate.OperatorNoteInput{
+		NoteID: upstreamNoteID(in.ActivityID, in.Upstream.ReporterAttemptID),
+		Kind:   projectstate.NoteRequeue, Gate: upstreamDefectNoteGate, Text: in.Upstream.Note,
+	}
+	for attempt := 0; ; attempt++ {
+		row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), string(in.ActivityID))
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(row.OperatorNotes, func(n projectstate.OperatorNote) bool { return n.NoteID == note.NoteID }) {
+			return nil
+		}
+		_, err = wf.Acts.ActivityExecutionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), row.Version,
+			string(in.ActivityID), note, "", projectstate.RepoCredential{})
+		if err == nil || !isConflict(err) || attempt+1 >= maxMutateConflictAttempts {
+			return err
+		}
+	}
 }

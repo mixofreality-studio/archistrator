@@ -9083,6 +9083,10 @@ type producedSubject struct {
 	PlanDefectSentBack bool
 	// PlanDefectNote is what the plan's redraft is sent back with.
 	PlanDefectNote string
+	// UpstreamRedraft says the walk must run this dispatch again at revision n+1: its report of
+	// an upstream defect was settled (the amendment committed, or the report was refused and
+	// the redraft may correct it), or an operator retried its escalation.
+	UpstreamRedraft bool
 }
 
 // deliveryActivityInput is the start payload for the GENERIC per-activity child.
@@ -9104,6 +9108,10 @@ type deliveryActivityInput struct {
 	// revision n+1 with the feedback as its steer — the send-back rule, applied at seed.
 	// nil on every pump start, every bootstrap and every continue-as-new.
 	Reopen *redraftSignal `json:",omitempty"`
+	// Upstream is set when a downstream draft's admitted report started this walk (FIX-044):
+	// the walk re-arms its own exited row with the round trip's requeue note before it opens
+	// it. nil on every other start and on every continue-as-new.
+	Upstream *upstreamReopen `json:",omitempty"`
 }
 
 // walkSnapshot is the walk across ContinueAsNew: exported fields, the four walk maps plus

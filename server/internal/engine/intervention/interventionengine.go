@@ -288,7 +288,10 @@ func (s tieredStrategy) decideOnVariance(v ConstructionVariance) VarianceDirecti
 	}
 	// Integration reports the plan, not its own work, as what is wrong. AttemptCount counts the
 	// round trips this activity already spent on that.
-	if v.Kind == PlanDefectReported {
+	// A design draft reports the upstream artifact, not its own work, as what is wrong, and the
+	// same bound holds its round trips: the first amendment fixes the named nodes, the second
+	// any they were masking, and a third means the two artifacts are not converging.
+	if v.Kind == PlanDefectReported || v.Kind == UpstreamDefectReported {
 		if v.AttemptCount < maxPlanDefectTrips {
 			return VarianceSendBack
 		}
