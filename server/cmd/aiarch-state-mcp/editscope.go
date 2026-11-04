@@ -36,6 +36,15 @@ package main
 // glob or an extra glob in the edit-scope grammar (projectstate.ValidEditScopeGlob).
 // Every path outside the scope is listed and the command exits 1; a bad flag, a git
 // failure or a spec error exits 2.
+//
+// THE ACTIVITY-LEVEL CHECK (FIX-040) runs beside the per-attempt one whenever there is a
+// main: the branch's NET diff, merge-base(main, head)..head, must lie inside the spec's
+// activityEditScope — the union of every lifecycle task's scope. The per-attempt base is the
+// tip before THIS attempt, so an out-of-scope commit a failed attempt left on the branch is
+// already in the next attempt's base and rode through (U-SPA-todo-mcp-app's hooks.go edit
+// failed integration:1, stayed, passed integration:2, and conflicted at the merge). The net
+// diff sees it on every later attempt until it is reverted. Content merged in from main is
+// not in it: after the walk's refresh (FIX-038) the merge-base is main's tip.
 
 import (
 	"bytes"
@@ -87,14 +96,31 @@ func runEditScope(args []string) error {
 	if err != nil {
 		return exitError{2, err}
 	}
+	stray, err := activityScopeViolations(wd, *spec, rng)
+	if err != nil {
+		return exitError{2, err}
+	}
+	var msgs []string
 	if len(bad) > 0 {
-		shown := make([]string, len(bad))
-		for i, p := range bad {
-			shown[i] = displayPath(p)
-		}
-		return exitError{1, fmt.Errorf("%d changed path(s) lie outside the task's edit scope:\n  %s", len(bad), strings.Join(shown, "\n  "))}
+		msgs = append(msgs, fmt.Sprintf("%d changed path(s) lie outside the task's edit scope:\n  %s", len(bad), shownPaths(bad)))
+	}
+	if len(stray) > 0 {
+		msgs = append(msgs, fmt.Sprintf("%d path(s) the branch changes against main lie outside the edit scope of every task of this activity — revert each of them on the branch (an earlier attempt may have left it):\n  %s",
+			len(stray), shownPaths(stray)))
+	}
+	if len(msgs) > 0 {
+		return exitError{1, errors.New(strings.Join(msgs, "\n"))}
 	}
 	return nil
+}
+
+// shownPaths is the paths as the gate prints them, one per line.
+func shownPaths(paths []string) string {
+	shown := make([]string, len(paths))
+	for i, p := range paths {
+		shown[i] = displayPath(p)
+	}
+	return strings.Join(shown, "\n  ")
 }
 
 // resolveEditScopeRange holds the flags to the strict forms: base and main full SHAs
@@ -147,7 +173,39 @@ func editScopeViolations(root, specPath string, rng editScopeRange) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	scope := spec.EditScope
+	changed, err := branchChangedPaths(root, rng)
+	if err != nil {
+		return nil, err
+	}
+	return outsideScope(spec.EditScope, changed)
+}
+
+// activityScopeViolations returns the sorted paths of the branch's net diff against main,
+// merge-base(main, head)..head, outside specPath's activityEditScope (FIX-040). With no
+// main (--no-main) there is nothing to net against, and the per-attempt check is already
+// the strict whole diff, so it reports nothing.
+func activityScopeViolations(root, specPath string, rng editScopeRange) ([]string, error) {
+	if rng.main == "" {
+		return nil, nil
+	}
+	spec, err := readSpecFile(specPath)
+	if err != nil {
+		return nil, err
+	}
+	mb, err := mergeBaseOf(root, rng.main, rng.head)
+	if err != nil {
+		return nil, err
+	}
+	net, err := treeDiffNames(root, mb, rng.head)
+	if err != nil {
+		return nil, err
+	}
+	return outsideScope(spec.ActivityEditScope, sortedKeys(net))
+}
+
+// outsideScope returns the paths of changed (sorted) that scope does not admit; the state
+// directory is always admitted.
+func outsideScope(scope projectstate.SpecEditScope, changed []string) ([]string, error) {
 	var globs []string
 	if !scope.StateOnly {
 		for _, c := range scope.Components {
@@ -159,10 +217,6 @@ func editScopeViolations(root, specPath string, rng editScopeRange) ([]string, e
 		if !projectstate.ValidEditScopeGlob(g) {
 			return nil, fmt.Errorf("the spec's edit-scope glob %q is not \"**\", \"<dir>/**\" or a literal path", g)
 		}
-	}
-	changed, err := branchChangedPaths(root, rng)
-	if err != nil {
-		return nil, err
 	}
 	var bad []string
 	for _, p := range changed {
@@ -186,13 +240,9 @@ func branchChangedPaths(root string, rng editScopeRange) ([]string, error) {
 	if rng.main == "" {
 		return sortedKeys(changed), nil
 	}
-	mbOut, err := isolatedGit(root, "merge-base", "--end-of-options", rng.main, rng.head)
+	mb, err := mergeBaseOf(root, rng.main, rng.head)
 	if err != nil {
 		return nil, err
-	}
-	mb := strings.TrimSuffix(mbOut, "\n")
-	if !fullSHA.MatchString(mb) {
-		return nil, fmt.Errorf("merge-base of main and head is %q, not one commit SHA", mb)
 	}
 	ownOfMain, err := treeDiffNames(root, mb, rng.head)
 	if err != nil {
@@ -204,6 +254,19 @@ func branchChangedPaths(root string, rng editScopeRange) ([]string, error) {
 		}
 	}
 	return sortedKeys(changed), nil
+}
+
+// mergeBaseOf is merge-base(main, head) as one full commit SHA, isolated.
+func mergeBaseOf(root, mainSHA, head string) (string, error) {
+	mbOut, err := isolatedGit(root, "merge-base", "--end-of-options", mainSHA, head)
+	if err != nil {
+		return "", err
+	}
+	mb := strings.TrimSuffix(mbOut, "\n")
+	if !fullSHA.MatchString(mb) {
+		return "", fmt.Errorf("merge-base of main and head is %q, not one commit SHA", mb)
+	}
+	return mb, nil
 }
 
 // treeDiffNames is the set of paths whose entry differs between the trees of the

@@ -11944,7 +11944,7 @@ const (
 // encoding — so a stale state tool is named as stale, not reported as "task spec
 // drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
 // charters and lifecycles.
-const TaskSpecSchemaVersion = 2
+const TaskSpecSchemaVersion = 3
 
 // StateToolVersion is the generation of the task-spec code a binary carries: the
 // method-assets module version it was built with (from its own build info; a workspace
@@ -11981,7 +11981,14 @@ type TaskSpec struct {
 	Prompt    SpecPrompt    `json:"prompt"`
 	Tools     SpecTools     `json:"tools"`
 	EditScope SpecEditScope `json:"editScope"`
-	Checks    []SpecCheck   `json:"checks"`
+	// ActivityEditScope is the union of the edit scopes of EVERY task in the activity's
+	// lifecycle (FIX-040). The gate holds the branch's NET diff against main to it, beside
+	// the per-attempt check against EditScope: a failed attempt's out-of-scope commit stays
+	// on the branch, so the next attempt's base already holds it and the per-attempt diff
+	// cannot see it. The union, not a per-task base, because sibling tasks of the same
+	// lifecycle commit to the branch between one task's attempts.
+	ActivityEditScope SpecEditScope `json:"activityEditScope"`
+	Checks            []SpecCheck   `json:"checks"`
 	// Contracts names the contracts whose generated Go the job writes before the agent runs
 	// (`make gen-models CONTRACTS=...`): this component's own, never a sibling's, whose
 	// delegating constructor needs a builder that does not exist yet. Empty for a task that
@@ -12130,6 +12137,7 @@ func TaskSpecFor(p *Project, activityID, taskID string) (TaskSpec, error) {
 	if err := validateEditScope(s.EditScope); err != nil {
 		return TaskSpec{}, fmt.Errorf("projectstate.TaskSpecFor: %s/%s: %w", activityID, taskID, err)
 	}
+	s.ActivityEditScope = activityEditScope(p, key, lc, item, activityID)
 	s.Contracts = generatedContractsOf(p, ms.Command, item.ComponentID)
 	s.Generate = generatorsOf(p, ms.Command, item.ComponentID)
 	s = s.normalized()
@@ -12199,6 +12207,49 @@ func EditScopeGlobMatch(g, p string) bool {
 	return p == g
 }
 
+// activityEditScope is the union of the edit scopes of every task of lc (FIX-040): each
+// component's paths and every extra glob any task may change, sorted and unique, and
+// StateOnly only when every task is state-only. It is a pure function of the project, the
+// activity and the embedded method assets, so the server and the job derive the same one.
+//
+// A task whose scope does not resolve YET contributes nothing rather than failing this task's
+// spec: a machine client's construction scope, for one, resolves only once its Manager's
+// contract is recorded, and its earlier tasks must still dispatch. Contributing nothing can
+// only make the union stricter, and a task that has not resolved has not run, so the branch
+// holds none of its edits.
+func activityEditScope(p *Project, key string, lc methodassets.Lifecycle, item ActivityItem, activityID string) SpecEditScope {
+	union := SpecEditScope{StateOnly: true}
+	paths := map[string]map[string]bool{}
+	extra := map[string]bool{}
+	for _, t := range lc.Tasks {
+		ms, err := methodassets.MethodSpecFor(key, t.ID, commandArgs(lc, t.ID, item.ComponentID, activityID))
+		if err != nil {
+			continue
+		}
+		scope, _, err := scopeAndChecks(p, ms, item)
+		if err != nil || scope.StateOnly || validateEditScope(scope) != nil {
+			continue
+		}
+		union.StateOnly = false
+		for _, c := range scope.Components {
+			if paths[c.ID] == nil {
+				paths[c.ID] = map[string]bool{}
+			}
+			for _, g := range c.Paths {
+				paths[c.ID][g] = true
+			}
+		}
+		for _, g := range scope.Extra {
+			extra[g] = true
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(paths)) {
+		union.Components = append(union.Components, SpecScopeComponent{ID: id, Paths: slices.Sorted(maps.Keys(paths[id]))})
+	}
+	union.Extra = slices.Sorted(maps.Keys(extra))
+	return union
+}
+
 // validateEditScope refuses a scope holding a glob outside the edit-scope grammar.
 func validateEditScope(scope SpecEditScope) error {
 	var globs []string
@@ -12242,6 +12293,13 @@ func (s TaskSpec) normalized() TaskSpec {
 		comps[i] = c
 	}
 	s.EditScope.Components = comps
+	s.ActivityEditScope.Extra = nonNil(s.ActivityEditScope.Extra)
+	acomps := make([]SpecScopeComponent, len(s.ActivityEditScope.Components))
+	for i, c := range s.ActivityEditScope.Components {
+		c.Paths = nonNil(c.Paths)
+		acomps[i] = c
+	}
+	s.ActivityEditScope.Components = acomps
 	if s.Checks == nil {
 		s.Checks = []SpecCheck{}
 	}

@@ -68,10 +68,18 @@ func (r gitRepo) commit(msg string, files map[string]string) string {
 	return r.git("rev-parse", "HEAD")
 }
 
-// writeSpec writes a spec carrying scope to a temp file and returns its path.
+// writeSpec writes a spec carrying scope to a temp file and returns its path. scope is
+// also the activity's (a one-task lifecycle's union); writeActivitySpec sets them apart.
 func writeSpec(t *testing.T, scope projectstate.SpecEditScope) string {
 	t.Helper()
-	s := projectstate.TaskSpec{Activity: "C-x", Task: "construction", EditScope: scope}
+	return writeActivitySpec(t, scope, scope)
+}
+
+// writeActivitySpec writes a spec whose task scope is scope and whose activity scope (the
+// union over its lifecycle) is activity.
+func writeActivitySpec(t *testing.T, scope, activity projectstate.SpecEditScope) string {
+	t.Helper()
+	s := projectstate.TaskSpec{Activity: "C-x", Task: "construction", EditScope: scope, ActivityEditScope: activity}
 	s.Hash = s.ComputeHash()
 	b, err := json.Marshal(s)
 	if err != nil {
@@ -406,5 +414,53 @@ func TestScopeGlobMatch(t *testing.T) {
 		if got := scopeGlobMatch(c.glob, c.path); got != c.want {
 			t.Errorf("scopeGlobMatch(%q, %q) = %v, want %v", c.glob, c.path, got, c.want)
 		}
+	}
+}
+
+// TestEditScope_AFailedAttemptsStrayEditFailsEveryLaterAttempt (FIX-040): integration:1 of
+// U-SPA-todo-mcp-app committed cmd/server/hooks.go, failed the gate on it, and left it on the
+// branch; integration:2's base already held it, so its own diff was clean and it passed with
+// the stray edit still there. The branch's net diff against main is judged too, so attempt 2
+// fails until the edit is reverted, and passes once it is.
+func TestEditScope_AFailedAttemptsStrayEditFailsEveryLaterAttempt(t *testing.T) {
+	r := newGitRepo(t)
+	main := r.git("rev-parse", "main")
+	task := projectstate.SpecEditScope{Components: []projectstate.SpecScopeComponent{{ID: "todo-web-app", Paths: []string{"webApp/src/**"}}}}
+	union := projectstate.SpecEditScope{
+		Components: []projectstate.SpecScopeComponent{{ID: "todo-web-app", Paths: []string{"webApp/**"}}},
+		Extra:      []string{"uitests/**"},
+	}
+	spec := writeActivitySpec(t, task, union)
+
+	base1 := r.git("rev-parse", "HEAD")
+	head1 := r.commit("integration:1", map[string]string{"webApp/src/app.ts": "x\n", "cmd/server/hooks.go": "package main\n"})
+	wantExit(t, r.runGate(spec, "--base", base1, "--head", head1, "--main", main), 1, "outside the task's edit scope", "cmd/server/hooks.go")
+
+	head2 := r.commit("integration:2", map[string]string{"webApp/src/app.ts": "y\n"})
+	if got := r.violations(spec, head1, head2); len(got) != 0 {
+		t.Fatalf("attempt 2's own diff is in scope, so the per-attempt check passes it: %v", got)
+	}
+	wantExit(t, r.runGate(spec, "--base", head1, "--head", head2, "--main", main), 1,
+		"outside the edit scope of every task of this activity", "cmd/server/hooks.go", "revert")
+	if err := r.runGate(spec, "--base", head1, "--head", head2, "--no-main"); err != nil {
+		t.Fatalf("with no main there is no net diff to judge: %v", err)
+	}
+
+	r.git("rm", "-q", "cmd/server/hooks.go")
+	r.git("commit", "-q", "-m", "revert the stray edit")
+	head3 := r.git("rev-parse", "HEAD")
+	if err := r.runGate(spec, "--base", head2, "--head", head3, "--main", main); err != nil {
+		t.Fatalf("a reverted stray edit no longer fails the gate: %v", err)
+	}
+
+	// Content a merge from main brought in is not the branch's.
+	r.git("checkout", "-q", "main")
+	r.commit("a sibling landed", map[string]string{"cmd/server/hooks.go": "package main\n// the sibling's mount\n"})
+	mainNow := r.git("rev-parse", "main")
+	r.git("checkout", "-q", "activity/C-x")
+	r.git("merge", "-q", "--no-edit", "main")
+	head4 := r.commit("integration:3", map[string]string{"webApp/src/app.ts": "z\n"})
+	if err := r.runGate(spec, "--base", head3, "--head", head4, "--main", mainNow); err != nil {
+		t.Fatalf("main's merged-in hooks.go is not the branch's edit: %v", err)
 	}
 }

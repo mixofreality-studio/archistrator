@@ -656,3 +656,62 @@ func TestTaskSpecForRefusesAGlobOutsideTheGrammar(t *testing.T) {
 		t.Fatalf("want an edit-scope glob error, got %v", err)
 	}
 }
+
+// FIX-040: every task of an activity carries the SAME activity edit scope — the union of
+// its lifecycle tasks' scopes — so the gate can hold the branch's net diff to it whichever
+// task is running. A frontend activity's union admits what its construction and integration
+// tasks may change and still keeps the composition root out.
+func TestTaskSpecActivityEditScopeIsTheLifecycleUnion(t *testing.T) {
+	p := ownProject(t)
+	lc, err := projectstate.ActivityLifecycle(p, "U-SPA-web-client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var union projectstate.SpecEditScope
+	for i, task := range lc.Tasks {
+		s, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", task.ID)
+		if err != nil {
+			t.Fatalf("%s: %v", task.ID, err)
+		}
+		if i == 0 {
+			union = s.ActivityEditScope
+		} else if !sameScope(union, s.ActivityEditScope) {
+			t.Fatalf("task %s carries a different activity scope: %+v vs %+v", task.ID, s.ActivityEditScope, union)
+		}
+		for _, g := range scopeGlobs(s.EditScope) {
+			if !slices.Contains(scopeGlobs(union), g) {
+				t.Errorf("the union lacks %s from task %s", g, task.ID)
+			}
+		}
+	}
+	if union.StateOnly || slices.Contains(scopeGlobs(union), "server/cmd/server/hooks.go") || slices.Contains(scopeGlobs(union), "**") {
+		t.Fatalf("a frontend activity's union must admit its files and not the composition root: %+v", union)
+	}
+	if !slices.IsSorted(union.Extra) {
+		t.Errorf("union extras are not sorted: %v", union.Extra)
+	}
+	design, err := projectstate.TaskSpecFor(p, "requirements", designPrefixTasks(t, "requirements")[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !design.ActivityEditScope.StateOnly {
+		t.Errorf("a design activity's union is state-only: %+v", design.ActivityEditScope)
+	}
+}
+
+// scopeGlobs is every glob a scope admits, its components' and its extras'.
+func scopeGlobs(scope projectstate.SpecEditScope) []string {
+	out := slices.Clone(scope.Extra)
+	for _, c := range scope.Components {
+		out = append(out, c.Paths...)
+	}
+	return out
+}
+
+// sameScope reports whether two scopes are identical.
+func sameScope(a, b projectstate.SpecEditScope) bool {
+	return a.StateOnly == b.StateOnly && slices.Equal(a.Extra, b.Extra) &&
+		slices.EqualFunc(a.Components, b.Components, func(x, y projectstate.SpecScopeComponent) bool {
+			return x.ID == y.ID && slices.Equal(x.Paths, y.Paths)
+		})
+}
