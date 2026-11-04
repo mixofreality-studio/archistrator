@@ -73,7 +73,7 @@ func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, strin
 	// Strict: agents have sent {component, scenarios}, and a lenient decode kept a plan with no
 	// bindings.
 	if err := decodeDraftStrict([]byte(`{"testPlan":`+string(rec)+`}`), &pl); err != nil {
-		return nil, "", fmt.Errorf("record does not conform to PhaseArtifactPayload: %w", err)
+		return nil, "", fmt.Errorf("record does not conform to PhaseArtifactPayload: %w — a testPlan's shape is %s", err, testPlanShape)
 	}
 	key, rec, err := canonicalPlanRecord(raw, component, rec, pl.TestPlan)
 	if err != nil {

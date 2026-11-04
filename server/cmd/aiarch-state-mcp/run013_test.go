@@ -144,6 +144,9 @@ func TestRecordPhaseArtifactRefusesArchivedLenientPayloads(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), `"`+wantKey+`"`) {
 				t.Fatalf("%s (%s) must be refused naming %q, got: %v", name, rec.Trace, wantKey, err)
 			}
+			if _, plan := rec.Payload["testPlan"]; plan && !strings.Contains(err.Error(), testPlanShape) {
+				t.Fatalf("a refused testPlan must name its shape, got: %v", err)
+			}
 			if s.wroteState {
 				t.Fatal("a refused record must write nothing")
 			}
@@ -188,7 +191,7 @@ func TestGateTestPlanRecordRefusesAnUnknownField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := gateTestPlanRecord(run013Raw(t), "todo-list-access", rec); err == nil || !strings.Contains(err.Error(), `"scenarios"`) {
+	if _, _, err := gateTestPlanRecord(run013Raw(t), "todo-list-access", rec); err == nil || !strings.Contains(err.Error(), `"scenarios"`) || !strings.Contains(err.Error(), testPlanShape) {
 		t.Fatalf("a plan under scenarios must be refused naming the key, got: %v", err)
 	}
 }

@@ -525,14 +525,25 @@ func decodePhaseArtifactPayload(payload map[string]any) (projectstate.PhaseArtif
 	// payload's untagged field names still match case-insensitively (srs, testPlan).
 	var pl projectstate.PhaseArtifactPayload
 	if err := decodeDraftStrict(b, &pl); err != nil {
+		hint := ""
+		for k := range payload {
+			if strings.EqualFold(k, "testPlan") {
+				hint = "; a testPlan's shape is " + testPlanShape
+			}
+		}
 		return projectstate.PhaseArtifactPayload{}, fmt.Errorf("the payload does not conform to PhaseArtifactPayload: %v"+
-			" — set exactly one payload field, with only the fields its record declares, and try again", err)
+			" — set exactly one payload field, with only the fields its record declares%s, and try again", err, hint)
 	}
 	if err := refuseBlankContent(pl); err != nil {
 		return projectstate.PhaseArtifactPayload{}, err
 	}
 	return pl, nil
 }
+
+// testPlanShape is a testPlan record's shape, named when one is refused: a strict decode names
+// only the stray key, and agents have put hook on the binding and expected values beside result.
+const testPlanShape = "{component, bindings:[{scenario, steps:[{seq, operation, inputs:[{name, value}], " +
+	"expect:{result, errorExpected, errorCode}, probes:[{for, component, operation, inputs, expect}], unobservable:[nodeId], hook}], skip:{reason, until}}]}"
 
 // refuseBlankContent: a content-bearing record is its markdown text, which the phases after it
 // read. One recorded with no content records nothing but a passing write.
