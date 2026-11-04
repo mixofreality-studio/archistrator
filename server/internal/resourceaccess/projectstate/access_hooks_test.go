@@ -3552,3 +3552,29 @@ func TestManagerDepsFromSystem(t *testing.T) {
 		t.Error("only a Manager has derived deps")
 	}
 }
+
+// TestCoarsePhaseFor_APumpOpenedRowIsRunningUntilItsExit (FIX-037): every gate of
+// U-SPA-todo-web-app had a passed attempt while its merge tail had not run, and the ledger
+// alone answered Done, so the bench tore down before the merge. A row the pump opened is
+// Done only on its binary exit; a backfilled row (no StartedAt) keeps the ledger's reading.
+func TestCoarsePhaseFor_APumpOpenedRowIsRunningUntilItsExit(t *testing.T) {
+	at := time.Date(2026, 11, 4, 12, 27, 23, 0, time.UTC)
+	allPassed := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseConstruction, Completed: true},
+		{Phase: projectstate.MethodPhaseIntegration, Completed: true},
+	}
+	opened := projectstate.ActivityExecution{StartedAt: &at}
+	if got := projectstate.CoarsePhaseFor(opened, allPassed); got != projectstate.ActivityConstructionRunning {
+		t.Errorf("a pump-opened row with every gate passed and no exit = %v, want Running", got)
+	}
+	exited := projectstate.ActivityExecution{StartedAt: &at, CompletedAt: &at}
+	if got := projectstate.CoarsePhaseFor(exited, allPassed); got != projectstate.ActivityConstructionDone {
+		t.Errorf("the same row after its exit = %v, want Done", got)
+	}
+	if got := projectstate.CoarsePhaseFor(projectstate.ActivityExecution{}, allPassed); got != projectstate.ActivityConstructionDone {
+		t.Errorf("a backfilled row with every gate passed = %v, want Done (architect ruling Q2)", got)
+	}
+	if got := projectstate.CoarsePhaseFor(opened, nil); got != projectstate.ActivityConstructionRunning {
+		t.Errorf("a pump-opened row with no resolved phases = %v, want Running", got)
+	}
+}

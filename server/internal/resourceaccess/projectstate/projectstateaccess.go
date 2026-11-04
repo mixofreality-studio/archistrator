@@ -8681,7 +8681,17 @@ func CoarsePhaseFor(r ActivityExecution, phases []PhaseCompletion) ActivityConst
 	if r.CompletedAt != nil {
 		return ActivityConstructionDone
 	}
+	// A ROW THE PUMP OPENED IS DONE ONLY ON ITS EXIT (FIX-037). The ledger resolves Done the
+	// instant every gate task has a passed attempt, which is BEFORE the merge tail runs; on a
+	// pump-opened row that reading is "every gate passed", not "the work landed".
+	// U-SPA-todo-web-app read Done here while its workflow was continuing-as-new into the
+	// merge, the bench tore down on it, and the merge never ran. This is the discriminator
+	// ResolveDependencySatisfied asks (wedge #6), moved into the one coarse rule so every
+	// reader agrees. A backfilled row (no StartedAt) keeps the ledger's Done (ruling Q2).
 	if coarse := CoarsePhase(phases); coarse != ActivityConstructionNotStarted {
+		if coarse == ActivityConstructionDone && PumpWroteRow(r) {
+			return ActivityConstructionRunning
+		}
 		return coarse
 	}
 	if r.StartedAt != nil {
