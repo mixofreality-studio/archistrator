@@ -464,3 +464,66 @@ func TestEditScope_AFailedAttemptsStrayEditFailsEveryLaterAttempt(t *testing.T) 
 		t.Fatalf("main's merged-in hooks.go is not the branch's edit: %v", err)
 	}
 }
+
+// TestActivityEditScope_FreshProjectUnion (FIX-040) derives the activity edit scope over a
+// FRESH project (RUN-011's todomvc state), not archistrator's own: every task of a browser
+// surface carries the same union, the union holds each task's own globs, and the composition
+// root stays outside it, so a surface's stray hooks.go edit fails the net-diff check. A design
+// activity's union is state-only.
+func TestActivityEditScope_FreshProjectUnion(t *testing.T) {
+	proj := run011Project(t)
+	const surface = "U-SPA-todo-web-app"
+	specs := resolvedSpecs(t, &proj, surface)
+	if len(specs) == 0 {
+		t.Fatalf("no task of %s resolves a spec on the fresh state", surface)
+	}
+	union := specs[0].ActivityEditScope
+	for _, s := range specs {
+		if !slices.Equal(scopeGlobsOf(union), scopeGlobsOf(s.ActivityEditScope)) || union.StateOnly != s.ActivityEditScope.StateOnly {
+			t.Fatalf("task %s carries a different activity scope: %+v vs %+v", s.Task, s.ActivityEditScope, union)
+		}
+		if missing := slices.DeleteFunc(scopeGlobsOf(s.EditScope), func(g string) bool {
+			return s.EditScope.StateOnly || slices.Contains(scopeGlobsOf(union), g)
+		}); len(missing) > 0 {
+			t.Errorf("the union lacks %v from task %s", missing, s.Task)
+		}
+	}
+	if union.StateOnly {
+		t.Fatalf("a browser surface's union must admit its files: %+v", union)
+	}
+	if bad, err := outsideScope(union, []string{"cmd/server/hooks.go", "webApp/src/todo-web-app/App.tsx"}); err != nil ||
+		!slices.Equal(bad, []string{"cmd/server/hooks.go"}) {
+		t.Fatalf("the union must admit the surface's files and not the composition root: bad=%v err=%v union=%+v", bad, err, union)
+	}
+	design := resolvedSpecs(t, &proj, "requirements")
+	if len(design) == 0 || !design[0].ActivityEditScope.StateOnly {
+		t.Errorf("a design activity's union is state-only: %+v", design)
+	}
+}
+
+// resolvedSpecs is the spec of every task of activityID that resolves on proj. A task that
+// does not resolve yet (integration needs the surface's recorded UI design) contributes
+// nothing to the union, so it is skipped here too.
+func resolvedSpecs(t *testing.T, proj *projectstate.Project, activityID string) []projectstate.TaskSpec {
+	t.Helper()
+	lc, err := projectstate.ActivityLifecycle(proj, activityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []projectstate.TaskSpec
+	for _, task := range lc.Tasks {
+		if s, err := projectstate.TaskSpecFor(proj, activityID, task.ID); err == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// scopeGlobsOf is every glob a scope admits, its components' and its extras'.
+func scopeGlobsOf(s projectstate.SpecEditScope) []string {
+	out := slices.Clone(s.Extra)
+	for _, c := range s.Components {
+		out = append(out, c.Paths...)
+	}
+	return out
+}
