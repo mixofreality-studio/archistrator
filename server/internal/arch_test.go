@@ -1036,6 +1036,18 @@ var encapsulationAllowlistData = map[string][]string{
 		// compares against the same digests, so the two sides cannot digest a binding differently.
 		"PlanBindingDigests",
 		"ActivityLifecycle",
+		// UpstreamRouteOf / AdmitUpstreamNodes / UpstreamNode / UpstreamDefectID /
+		// UpsertUpstreamDefect (FIX-044): pure reads and an in-memory upsert over the document
+		// model, same category and same two callers as PlanBindingDigests / ActivityLifecycle.
+		// aiarch-state-mcp's reportUpstreamDefect resolves the declared route, admits the node
+		// references against the committed core use cases and files the report through them, and
+		// the delivery Manager re-admits the same references against main, so the verb and the
+		// Manager's judgement cannot admit a node differently.
+		"UpstreamRouteOf",
+		"AdmitUpstreamNodes",
+		"UpstreamNode",
+		"UpstreamDefectID",
+		"UpsertUpstreamDefect",
 		// INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 		// ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 		// needs an explicit entry like the System model types) + its hand-written accessors.
