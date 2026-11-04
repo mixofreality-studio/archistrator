@@ -5489,7 +5489,8 @@ func finalizeCoreUseCasesIdentities(c *CoreUseCases) error {
 // so a drafting agent can correct the whole document in one pass rather than
 // discovering the faults one gate-rejection at a time.
 //
-// Scope: the two models that carry an identity GRAPH (CoreUseCases, System).
+// Scope: the two models that carry an identity GRAPH (CoreUseCases, System), and the
+// mission's objectives, whose statement is the identity every later artifact traces to.
 // Models whose identities are their own content (a glossary term, a volatility
 // id) are guarded by methodcheck's per-artifact rules. Semantic RESOLUTION —
 // does this reference name an entity that exists — stays with methodcheck
@@ -5502,12 +5503,25 @@ func ValidateModelIdentities(model ArtifactModel) error {
 		problems = coreUseCaseIdentityProblems(m)
 	case *System:
 		problems = systemIdentityProblems(m)
+	case *MissionStatement:
+		problems = missionObjectiveProblems(m)
 	}
 	if len(problems) == 0 {
 		return nil
 	}
 	return fmt.Errorf("%d identity problem(s) — an id must be non-EMPTY (\"\" satisfies the schema and then breaks every consumer that resolves it), and a component id must be its own kebab slug (its contract key is derived from it):\n  - %s",
 		len(problems), strings.Join(problems, "\n  - "))
+}
+
+// missionObjectiveProblems collects the objectives with no statement. An objective IS its
+// statement — every later artifact traces back to it — so a blank one is an empty identity:
+// RUN-011 committed seven of them after a lenient decode dropped the agent's "text" field.
+func missionObjectiveProblems(m *MissionStatement) []string {
+	var problems []string
+	for i, o := range m.Objectives {
+		problems = nonEmptyID(problems, o.Statement, fmt.Sprintf("objective %d: statement", i+1))
+	}
+	return problems
 }
 
 // nonEmptyID appends a problem when an identity is blank. label already names

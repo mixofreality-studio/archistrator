@@ -3468,3 +3468,27 @@ func TestStageArtifactForReview_RefusesASystemOffTheContractKeyDerivation(t *tes
 		t.Fatalf("staging the finalized System: %v", err)
 	}
 }
+
+// TestValidateModelIdentities_RefusesAnObjectiveWithNoStatement: an objective is its statement,
+// so a blank one is refused, each named by its position (RUN-011 committed seven).
+func TestValidateModelIdentities_RefusesAnObjectiveWithNoStatement(t *testing.T) {
+	m := &projectstate.MissionStatement{Vision: "v", Mission: "m", Objectives: []projectstate.Objective{
+		{Number: 1, Statement: "Keep the list."}, {Number: 2, Statement: "  "}, {},
+	}}
+	err := projectstate.ValidateModelIdentities(m)
+	if err == nil {
+		t.Fatal("an objective with no statement passed the identity gate")
+	}
+	for _, want := range []string{"objective 2: statement is empty", "objective 3: statement is empty"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "objective 1") {
+		t.Errorf("the refusal names a stated objective: %v", err)
+	}
+	m.Objectives = m.Objectives[:1]
+	if err := projectstate.ValidateModelIdentities(m); err != nil {
+		t.Errorf("a stated objective is refused: %v", err)
+	}
+}

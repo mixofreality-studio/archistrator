@@ -8,8 +8,11 @@ package main
 // byte-for-byte what the server accepts on read-back.
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -66,9 +69,10 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 	if !ok {
 		return fmt.Errorf("no model type for artifact kind %s", s.Kind)
 	}
-	if err := json.Unmarshal(modelJSON, model); err != nil {
+	if err := decodeDraftStrict(modelJSON, model); err != nil {
 		return fmt.Errorf("the %s model does not conform to its schema (the server would reject this on read-back): %v"+
-			" — a common cause is a closed-enum field carrying a free-text sentence instead of an exact wire value; fix the field and call putDraftModel again",
+			" — a common cause is a closed-enum field carrying a free-text sentence instead of an exact wire value,"+
+			" or a field spelled other than the schema spells it (an unknown field is refused, never dropped); fix the field and call putDraftModel again",
 			s.Kind.WireName(), err)
 	}
 
@@ -260,4 +264,22 @@ func formatFindings(findings []methodcheck.Finding) string {
 		fmt.Fprintf(&b, "  - [%s]%s %s\n", f.RuleID, loc, f.Message)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// decodeDraftStrict decodes a drafted model refusing any field its type does not declare. A
+// lenient decode drops a misspelled field and commits its zero value: RUN-011's mission agent
+// sent each objective as {"text": ...}, and seven objectives with empty statements were
+// committed as passing. The model types carry no struct-level UnmarshalJSON (only enum scalars
+// and ArtifactSlot do), so the refusal reaches every nested field. Trailing data is refused, as
+// json.Unmarshal refuses it.
+func decodeDraftStrict(modelJSON []byte, model any) error {
+	dec := json.NewDecoder(bytes.NewReader(modelJSON))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(model); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("unexpected data after the model object")
+	}
+	return nil
 }
