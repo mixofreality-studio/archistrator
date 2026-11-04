@@ -49,7 +49,7 @@ type recordServiceContractInput struct {
 // component/surface/resource/doc name).
 type recordPhaseArtifactInput struct {
 	MapKey  string         `json:"mapKey" jsonschema:"the map key this artifact is stored under (the component/surface/resource/doc name; a testPlan is filed under its contract key)"`
-	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE phase-artifact field set (e.g. SRS, UIDesign, IntegrationNote, ProvisioningSpec, DeployNote, DocOutline, DocNote)"`
+	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE phase-artifact field set (e.g. SRS, UIDesign, IntegrationNote, ProvisioningSpec, DeployNote, DocOutline, DocNote). A text record's markdown goes in content: SRS and IntegrationNote {component, content}, UXRequirements and UIDesign {surface, content}, ProvisioningSpec and DeployNote {resource, content}, DocOutline and DocNote {doc, content}; a testPlan is {component, bindings}. A key the record does not declare is refused, never dropped"`
 }
 
 // recordTestingStateInput carries a testing-state payload (a PhaseArtifactPayload with
@@ -149,10 +149,12 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 	if err != nil {
 		return err
 	}
+	// Strict: a lenient decode drops a misspelled key and records its zero value. RUN-013's agent
+	// sent interface.ops, and a Utility contract with no operations was written as passing.
 	var sc projectstate.ServiceContract
-	if err := json.Unmarshal(b, &sc); err != nil {
-		return fmt.Errorf("the service contract does not conform to its schema (the server would reject this on read-back): %v"+
-			" — fix the field and call recordServiceContract again", err)
+	if err := decodeDraftStrict(b, &sc); err != nil {
+		return fmt.Errorf("the service contract does not conform to its schema: %v"+
+			" — its shape is %s; fix the field and call recordServiceContract again", err, contractShape)
 	}
 	return s.applyConstructionMutation("service contract", func(p *projectstate.Project) error {
 		comp, key, err := contractComponent(*p, s.ComponentID)
@@ -163,6 +165,9 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 			return err
 		}
 		if err := layerFromSystem(comp, &sc); err != nil {
+			return err
+		}
+		if err := refuseOpLessContract(s.ComponentID, sc); err != nil {
 			return err
 		}
 		if err := depsFromSystem(*p, comp, &sc); err != nil {
@@ -180,6 +185,21 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		}
 		return nil
 	})
+}
+
+// contractShape is the input recordServiceContract takes, named in its refusals and its tool
+// description. The layer and a Manager's deps are derived from the System.
+const contractShape = "{title, $defs, interface:{name, operations:[{name, params:[{name, schema}], result, error}]}}"
+
+// refuseOpLessContract: a built component's contract is its operations. One with none generates an
+// empty interface that construction cannot build against, and no later gate notices: modelgen
+// allows zero ops, and the design-health rules count the System's verbs, not the contract's.
+func refuseOpLessContract(componentID string, sc projectstate.ServiceContract) error {
+	if sc.Stub || len(sc.Interface.Operations) > 0 {
+		return nil
+	}
+	return fmt.Errorf("recordServiceContract: a %s contract must declare at least one operation in interface.operations; "+
+		"each one a dynamic-view call into %s makes — its shape is %s", sc.Layer, componentID, contractShape)
 }
 
 // refuseClientContract: nobody authors a Client's contract. A browser surface's is derived from
@@ -500,10 +520,53 @@ func decodePhaseArtifactPayload(payload map[string]any) (projectstate.PhaseArtif
 	if err != nil {
 		return projectstate.PhaseArtifactPayload{}, err
 	}
+	// Strict, as recordServiceContract is: RUN-011 and RUN-012 committed integration notes with
+	// empty content because the agent's text was under summary or markdown and was dropped. The
+	// payload's untagged field names still match case-insensitively (srs, testPlan).
 	var pl projectstate.PhaseArtifactPayload
-	if err := json.Unmarshal(b, &pl); err != nil {
-		return projectstate.PhaseArtifactPayload{}, fmt.Errorf("the payload does not conform to PhaseArtifactPayload (the server would reject this on read-back): %v"+
-			" — set exactly one payload field and try again", err)
+	if err := decodeDraftStrict(b, &pl); err != nil {
+		return projectstate.PhaseArtifactPayload{}, fmt.Errorf("the payload does not conform to PhaseArtifactPayload: %v"+
+			" — set exactly one payload field, with only the fields its record declares, and try again", err)
+	}
+	if err := refuseBlankContent(pl); err != nil {
+		return projectstate.PhaseArtifactPayload{}, err
 	}
 	return pl, nil
+}
+
+// refuseBlankContent: a content-bearing record is its markdown text, which the phases after it
+// read. One recorded with no content records nothing but a passing write.
+func refuseBlankContent(pl projectstate.PhaseArtifactPayload) error {
+	type record struct{ field, content string }
+	var records []record
+	if pl.SRS != nil {
+		records = append(records, record{"SRS", pl.SRS.Content})
+	}
+	if pl.IntegrationNote != nil {
+		records = append(records, record{"IntegrationNote", pl.IntegrationNote.Content})
+	}
+	if pl.UXRequirements != nil {
+		records = append(records, record{"UXRequirements", pl.UXRequirements.Content})
+	}
+	if pl.UIDesign != nil {
+		records = append(records, record{"UIDesign", pl.UIDesign.Content})
+	}
+	if pl.ProvisioningSpec != nil {
+		records = append(records, record{"ProvisioningSpec", pl.ProvisioningSpec.Content})
+	}
+	if pl.DeployNote != nil {
+		records = append(records, record{"DeployNote", pl.DeployNote.Content})
+	}
+	if pl.DocOutline != nil {
+		records = append(records, record{"DocOutline", pl.DocOutline.Content})
+	}
+	if pl.DocNote != nil {
+		records = append(records, record{"DocNote", pl.DocNote.Content})
+	}
+	for _, r := range records {
+		if strings.TrimSpace(r.content) == "" {
+			return fmt.Errorf("the %s record has no content: the %s record's text goes in \"content\" (a markdown string)", r.field, r.field)
+		}
+	}
+	return nil
 }

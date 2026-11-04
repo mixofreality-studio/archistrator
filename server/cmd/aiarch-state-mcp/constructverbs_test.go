@@ -37,28 +37,36 @@ func projectWithComponent(t *testing.T, id string, kind ...projectstate.Componen
 	return p
 }
 
+// freshBus is a construct session over RUN-013's fresh project, ambient on its message bus, and
+// the bus's contract as its agent passed it with the operations under their declared key: a
+// contract has at least one operation, and TP-OP-REACHED holds each to a dynamic-view call, which
+// this project has.
+func freshBus(t *testing.T) (*Session, map[string]any) {
+	t.Helper()
+	c := run013Contract(t)
+	iface := c["interface"].(map[string]any)
+	iface["operations"] = iface["ops"]
+	delete(iface, "ops")
+	return run013Session(t), c
+}
+
 // TestRecordServiceContract_WritesAndValidates proves the detailed-design write lands
 // in .serviceContracts under the AMBIENT component's contract key (not its architecture
 // id) and passes the codec + methodcheck.
 func TestRecordServiceContract_WritesAndValidates(t *testing.T) {
-	s, _ := seedProject(t, projectWithComponent(t, "billing-engine"), jobModeConstruct, 0)
-	s.ComponentID = "billing-engine"
-	if err := s.recordServiceContract(map[string]any{
-		"component": "billingEngine",
-		"layer":     "Engine",
-		"title":     "Billing Engine",
-		"interface": map[string]any{"name": "BillingEngine"},
-	}); err != nil {
+	s, contract := freshBus(t)
+	contract["component"] = "messageBus"
+	if err := s.recordServiceContract(contract); err != nil {
 		t.Fatalf("recordServiceContract: %v", err)
 	}
 	proj, _, err := s.readProject()
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if proj.ServiceContracts["billingEngine"].Component != "billingEngine" {
+	if proj.ServiceContracts["messageBus"].Component != "messageBus" || len(proj.ServiceContracts["messageBus"].Interface.Operations) == 0 {
 		t.Fatalf("contract not written under the ambient component's contract key: %+v", proj.ServiceContracts)
 	}
-	if _, wrong := proj.ServiceContracts["billing-engine"]; wrong {
+	if _, wrong := proj.ServiceContracts["message-bus"]; wrong {
 		t.Fatalf("contract written under the architecture id, not the contract key: %+v", proj.ServiceContracts)
 	}
 	if !s.wroteState {
@@ -70,10 +78,12 @@ func TestRecordServiceContract_WritesAndValidates(t *testing.T) {
 // layer, which silently generated nothing, and an infra name that aborted generation for the
 // whole project much later.
 func TestRecordServiceContract_CanonicalizesAndRefusesAtTheVerb(t *testing.T) {
-	s, _ := seedProject(t, projectWithComponent(t, "billing-engine"), jobModeConstruct, 0)
-	s.ComponentID = "billing-engine"
+	s, base := freshBus(t)
 	contract := func(extra map[string]any) map[string]any {
-		c := map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine", "interface": map[string]any{"name": "BillingEngine"}}
+		c := maps.Clone(base)
+		c["layer"] = "Utility"
+		c["interface"] = maps.Clone(base["interface"].(map[string]any))
+		c["interface"].(map[string]any)["layer"] = "Utility"
 		maps.Copy(c, extra)
 		return c
 	}
@@ -88,7 +98,7 @@ func TestRecordServiceContract_CanonicalizesAndRefusesAtTheVerb(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if got := proj.ServiceContracts["billingEngine"].Interface.Layer; got != "engine" {
+	if got := proj.ServiceContracts["messageBus"].Interface.Layer; got != "utility" {
 		t.Fatalf("interface.layer = %q, want the canonical form", got)
 	}
 }

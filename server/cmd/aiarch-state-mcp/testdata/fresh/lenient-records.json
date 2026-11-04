@@ -1,0 +1,75 @@
+{
+  "run008SrsSections": {
+    "trace": "700c800b06dc3922c91eec39a0a1e9b4.jsonl",
+    "run": "run-20261102T084707Z-28e53206",
+    "mapKey": "list-record-access",
+    "payload": {
+      "SRS": {
+        "component": "list-record-access",
+        "responsibilities": [
+          "probe"
+        ],
+        "callers": [
+          "list-manager"
+        ],
+        "constraints": [
+          "probe"
+        ],
+        "openQuestions": [
+          "probe"
+        ]
+      }
+    }
+  },
+  "run012TestPlanScenarios": {
+    "trace": "20349bb576167a9b758f7dd8c44e8efb.jsonl",
+    "run": "run-20261104T092552Z-99080123",
+    "mapKey": "todoListAccess",
+    "payload": {
+      "testPlan": {
+        "component": "todoListAccess",
+        "scenarios": {
+          "add-a-todo-P1": {
+            "steps": [
+              {
+                "seq": 1,
+                "operation": "RecordNewTodo",
+                "inputs": {
+                  "member": {
+                    "id": "m-1"
+                  },
+                  "title": "Buy milk"
+                },
+                "expect": {
+                  "title": "Buy milk",
+                  "state": "active"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "run012IntegrationNoteSummary": {
+    "trace": "28f0d265ed0b9b3f1b4014cdac0babb7.jsonl",
+    "run": "run-20261104T092552Z-99080123",
+    "mapKey": "todo-mcp-server",
+    "payload": {
+      "IntegrationNote": {
+        "component": "todo-mcp-server",
+        "summary": "TodoMcpServer is wired to its single integration-scope neighbour, TodoListManager (todo-mcp-server \u2192 todo-list-manager, sync), matching the n1 step of uc-drive-the-todo-list-from-the-team-s-agent-tooling and the alt s2 calls of uc-tend-the-todo-list and uc-review-the-todo-list. Composition root: cmd/server/hooks.go ExtraMounts builds an mcp.Server, registers the generated todomcpserver/todolist Handler bound to the (WrapManagers-wrapped) TodoListManager, and serves it over MCP streamable HTTP at /mcp behind the same web.AuthMiddleware boundary as the web API. The agent tool's credential travels in each tool's arguments and the TodoListManager resolves it via MemberAccess and rules on it via AuthorizingEngine, so no new policy was added at the edge. No contract, test plan or generated file changed. Scenario hooks: newSubject returns the generated Handler bound to the real TodoListManager (generated constructor over the host's Temporal client, real AuthorizingEngine and ListViewingEngine, Postgres-backed TodoListAccess on a real Postgres via testinfra, ExternalHTTP MemberAccess against an httptest stand-in for the external IdentityProvider resource), served by a real worker on the manager's task queue. Step hooks seed the member's list through the real TodoListAccess (the standard three-todo list before a change scenario, the three-todo review list before a review scenario), resolve symbolic todo ids to the store ids, and call the tool over the in-process MCP client session. Result: run_checks 33/33 passing, including all 22 todoMcpServer scenarios."
+      }
+    }
+  },
+  "run012IntegrationNoteMarkdown": {
+    "trace": "32df4a75013e002cd58e5e84b88fee4c.jsonl",
+    "run": "run-20261104T092552Z-99080123",
+    "mapKey": "list-viewing-engine",
+    "payload": {
+      "IntegrationNote": {
+        "markdown": "# ListViewingEngine \u2014 Integration note (activity C-list-viewing-engine)\n\n## Call-chain edges\n- Inbound only: `todo-list-manager \u2192 list-viewing-engine` (sync, `ComposeView(list, filter) \u2192 todosInView, itemsLeft`), per dynamic views uc-review-the-todo-list (a2), uc-switch-between-all-active-and-completed (n2), uc-see-how-many-todos-are-left (n2), uc-find-my-todos-still-there-when-i-come-back (n1), uc-use-the-todo-list-inside-an-mcp-hosted-app (n2).\n- Outbound: none. The Engine is pure \u2014 the committed design gives it no ResourceAccess or Utility collaborators, so there is no downstream stack to wire.\n\n## Wiring\n- Built via the generated public constructor `listviewing.NewListViewingEngine()`; the Manager's composition root consumes the same constructor when TodoListManager is integrated (that edge is wired from the Manager's activity, not here).\n- No frozen contract, test plan or generated file was changed; no components added.\n\n## Test hooks\n- `engine_hooks_test.go` `newSubject` returns `listviewing.NewListViewingEngine()` \u2014 the real component, no mocks or fakes.\n- Package contains only `engine_scenarios.gen_test.go` and the hooks file.\n\n## Verification\n- `run_checks()`: 14 passed, 0 failed (all 6 generated ComposeView scenarios green)."
+      }
+    }
+  }
+}

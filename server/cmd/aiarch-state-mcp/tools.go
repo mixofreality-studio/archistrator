@@ -285,7 +285,9 @@ func composedVerbs(s *Session) []composedVerb {
 				Name: "recordServiceContract",
 				Description: "Record the frozen, typed service contract for THIS activity's component into the project state (the detailed-design phase artifact). " +
 					"It is validated through the FULL server codec AND the Method CI rules before it is accepted: if it fails, this returns the exact, actionable errors and writes NOTHING — fix them and call it again. " +
-					"You never choose the component; the ambient construction job fixes it. When it succeeds, finish with publishDraft.",
+					"You never choose the component; the ambient construction job fixes it. " +
+					"The contract's shape is " + contractShape + ": every field is one the contract declares (an unknown key is refused, never dropped), and interface.operations holds at least one operation, each one a dynamic-view call into the component makes. " +
+					"The layer, and a Manager's deps, are derived from the System. When it succeeds, finish with publishDraft.",
 			}, textHandler(func(_ context.Context, in recordServiceContractInput) (string, error) {
 				if err := s.recordServiceContract(in.Contract); err != nil {
 					return "", err

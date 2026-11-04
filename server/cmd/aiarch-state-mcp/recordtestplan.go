@@ -70,7 +70,9 @@ func runRecordTestPlan(args []string, stdout io.Writer) error {
 // document to write and the key.
 func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, string, error) {
 	var pl projectstate.PhaseArtifactPayload
-	if err := json.Unmarshal([]byte(`{"testPlan":`+string(rec)+`}`), &pl); err != nil {
+	// Strict: agents have sent {component, scenarios}, and a lenient decode kept a plan with no
+	// bindings.
+	if err := decodeDraftStrict([]byte(`{"testPlan":`+string(rec)+`}`), &pl); err != nil {
 		return nil, "", fmt.Errorf("record does not conform to PhaseArtifactPayload: %w", err)
 	}
 	key, rec, err := canonicalPlanRecord(raw, component, rec, pl.TestPlan)

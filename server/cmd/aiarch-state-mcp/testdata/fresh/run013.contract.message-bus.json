@@ -1,0 +1,113 @@
+{
+  "component": "messageBus",
+  "goPackage": "internal/utility/messagebus",
+  "title": "MessageBus contract",
+  "$defs": {
+    "Topic": {
+      "type": "string",
+      "description": "Opaque, non-empty scope key a change is published under and subscribed to. TodoListManager passes the owning Team Member's id, so a ListChanged for owner A never reaches a subscriber of owner B. The bus never derives or validates identity; it trusts the key it is given."
+    },
+    "ConsumerID": {
+      "type": "string",
+      "description": "Opaque id of the consumer (live view / agent session) that made a change. Carried on deliveries so a consumer can recognise and skip its own change ('every other consumer'). May be empty when the origin is unknown."
+    },
+    "Cursor": {
+      "type": "string",
+      "description": "Opaque position in a topic's change stream, issued only by the bus. Callers store and hand it back unchanged and never parse it. It encodes the bus instance epoch plus a per-topic sequence, so a cursor from before a restart is detected as stale."
+    },
+    "Published": {
+      "type": "object",
+      "description": "Acknowledgement of a publish: the cursor that now marks the topic's latest change.",
+      "properties": {
+        "topic": {
+          "$ref": "#/$defs/Topic"
+        },
+        "cursor": {
+          "$ref": "#/$defs/Cursor"
+        }
+      },
+      "required": [
+        "topic",
+        "cursor"
+      ]
+    },
+    "Delivery": {
+      "type": "object",
+      "description": "Result of one subscribe wait. changed=false means the wait ran out (or an empty cursor asked for a baseline) with no change past the given cursor. changed=true means the topic changed at least once past the cursor: the consumer should re-read the authoritative list. Several changes made during one wait arrive as a single delivery whose origin is the latest change's. The payload is only a signal and carries no list content.",
+      "properties": {
+        "topic": {
+          "$ref": "#/$defs/Topic"
+        },
+        "changed": {
+          "type": "boolean"
+        },
+        "cursor": {
+          "$ref": "#/$defs/Cursor"
+        },
+        "origin": {
+          "$ref": "#/$defs/ConsumerID"
+        }
+      },
+      "required": [
+        "topic",
+        "changed",
+        "cursor",
+        "origin"
+      ]
+    }
+  },
+  "interface": {
+    "name": "MessageBus",
+    "ops": [
+      {
+        "name": "Publish",
+        "params": [
+          {
+            "name": "topic",
+            "schema": {
+              "$ref": "#/$defs/Topic"
+            }
+          },
+          {
+            "name": "origin",
+            "schema": {
+              "$ref": "#/$defs/ConsumerID"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/Published"
+        },
+        "error": true
+      },
+      {
+        "name": "Subscribe",
+        "params": [
+          {
+            "name": "topic",
+            "schema": {
+              "$ref": "#/$defs/Topic"
+            }
+          },
+          {
+            "name": "cursor",
+            "schema": {
+              "$ref": "#/$defs/Cursor"
+            }
+          },
+          {
+            "name": "maxWaitMillis",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "result": {
+          "$ref": "#/$defs/Delivery"
+        },
+        "error": true
+      }
+    ]
+  },
+  "notes": "MessageBus (Utility, in-process). Facet: change notification scoped to a topic. Sole caller: todo-list-manager, sync, per the committed System.\n\nPublish(topic, origin) -> Published. Called in the 9 publish(ListChanged[owner]) dynamic-view steps after the mutation is durably stored. It advances the topic's sequence, records origin as the latest change's origin, and wakes every waiting Subscribe on that topic. It never blocks on subscribers, and having no subscribers is not an error, so a slow or vanished consumer can never fail the user's mutation. Error only for an empty topic (terminal: ErrInvalidTopic). It is not idempotent: each call is a new change. A duplicate publish is harmless, because consumers only re-read.\n\nSubscribe(topic, cursor, maxWaitMillis) -> Delivery. Called in the 2 subscribe(ListChanged[owner]) steps for the caller's live view. Each call is one bounded long-poll. Semantics:\n(a) An empty cursor returns immediately with changed=false and the topic's current cursor. Take this baseline BEFORE reading the list, so no change can fall between the read and the first wait.\n(b) If the topic has already moved past the cursor, the call returns immediately with changed=true.\n(c) Otherwise it waits up to maxWaitMillis (clamped to [0, 30000]; 0 means do not wait) for a Publish on the topic, then returns changed=true with the new cursor, or changed=false with the same cursor on timeout.\n(d) A cursor from another bus epoch (a restart) or that cannot be parsed counts as stale. The call returns immediately with changed=true and a fresh cursor, so the consumer re-reads.\nCancelling rc ends the wait early with the context error (transient). An empty topic gives ErrInvalidTopic (terminal). The call is read-only, so it is idempotent and safe to retry.\nA subscription is exactly as long as the caller keeps re-calling Subscribe with the last cursor. The bus keeps no per-subscriber registration, so an abandoned browser tab or embedded host leaks nothing and needs no Unsubscribe op. Back-pressure is coalesce-latest: a slow subscriber sees one delivery covering all missed changes and never starves others. Delivery is at-most-once and best-effort; the authoritative list stays in TodoStore.\n\nOpen-question resolutions (SRS):\n1. Payload is a signal only (topic, cursor, origin), never list content.\n2. Self-suppression belongs to the consumer, which compares origin with its own ConsumerID. The bus stays generic and carries the origin.\n3. Lifetime is call-bound, as described above. After a restart the epoch changes, so stale cursors force a re-read.\n4. Back-pressure is coalesce-latest.\n5. Generic topic/consumer keys. ListChanged is the only message carried today, and the Manager maps owner -> Topic.\n6. In-process only for the trial deployment. A networked broker can implement this same contract unchanged (cursor = broker offset), which is the propagation volatility it encapsulates.\n\nImplementation constraints: concurrency-safe (sync.Mutex plus a per-topic broadcast channel that is closed and replaced on each publish); tests must pass under the race detector with no sleeps; a topic's state is freed once it has no waiters and no publish for a while, or kept as a bare sequence counter.\n\nApp C §6 check:\n1 Reusable: PASS. The facet is generic change notification, and a broker-backed implementation would keep it unchanged.\n2a/2b Op count: WAIVED, 2 ops (fewer than the 3-5 target). The committed dynamic views call only publish and subscribe, and TP-OP-REACHED forbids adding unreached ops. Unsubscribe is designed away by the call-bound long-poll.\n2c/2d: PASS.\n3 No property-like ops: PASS.\n4 Contracts per service: PASS (1).\n5/6 Designer: PASS. Designed in the detailed-design phase under the senior hand-off, with architect review before construction."
+}
