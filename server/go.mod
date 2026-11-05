@@ -10,7 +10,7 @@ require (
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.3.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.21.0
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.21.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
