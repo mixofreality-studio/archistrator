@@ -14,6 +14,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
+
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -304,6 +306,14 @@ func TestRunChecksVerb_NotesUncommittedPaths(t *testing.T) {
 	inRepo(t, root, "git", "init", "-q")
 	inRepo(t, root, "git", "add", "-A")
 	inRepo(t, root, "git", "commit", "-q", "-m", "seed")
+	// The job seats the .claude prompt surface untracked before the agent starts; no edit scope
+	// admits it, so the note must not tell the agent to commit it.
+	if err := methodassets.MaterializeStep(root, "service-construction"); err != nil {
+		t.Fatal(err)
+	}
+	if st := inRepo(t, root, "git", "status", "--porcelain", "--untracked-files=all", "--", ".claude"); !strings.Contains(st, "?? .claude/") {
+		t.Fatalf("the seat must leave .claude untracked for this test to hold: %q", st)
+	}
 	fake := &fakeCheckExec{}
 	s := &Session{Mode: jobModeConstruct, StateRoot: root, ActivityID: "C-agentic-job-access", TaskID: "construction",
 		ComponentID: "agentic-job-access", git: runGit, checkExec: fake.exec}
@@ -311,7 +321,7 @@ func TestRunChecksVerb_NotesUncommittedPaths(t *testing.T) {
 
 	_, clean := mustRunChecks(t, cs, map[string]any{})
 	if strings.Contains(clean.Note, "not committed") {
-		t.Fatalf("a clean tree must carry no uncommitted note: %q", clean.Note)
+		t.Fatalf("a tree clean but for the seated prompt surface must carry no uncommitted note: %q", clean.Note)
 	}
 
 	writeRepoFile(t, root, "cmd/devstack/main.gen.go", []byte("package main\n"))
@@ -321,8 +331,8 @@ func TestRunChecksVerb_NotesUncommittedPaths(t *testing.T) {
 	if !strings.Contains(out.Note, "1 path(s) are not committed") || !strings.Contains(out.Note, "cmd/devstack/main.gen.go") {
 		t.Fatalf("the note must name the uncommitted generated file: %q", out.Note)
 	}
-	if strings.Contains(out.Note, ".aiarch/") {
-		t.Fatalf("the note must ignore .aiarch/: %q", out.Note)
+	if strings.Contains(out.Note, ".aiarch/") || strings.Contains(out.Note, ".claude/") {
+		t.Fatalf("the note must ignore .aiarch/ and the seated .claude/: %q", out.Note)
 	}
 	if !bytes.Equal(before, readStateFile(t, root)) || s.wroteState {
 		t.Fatal("run_checks must record nothing")

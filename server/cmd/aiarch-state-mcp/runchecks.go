@@ -423,7 +423,8 @@ func (s *Session) installWebProjects(ctx context.Context, spec projectstate.Task
 // uncommittedNoteMax caps how many uncommitted paths the note names.
 const uncommittedNoteMax = 20
 
-// uncommittedNote names the paths outside .aiarch/ that differ from HEAD, untracked included.
+// uncommittedNote names the paths that differ from HEAD, untracked included, outside the job's
+// own machinery (jobMachineryPath).
 // The verb runs the checks on the working tree, but the venue's gate judges the committed
 // head, so a generator output left uncommitted makes a check green here and red there (RUN-018:
 // cmd/devstack/main.gen.go regenerated untracked, "all 40 checks pass", the gate failed on
@@ -439,7 +440,7 @@ func uncommittedNote(root string) string {
 			continue
 		}
 		path := entry[3:]
-		if path == ".aiarch" || strings.HasPrefix(path, ".aiarch/") {
+		if jobMachineryPath(path) {
 			continue
 		}
 		paths = append(paths, path)
@@ -456,6 +457,19 @@ func uncommittedNote(root string) string {
 	}
 	return fmt.Sprintf("%d path(s) are not committed; the gate judges the committed tree, so these checks may pass here and fail there: %s%s. Commit them (generated files are in your scope) or remove them.",
 		len(paths), strings.Join(named, ", "), more)
+}
+
+// jobMachineryPath is a path the job itself puts in the checkout and no task commits: the
+// state tree, and the .claude prompt surface the job seats before the agent starts (seat-assets,
+// never repo-committed in an operated repo and admitted by no edit scope). Naming them would tell
+// the agent to commit what its edit scope refuses, on every call.
+func jobMachineryPath(path string) bool {
+	for _, dir := range []string{".aiarch", ".claude"} {
+		if path == dir || strings.HasPrefix(path, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // joinNotes joins the non-empty notes into one paragraph-separated note.
