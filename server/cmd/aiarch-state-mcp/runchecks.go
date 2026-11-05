@@ -291,7 +291,8 @@ type runChecksOutput struct {
 	Results []runChecksFailure `json:"results"`
 	LogRef  string             `json:"logRef"`
 	// Note leads a result when the spec this checkout resolves is not the one dispatched
-	// (R63): the checks still ran, against the current spec.
+	// (R63): the checks still ran, against the current spec. It also names the paths not yet
+	// committed, which the venue's gate on the committed head will not see.
 	Note string `json:"note,omitempty"`
 }
 
@@ -335,6 +336,7 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	if err := writeCheckResults(out, results); err != nil {
 		return runChecksOutput{}, fmt.Errorf("write the results: %w", err)
 	}
+	note = joinNotes(note, uncommittedNote(s.StateRoot))
 	titles := make(map[string]string, len(spec.Checks))
 	for _, c := range spec.Checks {
 		titles[c.ID] = c.Title
@@ -416,6 +418,44 @@ func (s *Session) installWebProjects(ctx context.Context, spec projectstate.Task
 		note = "The web project was installed. Commit its package.json, package-lock.json and src/contracts/schema.ts with your code."
 	}
 	return note
+}
+
+// uncommittedNoteMax caps how many uncommitted paths the note names.
+const uncommittedNoteMax = 20
+
+// uncommittedNote names the paths outside .aiarch/ that differ from HEAD, untracked included.
+// The verb runs the checks on the working tree, but the venue's gate judges the committed
+// head, so a generator output left uncommitted makes a check green here and red there (RUN-018:
+// cmd/devstack/main.gen.go regenerated untracked, "all 40 checks pass", the gate failed on
+// drift). It only reports: "" when the tree is clean or git cannot say.
+func uncommittedNote(root string) string {
+	out, err := isolatedGit(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--ignore-submodules=none")
+	if err != nil {
+		return ""
+	}
+	var paths []string
+	for _, entry := range strings.Split(out, "\x00") {
+		if len(entry) < 4 {
+			continue
+		}
+		path := entry[3:]
+		if path == ".aiarch" || strings.HasPrefix(path, ".aiarch/") {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) == 0 {
+		return ""
+	}
+	sort.Strings(paths)
+	named := paths
+	more := ""
+	if len(named) > uncommittedNoteMax {
+		named = named[:uncommittedNoteMax]
+		more = fmt.Sprintf(" (and %d more)", len(paths)-uncommittedNoteMax)
+	}
+	return fmt.Sprintf("%d path(s) are not committed; the gate judges the committed tree, so these checks may pass here and fail there: %s%s. Commit them (generated files are in your scope) or remove them.",
+		len(paths), strings.Join(named, ", "), more)
 }
 
 // joinNotes joins the non-empty notes into one paragraph-separated note.

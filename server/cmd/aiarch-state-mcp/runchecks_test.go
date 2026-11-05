@@ -294,6 +294,44 @@ func TestRunChecksVerb_NotesASpecThatDriftedSinceDispatch(t *testing.T) {
 	}
 }
 
+// TestRunChecksVerb_NotesUncommittedPaths: the gate judges the committed head, so the verb
+// names every path outside .aiarch/ that differs from HEAD (untracked included), and records
+// nothing. RUN-018: a generator rewrote cmd/devstack/main.gen.go untracked, the verb said all
+// checks pass, and the gate on the committed tree failed with drift.
+func TestRunChecksVerb_NotesUncommittedPaths(t *testing.T) {
+	root := seedOwnCheckout(t)
+	writeRepoFile(t, root, "README.md", []byte("committed\n"))
+	inRepo(t, root, "git", "init", "-q")
+	inRepo(t, root, "git", "add", "-A")
+	inRepo(t, root, "git", "commit", "-q", "-m", "seed")
+	fake := &fakeCheckExec{}
+	s := &Session{Mode: jobModeConstruct, StateRoot: root, ActivityID: "C-agentic-job-access", TaskID: "construction",
+		ComponentID: "agentic-job-access", git: runGit, checkExec: fake.exec}
+	cs := connectInMemory(t, s)
+
+	_, clean := mustRunChecks(t, cs, map[string]any{})
+	if strings.Contains(clean.Note, "not committed") {
+		t.Fatalf("a clean tree must carry no uncommitted note: %q", clean.Note)
+	}
+
+	writeRepoFile(t, root, "cmd/devstack/main.gen.go", []byte("package main\n"))
+	writeRepoFile(t, root, ".aiarch/scratch.txt", []byte("job scratch\n"))
+	before := readStateFile(t, root)
+	_, out := mustRunChecks(t, cs, map[string]any{})
+	if !strings.Contains(out.Note, "1 path(s) are not committed") || !strings.Contains(out.Note, "cmd/devstack/main.gen.go") {
+		t.Fatalf("the note must name the uncommitted generated file: %q", out.Note)
+	}
+	if strings.Contains(out.Note, ".aiarch/") {
+		t.Fatalf("the note must ignore .aiarch/: %q", out.Note)
+	}
+	if !bytes.Equal(before, readStateFile(t, root)) || s.wroteState {
+		t.Fatal("run_checks must record nothing")
+	}
+	if st := inRepo(t, root, "git", "status", "--porcelain", "--", "cmd"); !strings.Contains(st, "?? cmd/") {
+		t.Fatalf("the verb must leave the uncommitted file as it was: %q", st)
+	}
+}
+
 // TestRunChecksVerb_NeedsActivityAndTask: without the ambient activity or task the verb
 // fails naming the env var the dispatch should have stamped.
 func TestRunChecksVerb_NeedsActivityAndTask(t *testing.T) {
