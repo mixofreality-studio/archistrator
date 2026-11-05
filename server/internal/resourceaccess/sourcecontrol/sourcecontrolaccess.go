@@ -1193,7 +1193,7 @@ const StateMcpModulePath = "github.com/mixofreality-studio/archistrator/server/c
 // (cmd/aiarch-state-mcp/promptsurface_test.go): a prompt-referenced tool must exist at
 // HEAD, so a correct pin bump to a commit at-or-after the tool's introduction closes the
 // skew. TestStateMcpPinIsFullCommitSHA (below, access_test.go) enforces the pin's shape.
-var StateMcpModulePin = "04a453abe88b534a44b2644f31ca3548631f47cc"
+var StateMcpModulePin = "6860bf684d9527da5919f0c7e1743c9ce2b6f2e5"
 
 // NOTE (2026-06-15 correction): the embedded DESIGN workflow reads
 // ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} to authenticate claude-code-action, but that
