@@ -263,10 +263,14 @@ func derivedGoPackage(p projectstate.Project, c projectstate.Component, key stri
 }
 
 // layerWord is the trailing id word that names a component's layer, dropped from its package leaf.
+// A Utility's id carries no layer word, and a Client or a Resource records no built contract.
 var layerWord = map[projectstate.ComponentKind]string{
 	projectstate.CompResourceAccess: "access",
 	projectstate.CompEngine:         "engine",
 	projectstate.CompManager:        "manager",
+	projectstate.CompUtility:        "",
+	projectstate.CompClient:         "",
+	projectstate.CompResource:       "",
 }
 
 var goPackageLeafRE = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
