@@ -522,6 +522,9 @@ func assertContractRecorded(t *testing.T, c projectstate.Component, res *mcp.Cal
 	if c.Kind == projectstate.CompManager && !slices.ContainsFunc(slices.Collect(maps.Values(contracts)), func(sc projectstate.ServiceContract) bool { return sc.Layer == "Client" }) {
 		t.Errorf("recording Manager %q derived no machine client's contract: %v", c.ID, keysOfContracts(contracts))
 	}
+	if pkg := contracts[key].GoPackage; !strings.HasPrefix(pkg, "internal/") {
+		t.Errorf("component %q: contract recorded with goPackage %q, which no generator builds", c.ID, pkg)
+	}
 	if contracts[key].Component != key {
 		t.Errorf("component %q: contract not filed at .serviceContracts[%q]: %v", c.ID, key, keysOfContracts(contracts))
 	}
@@ -712,9 +715,13 @@ func rigRecordContract(t *testing.T, bin, repo, branch string, c projectstate.Co
 		envJobMode+"="+jobModeConstruct, envComponentID+"="+c.ID, envActivityID+"=C-"+c.ID,
 		envTargetBranch+"="+branch, envProjectID+"=rigproj", envStateRoot+"="+repo)
 	key := lowerCamelOfID(c.ID)
-	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
-		"contract": map[string]any{"component": key, "layer": contractLayerOf(c.Kind), "title": c.Name, "$defs": map[string]any{"T": map[string]any{"type": "string"}}, "interface": map[string]any{"name": contractInterfaceNameOf(key, c.Kind), "operations": rigOpsOf(t, repo, branch, c.ID)}},
-	})
+	contract := map[string]any{"component": key, "layer": contractLayerOf(c.Kind), "title": c.Name, "$defs": map[string]any{"T": map[string]any{"type": "string"}}, "interface": map[string]any{"name": contractInterfaceNameOf(key, c.Kind), "operations": rigOpsOf(t, repo, branch, c.ID)}}
+	// The verb derives a built contract's goPackage, so the contract is a buildable one, and a
+	// ResourceAccess must name the infrastructure it fronts, as a detailed-design agent does.
+	if c.Kind == projectstate.CompResourceAccess {
+		contract["infra"] = []string{"Postgres"}
+	}
+	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{"contract": contract})
 	if res.IsError {
 		return res, nil
 	}
