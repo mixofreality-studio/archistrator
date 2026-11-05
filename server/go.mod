@@ -129,7 +129,7 @@ require (
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.2.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.3.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/nexus-rpc/sdk-go v0.6.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect

@@ -169,6 +169,8 @@ github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0/go.mod h1:R5rsOKrof5VtqkMEoz1W/59ZtoeYVoeHBd5KpC5zhzY=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.2.0 h1:hE25jdwY9O6aETdpmr+Jq2ErLFhIdwaDr2AdoNg3IXk=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.2.0/go.mod h1:G8WFrT1cjtbsu+0Nd7RYWX21ajQ+tqJIXjOm84GSYOg=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.3.0 h1:FKLkbcN0EoD0TfaFakOIMCo0uXiZS6VDO98nzPe9dj0=
+github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.3.0/go.mod h1:G8WFrT1cjtbsu+0Nd7RYWX21ajQ+tqJIXjOm84GSYOg=
 github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.3.0 h1:lOF2/iCGstwg3J41s3+/yXepJXwMrpL+vqd18bVf1/0=
 github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.3.0/go.mod h1:YbfS35fW8k0sFydWYKFYdWDP64y4BzigHXUDMJRRDSs=
 github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0 h1:4t5ukp+YGh4BYqHA7RqpFxJa0snMzYmj7nPPHpZ427c=
