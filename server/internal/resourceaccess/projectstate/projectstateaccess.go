@@ -12889,14 +12889,21 @@ func appgenArgv(p *Project, sub string, extra ...string) []string {
 }
 
 // compositionPaths is what appgen writes and the integrating task may therefore commit:
-// generated files only, plus the hooks file it seeds once.
+// generated files only, plus the hooks file it seeds once. cmd/devstack is where `appgen
+// compose` writes the local run launcher (framework-go-app-generator rungen.Dir), which
+// gen-compose-check holds byte-for-byte; leaving it out made no committed tree able to pass
+// both that check and the edit-scope gate (RUN-018).
 func compositionPaths(p *Project) []string {
 	return []string{
 		inModule(p, "cmd/server") + generatedFilesGlobSuffix,
+		inModule(p, devstackDir) + generatedFilesGlobSuffix,
 		inModule(p, "internal/client") + generatedFilesGlobSuffix,
 		inModule(p, "api/openapi.yaml"),
 	}
 }
+
+// devstackDir is the package `appgen compose` writes the local run launcher to.
+const devstackDir = "cmd/devstack"
 
 // compositionChecks hold the generated composition root to the design and require it to build.
 // The build discards its binary: `go build` of one main package writes it to the working
@@ -12910,7 +12917,11 @@ func compositionPaths(p *Project) []string {
 // other transport (RUN-015: a catalog-only policy 403'd every per-todo call, first seen at the
 // SPA, which may not edit hooks.go).
 func compositionChecks(p *Project, dir string) []SpecCheck {
-	out := []SpecCheck{commandCheck("build-server", "The composition root builds", []string{"go", "build", "-o", "/dev/null", "./cmd/server/"}, dir, commandCheckTimeoutSec)}
+	out := []SpecCheck{
+		commandCheck("build-server", "The composition root builds", []string{"go", "build", "-o", "/dev/null", "./cmd/server/"}, dir, commandCheckTimeoutSec),
+		// The launcher acceptance boots is compiled in the activity that owns it, not first at acceptance.
+		commandCheck("build-devstack", "The local run contract builds", []string{"go", "build", "-o", "/dev/null", "./" + devstackDir + "/"}, dir, commandCheckTimeoutSec),
+	}
 	for _, sub := range compositionGenerators {
 		if sub == "temporal" {
 			continue // a Manager's task already checks it; a Client has no Temporal layer of its own

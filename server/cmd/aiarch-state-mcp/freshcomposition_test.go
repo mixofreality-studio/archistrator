@@ -443,6 +443,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 		"cmd/server/authz.gen.go", "cmd/server/authz.gen_test.go",
 		"internal/client/web/server.gen.go", "internal/client/web/list/list_handlers.gen.go",
 		"internal/client/machineapi/list/list_tools.gen.go", "api/openapi.yaml",
+		"cmd/devstack/main.gen.go",
 	} {
 		if _, err := os.Stat(filepath.Join(repo, want)); err != nil {
 			t.Errorf("the job did not write %s: %v", want, err)
@@ -454,7 +455,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 	statuses, logs := gate(t, repo, commandChecks(t, spec))
 	requirePassed(t, statuses, logs)
-	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy", freshPolicyCheck} {
+	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy", "command:build-devstack", freshPolicyCheck} {
 		if _, ok := statuses[want]; !ok {
 			t.Errorf("the integration gate has no %s: %v", want, statuses)
 		}
