@@ -142,6 +142,7 @@ func TestRun009ManagerPath(t *testing.T) {
 	runGenerators(t, repo, integrate)
 	inRepo(t, repo, "make", "gen-tests")
 	inRepo(t, repo, "go", "mod", "tidy")
+	fillPolicy(t, repo, ownScopePolicy)
 	requireInScope(t, repo, integrate)
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 	statuses, logs = gate(t, repo, commandChecks(t, integrate))
@@ -196,7 +197,7 @@ func stateContract(t *testing.T, repo, key string) (projectstate.ServiceContract
 // answers without its dependencies, so no worker has to serve a workflow for it here.
 const (
 	run009RESTSubject = `Manager: listkeeping.NewListKeepingManager(recognizing.NewRecognizingEngine(), nil, pubsub.NewPubSub()), Security: permitAll{}`
-	run009MCPSubject  = `Manager: listkeeping.NewListKeepingManager(recognizing.NewRecognizingEngine(), nil, pubsub.NewPubSub())`
+	run009MCPSubject  = `Manager: listkeeping.NewListKeepingManager(recognizing.NewRecognizingEngine(), nil, pubsub.NewPubSub()), Security: permitAll{}`
 )
 
 const run009ClientHooks = `// Package hooks for the client's scenario tests.

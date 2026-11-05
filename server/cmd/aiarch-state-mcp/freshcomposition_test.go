@@ -30,9 +30,10 @@ const (
 // through the verb derives them from the System's edges.
 const listManagerContract = `{
  "component": "listManager", "layer": "Manager", "goPackage": "internal/manager/list", "title": "list",
- "$defs": {"OwnerName": {"type": "string"}},
+ "$defs": {"OwnerName": {"type": "string"}, "TodoID": {"type": "string"}},
  "interface": {"name": "ListManager", "layer": "manager", "operations": [
-   {"name": "TakeStock", "params": [{"name": "owner", "schema": {"$ref": "#/$defs/OwnerName"}}], "result": {"$ref": "#/$defs/OwnerName"}, "error": true}
+   {"name": "TakeStock", "params": [{"name": "owner", "schema": {"$ref": "#/$defs/OwnerName"}}], "result": {"$ref": "#/$defs/OwnerName"}, "error": true},
+   {"name": "MarkTodo", "params": [{"name": "todoID", "schema": {"$ref": "#/$defs/TodoID"}}], "error": true}
  ]}
 }`
 
@@ -125,6 +126,8 @@ func (*listManager) TakeStock(_ manager.Context, owner OwnerName) (OwnerName, er
 	return owner, nil
 }
 
+func (*listManager) MarkTodo(manager.Context, TodoID) error { return nil }
+
 // WorkerManifest supplies this Manager's workflows to the generated RegisterManagerWorker.
 func (m *listManager) WorkerManifest() genWorkerManifest {
 	return genWorkerManifest{Activities: genActivities{CallerAccess: m.caller, TodoListAccess: m.todos, Clock: m.clock}}
@@ -208,7 +211,8 @@ func recordClientContracts(t *testing.T, proj *projectstate.Project, sys *projec
 }
 
 // withManagerDeps draws the Manager's Engine and Utility into the System: the components, their
-// edges, and a call to each in a step the Manager already works in, so every operation is reached.
+// edges, and a call to each in a step the Manager already works in, so every operation is reached;
+// the Manager's own MarkTodo is called there by the same caller.
 func withManagerDeps(t *testing.T, state []byte) []byte {
 	t.Helper()
 	var top map[string]any
@@ -226,8 +230,14 @@ func withManagerDeps(t *testing.T, state []byte) []byte {
 		for _, st := range v.(map[string]any)["steps"].([]any) {
 			step := st.(map[string]any)
 			for _, c := range step["calls"].([]any) {
-				if c.(map[string]any)["to"] == "list-manager" {
-					step["calls"] = append(step["calls"].([]any),
+				if call := c.(map[string]any); call["to"] == "list-manager" {
+					// The Manager's MarkTodo, which names a todo by an ID-suffixed param, is reached
+					// from the same caller.
+					markTodo := map[string]any{"from": call["from"], "to": "list-manager", "mode": "sync", "label": "markTodo(caller, todoId) → keptList"}
+					if alt, ok := call["alt"]; ok {
+						markTodo["alt"] = alt
+					}
+					step["calls"] = append(step["calls"].([]any), markTodo,
 						map[string]any{"from": "list-manager", "to": "rules-engine", "mode": "sync", "label": "Judge"},
 						map[string]any{"from": "list-manager", "to": "clock", "mode": "sync", "label": "Now"})
 					out, err := json.Marshal(top)
@@ -430,6 +440,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	inRepo(t, repo, "make", "gen-tests")
 	for _, want := range []string{
 		"cmd/server/main.gen.go", "cmd/server/config.gen.go", "cmd/server/hooks.go",
+		"cmd/server/authz.gen.go", "cmd/server/authz.gen_test.go",
 		"internal/client/web/server.gen.go", "internal/client/web/list/list_handlers.gen.go",
 		"internal/client/machineapi/list/list_tools.gen.go", "api/openapi.yaml",
 	} {
@@ -438,17 +449,24 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 		}
 	}
 	inRepo(t, repo, "go", "mod", "tidy")
+	fillPolicy(t, repo, ownListPolicyAdmittingTheGeneratedVerbs)
 	requireInScope(t, repo, spec)
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 	statuses, logs := gate(t, repo, commandChecks(t, spec))
 	requirePassed(t, statuses, logs)
-	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy"} {
+	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy", freshPolicyCheck} {
 		if _, ok := statuses[want]; !ok {
 			t.Errorf("the integration gate has no %s: %v", want, statuses)
 		}
 	}
 
 	requireNothingLeftBehind(t, repo)
+	requirePolicyRedOnAMismatch(t, repo, spec)
+	// The machine client composes the server too, so it cannot pass a policy that fails only on
+	// the web transport.
+	if machine := activitySpec(t, repo, freshMachineActivity, "integration"); !slices.ContainsFunc(machine.Checks, func(c projectstate.SpecCheck) bool { return c.ID == freshPolicyCheck }) {
+		t.Errorf("the machine client's integration does not hold the policy to the generated requests: %+v", machine.Checks)
+	}
 
 	// The drift checks are real: a stale generated file is red.
 	writeRepoFile(t, repo, "cmd/server/main.gen.go", []byte("package main\n"))
@@ -457,6 +475,91 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 		if statuses[id] == checkPass {
 			t.Errorf("%s stayed green over a stale main.gen.go", id)
 		}
+	}
+}
+
+// freshPolicyCheck is the composition check that runs the framework's generated
+// TestPolicyAdmitsEveryGeneratedRequest (FIX-046).
+const freshPolicyCheck = "command:policy-admits-generated-requests"
+
+// ownListPolicy is RUN-015's composition-root policy, verbatim: it admits its listed verbs on
+// the principal's own list catalog and nothing else. Its verbs are that run's ListManager's, so
+// it refuses this fixture's (take-stock, mark-todo): a policy that disagrees with the requests
+// the generated transports send.
+const ownListPolicy = `
+// listVerbs are the everyday list actions every channel may take.
+var listVerbs = map[string]bool{
+	"add-todo": true, "retitle-todo": true, "remove-todo": true, "mark-todo": true,
+	"toggle-all": true, "clear-completed": true, "review-list": true,
+}
+
+// ownListPolicy is the app's authorization policy: an authenticated principal may take
+// the everyday list actions on its own list catalog, and nothing else. Whose list the
+// action really lands on is decided by ListManager resolving the presented credential
+// (fail closed with ErrUnresolvedOwner); this edge check only refuses anonymous callers,
+// unknown verbs and requests aimed at another principal's catalog.
+type ownListPolicy struct{}
+
+func (ownListPolicy) Decide(_ context.Context, p security.Principal, a security.Action, r security.ResourceRef) (bool, error) {
+	if p.Subject == "" || !listVerbs[a.Verb] || r.Kind != "listCatalog" {
+		return false, nil
+	}
+	return r.ID == p.Subject, nil
+}
+`
+
+// ownListPolicyAdmittingTheGeneratedVerbs is the same policy listing this fixture's verbs. Its
+// Kind check is RUN-015's catalog-only one, which 403'd every per-todo call when the generator
+// sent Kind "todo": every generated request is now owner-scoped, MarkTodo(todoID) included, so
+// it admits them all.
+var ownListPolicyAdmittingTheGeneratedVerbs = strings.Replace(ownListPolicy, `"toggle-all": true,`, `"toggle-all": true, "take-stock": true,`, 1)
+
+// ownScopePolicy admits an authenticated principal every verb on its own scope: the policy a
+// Manager's integration fills when the app's only rule is "a user acts on their own".
+const ownScopePolicy = `
+// ownListPolicy admits an authenticated principal every verb on its own scope.
+type ownListPolicy struct{}
+
+func (ownListPolicy) Decide(_ context.Context, p security.Principal, _ security.Action, r security.ResourceRef) (bool, error) {
+	return p.Subject != "" && r.ID == p.Subject, nil
+}
+`
+
+// filledPolicyMarker separates the seeded hooks.go from the policy fillPolicy appends.
+const filledPolicyMarker = "\n// The app's authorization policy.\n"
+
+// fillPolicy answers the seeded hooks.go's PolicyDecisionPoint FILL with policy, which declares
+// ownListPolicy, as the Manager's integration does; a second call replaces the first's policy.
+func fillPolicy(t *testing.T, repo, policy string) {
+	t.Helper()
+	hooks := filepath.Join(repo, "cmd/server/hooks.go")
+	raw, err := os.ReadFile(hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, _, _ := strings.Cut(string(raw), filledPolicyMarker)
+	const fill = `panic("FILL: PolicyDecisionPoint")`
+	src = strings.Replace(src, fill, "return ownListPolicy{}", 1)
+	if !strings.Contains(src, "return ownListPolicy{}") {
+		t.Fatalf("the seeded hooks.go has no PolicyDecisionPoint to fill:\n%s", raw)
+	}
+	writeRepoFile(t, repo, "cmd/server/hooks.go", []byte(src+filledPolicyMarker+policy))
+}
+
+// requirePolicyRedOnAMismatch: RUN-015's policy verbatim refuses requests the generated
+// transports send, so the generated policy test is red in the Manager's own integration, the
+// activity that owns hooks.go, naming the refused request.
+func requirePolicyRedOnAMismatch(t *testing.T, repo string, spec projectstate.TaskSpec) {
+	t.Helper()
+	fillPolicy(t, repo, ownListPolicy)
+	statuses, logs := gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
+	if statuses[freshPolicyCheck] == checkPass || !strings.Contains(logs[freshPolicyCheck], `ListManager.TakeStock: the policy refuses`) {
+		t.Errorf("RUN-015's policy stayed green over a generated request it refuses: %s\n%s", statuses[freshPolicyCheck], logs[freshPolicyCheck])
+	}
+	fillPolicy(t, repo, ownListPolicyAdmittingTheGeneratedVerbs)
+	statuses, logs = gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
+	if statuses[freshPolicyCheck] != checkPass {
+		t.Errorf("a policy admitting every generated verb on the principal's own scope went red:\n%s", logs[freshPolicyCheck])
 	}
 }
 

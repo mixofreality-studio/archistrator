@@ -194,6 +194,7 @@ func TestMachineClientsCarryEveryContractShape(t *testing.T) {
 	runGenerators(t, repo, integrate)
 	inRepo(t, repo, "make", "gen-tests")
 	inRepo(t, repo, "go", "mod", "tidy")
+	fillPolicy(t, repo, ownScopePolicy)
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 

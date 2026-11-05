@@ -12901,6 +12901,14 @@ func compositionPaths(p *Project) []string {
 // compositionChecks hold the generated composition root to the design and require it to build.
 // The build discards its binary: `go build` of one main package writes it to the working
 // directory, where an agent's `git add -A` would commit it and fail its own edit scope.
+//
+// The policy check runs the framework's generated TestPolicyAdmitsEveryGeneratedRequest
+// (cmd/server/authz.gen_test.go): the composition root's policy must admit the local dev
+// principal every (verb, own scope) request the generated REST handlers and MCP tools send it.
+// Every task that composes the server runs it, so a policy refusing one of them is red in the
+// activity that owns hooks.go, and no machine client passes a policy that fails only on the
+// other transport (RUN-015: a catalog-only policy 403'd every per-todo call, first seen at the
+// SPA, which may not edit hooks.go).
 func compositionChecks(p *Project, dir string) []SpecCheck {
 	out := []SpecCheck{commandCheck("build-server", "The composition root builds", []string{"go", "build", "-o", "/dev/null", "./cmd/server/"}, dir, commandCheckTimeoutSec)}
 	for _, sub := range compositionGenerators {
@@ -12909,8 +12917,12 @@ func compositionChecks(p *Project, dir string) []SpecCheck {
 		}
 		out = append(out, commandCheck("gen-"+sub+"-check", "appgen "+sub+" output is current", appgenArgv(p, sub, "-check"), dir, commandCheckTimeoutSec))
 	}
-	return out
+	return append(out, commandCheck(policyCheckID, "The composition root's policy admits every request its generated transports send",
+		[]string{"go", "test", "./cmd/server/", "-run", "^TestPolicyAdmitsEveryGeneratedRequest$"}, dir, commandCheckTimeoutSec))
 }
+
+// policyCheckID names the composition check that holds the policy to the generated requests.
+const policyCheckID = "policy-admits-generated-requests"
 
 // webProjectDir is the one web project every browser surface of an app shares, at the repo
 // root whatever the module dir is.
