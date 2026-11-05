@@ -26,7 +26,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"go/token"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -167,6 +169,9 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		if err := layerFromSystem(comp, &sc); err != nil {
 			return err
 		}
+		if err := goPackageFromSystem(*p, comp, key, &sc); err != nil {
+			return err
+		}
 		if err := refuseOpLessContract(s.ComponentID, sc); err != nil {
 			return err
 		}
@@ -188,8 +193,88 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 }
 
 // contractShape is the input recordServiceContract takes, named in its refusals and its tool
-// description. The layer and a Manager's deps are derived from the System.
+// description. The goPackage, the layer and a Manager's deps are derived from the System, so the
+// shape leaves them out.
 const contractShape = "{title, $defs, interface:{name, operations:[{name, params:[{name, schema}], result, error}]}}"
+
+// goPackageFromSystem sets a built contract's Go package from its component, as layerFromSystem
+// sets its layer: internal/<layer>/<leaf>, the layout every app's components follow (modelgen and
+// the construction arch gate hold it). RUN-016's agent sent the advertised shape, with no
+// goPackage; the verb stored it, every generator skipped it without saying so, and construction
+// started with no generated contract. A supplied package is kept when it is one Go identifier
+// under the layer's directory, even if it is not the derived one; anything else would pass
+// modelgen's prefix check and fail to compile, so it is refused. A stub with none is left alone.
+func goPackageFromSystem(p projectstate.Project, c projectstate.Component, key string, sc *projectstate.ServiceContract) error {
+	layer, ok := modelgen.CanonicalLayer(sc.Layer)
+	if !ok {
+		return fmt.Errorf("recordServiceContract: component %q's layer %q has no package directory", c.ID, sc.Layer)
+	}
+	dir := "internal/" + layer + "/"
+	if sc.GoPackage != "" {
+		leaf, under := strings.CutPrefix(sc.GoPackage, dir)
+		if !under || !goPackageLeaf(leaf) {
+			return fmt.Errorf("recordServiceContract: goPackage %q must be one Go package directly under %s, named by a lowercase identifier (letters and digits, not a keyword); leave it out and it is derived from component %q, or correct it, and record again", sc.GoPackage, dir, c.ID)
+		}
+		return nil
+	}
+	if sc.Stub {
+		return nil
+	}
+	pkg, err := derivedGoPackage(p, c, key)
+	if err != nil {
+		return err
+	}
+	sc.GoPackage = pkg
+	return nil
+}
+
+// derivedGoPackage is the Go package a component's contract lands in: internal/<layer>/ and the
+// component's kebab id joined, without its trailing layer word (caller-access ->
+// internal/resourceaccess/caller, message-bus -> internal/utility/messagebus). The whole joined
+// id is the leaf when the strip leaves nothing, a keyword, or a package another component's
+// contract already holds.
+func derivedGoPackage(p projectstate.Project, c projectstate.Component, key string) (string, error) {
+	layer, ok := modelgen.CanonicalLayer(c.Kind.String())
+	if !ok {
+		return "", fmt.Errorf("recordServiceContract: component %q is a %s, which has no package directory", c.ID, c.Kind)
+	}
+	dir := "internal/" + layer + "/"
+	parts := strings.Split(strings.ToLower(c.ID), "-")
+	full := strings.Join(parts, "")
+	held := func(pkg string) bool {
+		for k, other := range p.ServiceContracts {
+			if k != key && other.GoPackage == pkg {
+				return true
+			}
+		}
+		return false
+	}
+	leaf := full
+	if word := layerWord[c.Kind]; word != "" && len(parts) > 1 && parts[len(parts)-1] == word {
+		leaf = strings.Join(parts[:len(parts)-1], "")
+	}
+	if !goPackageLeaf(leaf) || held(dir+leaf) {
+		leaf = full
+	}
+	if !goPackageLeaf(leaf) || held(dir+leaf) {
+		return "", fmt.Errorf("recordServiceContract: component %q's contract has no package of its own to derive (%s%s is not a free Go package name); name one in goPackage, one lowercase identifier under %s, and record again", c.ID, dir, leaf, dir)
+	}
+	return dir + leaf, nil
+}
+
+// layerWord is the trailing id word that names a component's layer, dropped from its package leaf.
+var layerWord = map[projectstate.ComponentKind]string{
+	projectstate.CompResourceAccess: "access",
+	projectstate.CompEngine:         "engine",
+	projectstate.CompManager:        "manager",
+}
+
+var goPackageLeafRE = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
+
+// goPackageLeaf is whether leaf can name a component package: one lowercase identifier, not a keyword.
+func goPackageLeaf(leaf string) bool {
+	return goPackageLeafRE.MatchString(leaf) && !token.IsKeyword(leaf)
+}
 
 // refuseOpLessContract: a built component's contract is its operations. One with none generates an
 // empty interface that construction cannot build against, and no later gate notices: modelgen

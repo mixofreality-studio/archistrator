@@ -1,0 +1,40 @@
+{
+  "title": "MessageBus: announces that a kept list changed (Publish ListChanged, scoped to one list, at-most-once, best-effort, non-fatal to the kept action)",
+  "$defs": {
+    "ListRef": {
+      "type": "string",
+      "description": "Opaque reference to one kept list, as resolved upstream by KeptListManager via CallerAccess. Scopes every announcement to exactly that list; a notice is never delivered to another list's views."
+    },
+    "ListChanged": {
+      "type": "object",
+      "description": "Notice, published by KeptListManager as the last step of every changing use case after the change is durably kept, that a kept list changed. Deliberately minimal: names the list only (no titles, done state or counts) so it cannot leak todo content; receivers re-read through the normal review path. Publish with no subscribers is a successful no-op; slow or absent subscribers never delay or fail Publish; delivery is at-most-once, best-effort, no persistence or replay; a duplicate only causes a redundant re-read. Publish returns an error only when the notice cannot be handed to the transport (empty listRef, transport closed); the caller treats it as non-fatal to the already-kept list action.",
+      "properties": {
+        "listRef": {
+          "$ref": "#/$defs/ListRef"
+        }
+      },
+      "required": [
+        "listRef"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "interface": {
+    "name": "MessageBus",
+    "operations": [
+      {
+        "name": "Publish",
+        "params": [
+          {
+            "name": "change",
+            "schema": {
+              "$ref": "#/$defs/ListChanged"
+            }
+          }
+        ],
+        "result": null,
+        "error": true
+      }
+    ]
+  }
+}
