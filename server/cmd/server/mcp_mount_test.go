@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 )
 
@@ -21,7 +22,7 @@ import (
 func TestMCPMountInitializeAndListTools(t *testing.T) {
 	// Dev mode: AuthMiddleware injects a principal and validates no token, so a
 	// nil validator is fine (mirrors the local ARCHISTRATOR_AUTH_DEV_MODE=true run).
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, "http://localhost:5173", "dev")
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, testSecurity(), nil, nil, nil, "http://localhost:5173", "dev")
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -80,3 +81,7 @@ func toolNames(tools []*mcp.Tool) []string {
 	}
 	return names
 }
+
+// testSecurity is the edge security the composition root serves with (the generated
+// edgeSecurity over this root's policy), for tests that mount the transports directly.
+func testSecurity() security.Security { return edgeSecurity(&appHooks{}) }

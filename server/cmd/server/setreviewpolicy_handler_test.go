@@ -179,11 +179,9 @@ func Test_StartProjectHandler_WithProjectID_Adopts(t *testing.T) {
 // ---------------------------------------------------------------------------
 // STAGE 4a PRE-FINAL — THE ADOPT ARM IS AUTHORIZED AGAINST THE PROJECT IT NAMES.
 //
-// Moving projectID off the path (above) also moved StartProject off the ONE mechanism
-// that binds an authorization decision to a project: the generator turns a leading ID
-// path param into Authorize(verb, {Kind:"project", ID:<id>}) and, with no path param,
-// falls back to the owner-scoped {Kind:"deliveryCatalog", ID:principal.Subject}. So an
-// adopt named a project the catalog decision never sees.
+// The generated handler authorizes every request owner-scoped,
+// {Kind:"deliveryCatalog", ID:principal.Subject} (FIX-046), so an adopt names a
+// project the edge decision never sees.
 // projectScopedDeliveryManager (hooks.go) re-asks that same question at the composition
 // root, over BOTH transports. These tests drive it through the generated handler with a
 // PDP that denies ONE project, which is what proves the resource ref is really bound —

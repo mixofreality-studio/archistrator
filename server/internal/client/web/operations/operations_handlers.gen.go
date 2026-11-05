@@ -79,7 +79,7 @@ func (h *Handler) handleApplyDelinquencyPolicy(w http.ResponseWriter, r *http.Re
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "apply-delinquency-policy"},
-		security.ResourceRef{Kind: "customer", ID: customerID.String()})
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -110,7 +110,7 @@ func (h *Handler) handleDeployAfterConstruction(w http.ResponseWriter, r *http.R
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "deploy-after-construction"},
-		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -142,7 +142,7 @@ func (h *Handler) handleQueryCostProjection(w http.ResponseWriter, r *http.Reque
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "query-cost-projection"},
-		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -170,7 +170,7 @@ func (h *Handler) handleQueryDeploymentHealth(w http.ResponseWriter, r *http.Req
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "query-deployment-health"},
-		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -199,7 +199,7 @@ func (h *Handler) handleQueryOperatedSystemView(w http.ResponseWriter, r *http.R
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "query-operated-system-view"},
-		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -263,7 +263,7 @@ func (h *Handler) handleRegisterOperatedApp(w http.ResponseWriter, r *http.Reque
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "register-operated-app"},
-		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -295,7 +295,7 @@ func (h *Handler) handleWithdrawSystem(w http.ResponseWriter, r *http.Request) {
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "withdraw-system"},
-		security.ResourceRef{Kind: "operatedapp", ID: operatedAppID.String()})
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return

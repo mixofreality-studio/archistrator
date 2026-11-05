@@ -24,6 +24,9 @@ const shellResourceURI = "ui://archistrator/shell.html"
 // Handler binds the DeliveryManager manager to MCP tools.
 type Handler struct {
 	Manager mgr.DeliveryManager
+	// Security is the edge policy every tool call is authorized against, the same
+	// one the generated REST handlers hold (the composition root's sec).
+	Security security.Security
 }
 
 // Register adds every operation as an mcp.Tool on srv, each carrying an
@@ -583,7 +586,16 @@ func enumSchemaProjectRunState() *jsonschema.Schema {
 // handleStartProject is the MCP tool handler for the StartProject operation.
 func (h *Handler) handleStartProject(ctx context.Context, _ *mcp.CallToolRequest, in startProjectInput) (*mcp.CallToolResult, startProjectOutput, error) {
 	var out startProjectOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "start-project"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.StartProject(rc, in.Owner, in.Name, in.ProjectID, in.Model, in.Research, in.Start)
 	if err != nil {
@@ -596,7 +608,16 @@ func (h *Handler) handleStartProject(ctx context.Context, _ *mcp.CallToolRequest
 // handleExecuteNextActivity is the MCP tool handler for the ExecuteNextActivity operation.
 func (h *Handler) handleExecuteNextActivity(ctx context.Context, _ *mcp.CallToolRequest, in executeNextActivityInput) (*mcp.CallToolResult, executeNextActivityOutput, error) {
 	var out executeNextActivityOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "execute-next-activity"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.ExecuteNextActivity(rc, in.ProjectID, in.TickID)
 	if err != nil {
@@ -609,7 +630,16 @@ func (h *Handler) handleExecuteNextActivity(ctx context.Context, _ *mcp.CallTool
 // handleDispatchActivityTask is the MCP tool handler for the DispatchActivityTask operation.
 func (h *Handler) handleDispatchActivityTask(ctx context.Context, _ *mcp.CallToolRequest, in dispatchActivityTaskInput) (*mcp.CallToolResult, dispatchActivityTaskOutput, error) {
 	var out dispatchActivityTaskOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "dispatch-activity-task"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.DispatchActivityTask(rc, in.ProjectID, in.ActivityID, in.TaskID, in.Feedback)
 	if err != nil {
@@ -622,7 +652,16 @@ func (h *Handler) handleDispatchActivityTask(ctx context.Context, _ *mcp.CallToo
 // handleSubmitReviewDecision is the MCP tool handler for the SubmitReviewDecision operation.
 func (h *Handler) handleSubmitReviewDecision(ctx context.Context, _ *mcp.CallToolRequest, in submitReviewDecisionInput) (*mcp.CallToolResult, submitReviewDecisionOutput, error) {
 	var out submitReviewDecisionOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "submit-review-decision"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.SubmitReviewDecision(rc, in.ProjectID, in.ActivityID, in.TaskID, in.Decision, in.Feedback); err != nil {
 		return nil, out, mapManagerError(err)
@@ -633,7 +672,16 @@ func (h *Handler) handleSubmitReviewDecision(ctx context.Context, _ *mcp.CallToo
 // handleAskQuestions is the MCP tool handler for the AskQuestions operation.
 func (h *Handler) handleAskQuestions(ctx context.Context, _ *mcp.CallToolRequest, in askQuestionsInput) (*mcp.CallToolResult, askQuestionsOutput, error) {
 	var out askQuestionsOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "ask-questions"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.AskQuestions(rc, in.ProjectID, in.ActivityID, in.TaskID, in.Addressee, in.Questions); err != nil {
 		return nil, out, mapManagerError(err)
@@ -644,7 +692,16 @@ func (h *Handler) handleAskQuestions(ctx context.Context, _ *mcp.CallToolRequest
 // handleAcknowledgeStaleBasis is the MCP tool handler for the AcknowledgeStaleBasis operation.
 func (h *Handler) handleAcknowledgeStaleBasis(ctx context.Context, _ *mcp.CallToolRequest, in acknowledgeStaleBasisInput) (*mcp.CallToolResult, acknowledgeStaleBasisOutput, error) {
 	var out acknowledgeStaleBasisOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "acknowledge-stale-basis"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.AcknowledgeStaleBasis(rc, in.ProjectID, in.ActivityID, in.TaskID, in.Note); err != nil {
 		return nil, out, mapManagerError(err)
@@ -655,7 +712,16 @@ func (h *Handler) handleAcknowledgeStaleBasis(ctx context.Context, _ *mcp.CallTo
 // handleSetProjectRunState is the MCP tool handler for the SetProjectRunState operation.
 func (h *Handler) handleSetProjectRunState(ctx context.Context, _ *mcp.CallToolRequest, in setProjectRunStateInput) (*mcp.CallToolResult, setProjectRunStateOutput, error) {
 	var out setProjectRunStateOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "set-project-run-state"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.SetProjectRunState(rc, in.ProjectID, in.RunState, in.Reason); err != nil {
 		return nil, out, mapManagerError(err)
@@ -666,7 +732,16 @@ func (h *Handler) handleSetProjectRunState(ctx context.Context, _ *mcp.CallToolR
 // handleOverrideActivity is the MCP tool handler for the OverrideActivity operation.
 func (h *Handler) handleOverrideActivity(ctx context.Context, _ *mcp.CallToolRequest, in overrideActivityInput) (*mcp.CallToolResult, overrideActivityOutput, error) {
 	var out overrideActivityOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "override-activity"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.OverrideActivity(rc, in.ProjectID, in.ActivityID, in.Override); err != nil {
 		return nil, out, mapManagerError(err)
@@ -677,7 +752,16 @@ func (h *Handler) handleOverrideActivity(ctx context.Context, _ *mcp.CallToolReq
 // handleSetProjectExecutionPolicy is the MCP tool handler for the SetProjectExecutionPolicy operation.
 func (h *Handler) handleSetProjectExecutionPolicy(ctx context.Context, _ *mcp.CallToolRequest, in setProjectExecutionPolicyInput) (*mcp.CallToolResult, setProjectExecutionPolicyOutput, error) {
 	var out setProjectExecutionPolicyOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "set-project-execution-policy"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.SetProjectExecutionPolicy(rc, in.ProjectID, in.Policy); err != nil {
 		return nil, out, mapManagerError(err)
@@ -688,7 +772,16 @@ func (h *Handler) handleSetProjectExecutionPolicy(ctx context.Context, _ *mcp.Ca
 // handleQueryProjectView is the MCP tool handler for the QueryProjectView operation.
 func (h *Handler) handleQueryProjectView(ctx context.Context, _ *mcp.CallToolRequest, in queryProjectViewInput) (*mcp.CallToolResult, queryProjectViewOutput, error) {
 	var out queryProjectViewOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "query-project-view"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.QueryProjectView(rc, in.Query)
 	if err != nil {
@@ -701,7 +794,16 @@ func (h *Handler) handleQueryProjectView(ctx context.Context, _ *mcp.CallToolReq
 // handleQueryActivityView is the MCP tool handler for the QueryActivityView operation.
 func (h *Handler) handleQueryActivityView(ctx context.Context, _ *mcp.CallToolRequest, in queryActivityViewInput) (*mcp.CallToolResult, queryActivityViewOutput, error) {
 	var out queryActivityViewOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "query-activity-view"},
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.QueryActivityView(rc, in.ProjectID, in.ActivityID)
 	if err != nil {
@@ -849,6 +951,13 @@ func isMapNode(s *jsonschema.Schema) bool {
 	ap := s.AdditionalProperties
 	return isObject && ap != nil && ap.Not == nil
 }
+
+// errUnauthenticated and errForbidden are the tool errors an unauthenticated or denied call
+// gets, worded as the REST surface's wire codes; the Manager is never reached.
+var (
+	errUnauthenticated = errors.New("unauthenticated: authentication required")
+	errForbidden       = errors.New("forbidden: not permitted")
+)
 
 func mapManagerError(err error) error {
 	var me *fwmanager.Error

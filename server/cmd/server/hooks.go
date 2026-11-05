@@ -579,18 +579,18 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // (framedenial.go) then binds that mux to root behind the anti-framing wrap, so
 // every response carries frame-ancestors 'none' and X-Frame-Options: DENY. Add
 // new routes in mountRoutes, never on root directly.
-func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
+func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers) {
 	routes := http.NewServeMux()
 	if generated, pat := root.Handler(&http.Request{Method: http.MethodGet, URL: &url.URL{Path: "/"}}); pat != "" {
 		routes.Handle("/", generated)
 	}
-	h.mountRoutes(routes, cfg, dev, validator, managers)
+	h.mountRoutes(routes, cfg, dev, validator, sec, managers)
 	denyFramingOnEveryPath(root, routes)
 }
 
 // mountRoutes is ExtraMounts' route table; root here is the inner mux
 // ExtraMounts wraps, already carrying the generated surface at "/".
-func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
+func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers) {
 	// F-QA2-46: the generated handlers' writeManagerError writes every 5xx with zero
 	// server-side logging, and the manager logging wrap above only sees
 	// Infrastructure-kind *manager.Error values — so a client-visible 503 (e.g. a
@@ -606,7 +606,7 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 	root.Handle("GET /api/userinfo", web.AuthMiddleware(dev, validator)(http.HandlerFunc(security.UserInfoHandler)))
 	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
 	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")
-	root.Handle("/mcp", newMCPHandler(dev, validator,
+	root.Handle("/mcp", newMCPHandler(dev, validator, sec,
 		managers.BillingManager, managers.DeliveryManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
 
@@ -828,14 +828,15 @@ func (m projectScopedOperationsManager) RegisterOperatedApp(rc fwmanager.Context
 // their BODY against the project they name, which no generated handler can do:
 // StartProject's ADOPT arm, and every QueryProjectView that carries a projectId.
 //
-// The other TEN ops carry their projectID in the PATH, and the
-// http generator's convention turns a leading ID path param into
-// `Authorize(verb, {Kind:"project", ID:<that id>})` — the ONE mechanism binding an
-// authorization decision to a project (framework-go-http-generator httpgen/plan.go
-// planOp/resourceKindFor). These two ids ride the BODY, so the same convention gives
-// each the owner-scoped fallback `{Kind:"deliveryCatalog", ID:principal.Subject}`:
-// "may this principal start projects / read project views at all", never "may it touch
-// THAT project". A body id names a resource the catalog decision never sees.
+// Every generated request, REST and MCP alike, is authorized owner-scoped:
+// `Authorize(verb, {Kind:"deliveryCatalog", ID:principal.Subject})` — "may this
+// principal take this verb at all", never "may it touch THAT project" (FIX-046: the
+// generator no longer guesses a resource kind from an ID path param; ownership of a
+// data-held resource is the Manager's). Until the Manager enforces project ownership
+// itself (earmarked with FIX-046), this guard is what binds a decision to the project
+// for the two ops below, whose id a generated handler never sees as a resource.
+// The other TEN ops' projectID rides the PATH and, under the interim
+// authenticated-only PDP (authz.go), takes no per-project decision of its own either.
 //
 // StartProject's id MUST ride the body (an ABSENT id is what means CREATE, and
 // net/http's mux cannot match an empty path segment — see the op's doc comment).

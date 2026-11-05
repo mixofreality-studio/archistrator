@@ -463,7 +463,7 @@ func TestExtraMounts_OperationsRoutesStayMountedOnEveryProfile(t *testing.T) {
 				hit = true
 				w.WriteHeader(http.StatusOK)
 			}))
-			h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, WebManagers{})
+			h.ExtraMounts(root, cfg, web.DevConfig{Enabled: true}, nil, testSecurity(), WebManagers{})
 
 			ts := httptest.NewServer(root)
 			defer ts.Close()
@@ -513,7 +513,7 @@ func TestOperatedAppIDForProject_IsDeterministicAndDistinct(t *testing.T) {
 func TestExtraMounts_OperatedAppID_AnswersTheDerivedID(t *testing.T) {
 	h := newTestAppHooks()
 	root := http.NewServeMux()
-	h.ExtraMounts(root, &Config{ProjectStateGitLocal: false}, web.DevConfig{Enabled: true}, nil, WebManagers{})
+	h.ExtraMounts(root, &Config{ProjectStateGitLocal: false}, web.DevConfig{Enabled: true}, nil, testSecurity(), WebManagers{})
 
 	ts := httptest.NewServer(root)
 	defer ts.Close()

@@ -32,17 +32,19 @@ import (
 // names are manager-namespaced (billing*/delivery*/operations*), so registering
 // every Handler on one server never collides. webAppOrigin/assetVersion configure
 // the ui://archistrator/shell.html resource (mcp_apps.go) registered alongside the
-// three generated tool Handlers.
+// three generated tool Handlers. sec is the security Utility the REST handlers hold:
+// every tool call is authorized against it exactly as the REST call is (FIX-047).
 func newMCPServer(
+	sec security.Security,
 	bil billing.BillingManager,
 	del delivery.DeliveryManager,
 	ops operations.OperationsManager,
 	webAppOrigin, assetVersion string,
 ) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "archistrator-server", Version: "1.0.0"}, nil)
-	(&billingmcp.Handler{Manager: bil}).Register(srv)
-	(&deliverymcp.Handler{Manager: del}).Register(srv)
-	(&operationsmcp.Handler{Manager: ops}).Register(srv)
+	(&billingmcp.Handler{Manager: bil, Security: sec}).Register(srv)
+	(&deliverymcp.Handler{Manager: del, Security: sec}).Register(srv)
+	(&operationsmcp.Handler{Manager: ops, Security: sec}).Register(srv)
 	registerShellResource(srv, webAppOrigin, assetVersion)
 	return srv
 }
@@ -79,12 +81,13 @@ func devCORS(enabled bool, next http.Handler) http.Handler {
 func newMCPHandler(
 	dev web.DevConfig,
 	validator security.Validator,
+	sec security.Security,
 	bil billing.BillingManager,
 	del delivery.DeliveryManager,
 	ops operations.OperationsManager,
 	webAppOrigin, assetVersion string,
 ) http.Handler {
-	srv := newMCPServer(bil, del, ops, webAppOrigin, assetVersion)
+	srv := newMCPServer(sec, bil, del, ops, webAppOrigin, assetVersion)
 	transport := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	return devCORS(dev.Enabled, web.AuthMiddleware(dev, validator)(transport))
 }

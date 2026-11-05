@@ -158,7 +158,7 @@ func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
 		delete(stacks, t)
 		stacksMu.Unlock()
 	})
-	return toolServer{Handlers: []toolRegistrar{&mcpbilling.Handler{Manager: manager}}}
+	return toolServer{Handlers: []toolRegistrar{&mcpbilling.Handler{Manager: manager, Security: permitAll{}}}}
 }
 
 // arrangeProject writes a project the way the use cases write one, through the real

@@ -213,7 +213,7 @@ func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
 		curStack = nil
 		stackMu.Unlock()
 	})
-	return toolServer{Handlers: []toolRegistrar{&delivery.Handler{Manager: m}}}
+	return toolServer{Handlers: []toolRegistrar{&delivery.Handler{Manager: m, Security: permitAll{}}}}
 }
 
 // buildManager is the composition root's delivery wiring for the LOCAL profile

@@ -23,6 +23,9 @@ import (
 // Handler binds the BillingManager manager to MCP tools.
 type Handler struct {
 	Manager mgr.BillingManager
+	// Security is the edge policy every tool call is authorized against, the same
+	// one the generated REST handlers hold (the composition root's sec).
+	Security security.Security
 }
 
 // Register adds every operation as an mcp.Tool on srv, each carrying an
@@ -191,7 +194,16 @@ func jsonFieldName(f reflect.StructField) string {
 // handleGetBillingCycle is the MCP tool handler for the GetBillingCycle operation.
 func (h *Handler) handleGetBillingCycle(ctx context.Context, _ *mcp.CallToolRequest, in getBillingCycleInput) (*mcp.CallToolResult, getBillingCycleOutput, error) {
 	var out getBillingCycleOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "get-billing-cycle"},
+		security.ResourceRef{Kind: "billingCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.GetBillingCycle(rc, in.CustomerID, in.CycleID)
 	if err != nil {
@@ -204,7 +216,16 @@ func (h *Handler) handleGetBillingCycle(ctx context.Context, _ *mcp.CallToolRequ
 // handleOnboardPaymentIntegration is the MCP tool handler for the OnboardPaymentIntegration operation.
 func (h *Handler) handleOnboardPaymentIntegration(ctx context.Context, _ *mcp.CallToolRequest, in onboardPaymentIntegrationInput) (*mcp.CallToolResult, onboardPaymentIntegrationOutput, error) {
 	var out onboardPaymentIntegrationOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "onboard-payment-integration"},
+		security.ResourceRef{Kind: "billingCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.OnboardPaymentIntegration(rc, in.DeployedAppID)
 	if err != nil {
@@ -217,7 +238,16 @@ func (h *Handler) handleOnboardPaymentIntegration(ctx context.Context, _ *mcp.Ca
 // handleRegisterCustomer is the MCP tool handler for the RegisterCustomer operation.
 func (h *Handler) handleRegisterCustomer(ctx context.Context, _ *mcp.CallToolRequest, in registerCustomerInput) (*mcp.CallToolResult, registerCustomerOutput, error) {
 	var out registerCustomerOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "register-customer"},
+		security.ResourceRef{Kind: "billingCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.RegisterCustomer(rc, in.CustomerID, in.ProjectID)
 	if err != nil {
@@ -365,6 +395,13 @@ func isMapNode(s *jsonschema.Schema) bool {
 	ap := s.AdditionalProperties
 	return isObject && ap != nil && ap.Not == nil
 }
+
+// errUnauthenticated and errForbidden are the tool errors an unauthenticated or denied call
+// gets, worded as the REST surface's wire codes; the Manager is never reached.
+var (
+	errUnauthenticated = errors.New("unauthenticated: authentication required")
+	errForbidden       = errors.New("forbidden: not permitted")
+)
 
 func mapManagerError(err error) error {
 	var me *fwmanager.Error

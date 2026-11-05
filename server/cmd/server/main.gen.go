@@ -79,7 +79,13 @@ type Hooks interface {
 	TemporalLogger(logger *slog.Logger) tlog.Logger
 
 	// PolicyDecisionPoint is the authorization PDP the security Utility is built
-	// with (application policy — not model-derivable).
+	// with (application policy — not model-derivable). It decides verbs for the
+	// authenticated principal's own scope: every generated REST handler and MCP
+	// tool asks it one row of generatedAuthorizations (authz.gen.go), a verb on
+	// ResourceRef{Kind: <manager>Catalog, ID: principal.Subject}, and it must
+	// permit the local dev principal every row (TestPolicyAdmitsEveryGeneratedRequest
+	// holds it, through a zero appHooks). Ownership of a data-held resource an
+	// operation names is the Manager's to enforce, never this policy's.
 	PolicyDecisionPoint() security.PolicyDecisionPoint
 
 	// TokenValidator is the access-token validator for the auth boundary; nil
@@ -97,8 +103,12 @@ type Hooks interface {
 
 	// ExtraMounts contributes composition-root-only routes (e.g. /api/userinfo,
 	// /mcp) onto the root mux, behind the same auth boundary. The wrapped
-	// managers are supplied for transports the generated server does not mount.
-	ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers)
+	// managers are supplied for transports the generated server does not mount,
+	// and sec is the security Utility the generated web handlers hold: a machine
+	// client's generated MCP tools take the same one, e.g.
+	// (&<client pkg>.Handler{Manager: managers.<Manager>, Security: sec}).Register(server),
+	// so both transports authorize every call alike.
+	ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers)
 
 	// ActivityExecutionAccessGitHubArgs supplies the activityExecutionAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
@@ -297,6 +307,13 @@ type Hooks interface {
 	// setting/binding link). Return the zero value (nil for an interface) for a
 	// dependency that stays unbuilt in the active profile.
 	DeliveryManagerRepoBase() string
+}
+
+// edgeSecurity is the security Utility every generated transport (the REST handlers,
+// and the MCP tools ExtraMounts serves) authorizes against, built from the composition
+// root's policy. TestPolicyAdmitsEveryGeneratedRequest builds it the same way.
+func edgeSecurity(hooks Hooks) security.Security {
+	return security.New(security.WithPolicyDecisionPoint(hooks.PolicyDecisionPoint()))
 }
 
 // RunGenerated performs the container's boot walk: signal context → telemetry
@@ -638,7 +655,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 
 	// Security Utility + auth boundary.
-	sec := security.New(security.WithPolicyDecisionPoint(hooks.PolicyDecisionPoint()))
+	sec := edgeSecurity(hooks)
 	validator, err := hooks.TokenValidator(ctx, cfg)
 	if err != nil {
 		return err
@@ -662,7 +679,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	)
 	root := http.NewServeMux()
 	root.Handle("/", genServer)
-	hooks.ExtraMounts(root, cfg, dev, validator, webManagers)
+	hooks.ExtraMounts(root, cfg, dev, validator, sec, webManagers)
 	handler := otelhttp.NewHandler(root, serviceName)
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

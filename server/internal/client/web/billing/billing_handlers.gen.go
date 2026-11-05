@@ -47,7 +47,7 @@ func (h *Handler) handleGetBillingCycle(w http.ResponseWriter, r *http.Request) 
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "get-billing-cycle"},
-		security.ResourceRef{Kind: "customer", ID: customerID.String()})
+		security.ResourceRef{Kind: "billingCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -75,7 +75,7 @@ func (h *Handler) handleOnboardPaymentIntegration(w http.ResponseWriter, r *http
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "onboard-payment-integration"},
-		security.ResourceRef{Kind: "deployedapp", ID: deployedAppID.String()})
+		security.ResourceRef{Kind: "billingCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -107,7 +107,7 @@ func (h *Handler) handleRegisterCustomer(w http.ResponseWriter, r *http.Request)
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "register-customer"},
-		security.ResourceRef{Kind: "customer", ID: customerID.String()})
+		security.ResourceRef{Kind: "billingCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return

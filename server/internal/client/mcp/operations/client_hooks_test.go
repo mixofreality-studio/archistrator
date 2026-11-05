@@ -116,7 +116,7 @@ func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
 		delete(stacks, t)
 		stacksMu.Unlock()
 	})
-	return toolServer{Handlers: []toolRegistrar{&tools.Handler{Manager: manager}}}
+	return toolServer{Handlers: []toolRegistrar{&tools.Handler{Manager: manager, Security: permitAll{}}}}
 }
 
 // stepEnforceCustomerDelinquencyOnOperatedSystemsP1S1 — Enforce Customer Delinquency on Operated Systems — [no: unsaid], step 1: OperationsApplyDelinquencyPolicy (tool operationsApplyDelinquencyPolicy)

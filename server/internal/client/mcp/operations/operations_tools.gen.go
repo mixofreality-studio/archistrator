@@ -21,6 +21,9 @@ import (
 // Handler binds the OperationsManager manager to MCP tools.
 type Handler struct {
 	Manager mgr.OperationsManager
+	// Security is the edge policy every tool call is authorized against, the same
+	// one the generated REST handlers hold (the composition root's sec).
+	Security security.Security
 }
 
 // Register adds every operation as an mcp.Tool on srv, each carrying an
@@ -265,7 +268,16 @@ func withdrawSystemOutputSchema() *jsonschema.Schema {
 // handleApplyDelinquencyPolicy is the MCP tool handler for the ApplyDelinquencyPolicy operation.
 func (h *Handler) handleApplyDelinquencyPolicy(ctx context.Context, _ *mcp.CallToolRequest, in applyDelinquencyPolicyInput) (*mcp.CallToolResult, applyDelinquencyPolicyOutput, error) {
 	var out applyDelinquencyPolicyOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "apply-delinquency-policy"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.ApplyDelinquencyPolicy(rc, in.CustomerID, in.DelinquencyContext); err != nil {
 		return nil, out, mapManagerError(err)
@@ -276,7 +288,16 @@ func (h *Handler) handleApplyDelinquencyPolicy(ctx context.Context, _ *mcp.CallT
 // handleDeployAfterConstruction is the MCP tool handler for the DeployAfterConstruction operation.
 func (h *Handler) handleDeployAfterConstruction(ctx context.Context, _ *mcp.CallToolRequest, in deployAfterConstructionInput) (*mcp.CallToolResult, deployAfterConstructionOutput, error) {
 	var out deployAfterConstructionOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "deploy-after-construction"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.DeployAfterConstruction(rc, in.OperatedAppID, in.Change)
 	if err != nil {
@@ -289,7 +310,16 @@ func (h *Handler) handleDeployAfterConstruction(ctx context.Context, _ *mcp.Call
 // handleQueryCostProjection is the MCP tool handler for the QueryCostProjection operation.
 func (h *Handler) handleQueryCostProjection(ctx context.Context, _ *mcp.CallToolRequest, in queryCostProjectionInput) (*mcp.CallToolResult, queryCostProjectionOutput, error) {
 	var out queryCostProjectionOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "query-cost-projection"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.QueryCostProjection(rc, in.OperatedAppID, in.RequestID, in.Points)
 	if err != nil {
@@ -302,7 +332,16 @@ func (h *Handler) handleQueryCostProjection(ctx context.Context, _ *mcp.CallTool
 // handleQueryDeploymentHealth is the MCP tool handler for the QueryDeploymentHealth operation.
 func (h *Handler) handleQueryDeploymentHealth(ctx context.Context, _ *mcp.CallToolRequest, in queryDeploymentHealthInput) (*mcp.CallToolResult, queryDeploymentHealthOutput, error) {
 	var out queryDeploymentHealthOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "query-deployment-health"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.QueryDeploymentHealth(rc, in.OperatedAppID)
 	if err != nil {
@@ -315,7 +354,16 @@ func (h *Handler) handleQueryDeploymentHealth(ctx context.Context, _ *mcp.CallTo
 // handleQueryOperatedSystemView is the MCP tool handler for the QueryOperatedSystemView operation.
 func (h *Handler) handleQueryOperatedSystemView(ctx context.Context, _ *mcp.CallToolRequest, in queryOperatedSystemViewInput) (*mcp.CallToolResult, queryOperatedSystemViewOutput, error) {
 	var out queryOperatedSystemViewOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "query-operated-system-view"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.QueryOperatedSystemView(rc, in.OperatedAppID, in.RequestID)
 	if err != nil {
@@ -328,7 +376,16 @@ func (h *Handler) handleQueryOperatedSystemView(ctx context.Context, _ *mcp.Call
 // handleReconcileOperatedState is the MCP tool handler for the ReconcileOperatedState operation.
 func (h *Handler) handleReconcileOperatedState(ctx context.Context, _ *mcp.CallToolRequest, in reconcileOperatedStateInput) (*mcp.CallToolResult, reconcileOperatedStateOutput, error) {
 	var out reconcileOperatedStateOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "reconcile-operated-state"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.ReconcileOperatedState(rc, in.TickID, in.Scope)
 	if err != nil {
@@ -341,7 +398,16 @@ func (h *Handler) handleReconcileOperatedState(ctx context.Context, _ *mcp.CallT
 // handleRegisterOperatedApp is the MCP tool handler for the RegisterOperatedApp operation.
 func (h *Handler) handleRegisterOperatedApp(ctx context.Context, _ *mcp.CallToolRequest, in registerOperatedAppInput) (*mcp.CallToolResult, registerOperatedAppOutput, error) {
 	var out registerOperatedAppOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "register-operated-app"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.RegisterOperatedApp(rc, in.OperatedAppID, in.CustomerID, in.ProjectRef, in.DeployableBundleRef)
 	if err != nil {
@@ -354,7 +420,16 @@ func (h *Handler) handleRegisterOperatedApp(ctx context.Context, _ *mcp.CallTool
 // handleWithdrawSystem is the MCP tool handler for the WithdrawSystem operation.
 func (h *Handler) handleWithdrawSystem(ctx context.Context, _ *mcp.CallToolRequest, in withdrawSystemInput) (*mcp.CallToolResult, withdrawSystemOutput, error) {
 	var out withdrawSystemOutput
-	principal, _ := security.PrincipalFrom(ctx)
+	principal, ok := security.PrincipalFrom(ctx)
+	if !ok {
+		return nil, out, errUnauthenticated
+	}
+	decision, err := h.Security.Authorize(ctx, principal,
+		security.Action{Verb: "withdraw-system"},
+		security.ResourceRef{Kind: "operationsCatalog", ID: principal.Subject})
+	if err != nil || !decision.Permit {
+		return nil, out, errForbidden
+	}
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.WithdrawSystem(rc, in.OperatedAppID, in.ChangeID, in.Reason)
 	if err != nil {
@@ -502,6 +577,13 @@ func isMapNode(s *jsonschema.Schema) bool {
 	ap := s.AdditionalProperties
 	return isObject && ap != nil && ap.Not == nil
 }
+
+// errUnauthenticated and errForbidden are the tool errors an unauthenticated or denied call
+// gets, worded as the REST surface's wire codes; the Manager is never reached.
+var (
+	errUnauthenticated = errors.New("unauthenticated: authentication required")
+	errForbidden       = errors.New("forbidden: not permitted")
+)
 
 func mapManagerError(err error) error {
 	var me *fwmanager.Error

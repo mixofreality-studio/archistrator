@@ -35,7 +35,7 @@ func mountTestRunFileRoute(t *testing.T, reader delivery.TestRunFileReader) *htt
 	root.Handle("/", web.NewServer(web.DevConfig{}, nil))
 	h := newTestAppHooks()
 	h.testRunFiles = reader
-	h.ExtraMounts(root, &Config{}, web.DevConfig{Enabled: true, Principal: devPrincipal()}, nil, WebManagers{})
+	h.ExtraMounts(root, &Config{}, web.DevConfig{Enabled: true, Principal: devPrincipal()}, nil, testSecurity(), WebManagers{})
 	ts := httptest.NewServer(root)
 	t.Cleanup(ts.Close)
 	return ts
@@ -111,7 +111,7 @@ func TestTestRunFileEndpoint_DeniesUnauthenticated(t *testing.T) {
 	root.Handle("/", web.NewServer(web.DevConfig{}, nil))
 	h := newTestAppHooks()
 	h.testRunFiles = reader
-	h.ExtraMounts(root, &Config{}, web.DevConfig{}, nil, WebManagers{})
+	h.ExtraMounts(root, &Config{}, web.DevConfig{}, nil, testSecurity(), WebManagers{})
 	ts := httptest.NewServer(root)
 	defer ts.Close()
 	resp, _ := getBody(t, ts.URL+"/api/v1/delivery/test-run/9/file?projectId=p&path=x")

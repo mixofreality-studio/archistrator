@@ -127,7 +127,7 @@ func (h *Handler) handleExecuteNextActivity(w http.ResponseWriter, r *http.Reque
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "execute-next-activity"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -156,7 +156,7 @@ func (h *Handler) handleDispatchActivityTask(w http.ResponseWriter, r *http.Requ
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "dispatch-activity-task"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -185,7 +185,7 @@ func (h *Handler) handleSubmitReviewDecision(w http.ResponseWriter, r *http.Requ
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "submit-review-decision"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -213,7 +213,7 @@ func (h *Handler) handleAskQuestions(w http.ResponseWriter, r *http.Request) {
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "ask-questions"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -241,7 +241,7 @@ func (h *Handler) handleAcknowledgeStaleBasis(w http.ResponseWriter, r *http.Req
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "acknowledge-stale-basis"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -268,7 +268,7 @@ func (h *Handler) handleSetProjectRunState(w http.ResponseWriter, r *http.Reques
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "set-project-run-state"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -296,7 +296,7 @@ func (h *Handler) handleOverrideActivity(w http.ResponseWriter, r *http.Request)
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "override-activity"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -323,7 +323,7 @@ func (h *Handler) handleSetProjectExecutionPolicy(w http.ResponseWriter, r *http
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "set-project-execution-policy"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
@@ -374,7 +374,7 @@ func (h *Handler) handleQueryActivityView(w http.ResponseWriter, r *http.Request
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "query-activity-view"},
-		security.ResourceRef{Kind: "project", ID: string(projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
