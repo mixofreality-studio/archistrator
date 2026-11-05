@@ -123,6 +123,7 @@ func TestBrowserContractDialect(t *testing.T) {
 		`{"checked":"toggle"}`,
 		`{"unchecked":"toggle"}`,
 		`{"text":"1 item left","target":"count"}`,
+		`{"text":"","target":"new-todo"}`, // a cleared field: presence states the kind, as methodcheck reads it
 		`{"url":"/active"}`,
 		`[{"checked":"toggle"},{"text":"0 items left","target":"count"}]`,
 	} {
