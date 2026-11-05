@@ -13168,13 +13168,32 @@ func IsClientComponent(p *Project, componentID string) bool {
 }
 
 // browserContractDefs is the web dialect every browser operation speaks (the-method-testing §1):
-// one browser action in, what the step observes out.
+// one browser action in, what the step observes out. A step states what a user does and sees:
+// check/uncheck a box, double-click, hover, press a key on an element, not just click and fill.
+// The kind enum is closed and each observable states exactly one thing, so a contract carrying
+// another kind is refused at record time (methodcheck's TP rules hold every binding to the same
+// dialect, and testgen fails generation on anything outside it). The kinds are the platform's one
+// list, methodcheck.UIActionKinds / UIObservableKinds, which testgen exports as the kinds it
+// emits; TestBrowserContractDialect holds this schema to them.
 const browserContractDefs = `{
- "UIAction": {"type": "object", "description": "One browser action a scenario step performs: click or fill the element carrying data-testid target, or navigate to value.",
-  "properties": {"kind": {"type": "string", "enum": ["click", "fill", "navigate"]}, "target": {"type": "string"}, "value": {"type": "string"}},
-  "required": ["kind"], "additionalProperties": false},
- "UIObservable": {"type": "object", "description": "One observation after the action: the data-testid that is visible, the text a data-testid holds, or the URL.",
-  "properties": {"visible": {"type": "string"}, "text": {"type": "string"}, "target": {"type": "string"}, "url": {"type": "string"}}, "additionalProperties": false},
+ "UIAction": {"type": "object", "description": "One browser action a scenario step performs on the element carrying data-testid target: click, fill it with value, check or uncheck it, dblclick, hover, or press key value on it; or navigate to the route value (no target).",
+  "properties": {"kind": {"type": "string", "enum": ["check", "click", "dblclick", "fill", "hover", "navigate", "press", "uncheck"]}, "target": {"type": "string"}, "value": {"type": "string"}},
+  "required": ["kind"], "additionalProperties": false,
+  "allOf": [
+   {"if": {"properties": {"kind": {"enum": ["check", "click", "dblclick", "fill", "hover", "press", "uncheck"]}}}, "then": {"required": ["target"]}},
+   {"if": {"properties": {"kind": {"enum": ["navigate", "press"]}}}, "then": {"required": ["value"]}},
+   {"if": {"properties": {"kind": {"enum": ["check", "click", "dblclick", "hover", "uncheck"]}}}, "then": {"not": {"required": ["value"]}}},
+   {"if": {"properties": {"kind": {"const": "navigate"}}}, "then": {"not": {"required": ["target"]}}}
+  ]},
+ "UIObservable": {"type": "object", "description": "One observation after the action, stating exactly one thing: the data-testid that is visible, checked or unchecked; the text a data-testid (target) holds; or the URL.",
+  "properties": {"visible": {"type": "string"}, "text": {"type": "string"}, "target": {"type": "string"}, "url": {"type": "string"}, "checked": {"type": "string"}, "unchecked": {"type": "string"}}, "additionalProperties": false,
+  "oneOf": [
+   {"required": ["visible"], "not": {"anyOf": [{"required": ["text"]}, {"required": ["target"]}, {"required": ["url"]}, {"required": ["checked"]}, {"required": ["unchecked"]}]}},
+   {"required": ["text", "target"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["url"]}, {"required": ["checked"]}, {"required": ["unchecked"]}]}},
+   {"required": ["url"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["text"]}, {"required": ["target"]}, {"required": ["checked"]}, {"required": ["unchecked"]}]}},
+   {"required": ["checked"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["text"]}, {"required": ["target"]}, {"required": ["url"]}, {"required": ["unchecked"]}]}},
+   {"required": ["unchecked"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["text"]}, {"required": ["target"]}, {"required": ["url"]}, {"required": ["checked"]}]}}
+  ]},
  "UIObservation": {"description": "What the step observes: one observable, or several.",
   "oneOf": [{"$ref": "#/$defs/UIObservable"}, {"type": "array", "items": {"$ref": "#/$defs/UIObservable"}}]}
 }`
