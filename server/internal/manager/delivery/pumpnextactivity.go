@@ -460,6 +460,20 @@ func (st *pumpState) inFlight() []ActivityID {
 	return out
 }
 
+// startPending reports whether a child start THIS RUN issued is still unacknowledged: its
+// future's GetChildWorkflowExecution() is not ready, so history holds a
+// StartChildWorkflowExecutionInitiated with neither a Started nor a StartFailed behind it.
+// IsReady emits no command, so asking it never moves a recorded command sequence. See rule
+// 1a at pumpContinueAsNew for why a run must not close over such a start.
+func (st *pumpState) startPending() bool {
+	for _, id := range st.inFlight() {
+		if f, ok := st.futures[id]; ok && !f.GetChildWorkflowExecution().IsReady() {
+			return true
+		}
+	}
+	return false
+}
+
 // idle reports the quiescent condition: nothing in flight, no lease held and no request
 // waiting for one.
 func (st *pumpState) idle() bool {
@@ -1796,6 +1810,15 @@ func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpStat
 		sel.AddFuture(f, func(workflow.Future) {
 			workflow.GetLogger(ctx).Info("pump: a child future is ready", "activityId", string(id))
 		})
+		// THE START IS AN ARM TOO, while it is unacknowledged (FIX-057): a run that may not
+		// continue-as-new over a pending start (rule 1a at pumpContinueAsNew) wakes the moment
+		// the start lands, rather than waiting out pumpReconcileInterval. ONLY while it is not
+		// ready — an arm on a ready future fires on every park and busy-loops the pump.
+		if start := f.GetChildWorkflowExecution(); !start.IsReady() {
+			sel.AddFuture(start, func(workflow.Future) {
+				workflow.GetLogger(ctx).Info("pump: a child start was acknowledged", "activityId", string(id))
+			})
+		}
 	}
 	sel.AddFuture(workflow.NewTimer(tctx, pumpReconcileInterval), func(workflow.Future) {})
 	sel.Select(ctx)
@@ -1820,6 +1843,20 @@ func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpStat
 //  1. CAN only when LeaseHolder == nil and no lease request is unanswered — the child's own
 //     shouldContinueAsNew-at-inflight==0 discipline, one level up. A lease handed over a
 //     boundary would be a lease whose holder the next run cannot name;
+//     1a. AND only when no child start this run issued is still unacknowledged
+//     (startPending, FIX-057). A StartChildWorkflowExecutionInitiated with no Started
+//     event behind it is DROPPED by the server when the parent closes — even under
+//     PARENT_CLOSE_POLICY_ABANDON, which governs a child that exists, not a start still
+//     in flight. RUN-020's history ends 635 StartChildWorkflowExecutionInitiated, 636
+//     WorkflowExecutionContinuedAsNew: the child never existed, the next run carried its
+//     id in Started with no future and no row, the liveness probe answered NotFound, and
+//     the vanished arm halted the project. Waiting here closes the ONLY path to that
+//     shape: a refused start resolves on its own future in the same run, and adoption
+//     covers already-started. pumpPark arms the start future so the wait is one workflow
+//     task, not a reconcile tick; pumpsweep.go waits on the same future for the same
+//     reason. (The vanished arm is deliberately NOT a re-dispatch: NotFound cannot tell
+//     "never started" from "started, then closed before its first row write", and
+//     re-dispatching the latter would loop a child that crashes deterministically.)
 //  2. immediately before CAN, ReceiveAsync every channel until empty and put what is found
 //     in pumpState.Carried;
 //  3. at run start, replay Carried BEFORE the frontier is computed (replayCarried).
@@ -1829,7 +1866,7 @@ func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpStat
 func (wf *csWorkflows) pumpContinueAsNew(
 	ctx workflow.Context, in pumpInput, st *pumpState, chans pumpChannels, frontier []ActivityID,
 ) (PumpResult, bool, error) {
-	if !pumpShouldContinueAsNew(ctx) || st.LeaseHolder != nil || len(st.requests) > 0 {
+	if !pumpShouldContinueAsNew(ctx) || st.LeaseHolder != nil || len(st.requests) > 0 || st.startPending() {
 		return PumpResult{}, false, nil
 	}
 	// A RESUME BUFFERED AT THE BOUNDARY IS APPLIED, NOT DISCARDED (FIX-003). ContinueAsNew
