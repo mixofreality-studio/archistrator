@@ -169,12 +169,12 @@ github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0/go.mod h1:R5rsOKrof5VtqkMEoz1W/59ZtoeYVoeHBd5KpC5zhzY=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.2.0 h1:hE25jdwY9O6aETdpmr+Jq2ErLFhIdwaDr2AdoNg3IXk=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.2.0/go.mod h1:G8WFrT1cjtbsu+0Nd7RYWX21ajQ+tqJIXjOm84GSYOg=
-github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.6 h1:k9aG+EX7G1v39Qqp+QbBOxzuRW+3UM7VL24N5q8CjLo=
-github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.6/go.mod h1:YbfS35fW8k0sFydWYKFYdWDP64y4BzigHXUDMJRRDSs=
+github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.3.0 h1:lOF2/iCGstwg3J41s3+/yXepJXwMrpL+vqd18bVf1/0=
+github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.3.0/go.mod h1:YbfS35fW8k0sFydWYKFYdWDP64y4BzigHXUDMJRRDSs=
 github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0 h1:4t5ukp+YGh4BYqHA7RqpFxJa0snMzYmj7nPPHpZ427c=
 github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0/go.mod h1:luUYTGdJmb87O+RLol0ysvd47nR76NA9rYgX5CLOz8Q=
-github.com/mixofreality-studio/archistrator-platform/method-assets v0.20.2 h1:+bqQZbjcrY9Uk+e50lnR6qWnqeU3Zpvzrjhs6eJv3ug=
-github.com/mixofreality-studio/archistrator-platform/method-assets v0.20.2/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
+github.com/mixofreality-studio/archistrator-platform/method-assets v0.21.0 h1:HUk3EjhT8/rlC1RuJIFZaKbbx4MtBN8gLl8jURS+4K8=
+github.com/mixofreality-studio/archistrator-platform/method-assets v0.21.0/go.mod h1:qKlCW6xoGLF7usqM6sxby/crSkBWxI7/YPJzHeKPSBY=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
 github.com/moby/go-archive v0.2.0 h1:zg5QDUM2mi0JIM9fdQZWC7U8+2ZfixfTYoHL7rWUcP8=
