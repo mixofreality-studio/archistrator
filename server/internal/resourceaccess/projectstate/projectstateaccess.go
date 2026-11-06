@@ -55,6 +55,8 @@ import (
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/clientgen"
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
+	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
@@ -2161,6 +2163,36 @@ func EncodeProjectJSON(p Project) ([]byte, error) {
 	return encodeProjectDoc(&p, time.Time{})
 }
 
+// admit is Tier 0 admission: the document, as it would be committed, must be loadable by
+// every consumer that reads project.json before anything else does. It runs over the bytes the
+// write path already encoded (it must not encode a second time). Three loaders must accept
+// it, and every problem each reports is carried in the refusal so the caller can fix them in
+// one pass:
+//
+//   - projectmodel.Load, the loader every generator runs first (its error lists every
+//     Problem, one per line, each led by its closed PM-* code);
+//   - methodcheck.DecodeProject, the structural envelope the Method rules read;
+//   - methodcheck.DeriveScenarios, the scenario derivation the test generators consume.
+//
+// A refusal is terminal (ContractMisuse): re-applying the same mutation cannot succeed, and
+// nothing has been written when it is returned.
+func admit(raw []byte) error {
+	if _, err := projectmodel.Load(raw); err != nil {
+		return fwra.Wrap(fwra.ContractMisuse, err, "projectstate: refused: the state is not loadable by the generators (Tier 0)")
+	}
+	mp, ok, err := methodcheck.DecodeProject(raw)
+	if err != nil {
+		return fwra.Wrap(fwra.ContractMisuse, err, "projectstate: refused: the state does not decode (Tier 0)")
+	}
+	if !ok {
+		return nil
+	}
+	if _, err := methodcheck.DeriveScenarios(mp); err != nil {
+		return fwra.Wrap(fwra.ContractMisuse, err, "projectstate: refused: the scenario derivation fails over the state (Tier 0)")
+	}
+	return nil
+}
+
 // lookupAppliedInSnapshot probes the committed dedup records for idempotencyKey.
 func lookupAppliedInSnapshot(snap fwgithub.GitSnapshot, key fwra.IdempotencyKey) (appliedRecord, bool, error) {
 	path := appliedFileRel(key)
@@ -2198,6 +2230,11 @@ func buildStateFiles(snap fwgithub.GitSnapshot, p *Project, key fwra.Idempotency
 	// Encode the rewritten aggregate, stamping the mutation time into the doc.
 	pj, err := encodeProjectDoc(p, now)
 	if err != nil {
+		return nil, err
+	}
+	// TIER 0 ADMISSION (FPC Plan 1, Task 1.4): this is the one function every git write of
+	// project.json passes through, so a document no generator can load never reaches a commit.
+	if err := admit(pj); err != nil {
 		return nil, err
 	}
 	files[projectFile] = pj

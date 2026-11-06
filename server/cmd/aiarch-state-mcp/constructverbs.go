@@ -86,7 +86,9 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 	// Every generator loads the state through projectmodel.Load before anything else, so a
 	// state it refuses aborts the generation of every later task, none of which may change it.
 	if _, lerr := projectmodel.Load(newBytes); lerr != nil {
-		return fmt.Errorf("the %s change would leave a state no generator can load: %w — fix it and record again", what, lerr)
+		// projectmodel.Problems.Error() is one line per problem, each led by its closed PM-*
+		// code, so the whole list is shown to the agent at once, never just the first.
+		return fmt.Errorf("the %s change would leave a state no generator can load; fix every problem below and record again:\n%w", what, lerr)
 	}
 	findings, ferr := methodcheck.ValidateProjectJSON(newBytes)
 	if ferr != nil {

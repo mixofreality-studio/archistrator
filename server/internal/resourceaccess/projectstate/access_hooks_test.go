@@ -3578,3 +3578,129 @@ func TestCoarsePhaseFor_APumpOpenedRowIsRunningUntilItsExit(t *testing.T) {
 		t.Errorf("a pump-opened row with no resolved phases = %v, want Running", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TIER 0 ADMISSION (FPC Plan 1, Task 1.4). Every state write of project.json passes
+// buildStateFiles, which refuses a document the generators cannot load. The tests below are
+// black-box: the repo is SEEDED with a document (seedRepoDoc commits it directly, with no
+// admission), then an ordinary public write is attempted over it.
+// ---------------------------------------------------------------------------
+
+const admitProject projectstate.ProjectID = "stp-admit"
+
+func admitContract() projectstate.ServiceContract {
+	return projectstate.ServiceContract{
+		Component: "messageBus",
+		Layer:     "Engine",
+		GoPackage: "internal/engine/messagebus",
+		Title:     "messageBus contract",
+		Interface: projectstate.ContractInterface{
+			Name:       "MessageBusEngine",
+			Layer:      "Engine",
+			Operations: []projectstate.ContractOperation{{Name: "Publish", Error: true}},
+		},
+	}
+}
+
+// admitWrite seeds a repo with p and attempts one ordinary row write over it, returning
+// whether main's tip moved and the write's error.
+func admitWrite(t *testing.T, p projectstate.Project) (moved bool, err error) {
+	t.Helper()
+	h := scenariohost.Start(t)
+	repo := testinfra.StartLocalGitRepo(t, "main")
+	seedRepoDoc(t, repo.Dir, p)
+	tip := func() string {
+		out, gerr := exec.Command("git", "-C", repo.Dir, "rev-parse", "refs/heads/main").CombinedOutput()
+		if gerr != nil {
+			t.Fatalf("rev-parse main: %v\n%s", gerr, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	before := tip()
+	ae := projectstate.NewGitLocalActivityExecutionAccess(repo.URL)
+	_, err = ae.OpenActivity(callContext(t, h, "admit"), p.ID, projectstate.NoActivityVersionExpectation, "C-admit",
+		projectstate.ActivityTypeService, 0, fix006Pin(), projectstate.RepoCredential{}, callContext(t, h, "admit").IdempotencyKey)
+	return tip() != before, err
+}
+
+func TestAdmit_RefusesContractWithoutGoPackage(t *testing.T) {
+	p := baseProject(admitProject, 3, projectstate.PhaseConstruction)
+	sc := admitContract()
+	sc.GoPackage = ""
+	p.ServiceContracts = map[string]projectstate.ServiceContract{"messageBus": sc}
+	moved, err := admitWrite(t, p)
+	if err == nil || !strings.Contains(err.Error(), "PM-GOPACKAGE-MISSING") {
+		t.Fatalf("a built contract with no goPackage must refuse the write with PM-GOPACKAGE-MISSING, got: %v", err)
+	}
+	if moved {
+		t.Error("a refused write must not move main")
+	}
+	if k := raKind(err); k != "ContractMisuse" {
+		t.Errorf("a Tier 0 refusal is terminal, classified %s, want ContractMisuse", k)
+	}
+}
+
+func TestAdmit_RefusesZeroOperations(t *testing.T) {
+	p := baseProject(admitProject, 3, projectstate.PhaseConstruction)
+	sc := admitContract()
+	sc.Interface.Operations = nil
+	p.ServiceContracts = map[string]projectstate.ServiceContract{"messageBus": sc}
+	moved, err := admitWrite(t, p)
+	if err == nil || !strings.Contains(err.Error(), "PM-OPS-EMPTY") {
+		t.Fatalf("a contract with no operations must refuse the write with PM-OPS-EMPTY, got: %v", err)
+	}
+	if moved {
+		t.Error("a refused write must not move main")
+	}
+}
+
+func TestAdmit_ListsEveryProblemAtOnce(t *testing.T) {
+	p := baseProject(admitProject, 3, projectstate.PhaseConstruction)
+	sc := admitContract()
+	sc.GoPackage = ""
+	sc.Interface.Operations = []projectstate.ContractOperation{{Name: "publish", Error: true}}
+	p.ServiceContracts = map[string]projectstate.ServiceContract{"messageBus": sc}
+	_, err := admitWrite(t, p)
+	if err == nil {
+		t.Fatal("a contract with a lowercase op and no goPackage must refuse the write")
+	}
+	for _, code := range []string{"PM-GOPACKAGE-MISSING", "PM-OP-UNEXPORTED"} {
+		if !strings.Contains(err.Error(), code) {
+			t.Errorf("the refusal must list %s, got: %v", code, err)
+		}
+	}
+}
+
+func TestAdmit_PassesAWellFormedContract(t *testing.T) {
+	p := baseProject(admitProject, 3, projectstate.PhaseConstruction)
+	p.ServiceContracts = map[string]projectstate.ServiceContract{"messageBus": admitContract()}
+	moved, err := admitWrite(t, p)
+	if err != nil {
+		t.Fatalf("a well-formed state must be admitted: %v", err)
+	}
+	if !moved {
+		t.Error("an admitted write must move main")
+	}
+}
+
+// archistrator's own project.json is the largest real document there is; it must pass Tier 0
+// or no write of its own state could land.
+func TestAdmit_PassesOwnProject(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatalf("read own project.json: %v", err)
+	}
+	p, ok, err := projectstate.DecodeProjectJSON(raw, projectstate.ProjectID(""))
+	if err != nil || !ok {
+		t.Fatalf("decode own project.json: ok=%v err=%v", ok, err)
+	}
+	p.ID = admitProject
+	p.ActivityExecution = nil
+	moved, werr := admitWrite(t, p)
+	if werr != nil {
+		t.Fatalf("archistrator's own project.json must pass Tier 0 admission: %v", werr)
+	}
+	if !moved {
+		t.Error("an admitted write must move main")
+	}
+}

@@ -103,6 +103,43 @@ func TestRecordServiceContract_CanonicalizesAndRefusesAtTheVerb(t *testing.T) {
 	}
 }
 
+// TestRecordServiceContract_RefusalListsEveryProblem proves the loadability refusal carries
+// EVERY projectmodel problem, not the first: a contract with a lowercase operation AND no
+// goPackage names both codes in one error, so the agent fixes them in one pass. The verb's own
+// pre-checks repair or refuse these shapes before they reach the gate, so the defective
+// contract is put through applyConstructionMutation directly — the gate every construction
+// verb shares.
+func TestRecordServiceContract_RefusalListsEveryProblem(t *testing.T) {
+	s, _ := freshBus(t)
+	err := s.applyConstructionMutation("service contract", func(p *projectstate.Project) error {
+		if p.ServiceContracts == nil {
+			p.ServiceContracts = make(map[string]projectstate.ServiceContract)
+		}
+		p.ServiceContracts["messageBus"] = projectstate.ServiceContract{
+			Component: "messageBus",
+			Layer:     "Engine",
+			Title:     "messageBus contract",
+			Interface: projectstate.ContractInterface{
+				Name:       "MessageBusEngine",
+				Layer:      "Engine",
+				Operations: []projectstate.ContractOperation{{Name: "publish", Error: true}},
+			},
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("a contract with a lowercase op and no goPackage must be refused")
+	}
+	for _, code := range []string{"PM-OP-UNEXPORTED", "PM-GOPACKAGE-MISSING"} {
+		if !strings.Contains(err.Error(), code) {
+			t.Errorf("the refusal must name %s, got:\n%v", code, err)
+		}
+	}
+	if s.wroteState {
+		t.Error("a refused mutation must not latch wroteState")
+	}
+}
+
 // TestRecordServiceContract_MissingAmbientComponent proves the verb refuses when the
 // construct job carries no component (a non-component activity).
 func TestRecordServiceContract_MissingAmbientComponent(t *testing.T) {
