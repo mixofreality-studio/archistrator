@@ -921,7 +921,12 @@ func TestRecordingAUIDesignDerivesTheSurfaceContract(t *testing.T) {
 	}
 	s, _ := seedProject(t, proj, jobModeConstruct, 0)
 	s.ActivityID, s.ComponentID = freshSurfaceActivity, "web-app"
-	if err := s.recordPhaseArtifact("web-app", map[string]any{"UIDesign": map[string]any{"surface": "web-app", "content": "the concept"}}); err != nil {
+	if err := s.recordPhaseArtifact("web-app", map[string]any{"UIDesign": map[string]any{
+		"surface": "web-app", "content": "the concept",
+		"screens": []any{map[string]any{"id": "main", "route": "/", "elements": []any{
+			map[string]any{"id": "new-todo", "role": "textbox", "name": "What needs to be done?", "within": "", "repeats": false},
+		}}},
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	got, _, err := s.readProject()

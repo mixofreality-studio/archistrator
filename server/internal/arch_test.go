@@ -905,6 +905,14 @@ var encapsulationAllowlistData = map[string][]string{
 		"EncodeModel",
 		"EncodeProject",
 		"EncodeProjectJSON",
+		// BINDING MODEL V2 DIALECT SEAMS (fpc-2 Task 2.11): ApplyRuleWaivers is the dated rule-waiver
+		// downgrade the aiarch-state-mcp gate and the method-design test both apply (one policy, two
+		// callers); BrowserDialectDefs is the embedded UI-dialect $defs, one source for
+		// RecordBrowserContract; OperationReadOnly is the verb-prefix classifier the recording verb and
+		// internaltoolsgen share. Same category as the codec: consumed by cmd/ binaries.
+		"ApplyRuleWaivers",
+		"BrowserDialectDefs",
+		"OperationReadOnly",
 		// PROMOTED CO-AUTHOR HELPERS (code-health-phase-bd task D3): the PURE reason/label
 		// formatters, review-ledger predicate, and rail resolvers the two design Managers
 		// (systemdesign, projectdesign) each carried as byte-identical duplicates, promoted

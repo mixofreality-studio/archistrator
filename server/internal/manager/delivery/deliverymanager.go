@@ -14887,11 +14887,11 @@ func bindingToContract(b projectstate.ScenarioBinding) ScenarioBindingView {
 	v := ScenarioBindingView{Scenario: b.Scenario, Steps: make([]StepBindingView, 0, len(b.Steps))}
 	for _, st := range b.Steps {
 		sv := StepBindingView{
-			Seq:          int64(st.Seq),
-			Operation:    st.Operation,
-			Inputs:       argsToContract(st.Inputs),
-			Expect:       expectToContract(st.Expect),
-			Probes:       make([]ProbeView, 0, len(st.Probes)),
+			Seq:       int64(st.Seq),
+			Operation: st.Operation,
+			Inputs:    argsToContract(st.Inputs),
+			Expect:    expectToContract(st.Expect),
+			Probes:    make([]ProbeView, 0, len(st.Probes)),
 			// EARMARK (FPC plan 2 Task 2.11): binding model v2 deleted the hook and unobservable
 			// members of a step, but this view contract and the webApp scenario browser still
 			// carry them. Dropping them is a view-contract change with a UI half, which needs its

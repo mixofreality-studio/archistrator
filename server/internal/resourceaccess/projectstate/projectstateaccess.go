@@ -29,10 +29,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	_ "embed" // uidialect.defs.json
 	"encoding/base32"
 	"encoding/hex"
 	"encoding/json"
-	_ "embed" // uidialect.defs.json
 	"errors"
 	"fmt"
 	"log/slog"

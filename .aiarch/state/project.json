@@ -40987,50 +40987,17 @@
       "layer": "Client",
       "title": "webClient contract",
       "$defs": {
-        "UITarget": {
+        "UIAbsent": {
           "type": "object",
-          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "element": {
-              "type": "string",
-              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
-            },
-            "nth": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int",
-              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "element"
+            "target"
           ],
           "additionalProperties": false
-        },
-        "UIActionKind": {
-          "type": "string",
-          "enum": [
-            "navigate",
-            "click",
-            "dblclick",
-            "fill",
-            "press",
-            "check",
-            "uncheck",
-            "hover",
-            "select"
-          ],
-          "x-enum-varnames": [
-            "UIActionNavigate",
-            "UIActionClick",
-            "UIActionDblclick",
-            "UIActionFill",
-            "UIActionPress",
-            "UIActionCheck",
-            "UIActionUncheck",
-            "UIActionHover",
-            "UIActionSelect"
-          ]
         },
         "UIAction": {
           "description": "One browser action a scenario step performs, as a {kind, model} envelope over a design element: click, dblclick or hover it; fill it with a value (empty clears); press a key on it; check or uncheck it; select an option; or navigate to a screen route of the design.",
@@ -41234,15 +41201,52 @@
             ]
           }
         },
-        "UINavigate": {
+        "UIActionKind": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "click",
+            "dblclick",
+            "fill",
+            "press",
+            "check",
+            "uncheck",
+            "hover",
+            "select"
+          ],
+          "x-enum-varnames": [
+            "UIActionNavigate",
+            "UIActionClick",
+            "UIActionDblclick",
+            "UIActionFill",
+            "UIActionPress",
+            "UIActionCheck",
+            "UIActionUncheck",
+            "UIActionHover",
+            "UIActionSelect"
+          ]
+        },
+        "UICheck": {
           "type": "object",
           "properties": {
-            "route": {
-              "type": "string"
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "route"
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIChecked": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
           ],
           "additionalProperties": false
         },
@@ -41258,7 +41262,49 @@
           ],
           "additionalProperties": false
         },
+        "UICount": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "target",
+            "n"
+          ],
+          "additionalProperties": false
+        },
         "UIDblclick": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIDisabled": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIEnabled": {
           "type": "object",
           "properties": {
             "target": {
@@ -41286,23 +41332,7 @@
           ],
           "additionalProperties": false
         },
-        "UIPress": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "target",
-            "key"
-          ],
-          "additionalProperties": false
-        },
-        "UICheck": {
+        "UIFocused": {
           "type": "object",
           "properties": {
             "target": {
@@ -41314,7 +41344,7 @@
           ],
           "additionalProperties": false
         },
-        "UIUncheck": {
+        "UIHidden": {
           "type": "object",
           "properties": {
             "target": {
@@ -41338,52 +41368,17 @@
           ],
           "additionalProperties": false
         },
-        "UISelect": {
+        "UINavigate": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "option": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "option"
+            "route"
           ],
           "additionalProperties": false
-        },
-        "UIObservableKind": {
-          "type": "string",
-          "enum": [
-            "visible",
-            "hidden",
-            "absent",
-            "text",
-            "value",
-            "checked",
-            "unchecked",
-            "enabled",
-            "disabled",
-            "focused",
-            "count",
-            "url"
-          ],
-          "x-enum-varnames": [
-            "UIObservableVisible",
-            "UIObservableHidden",
-            "UIObservableAbsent",
-            "UIObservableText",
-            "UIObservableValue",
-            "UIObservableChecked",
-            "UIObservableUnchecked",
-            "UIObservableEnabled",
-            "UIObservableDisabled",
-            "UIObservableFocused",
-            "UIObservableCount",
-            "UIObservableURL"
-          ]
         },
         "UIObservable": {
           "description": "One thing a user sees after the action, as a {kind, model} envelope: an element visible, hidden, absent, enabled, disabled, focused, checked or unchecked; its text, its value, or how many of a repeating element are shown; or the screen route the page is at.",
@@ -41650,39 +41645,94 @@
             ]
           }
         },
-        "UIVisible": {
+        "UIObservableKind": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "absent",
+            "text",
+            "value",
+            "checked",
+            "unchecked",
+            "enabled",
+            "disabled",
+            "focused",
+            "count",
+            "url"
+          ],
+          "x-enum-varnames": [
+            "UIObservableVisible",
+            "UIObservableHidden",
+            "UIObservableAbsent",
+            "UIObservableText",
+            "UIObservableValue",
+            "UIObservableChecked",
+            "UIObservableUnchecked",
+            "UIObservableEnabled",
+            "UIObservableDisabled",
+            "UIObservableFocused",
+            "UIObservableCount",
+            "UIObservableURL"
+          ]
+        },
+        "UIObservation": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/UIObservable"
+          },
+          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+        },
+        "UIPress": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "key": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "key"
           ],
           "additionalProperties": false
         },
-        "UIHidden": {
+        "UISelect": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "option": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "option"
           ],
           "additionalProperties": false
         },
-        "UIAbsent": {
+        "UITarget": {
           "type": "object",
+          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
+            "element": {
+              "type": "string",
+              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int",
+              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
             }
           },
           "required": [
-            "target"
+            "element"
           ],
           "additionalProperties": false
         },
@@ -41702,23 +41752,19 @@
           ],
           "additionalProperties": false
         },
-        "UIValue": {
+        "UIURL": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "value": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "value"
+            "route"
           ],
           "additionalProperties": false
         },
-        "UIChecked": {
+        "UIUncheck": {
           "type": "object",
           "properties": {
             "target": {
@@ -41742,79 +41788,33 @@
           ],
           "additionalProperties": false
         },
-        "UIEnabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIDisabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIFocused": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UICount": {
+        "UIValue": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
             },
-            "n": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int"
-            }
-          },
-          "required": [
-            "target",
-            "n"
-          ],
-          "additionalProperties": false
-        },
-        "UIURL": {
-          "type": "object",
-          "properties": {
-            "route": {
+            "value": {
               "type": "string"
             }
           },
           "required": [
-            "route"
+            "target",
+            "value"
           ],
           "additionalProperties": false
         },
-        "UIObservation": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/UIObservable"
+        "UIVisible": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
           },
-          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -41980,50 +41980,17 @@
       "layer": "Client",
       "title": "webClientBilling contract",
       "$defs": {
-        "UITarget": {
+        "UIAbsent": {
           "type": "object",
-          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "element": {
-              "type": "string",
-              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
-            },
-            "nth": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int",
-              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "element"
+            "target"
           ],
           "additionalProperties": false
-        },
-        "UIActionKind": {
-          "type": "string",
-          "enum": [
-            "navigate",
-            "click",
-            "dblclick",
-            "fill",
-            "press",
-            "check",
-            "uncheck",
-            "hover",
-            "select"
-          ],
-          "x-enum-varnames": [
-            "UIActionNavigate",
-            "UIActionClick",
-            "UIActionDblclick",
-            "UIActionFill",
-            "UIActionPress",
-            "UIActionCheck",
-            "UIActionUncheck",
-            "UIActionHover",
-            "UIActionSelect"
-          ]
         },
         "UIAction": {
           "description": "One browser action a scenario step performs, as a {kind, model} envelope over a design element: click, dblclick or hover it; fill it with a value (empty clears); press a key on it; check or uncheck it; select an option; or navigate to a screen route of the design.",
@@ -42227,15 +42194,52 @@
             ]
           }
         },
-        "UINavigate": {
+        "UIActionKind": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "click",
+            "dblclick",
+            "fill",
+            "press",
+            "check",
+            "uncheck",
+            "hover",
+            "select"
+          ],
+          "x-enum-varnames": [
+            "UIActionNavigate",
+            "UIActionClick",
+            "UIActionDblclick",
+            "UIActionFill",
+            "UIActionPress",
+            "UIActionCheck",
+            "UIActionUncheck",
+            "UIActionHover",
+            "UIActionSelect"
+          ]
+        },
+        "UICheck": {
           "type": "object",
           "properties": {
-            "route": {
-              "type": "string"
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "route"
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIChecked": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
           ],
           "additionalProperties": false
         },
@@ -42251,7 +42255,49 @@
           ],
           "additionalProperties": false
         },
+        "UICount": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "target",
+            "n"
+          ],
+          "additionalProperties": false
+        },
         "UIDblclick": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIDisabled": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIEnabled": {
           "type": "object",
           "properties": {
             "target": {
@@ -42279,23 +42325,7 @@
           ],
           "additionalProperties": false
         },
-        "UIPress": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "target",
-            "key"
-          ],
-          "additionalProperties": false
-        },
-        "UICheck": {
+        "UIFocused": {
           "type": "object",
           "properties": {
             "target": {
@@ -42307,7 +42337,7 @@
           ],
           "additionalProperties": false
         },
-        "UIUncheck": {
+        "UIHidden": {
           "type": "object",
           "properties": {
             "target": {
@@ -42331,52 +42361,17 @@
           ],
           "additionalProperties": false
         },
-        "UISelect": {
+        "UINavigate": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "option": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "option"
+            "route"
           ],
           "additionalProperties": false
-        },
-        "UIObservableKind": {
-          "type": "string",
-          "enum": [
-            "visible",
-            "hidden",
-            "absent",
-            "text",
-            "value",
-            "checked",
-            "unchecked",
-            "enabled",
-            "disabled",
-            "focused",
-            "count",
-            "url"
-          ],
-          "x-enum-varnames": [
-            "UIObservableVisible",
-            "UIObservableHidden",
-            "UIObservableAbsent",
-            "UIObservableText",
-            "UIObservableValue",
-            "UIObservableChecked",
-            "UIObservableUnchecked",
-            "UIObservableEnabled",
-            "UIObservableDisabled",
-            "UIObservableFocused",
-            "UIObservableCount",
-            "UIObservableURL"
-          ]
         },
         "UIObservable": {
           "description": "One thing a user sees after the action, as a {kind, model} envelope: an element visible, hidden, absent, enabled, disabled, focused, checked or unchecked; its text, its value, or how many of a repeating element are shown; or the screen route the page is at.",
@@ -42643,39 +42638,94 @@
             ]
           }
         },
-        "UIVisible": {
+        "UIObservableKind": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "absent",
+            "text",
+            "value",
+            "checked",
+            "unchecked",
+            "enabled",
+            "disabled",
+            "focused",
+            "count",
+            "url"
+          ],
+          "x-enum-varnames": [
+            "UIObservableVisible",
+            "UIObservableHidden",
+            "UIObservableAbsent",
+            "UIObservableText",
+            "UIObservableValue",
+            "UIObservableChecked",
+            "UIObservableUnchecked",
+            "UIObservableEnabled",
+            "UIObservableDisabled",
+            "UIObservableFocused",
+            "UIObservableCount",
+            "UIObservableURL"
+          ]
+        },
+        "UIObservation": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/UIObservable"
+          },
+          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+        },
+        "UIPress": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "key": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "key"
           ],
           "additionalProperties": false
         },
-        "UIHidden": {
+        "UISelect": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "option": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "option"
           ],
           "additionalProperties": false
         },
-        "UIAbsent": {
+        "UITarget": {
           "type": "object",
+          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
+            "element": {
+              "type": "string",
+              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int",
+              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
             }
           },
           "required": [
-            "target"
+            "element"
           ],
           "additionalProperties": false
         },
@@ -42695,23 +42745,19 @@
           ],
           "additionalProperties": false
         },
-        "UIValue": {
+        "UIURL": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "value": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "value"
+            "route"
           ],
           "additionalProperties": false
         },
-        "UIChecked": {
+        "UIUncheck": {
           "type": "object",
           "properties": {
             "target": {
@@ -42735,79 +42781,33 @@
           ],
           "additionalProperties": false
         },
-        "UIEnabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIDisabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIFocused": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UICount": {
+        "UIValue": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
             },
-            "n": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int"
-            }
-          },
-          "required": [
-            "target",
-            "n"
-          ],
-          "additionalProperties": false
-        },
-        "UIURL": {
-          "type": "object",
-          "properties": {
-            "route": {
+            "value": {
               "type": "string"
             }
           },
           "required": [
-            "route"
+            "target",
+            "value"
           ],
           "additionalProperties": false
         },
-        "UIObservation": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/UIObservable"
+        "UIVisible": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
           },
-          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -42868,50 +42868,17 @@
       "layer": "Client",
       "title": "webClientOperations contract",
       "$defs": {
-        "UITarget": {
+        "UIAbsent": {
           "type": "object",
-          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "element": {
-              "type": "string",
-              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
-            },
-            "nth": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int",
-              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "element"
+            "target"
           ],
           "additionalProperties": false
-        },
-        "UIActionKind": {
-          "type": "string",
-          "enum": [
-            "navigate",
-            "click",
-            "dblclick",
-            "fill",
-            "press",
-            "check",
-            "uncheck",
-            "hover",
-            "select"
-          ],
-          "x-enum-varnames": [
-            "UIActionNavigate",
-            "UIActionClick",
-            "UIActionDblclick",
-            "UIActionFill",
-            "UIActionPress",
-            "UIActionCheck",
-            "UIActionUncheck",
-            "UIActionHover",
-            "UIActionSelect"
-          ]
         },
         "UIAction": {
           "description": "One browser action a scenario step performs, as a {kind, model} envelope over a design element: click, dblclick or hover it; fill it with a value (empty clears); press a key on it; check or uncheck it; select an option; or navigate to a screen route of the design.",
@@ -43115,15 +43082,52 @@
             ]
           }
         },
-        "UINavigate": {
+        "UIActionKind": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "click",
+            "dblclick",
+            "fill",
+            "press",
+            "check",
+            "uncheck",
+            "hover",
+            "select"
+          ],
+          "x-enum-varnames": [
+            "UIActionNavigate",
+            "UIActionClick",
+            "UIActionDblclick",
+            "UIActionFill",
+            "UIActionPress",
+            "UIActionCheck",
+            "UIActionUncheck",
+            "UIActionHover",
+            "UIActionSelect"
+          ]
+        },
+        "UICheck": {
           "type": "object",
           "properties": {
-            "route": {
-              "type": "string"
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "route"
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIChecked": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
           ],
           "additionalProperties": false
         },
@@ -43139,7 +43143,49 @@
           ],
           "additionalProperties": false
         },
+        "UICount": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "target",
+            "n"
+          ],
+          "additionalProperties": false
+        },
         "UIDblclick": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIDisabled": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIEnabled": {
           "type": "object",
           "properties": {
             "target": {
@@ -43167,23 +43213,7 @@
           ],
           "additionalProperties": false
         },
-        "UIPress": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "target",
-            "key"
-          ],
-          "additionalProperties": false
-        },
-        "UICheck": {
+        "UIFocused": {
           "type": "object",
           "properties": {
             "target": {
@@ -43195,7 +43225,7 @@
           ],
           "additionalProperties": false
         },
-        "UIUncheck": {
+        "UIHidden": {
           "type": "object",
           "properties": {
             "target": {
@@ -43219,52 +43249,17 @@
           ],
           "additionalProperties": false
         },
-        "UISelect": {
+        "UINavigate": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "option": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "option"
+            "route"
           ],
           "additionalProperties": false
-        },
-        "UIObservableKind": {
-          "type": "string",
-          "enum": [
-            "visible",
-            "hidden",
-            "absent",
-            "text",
-            "value",
-            "checked",
-            "unchecked",
-            "enabled",
-            "disabled",
-            "focused",
-            "count",
-            "url"
-          ],
-          "x-enum-varnames": [
-            "UIObservableVisible",
-            "UIObservableHidden",
-            "UIObservableAbsent",
-            "UIObservableText",
-            "UIObservableValue",
-            "UIObservableChecked",
-            "UIObservableUnchecked",
-            "UIObservableEnabled",
-            "UIObservableDisabled",
-            "UIObservableFocused",
-            "UIObservableCount",
-            "UIObservableURL"
-          ]
         },
         "UIObservable": {
           "description": "One thing a user sees after the action, as a {kind, model} envelope: an element visible, hidden, absent, enabled, disabled, focused, checked or unchecked; its text, its value, or how many of a repeating element are shown; or the screen route the page is at.",
@@ -43531,39 +43526,94 @@
             ]
           }
         },
-        "UIVisible": {
+        "UIObservableKind": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "absent",
+            "text",
+            "value",
+            "checked",
+            "unchecked",
+            "enabled",
+            "disabled",
+            "focused",
+            "count",
+            "url"
+          ],
+          "x-enum-varnames": [
+            "UIObservableVisible",
+            "UIObservableHidden",
+            "UIObservableAbsent",
+            "UIObservableText",
+            "UIObservableValue",
+            "UIObservableChecked",
+            "UIObservableUnchecked",
+            "UIObservableEnabled",
+            "UIObservableDisabled",
+            "UIObservableFocused",
+            "UIObservableCount",
+            "UIObservableURL"
+          ]
+        },
+        "UIObservation": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/UIObservable"
+          },
+          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+        },
+        "UIPress": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "key": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "key"
           ],
           "additionalProperties": false
         },
-        "UIHidden": {
+        "UISelect": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "option": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "option"
           ],
           "additionalProperties": false
         },
-        "UIAbsent": {
+        "UITarget": {
           "type": "object",
+          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
+            "element": {
+              "type": "string",
+              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int",
+              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
             }
           },
           "required": [
-            "target"
+            "element"
           ],
           "additionalProperties": false
         },
@@ -43583,23 +43633,19 @@
           ],
           "additionalProperties": false
         },
-        "UIValue": {
+        "UIURL": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "value": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "value"
+            "route"
           ],
           "additionalProperties": false
         },
-        "UIChecked": {
+        "UIUncheck": {
           "type": "object",
           "properties": {
             "target": {
@@ -43623,79 +43669,33 @@
           ],
           "additionalProperties": false
         },
-        "UIEnabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIDisabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIFocused": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UICount": {
+        "UIValue": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
             },
-            "n": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int"
-            }
-          },
-          "required": [
-            "target",
-            "n"
-          ],
-          "additionalProperties": false
-        },
-        "UIURL": {
-          "type": "object",
-          "properties": {
-            "route": {
+            "value": {
               "type": "string"
             }
           },
           "required": [
-            "route"
+            "target",
+            "value"
           ],
           "additionalProperties": false
         },
-        "UIObservation": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/UIObservable"
+        "UIVisible": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
           },
-          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -43801,50 +43801,17 @@
       "layer": "Client",
       "title": "webClientPlan contract",
       "$defs": {
-        "UITarget": {
+        "UIAbsent": {
           "type": "object",
-          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "element": {
-              "type": "string",
-              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
-            },
-            "nth": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int",
-              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "element"
+            "target"
           ],
           "additionalProperties": false
-        },
-        "UIActionKind": {
-          "type": "string",
-          "enum": [
-            "navigate",
-            "click",
-            "dblclick",
-            "fill",
-            "press",
-            "check",
-            "uncheck",
-            "hover",
-            "select"
-          ],
-          "x-enum-varnames": [
-            "UIActionNavigate",
-            "UIActionClick",
-            "UIActionDblclick",
-            "UIActionFill",
-            "UIActionPress",
-            "UIActionCheck",
-            "UIActionUncheck",
-            "UIActionHover",
-            "UIActionSelect"
-          ]
         },
         "UIAction": {
           "description": "One browser action a scenario step performs, as a {kind, model} envelope over a design element: click, dblclick or hover it; fill it with a value (empty clears); press a key on it; check or uncheck it; select an option; or navigate to a screen route of the design.",
@@ -44048,15 +44015,52 @@
             ]
           }
         },
-        "UINavigate": {
+        "UIActionKind": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "click",
+            "dblclick",
+            "fill",
+            "press",
+            "check",
+            "uncheck",
+            "hover",
+            "select"
+          ],
+          "x-enum-varnames": [
+            "UIActionNavigate",
+            "UIActionClick",
+            "UIActionDblclick",
+            "UIActionFill",
+            "UIActionPress",
+            "UIActionCheck",
+            "UIActionUncheck",
+            "UIActionHover",
+            "UIActionSelect"
+          ]
+        },
+        "UICheck": {
           "type": "object",
           "properties": {
-            "route": {
-              "type": "string"
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "route"
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIChecked": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
           ],
           "additionalProperties": false
         },
@@ -44072,7 +44076,49 @@
           ],
           "additionalProperties": false
         },
+        "UICount": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "target",
+            "n"
+          ],
+          "additionalProperties": false
+        },
         "UIDblclick": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIDisabled": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIEnabled": {
           "type": "object",
           "properties": {
             "target": {
@@ -44100,23 +44146,7 @@
           ],
           "additionalProperties": false
         },
-        "UIPress": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "target",
-            "key"
-          ],
-          "additionalProperties": false
-        },
-        "UICheck": {
+        "UIFocused": {
           "type": "object",
           "properties": {
             "target": {
@@ -44128,7 +44158,7 @@
           ],
           "additionalProperties": false
         },
-        "UIUncheck": {
+        "UIHidden": {
           "type": "object",
           "properties": {
             "target": {
@@ -44152,52 +44182,17 @@
           ],
           "additionalProperties": false
         },
-        "UISelect": {
+        "UINavigate": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "option": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "option"
+            "route"
           ],
           "additionalProperties": false
-        },
-        "UIObservableKind": {
-          "type": "string",
-          "enum": [
-            "visible",
-            "hidden",
-            "absent",
-            "text",
-            "value",
-            "checked",
-            "unchecked",
-            "enabled",
-            "disabled",
-            "focused",
-            "count",
-            "url"
-          ],
-          "x-enum-varnames": [
-            "UIObservableVisible",
-            "UIObservableHidden",
-            "UIObservableAbsent",
-            "UIObservableText",
-            "UIObservableValue",
-            "UIObservableChecked",
-            "UIObservableUnchecked",
-            "UIObservableEnabled",
-            "UIObservableDisabled",
-            "UIObservableFocused",
-            "UIObservableCount",
-            "UIObservableURL"
-          ]
         },
         "UIObservable": {
           "description": "One thing a user sees after the action, as a {kind, model} envelope: an element visible, hidden, absent, enabled, disabled, focused, checked or unchecked; its text, its value, or how many of a repeating element are shown; or the screen route the page is at.",
@@ -44464,39 +44459,94 @@
             ]
           }
         },
-        "UIVisible": {
+        "UIObservableKind": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "absent",
+            "text",
+            "value",
+            "checked",
+            "unchecked",
+            "enabled",
+            "disabled",
+            "focused",
+            "count",
+            "url"
+          ],
+          "x-enum-varnames": [
+            "UIObservableVisible",
+            "UIObservableHidden",
+            "UIObservableAbsent",
+            "UIObservableText",
+            "UIObservableValue",
+            "UIObservableChecked",
+            "UIObservableUnchecked",
+            "UIObservableEnabled",
+            "UIObservableDisabled",
+            "UIObservableFocused",
+            "UIObservableCount",
+            "UIObservableURL"
+          ]
+        },
+        "UIObservation": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/UIObservable"
+          },
+          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+        },
+        "UIPress": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "key": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "key"
           ],
           "additionalProperties": false
         },
-        "UIHidden": {
+        "UISelect": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "option": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "option"
           ],
           "additionalProperties": false
         },
-        "UIAbsent": {
+        "UITarget": {
           "type": "object",
+          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
+            "element": {
+              "type": "string",
+              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int",
+              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
             }
           },
           "required": [
-            "target"
+            "element"
           ],
           "additionalProperties": false
         },
@@ -44516,23 +44566,19 @@
           ],
           "additionalProperties": false
         },
-        "UIValue": {
+        "UIURL": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "value": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "value"
+            "route"
           ],
           "additionalProperties": false
         },
-        "UIChecked": {
+        "UIUncheck": {
           "type": "object",
           "properties": {
             "target": {
@@ -44556,79 +44602,33 @@
           ],
           "additionalProperties": false
         },
-        "UIEnabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIDisabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIFocused": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UICount": {
+        "UIValue": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
             },
-            "n": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int"
-            }
-          },
-          "required": [
-            "target",
-            "n"
-          ],
-          "additionalProperties": false
-        },
-        "UIURL": {
-          "type": "object",
-          "properties": {
-            "route": {
+            "value": {
               "type": "string"
             }
           },
           "required": [
-            "route"
+            "target",
+            "value"
           ],
           "additionalProperties": false
         },
-        "UIObservation": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/UIObservable"
+        "UIVisible": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
           },
-          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -44794,50 +44794,17 @@
       "layer": "Client",
       "title": "webClientProjects contract",
       "$defs": {
-        "UITarget": {
+        "UIAbsent": {
           "type": "object",
-          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "element": {
-              "type": "string",
-              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
-            },
-            "nth": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int",
-              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "element"
+            "target"
           ],
           "additionalProperties": false
-        },
-        "UIActionKind": {
-          "type": "string",
-          "enum": [
-            "navigate",
-            "click",
-            "dblclick",
-            "fill",
-            "press",
-            "check",
-            "uncheck",
-            "hover",
-            "select"
-          ],
-          "x-enum-varnames": [
-            "UIActionNavigate",
-            "UIActionClick",
-            "UIActionDblclick",
-            "UIActionFill",
-            "UIActionPress",
-            "UIActionCheck",
-            "UIActionUncheck",
-            "UIActionHover",
-            "UIActionSelect"
-          ]
         },
         "UIAction": {
           "description": "One browser action a scenario step performs, as a {kind, model} envelope over a design element: click, dblclick or hover it; fill it with a value (empty clears); press a key on it; check or uncheck it; select an option; or navigate to a screen route of the design.",
@@ -45041,15 +45008,52 @@
             ]
           }
         },
-        "UINavigate": {
+        "UIActionKind": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "click",
+            "dblclick",
+            "fill",
+            "press",
+            "check",
+            "uncheck",
+            "hover",
+            "select"
+          ],
+          "x-enum-varnames": [
+            "UIActionNavigate",
+            "UIActionClick",
+            "UIActionDblclick",
+            "UIActionFill",
+            "UIActionPress",
+            "UIActionCheck",
+            "UIActionUncheck",
+            "UIActionHover",
+            "UIActionSelect"
+          ]
+        },
+        "UICheck": {
           "type": "object",
           "properties": {
-            "route": {
-              "type": "string"
+            "target": {
+              "$ref": "#/$defs/UITarget"
             }
           },
           "required": [
-            "route"
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIChecked": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
           ],
           "additionalProperties": false
         },
@@ -45065,7 +45069,49 @@
           ],
           "additionalProperties": false
         },
+        "UICount": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "target",
+            "n"
+          ],
+          "additionalProperties": false
+        },
         "UIDblclick": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIDisabled": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "UIEnabled": {
           "type": "object",
           "properties": {
             "target": {
@@ -45093,23 +45139,7 @@
           ],
           "additionalProperties": false
         },
-        "UIPress": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "target",
-            "key"
-          ],
-          "additionalProperties": false
-        },
-        "UICheck": {
+        "UIFocused": {
           "type": "object",
           "properties": {
             "target": {
@@ -45121,7 +45151,7 @@
           ],
           "additionalProperties": false
         },
-        "UIUncheck": {
+        "UIHidden": {
           "type": "object",
           "properties": {
             "target": {
@@ -45145,52 +45175,17 @@
           ],
           "additionalProperties": false
         },
-        "UISelect": {
+        "UINavigate": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "option": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "option"
+            "route"
           ],
           "additionalProperties": false
-        },
-        "UIObservableKind": {
-          "type": "string",
-          "enum": [
-            "visible",
-            "hidden",
-            "absent",
-            "text",
-            "value",
-            "checked",
-            "unchecked",
-            "enabled",
-            "disabled",
-            "focused",
-            "count",
-            "url"
-          ],
-          "x-enum-varnames": [
-            "UIObservableVisible",
-            "UIObservableHidden",
-            "UIObservableAbsent",
-            "UIObservableText",
-            "UIObservableValue",
-            "UIObservableChecked",
-            "UIObservableUnchecked",
-            "UIObservableEnabled",
-            "UIObservableDisabled",
-            "UIObservableFocused",
-            "UIObservableCount",
-            "UIObservableURL"
-          ]
         },
         "UIObservable": {
           "description": "One thing a user sees after the action, as a {kind, model} envelope: an element visible, hidden, absent, enabled, disabled, focused, checked or unchecked; its text, its value, or how many of a repeating element are shown; or the screen route the page is at.",
@@ -45457,39 +45452,94 @@
             ]
           }
         },
-        "UIVisible": {
+        "UIObservableKind": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "absent",
+            "text",
+            "value",
+            "checked",
+            "unchecked",
+            "enabled",
+            "disabled",
+            "focused",
+            "count",
+            "url"
+          ],
+          "x-enum-varnames": [
+            "UIObservableVisible",
+            "UIObservableHidden",
+            "UIObservableAbsent",
+            "UIObservableText",
+            "UIObservableValue",
+            "UIObservableChecked",
+            "UIObservableUnchecked",
+            "UIObservableEnabled",
+            "UIObservableDisabled",
+            "UIObservableFocused",
+            "UIObservableCount",
+            "UIObservableURL"
+          ]
+        },
+        "UIObservation": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/UIObservable"
+          },
+          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+        },
+        "UIPress": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "key": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "key"
           ],
           "additionalProperties": false
         },
-        "UIHidden": {
+        "UISelect": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
+            },
+            "option": {
+              "type": "string"
             }
           },
           "required": [
-            "target"
+            "target",
+            "option"
           ],
           "additionalProperties": false
         },
-        "UIAbsent": {
+        "UITarget": {
           "type": "object",
+          "description": "The design element an action acts on or an observable observes.",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
+            "element": {
+              "type": "string",
+              "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0,
+              "x-go-type": "int",
+              "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
             }
           },
           "required": [
-            "target"
+            "element"
           ],
           "additionalProperties": false
         },
@@ -45509,23 +45559,19 @@
           ],
           "additionalProperties": false
         },
-        "UIValue": {
+        "UIURL": {
           "type": "object",
           "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            },
-            "value": {
+            "route": {
               "type": "string"
             }
           },
           "required": [
-            "target",
-            "value"
+            "route"
           ],
           "additionalProperties": false
         },
-        "UIChecked": {
+        "UIUncheck": {
           "type": "object",
           "properties": {
             "target": {
@@ -45549,79 +45595,33 @@
           ],
           "additionalProperties": false
         },
-        "UIEnabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIDisabled": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UIFocused": {
-          "type": "object",
-          "properties": {
-            "target": {
-              "$ref": "#/$defs/UITarget"
-            }
-          },
-          "required": [
-            "target"
-          ],
-          "additionalProperties": false
-        },
-        "UICount": {
+        "UIValue": {
           "type": "object",
           "properties": {
             "target": {
               "$ref": "#/$defs/UITarget"
             },
-            "n": {
-              "type": "integer",
-              "minimum": 0,
-              "x-go-type": "int"
-            }
-          },
-          "required": [
-            "target",
-            "n"
-          ],
-          "additionalProperties": false
-        },
-        "UIURL": {
-          "type": "object",
-          "properties": {
-            "route": {
+            "value": {
               "type": "string"
             }
           },
           "required": [
-            "route"
+            "target",
+            "value"
           ],
           "additionalProperties": false
         },
-        "UIObservation": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/UIObservable"
+        "UIVisible": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/UITarget"
+            }
           },
-          "description": "What the step observes: at least one observable. An empty list would assert nothing."
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -93191,6 +93191,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-acq-p1"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-acq-p1\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "ReadManagedFile",
                 "inputs": [
                   {
@@ -93242,6 +93264,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-acq-p2"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-acq-p2\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "ReadManagedFile",
                 "inputs": [
                   {
@@ -93293,6 +93337,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-acq-p3"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-acq-p3\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "ReadManagedFile",
                 "inputs": [
                   {
@@ -93344,6 +93410,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-acq-p4"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-acq-p4\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "ReadManagedFile",
                 "inputs": [
                   {
@@ -93395,6 +93483,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-eapa-p1"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-eapa-p1\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -93416,7 +93526,7 @@
                 "probes": []
               },
               {
-                "seq": 2,
+                "seq": 3,
                 "operation": "OpenBranch",
                 "inputs": [
                   {
@@ -93461,7 +93571,7 @@
                 "probes": []
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "OpenPullRequest",
                 "inputs": [
                   {
@@ -93512,7 +93622,7 @@
                 "probes": []
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "GetPullRequestStatus",
                 "inputs": [
                   {
@@ -93564,6 +93674,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-eapa-p2"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-eapa-p2\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -93585,7 +93717,7 @@
                 "probes": []
               },
               {
-                "seq": 2,
+                "seq": 3,
                 "operation": "OpenBranch",
                 "inputs": [
                   {
@@ -93630,7 +93762,7 @@
                 "probes": []
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "OpenPullRequest",
                 "inputs": [
                   {
@@ -93681,7 +93813,7 @@
                 "probes": []
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "GetPullRequestStatus",
                 "inputs": [
                   {
@@ -94197,6 +94329,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-eapa-p5"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-eapa-p5\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -94218,7 +94372,7 @@
                 "probes": []
               },
               {
-                "seq": 2,
+                "seq": 3,
                 "operation": "OpenBranch",
                 "inputs": [
                   {
@@ -94263,7 +94417,7 @@
                 "probes": []
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "OpenPullRequest",
                 "inputs": [
                   {
@@ -94314,7 +94468,7 @@
                 "probes": []
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "GetPullRequestStatus",
                 "inputs": [
                   {
@@ -94359,7 +94513,29 @@
                 "probes": []
               },
               {
-                "seq": 5,
+                "seq": 6,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-eapa-p5"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-eapa-p5\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 7,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -94381,7 +94557,7 @@
                 "probes": []
               },
               {
-                "seq": 6,
+                "seq": 8,
                 "operation": "OpenBranch",
                 "inputs": [
                   {
@@ -94426,7 +94602,7 @@
                 "probes": []
               },
               {
-                "seq": 7,
+                "seq": 9,
                 "operation": "OpenPullRequest",
                 "inputs": [
                   {
@@ -94477,7 +94653,7 @@
                 "probes": []
               },
               {
-                "seq": 8,
+                "seq": 10,
                 "operation": "GetPullRequestStatus",
                 "inputs": [
                   {
@@ -94529,6 +94705,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-eapa-p6"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-eapa-p6\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -94550,7 +94748,7 @@
                 "probes": []
               },
               {
-                "seq": 2,
+                "seq": 3,
                 "operation": "OpenBranch",
                 "inputs": [
                   {
@@ -94595,7 +94793,7 @@
                 "probes": []
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "OpenPullRequest",
                 "inputs": [
                   {
@@ -94646,7 +94844,7 @@
                 "probes": []
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "GetPullRequestStatus",
                 "inputs": [
                   {
@@ -94698,6 +94896,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-eapa-p7"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-eapa-p7\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -94719,7 +94939,7 @@
                 "probes": []
               },
               {
-                "seq": 2,
+                "seq": 3,
                 "operation": "OpenBranch",
                 "inputs": [
                   {
@@ -94764,7 +94984,7 @@
                 "probes": []
               },
               {
-                "seq": 3,
+                "seq": 4,
                 "operation": "OpenPullRequest",
                 "inputs": [
                   {
@@ -94815,7 +95035,7 @@
                 "probes": []
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "GetPullRequestStatus",
                 "inputs": [
                   {
@@ -95285,6 +95505,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-rusc-p2"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-rusc-p2\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -95306,7 +95548,7 @@
                 "probes": []
               },
               {
-                "seq": 2,
+                "seq": 3,
                 "operation": "OpenBranch",
                 "inputs": [
                   {
@@ -95404,6 +95646,28 @@
             "steps": [
               {
                 "seq": 1,
+                "operation": "ProjectRepo",
+                "inputs": [
+                  {
+                    "name": "projectID",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "stp-sca-rusc-p3"
+                      }
+                    },
+                    "schemaRef": "#/$defs/ProjectID"
+                  }
+                ],
+                "expect": {
+                  "result": "{\"Repo\":\"local|local/stp-sca-rusc-p3\",\"WebURL\":\"\",\"Found\":true}",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 2,
                 "operation": "GetInstallationToken",
                 "inputs": [
                   {
@@ -95425,7 +95689,7 @@
                 "probes": []
               },
               {
-                "seq": 2,
+                "seq": 3,
                 "operation": "OpenBranch",
                 "inputs": [
                   {

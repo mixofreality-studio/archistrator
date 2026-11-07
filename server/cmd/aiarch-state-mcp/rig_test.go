@@ -395,7 +395,7 @@ func TestRig_ConstructModeFullCycleOverStdio(t *testing.T) {
 	}
 
 	res := callTool(ctx, t, session, "recordServiceContract", map[string]any{
-		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine", "interface": map[string]any{"name": "BillingEngine", "operations": []any{map[string]any{"name": "PriceUsage", "params": []any{}, "error": true}}}},
+		"contract": map[string]any{"component": "billingEngine", "layer": "Engine", "title": "Billing Engine", "$defs": map[string]any{"Usage": map[string]any{"type": "string"}}, "interface": map[string]any{"name": "BillingEngine", "operations": []any{map[string]any{"name": "PriceUsage", "params": []any{}, "error": true}}}},
 	})
 	if res.IsError {
 		t.Fatalf("recordServiceContract failed: %s", contentText(res))

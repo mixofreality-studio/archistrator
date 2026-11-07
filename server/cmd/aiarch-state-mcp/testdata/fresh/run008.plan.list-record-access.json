@@ -10,17 +10,34 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-add",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-add"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "newTodo",
-              "value": "{\"title\": \"Buy milk\"}",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": {
+                    "title": "Buy milk"
+                  }
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-add-1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-add-1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -37,7 +54,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-add",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-add"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -47,9 +69,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         },
         {
           "seq": 2,
@@ -57,7 +77,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-add",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-add"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -74,7 +99,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-add",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-add"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -84,13 +114,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n8"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "come-back-to-the-list-P1",
@@ -101,7 +128,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-back",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-back"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -118,7 +150,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-back",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-back"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -128,14 +165,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n5",
-            "n6"
-          ],
-          "hook": true
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "drive-the-list-from-agent-tooling-P1",
@@ -146,7 +179,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -155,11 +193,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n5"
-          ],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 2,
@@ -167,17 +201,34 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "newTodo",
-              "value": "{\"title\": \"Walk dog\"}",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": {
+                    "title": "Walk dog"
+                  }
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-drive1-2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-drive1-2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -186,9 +237,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 3,
@@ -196,22 +245,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "title",
-              "value": "Walk the dog",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "Walk the dog"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-drive1-3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-drive1-3"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -220,9 +289,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 4,
@@ -230,22 +297,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "true",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": true
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-drive1-4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-drive1-4"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -254,9 +341,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 5,
@@ -264,17 +349,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "false",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": false
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-drive1-5",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-drive1-5"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -283,9 +383,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 6,
@@ -293,17 +391,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-drive1-6",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-drive1-6"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -312,9 +425,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 7,
@@ -322,12 +433,22 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-drive1-7",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-drive1-7"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -336,9 +457,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 8,
@@ -346,7 +465,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -363,7 +487,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-drive1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-drive1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -373,14 +502,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n7",
-            "n10"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "drive-the-list-from-agent-tooling-P2",
@@ -391,7 +516,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-drive2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-drive2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -408,7 +538,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-drive2",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-drive2"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -418,13 +553,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n10"
-          ],
-          "hook": true
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "fix-a-todo-s-wording-P1",
@@ -435,22 +567,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-fix1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-fix1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id of seeded Todo Buy milk",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id of seeded Todo Buy milk"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "title",
-              "value": "Buy oat milk",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "Buy oat milk"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-fix1-1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-fix1-1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -467,7 +619,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-fix1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-fix1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -477,9 +634,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         },
         {
           "seq": 2,
@@ -487,7 +642,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-fix1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-fix1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -504,7 +664,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-fix1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-fix1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -514,13 +679,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n10"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "fix-a-todo-s-wording-P2",
@@ -531,17 +693,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-fix2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-fix2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id of seeded Todo Buy milk",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id of seeded Todo Buy milk"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-fix2-1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-fix2-1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -558,7 +735,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-fix2",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-fix2"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -568,9 +750,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         },
         {
           "seq": 2,
@@ -578,7 +758,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-fix2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-fix2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -595,7 +780,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-fix2",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-fix2"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -605,13 +795,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n10"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "mark-a-todo-done-or-not-done-P1",
@@ -622,22 +809,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-mark",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-mark"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id of seeded Todo Buy milk",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id of seeded Todo Buy milk"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "true",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": true
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-mark-1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-mark-1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -654,7 +861,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-mark",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-mark"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -664,9 +876,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         },
         {
           "seq": 2,
@@ -674,7 +884,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-mark",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-mark"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -691,7 +906,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-mark",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-mark"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -701,13 +921,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n6"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "mark-everything-done-or-undo-that-P1",
@@ -718,7 +935,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-all1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-all1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -727,11 +949,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n4"
-          ],
-          "hook": true
+          "probes": []
         },
         {
           "seq": 2,
@@ -739,17 +957,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-all1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-all1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "false",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": false
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-owner-all1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-owner-all1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -766,7 +999,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-all1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-all1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -776,9 +1014,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": false
+          ]
         },
         {
           "seq": 3,
@@ -786,7 +1022,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-all1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-all1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -803,7 +1044,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-all1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-all1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -813,13 +1059,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n10"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "mark-everything-done-or-undo-that-P2",
@@ -830,7 +1073,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-all2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-all2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -839,11 +1087,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n4"
-          ],
-          "hook": true
+          "probes": []
         },
         {
           "seq": 2,
@@ -851,17 +1095,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-all2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-all2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "true",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": true
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-owner-all2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-owner-all2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -878,7 +1137,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-all2",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-all2"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -888,9 +1152,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": false
+          ]
         },
         {
           "seq": 3,
@@ -898,7 +1160,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-all2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-all2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -915,7 +1182,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-all2",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-all2"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -925,13 +1197,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n10"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "remove-a-todo-P1",
@@ -942,17 +1211,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-rm",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-rm"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id of seeded Todo Buy milk",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id of seeded Todo Buy milk"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-rm-1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-rm-1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -969,7 +1253,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-rm",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-rm"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -979,9 +1268,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         },
         {
           "seq": 2,
@@ -989,7 +1276,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-rm",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-rm"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1006,7 +1298,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-rm",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-rm"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1016,13 +1313,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n6"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "see-how-many-todos-are-left-P1",
@@ -1033,7 +1327,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-left",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-left"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1050,7 +1349,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-left",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-left"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1060,11 +1364,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "sweep-away-finished-todos-P1",
@@ -1075,12 +1378,22 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-sw1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-sw1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-sw1-1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-sw1-1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1097,7 +1410,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-sw1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-sw1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1107,9 +1425,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         },
         {
           "seq": 2,
@@ -1117,7 +1433,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-sw1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-sw1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1134,7 +1455,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-sw1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-sw1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1144,13 +1470,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n7"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "sweep-away-finished-todos-P2",
@@ -1161,12 +1484,22 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-sw2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-sw2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-sw2-1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-sw2-1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1183,7 +1516,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-sw2",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-sw2"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1193,11 +1531,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": true
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "switch-between-all-active-and-done-P1",
@@ -1208,7 +1545,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-sw",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-sw"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1225,7 +1567,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-sw",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-sw"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1235,13 +1582,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n5"
-          ],
-          "hook": true
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "take-stock-of-the-list-P2",
@@ -1252,7 +1596,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-stock",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-stock"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1269,7 +1618,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-stock",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-stock"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1279,14 +1633,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n7",
-            "n8"
-          ],
-          "hook": true
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "tend-the-list-P2",
@@ -1297,7 +1647,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1306,13 +1661,10 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n6"
-          ],
-          "hook": true
+          "probes": []
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "tend-the-list-P3",
@@ -1323,7 +1675,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend3"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1332,11 +1689,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n6"
-          ],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 2,
@@ -1344,17 +1697,34 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend3"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "newTodo",
-              "value": "{\"title\": \"Walk dog\"}",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": {
+                    "title": "Walk dog"
+                  }
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend3-2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend3-2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1363,9 +1733,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 3,
@@ -1373,22 +1741,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend3"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "title",
-              "value": "Walk the dog",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "Walk the dog"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend3-3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend3-3"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1397,9 +1785,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 4,
@@ -1407,22 +1793,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend3"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "true",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": true
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend3-4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend3-4"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1431,9 +1837,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 5,
@@ -1441,17 +1845,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend3"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "false",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": false
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend3-5",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend3-5"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1460,9 +1879,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 6,
@@ -1470,17 +1887,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend3"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend3-6",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend3-6"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1489,9 +1921,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 7,
@@ -1499,12 +1929,22 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend3"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend3-7",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend3-7"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1521,7 +1961,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-tend3",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-tend3"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1531,11 +1976,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "tend-the-list-P4",
@@ -1546,7 +1990,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1555,11 +2004,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n6"
-          ],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 2,
@@ -1567,17 +2012,34 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "newTodo",
-              "value": "{\"title\": \"Walk dog\"}",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": {
+                    "title": "Walk dog"
+                  }
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend4-2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend4-2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1586,9 +2048,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 3,
@@ -1596,22 +2056,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "title",
-              "value": "Walk the dog",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "Walk the dog"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend4-3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend4-3"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1620,9 +2100,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 4,
@@ -1630,22 +2108,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "true",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": true
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend4-4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend4-4"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1654,9 +2152,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 5,
@@ -1664,17 +2160,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "false",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": false
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend4-5",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend4-5"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1683,9 +2194,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 6,
@@ -1693,17 +2202,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend4-6",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend4-6"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1712,9 +2236,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 7,
@@ -1722,12 +2244,22 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-tend4-7",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-tend4-7"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1744,7 +2276,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-tend4",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-tend4"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1754,9 +2291,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": false
+          ]
         },
         {
           "seq": 8,
@@ -1764,7 +2299,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-tend4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-tend4"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1781,7 +2321,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-tend4",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-tend4"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -1791,13 +2336,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n13"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "work-the-list-from-a-hosted-workspace-P1",
@@ -1808,7 +2350,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1817,11 +2364,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n4"
-          ],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 2,
@@ -1829,17 +2372,34 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "newTodo",
-              "value": "{\"title\": \"Walk dog\"}",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": {
+                    "title": "Walk dog"
+                  }
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-host1-2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-host1-2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1848,9 +2408,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 3,
@@ -1858,22 +2416,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "title",
-              "value": "Walk the dog",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "Walk the dog"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-host1-3",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-host1-3"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1882,9 +2460,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 4,
@@ -1892,22 +2468,42 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "true",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": true
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-host1-4",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-host1-4"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1916,9 +2512,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 5,
@@ -1926,17 +2520,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "completed",
-              "value": "false",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": false
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-host1-5",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-host1-5"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1945,9 +2554,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 6,
@@ -1955,17 +2562,32 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "todoId",
-              "value": "id from step 2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "id from step 2"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-host1-6",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-host1-6"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -1974,9 +2596,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [],
-          "hook": false
+          "probes": []
         },
         {
           "seq": 7,
@@ -1984,12 +2604,22 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             },
             {
               "name": "changeId",
-              "value": "chg-host1-7",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "chg-host1-7"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -2006,7 +2636,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-host1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-host1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -2016,9 +2651,7 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [],
-          "hook": false
+          ]
         },
         {
           "seq": 8,
@@ -2026,7 +2659,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host1",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host1"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -2043,7 +2681,12 @@
               "inputs": [
                 {
                   "name": "listOwner",
-                  "value": "owner-host1",
+                  "value": {
+                    "kind": "literal",
+                    "model": {
+                      "json": "owner-host1"
+                    }
+                  },
                   "schemaRef": ""
                 }
               ],
@@ -2053,13 +2696,10 @@
                 "errorCode": ""
               }
             }
-          ],
-          "unobservable": [
-            "n8"
-          ],
-          "hook": false
+          ]
         }
-      ]
+      ],
+      "arrange": []
     },
     {
       "scenario": "work-the-list-from-a-hosted-workspace-P2",
@@ -2070,7 +2710,12 @@
           "inputs": [
             {
               "name": "listOwner",
-              "value": "owner-host2",
+              "value": {
+                "kind": "literal",
+                "model": {
+                  "json": "owner-host2"
+                }
+              },
               "schemaRef": ""
             }
           ],
@@ -2079,13 +2724,11 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [],
-          "unobservable": [
-            "n4"
-          ],
-          "hook": true
+          "probes": []
         }
-      ]
+      ],
+      "arrange": []
     }
-  ]
+  ],
+  "principals": {}
 }
