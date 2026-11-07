@@ -165,28 +165,35 @@ func TestConformanceFixture_RecordsThroughVerbs(t *testing.T) {
 					t.Errorf("the client contract %q was not derived by the verbs", key)
 					continue
 				}
-				// A view draws the actor's request into a client and the client's call into the Manager
-				// in different steps; the derived contract must still carry every operation the fixture's
-				// does, not only those of the steps that happen to hold both.
-				var haveOps []string
-				for _, op := range got.Interface.Operations {
-					haveOps = append(haveOps, op.Name)
-				}
-				var wantOps []string
-				if iface, _ := fx.ServiceContracts[key]["interface"].(map[string]any); iface != nil {
-					ops, _ := iface["operations"].([]any)
-					for _, o := range ops {
-						wantOps = append(wantOps, o.(map[string]any)["name"].(string))
-					}
-				}
-				slices.Sort(haveOps)
-				slices.Sort(wantOps)
-				if !slices.Equal(haveOps, wantOps) {
-					t.Errorf("the derived client contract %q has operations %v, the fixture's has %v", key, haveOps, wantOps)
-				}
+				assertDerivedOperationsMatchFixture(t, key, got, fx)
 			}
 			admitConformance(t, s)
 		})
+	}
+}
+
+// assertDerivedOperationsMatchFixture checks a derived client contract carries every operation the
+// fixture's does.
+func assertDerivedOperationsMatchFixture(t *testing.T, key string, got projectstate.ServiceContract, fx conformanceFixtureDoc) {
+	t.Helper()
+	// A view draws the actor's request into a client and the client's call into the Manager
+	// in different steps; the derived contract must still carry every operation the fixture's
+	// does, not only those of the steps that happen to hold both.
+	var haveOps []string
+	for _, op := range got.Interface.Operations {
+		haveOps = append(haveOps, op.Name)
+	}
+	var wantOps []string
+	if iface, _ := fx.ServiceContracts[key]["interface"].(map[string]any); iface != nil {
+		ops, _ := iface["operations"].([]any)
+		for _, o := range ops {
+			wantOps = append(wantOps, o.(map[string]any)["name"].(string))
+		}
+	}
+	slices.Sort(haveOps)
+	slices.Sort(wantOps)
+	if !slices.Equal(haveOps, wantOps) {
+		t.Errorf("the derived client contract %q has operations %v, the fixture's has %v", key, haveOps, wantOps)
 	}
 }
 
