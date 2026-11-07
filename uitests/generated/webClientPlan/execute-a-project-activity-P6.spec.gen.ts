@@ -8,7 +8,7 @@ test('execute-a-project-activity-P6 — Execute a Project Activity — dispatch 
   testInfo.annotations.push({ type: 'scenario', description: 'execute-a-project-activity-P6' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: BeginConstruction (node pump-fires)
-  await page.goto('/project/dct-owner%2Fdct-plan/plan?lens=list');
+  await page.goto('/project/dct-owner%2Fdct-plan/activity/projectDesign');
   await locate(page, 'construction-begin').click();
   await locate(page, 'construction-begin-confirm-dispatch').click();
   await expect(locate(page, 'plan-screen')).toBeVisible();

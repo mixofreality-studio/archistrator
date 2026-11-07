@@ -21,7 +21,7 @@ test('add-a-use-case-to-an-in-flight-project-P4 — Add a Use Case to an In-Flig
   await expect(locate(page, 'activity-amend-open')).toBeVisible();
   await expect(locate(page, 'artifact-render')).toBeVisible();
   // step 3: MarkReviewedUnaffected (node reconcile)
-  await page.goto('/project/dct-owner%2Fdct-delivery/activity/architecture');
+  await page.goto('/project/dct-owner%2Fdct-delivery/activity/requirements');
   await locate(page, 'lifecycle-node-architectureReview').click();
   await locate(page, 'stale-basis-chip').click();
   await locate(page, 'stale-mark-reviewed').click();

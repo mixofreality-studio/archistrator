@@ -160,11 +160,71 @@ func TestConformanceFixture_RecordsThroughVerbs(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, key := range derived {
-				if _, ok := proj.ServiceContracts[key]; !ok {
+				got, ok := proj.ServiceContracts[key]
+				if !ok {
 					t.Errorf("the client contract %q was not derived by the verbs", key)
+					continue
+				}
+				// A view draws the actor's request into a client and the client's call into the Manager
+				// in different steps; the derived contract must still carry every operation the fixture's
+				// does, not only those of the steps that happen to hold both.
+				var haveOps []string
+				for _, op := range got.Interface.Operations {
+					haveOps = append(haveOps, op.Name)
+				}
+				var wantOps []string
+				if iface, _ := fx.ServiceContracts[key]["interface"].(map[string]any); iface != nil {
+					ops, _ := iface["operations"].([]any)
+					for _, o := range ops {
+						wantOps = append(wantOps, o.(map[string]any)["name"].(string))
+					}
+				}
+				slices.Sort(haveOps)
+				slices.Sort(wantOps)
+				if !slices.Equal(haveOps, wantOps) {
+					t.Errorf("the derived client contract %q has operations %v, the fixture's has %v", key, haveOps, wantOps)
 				}
 			}
 			admitConformance(t, s)
+		})
+	}
+}
+
+// A fresh project records its FIRST contract with no contract, UI design or test plan anywhere:
+// every scenario is unaddressed until the contracts exist, so the rules that mirror that fact must
+// not refuse the contract that starts the set (the construction-record deadlock).
+func TestConformanceFixture_FirstContractRecordsOnAFreshProject(t *testing.T) {
+	for _, name := range conformance.FixtureNames() {
+		t.Run(name, func(t *testing.T) {
+			raw, err := conformance.Fixture(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fx conformanceFixtureDoc
+			if err := json.Unmarshal(raw, &fx); err != nil {
+				t.Fatal(err)
+			}
+			birth := conformanceBirth(t, raw)
+			if left := uncontractedComponents(birth); len(left) == 0 {
+				t.Fatal("a fresh project has contract-bearing components with no contract")
+			}
+			first := conformanceRecordOrder(t, birth, fx.ServiceContracts)[0]
+			c := conformanceComponentOf(t, birth, first)
+			if c.Kind == projectstate.CompClient {
+				t.Skipf("%s's first contract in record order is a derived client", name)
+			}
+			s, _ := seedProject(t, birth, jobModeConstruct, 0)
+			s.ComponentID, s.ActivityID = c.ID, "C-"+c.ID
+			if err := s.recordServiceContract(fx.ServiceContracts[first]); err != nil {
+				t.Fatalf("the first contract of a fresh project must record through the verb: %v", err)
+			}
+			proj, _, err := s.readProject()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if proj.PhaseArtifacts != nil && len(proj.PhaseArtifacts.TestPlan) != 0 {
+				t.Fatalf("no plan may be present, got %d", len(proj.PhaseArtifacts.TestPlan))
+			}
 		})
 	}
 }

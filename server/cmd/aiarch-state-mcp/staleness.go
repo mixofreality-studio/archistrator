@@ -57,6 +57,8 @@ package main
 // whole-document) — so the in-loop and CI verdicts can never disagree.
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
@@ -74,6 +76,7 @@ import (
 func applyGateSeverityPolicies(proj projectstate.Project, ambient projectstate.ArtifactKind, hasAmbient bool, findings []methodcheck.Finding) []methodcheck.Finding {
 	findings = appendAppSideCrossArtifactFindings(proj, findings)
 	findings = applyStaleBasisDowngrades(proj, findings)
+	findings = applyContractsPendingDowngrades(proj, findings)
 	if hasAmbient {
 		findings = applySlotScopeDowngrades(ambient, findings)
 	}
@@ -132,6 +135,71 @@ func applyStaleBasisDowngrades(proj projectstate.Project, findings []methodcheck
 		if f.Severity == methodcheck.SeverityError && systemOpConceptsJoinRules[f.RuleID] {
 			f.Severity = methodcheck.SeverityWarning
 			f.Message += staleDowngradeNote
+		}
+		out[i] = f
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------------
+// CONTRACTS-PENDING severity (policy 3) — the construction-record deadlock.
+// ---------------------------------------------------------------------------------
+
+// scenarioDerivationRules is the closed set of methodcheck rules that mirror the scenario
+// derivation's "a target that has no contract" problems: SCN-UNADDRESSED and
+// SCN-ACTOR-PATH-CLIENT are the derivation's own Problems, TP-CLIENT-CONTRACTED is the same
+// fact stated per Client. All three read the SET of recorded contracts.
+var scenarioDerivationRules = map[methodcheck.RuleID]bool{
+	"SCN-UNADDRESSED":       true,
+	"SCN-ACTOR-PATH-CLIENT": true,
+	"TP-CLIENT-CONTRACTED":  true,
+}
+
+// contractsPendingNote is appended to every downgraded finding.
+const contractsPendingNote = " [downgraded to warning: contracts are still being recorded (none yet for %s); this rule regains Error severity once every contract-bearing component has one]"
+
+// uncontractedComponents is the ids of the committed System's contract-bearing components
+// (every kind but Resource, and none that is planned or external, which nobody builds here)
+// that have no .serviceContracts entry yet, in System order. It is empty when the System is not
+// committed, and empty once every contract is recorded: it is how construction tells "contracts
+// are still being recorded" from "the contract set is complete".
+func uncontractedComponents(proj projectstate.Project) []string {
+	sys, ok := proj.SystemDesign.Model.(*projectstate.System)
+	if !ok || sys == nil || proj.SystemDesign.Status != projectstate.ReviewCommitted {
+		return nil
+	}
+	var out []string
+	for _, c := range sys.Components {
+		key, keyed := projectstate.ContractKeyFor(c)
+		if !keyed || (c.BuildStatus != nil && (*c.BuildStatus == "planned" || *c.BuildStatus == "external")) {
+			continue // a Resource, or a component nobody builds here: no contract is owed
+		}
+		if _, recorded := proj.ServiceContracts[key]; !recorded {
+			out = append(out, c.ID)
+		}
+	}
+	return out
+}
+
+// applyContractsPendingDowngrades is the construction-record analogue of the staleness
+// policy. On a fresh project every scenario is unaddressed until every component's contract
+// exists, and the contracts are recorded one component at a time, so holding the FIRST contract
+// to "every stimulus names a contracted component" refuses the first contract forever. While
+// any contract-bearing component of the committed System has no contract, the scenario-
+// derivation rules are advisory; once the set is complete they are Errors again, so the
+// integration gate and the CI check still hold the finished project to them. Every other rule
+// passes through untouched.
+func applyContractsPendingDowngrades(proj projectstate.Project, findings []methodcheck.Finding) []methodcheck.Finding {
+	pending := uncontractedComponents(proj)
+	if len(pending) == 0 {
+		return findings
+	}
+	note := fmt.Sprintf(contractsPendingNote, strings.Join(pending, ", "))
+	out := make([]methodcheck.Finding, len(findings))
+	for i, f := range findings {
+		if f.Severity == methodcheck.SeverityError && scenarioDerivationRules[f.RuleID] {
+			f.Severity = methodcheck.SeverityWarning
+			f.Message += note
 		}
 		out[i] = f
 	}

@@ -8,7 +8,7 @@ test('operate-a-delivered-system-P1 — Operate a Delivered System', async ({ pa
   testInfo.annotations.push({ type: 'scenario', description: 'operate-a-delivered-system-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: DeployOperatedSystem (node publish-trigger)
-  await page.goto('http://localhost:5173/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b');
+  await page.goto('/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b');
   await locate(page, 'operations-tab-deployments').click();
   await locate(page, 'operations-deploy').click();
   await expect(locate(page, 'operations-deployments-tab')).toBeVisible();

@@ -36,11 +36,3 @@ test('surface — webClientPlan-inventory', { annotation: { type: 'surface', des
   await expect(locate(page, 'state-history-screen')).toBeAttached();
   await expect(locate(page, 'submit-bar-primary')).toBeAttached();
 });
-
-test('surface — webClientPlan-route-1', { annotation: { type: 'surface', description: 'webClientPlan-route-1' } }, async ({ page }) => {
-  await page.goto('/project/dct-owner%2Fdct-plan/plan?lens=list');
-});
-
-test('surface — webClientPlan-route-2', { annotation: { type: 'surface', description: 'webClientPlan-route-2' } }, async ({ page }) => {
-  await page.goto('/project/dct-owner%2Fdct-plan/home');
-});

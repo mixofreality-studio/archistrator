@@ -8,7 +8,7 @@ test('view-the-project-state-log-P1 — View the Project State Log — [yes]', a
   testInfo.annotations.push({ type: 'scenario', description: 'view-the-project-state-log-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenStateHistory (node open-history)
-  await page.goto('/project/dct-owner%2Fdct-plan/home');
+  await page.goto('/project/dct-owner%2Fdct-plan/activity/projectDesign');
   await locate(page, 'home-base-open-state-history').click();
   await expect(locate(page, 'state-history-screen')).toBeVisible();
   await expect(locate(page, 'state-history-detail')).toBeVisible();

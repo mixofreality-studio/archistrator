@@ -97576,7 +97576,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/activity/architecture"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -97837,7 +97837,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/activity/architecture"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -98098,7 +98098,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/activity/architecture"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -98359,7 +98359,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/activity/architecture"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99090,7 +99090,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99133,7 +99133,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-screen\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-task-facts\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-screen\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-task-facts\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99157,7 +99157,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99200,7 +99200,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-override-bar\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-steer\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-override-bar\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-steer\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99271,7 +99271,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99314,7 +99314,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-review-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-reviewers-strip\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-review-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-reviewers-strip\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99338,7 +99338,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99381,7 +99381,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-review-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-reviewers-strip\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"submit-bar-primary\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-review-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-reviewers-strip\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"submit-bar-primary\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99434,7 +99434,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99477,7 +99477,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-sub-attempts\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-sub-attempts\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99501,7 +99501,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99544,7 +99544,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-override-bar\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-steer\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-override-bar\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-steer\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99662,7 +99662,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99705,7 +99705,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"lifecycle-revision-select\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-dispatch-body\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"lifecycle-revision-select\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99729,7 +99729,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/activity/projectDesign"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99841,7 +99841,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/architecture\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"generating-amending-notice\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"generating-amending-notice\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99865,7 +99865,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/activity/projectDesign"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -99943,7 +99943,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/projectDesign\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"generating-amending-notice\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"generating-amending-notice\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -99967,7 +99967,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/activity/projectDesign"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -100045,7 +100045,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/projectDesign\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"generating-amending-notice\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"generating-amending-notice\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -100069,7 +100069,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-delivery/plan"
+                            "route": "/project/dct-owner%2Fdct-delivery/activity/requirements"
                           }
                         }
                       }
@@ -100112,7 +100112,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"kind\":\"url\",\"model\":{\"route\":\"/project/dct-owner%2Fdct-delivery/activity/C-review-engine\"}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"episodes-panel\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"episode-outcome-chip-construction-1\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"episode-timeline\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-reopen\"}}}]",
+                  "result": "[{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"episodes-panel\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"episode-outcome-chip-construction-1\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"episode-timeline\"}}},{\"kind\":\"visible\",\"model\":{\"target\":{\"element\":\"activity-reopen\"}}}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -101084,7 +101084,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101151,7 +101151,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/operations/191cd87e-5b8e-59f1-9e94-c6ed741cd456"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101272,7 +101272,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/project/archistrator/activity/architecture"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101305,7 +101305,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/project/dct-ops-health-p2/activity/architecture"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101338,7 +101338,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/operations/a67e1e48-a933-5826-aeef-9207d829d9d9"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101400,7 +101400,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/operations/29d2fb0c-6099-5ef7-a749-6c8838ac0cda"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101462,7 +101462,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/operations/cdd7a707-eb28-5878-959b-4ab6a058a967"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101529,7 +101529,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "http://localhost:5173/operations/2d1c7665-3732-5e87-90dc-9f4e72074c16"
+                            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b"
                           }
                         }
                       }
@@ -101886,7 +101886,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -101936,7 +101936,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -101986,7 +101986,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102053,7 +102053,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102120,7 +102120,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102187,7 +102187,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102254,7 +102254,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102321,7 +102321,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102388,7 +102388,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102455,7 +102455,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102540,7 +102540,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102590,7 +102590,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102713,7 +102713,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102854,7 +102854,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -102933,7 +102933,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -103012,7 +103012,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -103091,7 +103091,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -103124,7 +103124,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -103157,7 +103157,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -103190,7 +103190,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -103223,7 +103223,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -103273,7 +103273,7 @@
                         "json": {
                           "kind": "navigate",
                           "model": {
-                            "route": "/project/dct-owner%2Fdct-plan/home"
+                            "route": "/project/dct-owner%2Fdct-plan/activity/projectDesign"
                           }
                         }
                       }
@@ -104099,26 +104099,6 @@
                 "repeats": false
               }
             ]
-          },
-          {
-            "id": "webClient-route-1",
-            "route": "/project/dct-owner%2Fdct-delivery/activity/architecture",
-            "elements": []
-          },
-          {
-            "id": "webClient-route-2",
-            "route": "/project/dct-owner%2Fdct-delivery/plan",
-            "elements": []
-          },
-          {
-            "id": "webClient-route-3",
-            "route": "/project/dct-owner%2Fdct-delivery/activity/C-review-engine",
-            "elements": []
-          },
-          {
-            "id": "webClient-route-4",
-            "route": "/project/dct-owner%2Fdct-delivery/activity/projectDesign",
-            "elements": []
           }
         ],
         "content": "Mechanical inventory (FPC plan 2 Task 2.11, ruling 8). Derived from the data-testid targets of the surface's pre-v2 test plan: each element's role is inferred from the actions and observations that name it, its name is the humanised test id, and every element sits on the first screen. NOTHING here is verified against the SPA. The rebinding of archistrator's own plans (scheduled, waivers expire 2026-12-31) replaces this with a real design."
@@ -104218,7 +104198,7 @@
         "screens": [
           {
             "id": "webClientOperations-inventory",
-            "route": "http://localhost:5173/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b",
+            "route": "/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b",
             "elements": [
               {
                 "id": "arch-deployment-health",
@@ -104341,41 +104321,6 @@
                 "repeats": false
               }
             ]
-          },
-          {
-            "id": "webClientOperations-route-1",
-            "route": "http://localhost:5173/operations/191cd87e-5b8e-59f1-9e94-c6ed741cd456",
-            "elements": []
-          },
-          {
-            "id": "webClientOperations-route-2",
-            "route": "http://localhost:5173/project/archistrator/activity/architecture",
-            "elements": []
-          },
-          {
-            "id": "webClientOperations-route-3",
-            "route": "http://localhost:5173/project/dct-ops-health-p2/activity/architecture",
-            "elements": []
-          },
-          {
-            "id": "webClientOperations-route-4",
-            "route": "http://localhost:5173/operations/a67e1e48-a933-5826-aeef-9207d829d9d9",
-            "elements": []
-          },
-          {
-            "id": "webClientOperations-route-5",
-            "route": "http://localhost:5173/operations/29d2fb0c-6099-5ef7-a749-6c8838ac0cda",
-            "elements": []
-          },
-          {
-            "id": "webClientOperations-route-6",
-            "route": "http://localhost:5173/operations/cdd7a707-eb28-5878-959b-4ab6a058a967",
-            "elements": []
-          },
-          {
-            "id": "webClientOperations-route-7",
-            "route": "http://localhost:5173/operations/2d1c7665-3732-5e87-90dc-9f4e72074c16",
-            "elements": []
           }
         ],
         "content": "Mechanical inventory (FPC plan 2 Task 2.11, ruling 8). Derived from the data-testid targets of the surface's pre-v2 test plan: each element's role is inferred from the actions and observations that name it, its name is the humanised test id, and every element sits on the first screen. NOTHING here is verified against the SPA. The rebinding of archistrator's own plans (scheduled, waivers expire 2026-12-31) replaces this with a real design."
@@ -104568,16 +104513,6 @@
                 "repeats": false
               }
             ]
-          },
-          {
-            "id": "webClientPlan-route-1",
-            "route": "/project/dct-owner%2Fdct-plan/plan?lens=list",
-            "elements": []
-          },
-          {
-            "id": "webClientPlan-route-2",
-            "route": "/project/dct-owner%2Fdct-plan/home",
-            "elements": []
           }
         ],
         "content": "Mechanical inventory (FPC plan 2 Task 2.11, ruling 8). Derived from the data-testid targets of the surface's pre-v2 test plan: each element's role is inferred from the actions and observations that name it, its name is the humanised test id, and every element sits on the first screen. NOTHING here is verified against the SPA. The rebinding of archistrator's own plans (scheduled, waivers expire 2026-12-31) replaces this with a real design."
@@ -112499,7 +112434,7 @@
     },
     {
       "rule": "SCN-UNADDRESSED",
-      "reason": "ruling 8: own-project rebinding scheduled",
+      "reason": "the planned SchedulerClient (buildStatus planned, realized as Temporal Schedules with no standalone binary) has no contract, so every stimulus into it is unaddressed; exempting planned components from this rule is owed on the platform, and this waiver ends with it",
       "expires": "2026-12-31"
     },
     {
@@ -112509,7 +112444,7 @@
     },
     {
       "rule": "TP-CLIENT-CONTRACTED",
-      "reason": "ruling 8: own-project rebinding scheduled",
+      "reason": "the planned SchedulerClient has no contract (see the SCN-UNADDRESSED waiver); it gets one when it is built or when the rule exempts planned components",
       "expires": "2026-12-31"
     },
     {
@@ -112534,7 +112469,7 @@
     },
     {
       "rule": "TP-UI-ACTION",
-      "reason": "ruling 8: own-project rebinding scheduled",
+      "reason": "ruling 8: the migrated browser steps carry several action inputs each (the v1 plans listed a whole flow in one step); splitting each into one-action steps is part of the own-project rebinding, owed before the expiry",
       "expires": "2026-12-31"
     },
     {

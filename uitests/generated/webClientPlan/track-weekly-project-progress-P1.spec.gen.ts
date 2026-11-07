@@ -8,7 +8,7 @@ test('track-weekly-project-progress-P1 — Track Weekly Project Progress — [no
   testInfo.annotations.push({ type: 'scenario', description: 'track-weekly-project-progress-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenProjectProgress (node week-elapses)
-  await page.goto('/project/dct-owner%2Fdct-plan/home');
+  await page.goto('/project/dct-owner%2Fdct-plan/activity/projectDesign');
   await expect(locate(page, 'home-base-screen')).toBeVisible();
   await expect(locate(page, 'economics-strip')).toBeVisible();
 });

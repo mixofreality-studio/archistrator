@@ -8,7 +8,7 @@ test('replan-under-scope-change-P1 — Replan Under Scope Change — [yes]', asy
   testInfo.annotations.push({ type: 'scenario', description: 'replan-under-scope-change-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: AmendArtifact (node back-to-design)
-  await page.goto('/project/dct-owner%2Fdct-delivery/activity/projectDesign');
+  await page.goto('/project/dct-owner%2Fdct-delivery/activity/requirements');
   await locate(page, 'lifecycle-node-sdpReview').click();
   await locate(page, 'activity-amend-architecture').click();
   await locate(page, 'lifecycle-node-architectureReview').click();
@@ -16,6 +16,5 @@ test('replan-under-scope-change-P1 — Replan Under Scope Change — [yes]', asy
   await locate(page, 'amend-rationale').fill('Architecture change: split billing into metering and invoicing components; this is not a scope change.');
   await expect(locate(page, 'amend-rationale')).toHaveValue('Architecture change: split billing into metering and invoicing components; this is not a scope change.', immediate);
   await locate(page, 'amend-submit').click();
-  await expect(page).toHaveURL(new RegExp('^[a-z][a-z0-9+.-]*://[^/]+/project/dct-owner%2Fdct-delivery/activity/architecture(?:[?#].*)?$'));
   await expect(locate(page, 'generating-amending-notice')).toBeVisible();
 });

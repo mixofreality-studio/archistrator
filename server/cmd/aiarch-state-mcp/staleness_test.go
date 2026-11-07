@@ -507,3 +507,53 @@ func TestValidate_BadSlotFlagRejected(t *testing.T) {
 		t.Fatal("an unrecognized --slot value must be rejected")
 	}
 }
+
+// TestApplyContractsPendingDowngrades pins the construction-record policy: while any
+// contract-bearing component has no contract, the scenario-derivation rules (which can only be
+// satisfied once the contracts exist) are advisory; once every contract is recorded they are
+// Errors again; every other rule is untouched in both states.
+func TestApplyContractsPendingDowngrades(t *testing.T) {
+	findings := func() []methodcheck.Finding {
+		return []methodcheck.Finding{
+			{RuleID: "SCN-UNADDRESSED", Severity: methodcheck.SeverityError, Message: "unaddressed"},
+			{RuleID: "SCN-ACTOR-PATH-CLIENT", Severity: methodcheck.SeverityError, Message: "no client"},
+			{RuleID: "TP-CLIENT-CONTRACTED", Severity: methodcheck.SeverityError, Message: "no client contract"},
+			{RuleID: "SYS-NAME-UNIQUE", Severity: methodcheck.SeverityError, Message: "other"},
+		}
+	}
+	proj := deadlockFixtureProject(false)
+	// A planned client is built by nobody here, so no contract is ever owed for it.
+	sys := proj.SystemDesign.Model.(*projectstate.System)
+	planned := "planned"
+	sys.Components = append(sys.Components, projectstate.Component{ID: "timer-client", Name: "TimerClient", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, Encapsulates: "timer volatility", BuildStatus: &planned})
+	finalizedSystem(sys)
+
+	pending := uncontractedComponents(proj)
+	if len(pending) != 4 {
+		t.Fatalf("a fresh project must report every built contract-bearing component (not the Resource, not the planned client), got %v", pending)
+	}
+	got := applyContractsPendingDowngrades(proj, findings())
+	for i := 0; i < 3; i++ {
+		if got[i].Severity != methodcheck.SeverityWarning || !strings.Contains(got[i].Message, "still being recorded") {
+			t.Errorf("%s must downgrade while contracts are pending, got %v %q", got[i].RuleID, got[i].Severity, got[i].Message)
+		}
+	}
+	if got[3].Severity != methodcheck.SeverityError {
+		t.Errorf("an unrelated rule must keep its severity, got %v", got[3].Severity)
+	}
+
+	proj.ServiceContracts = map[string]projectstate.ServiceContract{}
+	for _, id := range pending {
+		key, _ := projectstate.ContractKeyFor(projectstate.Component{ID: id})
+		proj.ServiceContracts[key] = projectstate.ServiceContract{Component: key}
+	}
+	if left := uncontractedComponents(proj); len(left) != 0 {
+		t.Fatalf("every contract is recorded, got pending %v", left)
+	}
+	got = applyContractsPendingDowngrades(proj, findings())
+	for i, f := range got {
+		if f.Severity != methodcheck.SeverityError {
+			t.Errorf("finding %d (%s) must be an Error once the contract set is complete, got %v", i, f.RuleID, f.Severity)
+		}
+	}
+}

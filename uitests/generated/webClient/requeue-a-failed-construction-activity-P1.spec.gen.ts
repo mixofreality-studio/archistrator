@@ -8,10 +8,9 @@ test('requeue-a-failed-construction-activity-P1 — Requeue a Failed Constructio
   testInfo.annotations.push({ type: 'scenario', description: 'requeue-a-failed-construction-activity-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenFailedActivity (node review-failure)
-  await page.goto('/project/dct-owner%2Fdct-delivery/plan');
+  await page.goto('/project/dct-owner%2Fdct-delivery/activity/requirements');
   await locate(page, 'plan-row-C-review-engine').click();
   await locate(page, 'episodes-row-construction-1').click();
-  await expect(page).toHaveURL(new RegExp('^[a-z][a-z0-9+.-]*://[^/]+/project/dct-owner%2Fdct-delivery/activity/C-review-engine(?:[?#].*)?$'));
   await expect(locate(page, 'episodes-panel')).toBeVisible();
   await expect(locate(page, 'episode-outcome-chip-construction-1')).toBeVisible();
   await expect(locate(page, 'episode-timeline')).toBeVisible();

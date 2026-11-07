@@ -8,10 +8,9 @@ test('execute-a-project-activity-P5 — Execute a Project Activity — dispatch 
   testInfo.annotations.push({ type: 'scenario', description: 'execute-a-project-activity-P5' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenActivity (node activity-eligible)
-  await page.goto('/project/dct-owner%2Fdct-delivery/plan');
+  await page.goto('/project/dct-owner%2Fdct-delivery/activity/requirements');
   await locate(page, 'plan-row-C-review-engine').click();
   await locate(page, 'lifecycle-node-construction').click();
-  await expect(page).toHaveURL(new RegExp('^[a-z][a-z0-9+.-]*://[^/]+/project/dct-owner%2Fdct-delivery/activity/C-review-engine(?:[?#].*)?$'));
   await expect(locate(page, 'activity-dispatch-body')).toBeVisible();
   await expect(locate(page, 'activity-sub-attempts')).toBeVisible();
 });

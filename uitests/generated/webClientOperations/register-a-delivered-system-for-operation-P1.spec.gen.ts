@@ -8,7 +8,7 @@ test('register-a-delivered-system-for-operation-P1 — Register a Delivered Syst
   testInfo.annotations.push({ type: 'scenario', description: 'register-a-delivered-system-for-operation-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: RegisterDeliveredSystem (node request-registration)
-  await page.goto('http://localhost:5173/operations/191cd87e-5b8e-59f1-9e94-c6ed741cd456');
+  await page.goto('/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b');
   await locate(page, 'operations-register').click();
   await locate(page, 'operations-register-customer-id').fill('6f1c2b9e-0c00-4c00-8000-0000000000c1');
   await expect(locate(page, 'operations-register-customer-id')).toHaveValue('6f1c2b9e-0c00-4c00-8000-0000000000c1', immediate);

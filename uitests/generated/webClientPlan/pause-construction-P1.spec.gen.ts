@@ -8,7 +8,7 @@ test('pause-construction-P1 — Pause Construction', async ({ page }, testInfo) 
   testInfo.annotations.push({ type: 'scenario', description: 'pause-construction-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: PauseConstruction (node choose-pause)
-  await page.goto('/project/dct-owner%2Fdct-plan/plan?lens=list');
+  await page.goto('/project/dct-owner%2Fdct-plan/activity/projectDesign');
   await locate(page, 'construction-pause').click();
   await locate(page, 'construction-pause-reason').fill('Holding construction while the billing engine\'s failing integration run is triaged.');
   await expect(locate(page, 'construction-pause-reason')).toHaveValue('Holding construction while the billing engine\'s failing integration run is triaged.', immediate);

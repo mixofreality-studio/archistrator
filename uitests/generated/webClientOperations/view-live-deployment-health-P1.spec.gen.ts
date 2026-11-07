@@ -8,7 +8,7 @@ test('view-live-deployment-health-P1 — View Live Deployment Health — [yes]',
   testInfo.annotations.push({ type: 'scenario', description: 'view-live-deployment-health-P1' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenDeploymentDiagram (node open-deployment-diagram)
-  await page.goto('http://localhost:5173/project/archistrator/activity/architecture');
+  await page.goto('/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b');
   await expect(locate(page, 'architecture-view')).toBeVisible();
   await expect(locate(page, 'arch-view-switch')).toBeVisible();
   await expect(locate(page, 'arch-deployment-health')).toBeVisible();

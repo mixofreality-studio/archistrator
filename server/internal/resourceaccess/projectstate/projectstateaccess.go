@@ -13421,6 +13421,11 @@ func RecordMachineClientContracts(p *Project) error {
 
 func recordMachineClient(p *Project, in scenario.Input, c *Component) error {
 	reached := machineClientManagerOps(in, c.ID)
+	// A Client may call a Utility (a pub/sub subscription, say); that is no Manager operation to
+	// expose, so it is no part of the derived contract.
+	maps.DeleteFunc(reached, func(contract string, _ []scenario.ManagerOp) bool {
+		return strings.EqualFold(contractLayer(p, contract), "utility")
+	})
 	if len(reached) == 0 {
 		return nil
 	}
@@ -13459,20 +13464,25 @@ func machineFamilyDerived(p *Project, key string) bool {
 }
 
 // machineClientManagerOps is what the views reach through a client, by Manager contract key: the
-// client's calls into a Manager in each step someone calls the client in.
+// client's calls into a Manager in each view someone calls the client in. A view draws the actor's
+// request into the client and the client's call into the Manager as separate steps as often as in
+// one (the actor acts at one activity node, the Manager runs at the next), so the whole view is
+// read, never only the step that holds the call into the client.
 func machineClientManagerOps(in scenario.Input, clientID string) map[string][]scenario.ManagerOp {
 	out := map[string][]scenario.ManagerOp{}
 	seen := map[scenario.ManagerOp]bool{}
 	for _, v := range in.Views {
+		var calls []scenario.Call
 		for _, st := range v.Steps {
-			if !scenario.ReachesClient(clientID, st.Calls) {
-				continue
-			}
-			for _, op := range scenario.ClientManagerOps(in, clientID, st.Calls) {
-				if !seen[op] {
-					seen[op] = true
-					out[op.Contract] = append(out[op.Contract], op)
-				}
+			calls = append(calls, st.Calls...)
+		}
+		if !scenario.ReachesClient(clientID, calls) {
+			continue
+		}
+		for _, op := range scenario.ClientManagerOps(in, clientID, calls) {
+			if !seen[op] {
+				seen[op] = true
+				out[op.Contract] = append(out[op.Contract], op)
 			}
 		}
 	}
@@ -13536,8 +13546,18 @@ func machineClientContract(p *Project, c *Component, key, manager string, ops []
 // BrowserDialectDefs is the $defs document every browser contract carries, as raw JSON.
 func BrowserDialectDefs() json.RawMessage { return json.RawMessage(uiDialectDefs) }
 
-// readVerbs are the Method operation-name prefixes that mark a side-effect-free read.
+// readVerbs are the Method operation-name prefixes that mark a side-effect-free read in any layer.
 var readVerbs = []string{"Get", "Read", "List", "Query", "Observe", "Retrieve", "Fetch"}
+
+// layerReadVerbs are the prefixes that mark a read in ONE layer only: a ResourceAccess recalls, a
+// Utility's subscription only listens and publishes nothing, a Manager's Open shows a list or a
+// view of it. The same prefix elsewhere is not a read (a ResourceAccess's OpenActivity and
+// OpenBranch write), so none of these is a verb for every layer.
+var layerReadVerbs = map[string][]string{
+	"resourceaccess": {"Recall"},
+	"utility":        {"Subscribe"},
+	"manager":        {"Open"},
+}
 
 // OperationReadOnly classifies a contract operation as one that only observes: every Engine
 // operation (Engines are pure computation), and any other operation whose name begins with a
@@ -13547,7 +13567,8 @@ func OperationReadOnly(layer, operation string) bool {
 	if strings.EqualFold(layer, "engine") {
 		return true
 	}
-	return slices.ContainsFunc(readVerbs, func(v string) bool { return strings.HasPrefix(operation, v) })
+	verbs := append(slices.Clone(readVerbs), layerReadVerbs[strings.ToLower(layer)]...)
+	return slices.ContainsFunc(verbs, func(v string) bool { return strings.HasPrefix(operation, v) })
 }
 
 // ApplyRuleWaivers downgrades to Warning every Error finding of a rule that a waiver names, for as

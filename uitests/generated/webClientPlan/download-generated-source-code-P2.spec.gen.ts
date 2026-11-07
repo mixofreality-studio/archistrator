@@ -8,7 +8,7 @@ test('download-generated-source-code-P2 — Download Generated Source Code — [
   testInfo.annotations.push({ type: 'scenario', description: 'download-generated-source-code-P2' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenDeliveredSource (node open-repo)
-  await page.goto('/project/dct-owner%2Fdct-plan/plan?lens=list');
+  await page.goto('/project/dct-owner%2Fdct-plan/activity/projectDesign');
   await locate(page, 'plan-lens-tasks').click();
   await expect(locate(page, 'construction-tasks-lens')).toBeVisible();
   await expect(locate(page, 'construction-tasks-github-C-review-engine:codeReview:1')).toBeVisible();

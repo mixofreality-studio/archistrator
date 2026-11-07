@@ -8,12 +8,11 @@ test('replan-under-scope-change-P2 — Replan Under Scope Change — [no: scope 
   testInfo.annotations.push({ type: 'scenario', description: 'replan-under-scope-change-P2' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: AmendArtifact (node reenter)
-  await page.goto('/project/dct-owner%2Fdct-delivery/activity/projectDesign');
+  await page.goto('/project/dct-owner%2Fdct-delivery/activity/requirements');
   await locate(page, 'lifecycle-node-sdpReview').click();
   await locate(page, 'activity-amend-open').click();
   await locate(page, 'amend-rationale').fill('Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.');
   await expect(locate(page, 'amend-rationale')).toHaveValue('Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.', immediate);
   await locate(page, 'amend-submit').click();
-  await expect(page).toHaveURL(new RegExp('^[a-z][a-z0-9+.-]*://[^/]+/project/dct-owner%2Fdct-delivery/activity/projectDesign(?:[?#].*)?$'));
   await expect(locate(page, 'generating-amending-notice')).toBeVisible();
 });

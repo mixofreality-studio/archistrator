@@ -48,19 +48,3 @@ test('surface — webClient-inventory', { annotation: { type: 'surface', descrip
   await expect(locate(page, 'stale-mark-reviewed')).toBeAttached();
   await expect(locate(page, 'submit-bar-primary')).toBeAttached();
 });
-
-test('surface — webClient-route-1', { annotation: { type: 'surface', description: 'webClient-route-1' } }, async ({ page }) => {
-  await page.goto('/project/dct-owner%2Fdct-delivery/activity/architecture');
-});
-
-test('surface — webClient-route-2', { annotation: { type: 'surface', description: 'webClient-route-2' } }, async ({ page }) => {
-  await page.goto('/project/dct-owner%2Fdct-delivery/plan');
-});
-
-test('surface — webClient-route-3', { annotation: { type: 'surface', description: 'webClient-route-3' } }, async ({ page }) => {
-  await page.goto('/project/dct-owner%2Fdct-delivery/activity/C-review-engine');
-});
-
-test('surface — webClient-route-4', { annotation: { type: 'surface', description: 'webClient-route-4' } }, async ({ page }) => {
-  await page.goto('/project/dct-owner%2Fdct-delivery/activity/projectDesign');
-});

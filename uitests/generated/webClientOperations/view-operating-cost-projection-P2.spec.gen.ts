@@ -8,7 +8,7 @@ test('view-operating-cost-projection-P2 — View Operating-Cost Projection — [
   testInfo.annotations.push({ type: 'scenario', description: 'view-operating-cost-projection-P2' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenOperationsConsole (node open-console)
-  await page.goto('http://localhost:5173/operations/29d2fb0c-6099-5ef7-a749-6c8838ac0cda');
+  await page.goto('/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b');
   await expect(locate(page, 'operations-console')).toBeVisible();
   await expect(locate(page, 'operations-tab-scaling')).toBeVisible();
   // step 2: RequestCostProjection (node request-projection)

@@ -8,7 +8,7 @@ test('replan-under-scope-change-P2 — Replan Under Scope Change — [no: scope 
   testInfo.annotations.push({ type: 'scenario', description: 'replan-under-scope-change-P2' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: OpenProjectProgress (node raise-scope-trigger)
-  await page.goto('/project/dct-owner%2Fdct-plan/home');
+  await page.goto('/project/dct-owner%2Fdct-plan/activity/projectDesign');
   await locate(page, 'home-base-open-plan').click();
   await expect(locate(page, 'plan-screen')).toBeVisible();
   // step 2: OpenSdpReview (node present)

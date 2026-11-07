@@ -8,7 +8,7 @@ test('withdraw-a-delivered-system-P2 — Withdraw a Delivered System — [no: in
   testInfo.annotations.push({ type: 'scenario', description: 'withdraw-a-delivered-system-P2' });
   await installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500));
   // step 1: WithdrawOperatedSystem (node request-withdraw)
-  await page.goto('http://localhost:5173/operations/2d1c7665-3732-5e87-90dc-9f4e72074c16');
+  await page.goto('/operations/5af872c1-462b-5f50-af25-2efdfcd1c14b');
   await locate(page, 'operations-tab-deployments').click();
   await locate(page, 'operations-withdraw').click();
   await expect(locate(page, 'operations-console')).toBeVisible();
