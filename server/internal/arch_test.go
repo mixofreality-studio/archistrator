@@ -913,6 +913,9 @@ var encapsulationAllowlistData = map[string][]string{
 		"ApplyRuleWaivers",
 		"BrowserDialectDefs",
 		"OperationReadOnly",
+		// IsTestCodePath is the edit-scope matcher's built-in exclusion (GC-1: no scope admits test
+		// code); the aiarch-state-mcp gate and the task-spec tests read it through EditScopeGlobMatch.
+		"IsTestCodePath",
 		// PROMOTED CO-AUTHOR HELPERS (code-health-phase-bd task D3): the PURE reason/label
 		// formatters, review-ledger predicate, and rail resolvers the two design Managers
 		// (systemdesign, projectdesign) each carried as byte-identical duplicates, promoted

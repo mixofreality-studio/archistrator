@@ -555,16 +555,16 @@ func TestMachineClientWithNothingToTestHasNoSpec(t *testing.T) {
 	}
 }
 
-// A machine client's generated scenarios are in its integration's edit scope, beside its other
-// generated files.
+// A machine client's generated scenarios are NOT in its integration's edit scope, though its other
+// generated files are: an agent writes no test code (FPC GC-1), and the platform regenerates them.
 func TestGeneratedScenariosAreInTheGeneratedScope(t *testing.T) {
 	glob := "internal/client/web/listkeeping/**/*.gen.*"
-	for _, p := range []string{"internal/client/web/listkeeping/client_scenarios.gen_test.go", "internal/client/web/listkeeping/x_handlers.gen.go"} {
-		if !projectstate.EditScopeGlobMatch(glob, p) {
-			t.Errorf("%s is not in %s", p, glob)
-		}
+	if !projectstate.EditScopeGlobMatch(glob, "internal/client/web/listkeeping/x_handlers.gen.go") {
+		t.Errorf("a generated handler file is not in %s", glob)
 	}
-	if projectstate.EditScopeGlobMatch(glob, "internal/client/web/listkeeping/client_hooks_test.go") {
-		t.Error("a hand-filled hooks file is not generated")
+	for _, p := range []string{"internal/client/web/listkeeping/client_scenarios.gen_test.go", "internal/client/web/listkeeping/client_hooks_test.go"} {
+		if projectstate.EditScopeGlobMatch(glob, p) {
+			t.Errorf("%s is test code and must stay out of %s", p, glob)
+		}
 	}
 }

@@ -400,8 +400,13 @@ func TestScopeGlobMatch(t *testing.T) {
 		{"webApp/src/**", "webApp/src", false},
 		{"server/go.mod", "server/go.mod", true},
 		{"server/go.mod", "server/go.modx", false},
-		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/a-P1.spec.gen.ts", true},
-		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/playwright.config.gen.ts", true},
+		// test code is never admitted (FPC GC-1): the platform regenerates it, an agent writes none
+		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/a-P1.spec.gen.ts", false},
+		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/playwright.config.gen.ts", false},
+		{"**", "uitests/generated/webClient/a-P1.spec.gen.ts", false},
+		{"server/internal/billing/**", "server/internal/billing/access_scenarios.gen_test.go", false},
+		{"server/internal/billing/**", "server/internal/billing/null.gen_test.go", false},
+		{"uitests/**", "uitests/package.json", true},
 		{"uitests/generated/**/*.gen.*", "uitests/generated/webClient/hooks.ts", false},
 		{"uitests/generated/**/*.gen.*", "uitests/other/a.gen.ts", false},
 		// outside the grammar: matches nothing

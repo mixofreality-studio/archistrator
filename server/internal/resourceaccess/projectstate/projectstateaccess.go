@@ -12439,12 +12439,32 @@ func ValidEditScopeGlob(g string) bool {
 		!strings.HasSuffix(lit, "/") && !slices.Contains(strings.Split(lit, "/"), "..")
 }
 
+// IsTestCodePath reports whether p is test code no task's edit scope ever admits (FPC GC-1:
+// an agent writes no test code, so it cannot write a file that runs inside the built app).
+// That is every Playwright file the runner executes under uitests/ (everything under generated/,
+// any *.spec.ts, any hooks.ts; the project's manifests stay wiring), the Go scenario tests testgen generates from the reviewed plan (*_scenarios.gen_test.go,
+// null.gen_test.go), and the once-seeded hooks files the old binding model had agents fill
+// (*_hooks_test.go). The platform's pre-step regenerates the generated ones and gen-tests-check
+// holds them current, so excluding them from every scope costs the agent nothing.
+// The grammar has no exclusion syntax; this is the one built-in exclusion, applied by
+// EditScopeGlobMatch to every glob, "**" included.
+func IsTestCodePath(p string) bool {
+	base := path.Base(p)
+	if strings.HasPrefix(p, "uitests/") || strings.Contains(p, "/uitests/") {
+		// The Playwright project's own manifests (package.json, tsconfig, lockfile) are wiring,
+		// not tests; everything the runner executes is.
+		rest := p[strings.Index(p, "uitests/")+len("uitests/"):]
+		return strings.HasPrefix(rest, "generated/") || strings.HasSuffix(base, ".spec.ts") || base == "hooks.ts"
+	}
+	return base == "null.gen_test.go" || strings.HasSuffix(base, "_scenarios.gen_test.go") || strings.HasSuffix(base, "_hooks_test.go")
+}
+
 // EditScopeGlobMatch reports whether the repo-relative path p matches the edit-scope glob
 // g: "**" is every path, "<dir>/**" every path under dir (a path boundary), "<dir>/**/*.gen.*"
 // every generated file under dir, a literal path only itself. A glob outside the grammar
 // matches nothing. The ONE matcher, for the gate and the tests alike.
 func EditScopeGlobMatch(g, p string) bool {
-	if !ValidEditScopeGlob(g) {
+	if !ValidEditScopeGlob(g) || IsTestCodePath(p) {
 		return false
 	}
 	if g == anyPath {
