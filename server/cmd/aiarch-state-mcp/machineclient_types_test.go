@@ -152,9 +152,9 @@ func recordTypedPlan(t *testing.T, repo, contract string) {
 			if !ok {
 				t.Fatalf("%s step %d: no typed step for operation %q", s.ID, st.Seq, st.Input.Op)
 			}
-			inputs := []map[string]any{{"name": "proof", "value": `"proof-value"`}}
+			inputs := []map[string]any{literalInput("proof", `"proof-value"`)}
 			for _, in := range want.inputs {
-				inputs = append(inputs, map[string]any{"name": in[0], "value": in[1]})
+				inputs = append(inputs, literalInput(in[0], in[1]))
 			}
 			expect := map[string]any{}
 			switch {
@@ -165,7 +165,7 @@ func recordTypedPlan(t *testing.T, repo, contract string) {
 			default:
 				expect["result"] = want.result
 			}
-			steps = append(steps, map[string]any{"seq": st.Seq, "operation": st.Input.Op, "inputs": inputs, "expect": expect, "unobservable": run009Unobservable(st)})
+			steps = append(steps, map[string]any{"seq": st.Seq, "operation": st.Input.Op, "inputs": inputs, "expect": expect})
 		}
 		bindings = append(bindings, map[string]any{"scenario": s.ID, "steps": steps})
 	}
@@ -198,18 +198,16 @@ func TestMachineClientsCarryEveryContractShape(t *testing.T) {
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 
-	for _, tc := range []struct{ activity, contract, pkg, ctor string }{
-		{"C-web-api", "webApi", "internal/client/web/listkeeping", run009RESTSubject},
-		{"C-mcp-server", "mcpServer", "internal/client/mcpserver/listkeeping", run009MCPSubject},
+	for _, tc := range []struct{ activity, contract, pkg string }{
+		{"C-web-api", "webApi", "internal/client/web/listkeeping"},
+		{"C-mcp-server", "mcpServer", "internal/client/mcpserver/listkeeping"},
 	} {
 		t.Run(tc.contract, func(t *testing.T) {
 			recordTypedPlan(t, repo, tc.contract)
-			spec := activitySpec(t, repo, tc.activity, "integration")
+			spec := activitySpec(t, repo, tc.activity, "integration") // the app's own decoder reads the v2 plan here
+			requireReleasedToolchain(t, repo, "generating and running the "+tc.contract+" scenarios through the sandbox's testgen")
 			runGenerators(t, repo, spec)
 			inRepo(t, repo, "make", "gen-tests")
-			module := strings.TrimSpace(inRepo(t, repo, "go", "list", "-m"))
-			hooks := strings.NewReplacer("MODULE", module, "CLIENTPKG", tc.pkg, "SUBJECT", tc.ctor).Replace(run009ClientHooks)
-			writeRepoFile(t, repo, tc.pkg+"/client_hooks_test.go", []byte(hooks))
 			inRepo(t, repo, "go", "mod", "tidy")
 			inRepo(t, repo, "git", "add", "-A")
 			inRepo(t, repo, "git", "commit", "-q", "-m", "bind "+tc.contract)

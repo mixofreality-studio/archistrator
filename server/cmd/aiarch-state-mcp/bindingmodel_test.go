@@ -114,6 +114,12 @@ func TestRecordUIDesign_TypedRefusesNoScreens(t *testing.T) {
 		"no screens at all":    {design(func(d map[string]any) { delete(d, "screens") }), "screens"},
 		"an empty screen list": {design(func(d map[string]any) { d["screens"] = []any{} }), "screens"},
 		"prose only":           {map[string]any{"UIDesign": map[string]any{"surface": "web-app", "content": "the concept"}}, "screens"},
+		"a screen with an empty elements array": {design(func(d map[string]any) {
+			d["screens"] = []any{map[string]any{"id": "list", "route": "#/", "elements": []any{}}}
+		}), "elements"},
+		"a screen with no elements field": {design(func(d map[string]any) {
+			d["screens"] = []any{map[string]any{"id": "list", "route": "#/"}}
+		}), "elements"},
 		"a role outside the closed set": {design(func(d map[string]any) {
 			d["screens"] = []any{map[string]any{"id": "list", "route": "#/", "elements": []any{
 				map[string]any{"id": "go", "role": "clickable", "name": "Go", "repeats": false}}}}

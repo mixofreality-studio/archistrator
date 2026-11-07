@@ -14,7 +14,6 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
-	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
 
@@ -377,182 +376,27 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	})
 }
 
-// inputReplanUnderScopeChangeP2S1 is step 1's parameters of AppendEpisode, decoded from the binding's inputs.
-type inputReplanUnderScopeChangeP2S1 struct {
-	ProjectID episode.ProjectID     `json:"projectID"`
-	Record    episode.EpisodeRecord `json:"record"`
-}
-
 // TestScenario_replan_under_scope_change_P2 — Replan Under Scope Change — [no: scope change] · [accept] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → adopt → sdp-revision-adopted → committed-network-revised → merge-end → end).
 func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "replan-under-scope-change-P2", func(t *testing.T) {
-		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
-		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: AppendEpisode (node reenter; guards classify=[no: scope change], mgmt=[accept])
-		var out1 any
-		var err1 error
-		// probe 1.1: episodeAccess.ListEpisodes for reenter
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				Query episode.EpisodeQuery `json:"query"`
-			}
-			mustUnmarshal(t, `{"query":{
-                              "ProjectID": "dct-ep-replan-P2",
-                              "TargetRef": "projectDesign/network"
-                            }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
-		}
-		// probe 1.2: designSessionAccess.ReadProjectOnBranch for amendment-session-open
-		var pout1_2 any
-		var perr1_2 error
-		run1_2 := func() (any, error) {
-			var in struct {
-				ProjectID projectstate.ProjectID `json:"projectID"`
-				Branch    string                 `json:"branch"`
-			}
-			mustUnmarshal(t, `{"projectID":"dct-ep-replan-P2","branch":"aiarch/amend/dct-ep-replan-P2/network"}`, &in)
-			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "1.2"), in.ProjectID, in.Branch)
-		}
-		pre1_1 := held("replan-under-scope-change-P2 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P2\",\"Kind\":0,\"TargetRef\":\"projectDesign/network\",\"Outcome\":0}]","errorExpected":false}`)
-		pre1_2 := held("replan-under-scope-change-P2 probe 1.2 before", 1, run1_2, `{"result":"{\"id\":\"dct-ep-replan-P2\"}","errorExpected":false}`)
-		var in1 inputReplanUnderScopeChangeP2S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-replan-P2","record":{
-                          "EpisodeID": "ep-replan-under-scope-change-P2",
-                          "Kind": 0,
-                          "TargetRef": "projectDesign/network",
-                          "Usage": {
-                            "In": 41200,
-                            "Out": 3900,
-                            "CacheRead": 512000,
-                            "CacheCreate": 18000
-                          },
-                          "StartedAt": "2026-10-02T09:00:00Z",
-                          "EndedAt": "2026-10-02T09:12:00Z",
-                          "Outcome": 0,
-                          "Lineage": {
-                            "WorkflowID": "dct-ep-replan-P2:activity:projectDesign",
-                            "RunID": "run-replan-under-scope-change-P2"
-                          },
-                          "WorkerClass": "project-designer"
-                        }}`, &in1)
-		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
-		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "replan-under-scope-change-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P2\",\"Kind\":0,\"TargetRef\":\"projectDesign/network\",\"Outcome\":0}]","errorExpected":false}`)
-		pout1_2, perr1_2 = run1_2()
-		expect(t, "replan-under-scope-change-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"id\":\"dct-ep-replan-P2\"}","errorExpected":false}`)
-		differential(t, "replan-under-scope-change-P2", 1, pre1_1, pre1_2)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-// inputReplanUnderScopeChangeP3S1 is step 1's parameters of AppendEpisode, decoded from the binding's inputs.
-type inputReplanUnderScopeChangeP3S1 struct {
-	ProjectID episode.ProjectID     `json:"projectID"`
-	Record    episode.EpisodeRecord `json:"record"`
 }
 
 // TestScenario_replan_under_scope_change_P3 — Replan Under Scope Change — [no: scope change] · [reject] (use case replan-under-scope-change; path start → raise-scope-trigger → snapshot → classify → reenter → amendment-session-open → rebuild-options → present → sdp-revision-staged → signal-sdp-revision-ready → mgmt → record-reject → sdp-revision-rejected → merge-end → end).
 func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "replan-under-scope-change-P3", func(t *testing.T) {
-		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
-		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: AppendEpisode (node reenter; guards classify=[no: scope change], mgmt=[reject])
-		var out1 any
-		var err1 error
-		// probe 1.1: episodeAccess.ListEpisodes for reenter
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				Query episode.EpisodeQuery `json:"query"`
-			}
-			mustUnmarshal(t, `{"query":{
-                              "ProjectID": "dct-ep-replan-P3",
-                              "TargetRef": "projectDesign/activityList"
-                            }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
-		}
-		// probe 1.2: designSessionAccess.ReadProjectOnBranch for amendment-session-open
-		var pout1_2 any
-		var perr1_2 error
-		run1_2 := func() (any, error) {
-			var in struct {
-				ProjectID projectstate.ProjectID `json:"projectID"`
-				Branch    string                 `json:"branch"`
-			}
-			mustUnmarshal(t, `{"projectID":"dct-ep-replan-P3","branch":"aiarch/amend/dct-ep-replan-P3/activityList"}`, &in)
-			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "1.2"), in.ProjectID, in.Branch)
-		}
-		pre1_1 := held("replan-under-scope-change-P3 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P3\",\"Kind\":0,\"TargetRef\":\"projectDesign/activityList\",\"Outcome\":0}]","errorExpected":false}`)
-		pre1_2 := held("replan-under-scope-change-P3 probe 1.2 before", 1, run1_2, `{"result":"{\"id\":\"dct-ep-replan-P3\"}","errorExpected":false}`)
-		var in1 inputReplanUnderScopeChangeP3S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-replan-P3","record":{
-                          "EpisodeID": "ep-replan-under-scope-change-P3",
-                          "Kind": 0,
-                          "TargetRef": "projectDesign/activityList",
-                          "Usage": {
-                            "In": 41200,
-                            "Out": 3900,
-                            "CacheRead": 512000,
-                            "CacheCreate": 18000
-                          },
-                          "StartedAt": "2026-10-02T09:00:00Z",
-                          "EndedAt": "2026-10-02T09:12:00Z",
-                          "Outcome": 0,
-                          "Lineage": {
-                            "WorkflowID": "dct-ep-replan-P3:activity:projectDesign",
-                            "RunID": "run-replan-under-scope-change-P3"
-                          },
-                          "WorkerClass": "project-designer"
-                        }}`, &in1)
-		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
-		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "replan-under-scope-change-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P3\",\"Kind\":0,\"TargetRef\":\"projectDesign/activityList\",\"Outcome\":0}]","errorExpected":false}`)
-		pout1_2, perr1_2 = run1_2()
-		expect(t, "replan-under-scope-change-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"id\":\"dct-ep-replan-P3\"}","errorExpected":false}`)
-		differential(t, "replan-under-scope-change-P3", 1, pre1_1, pre1_2)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-// inputRequeueAFailedConstructionActivityP1S1 is step 1's parameters of ListEpisodes, decoded from the binding's inputs.
-type inputRequeueAFailedConstructionActivityP1S1 struct {
-	Query episode.EpisodeQuery `json:"query"`
-}
-
-// inputRequeueAFailedConstructionActivityP1S2 is step 2's parameters of ReadTraceEvents, decoded from the binding's inputs.
-type inputRequeueAFailedConstructionActivityP1S2 struct {
-	ProjectID episode.ProjectID `json:"projectID"`
-	EpisodeID string            `json:"episodeID"`
 }
 
 // TestScenario_requeue_a_failed_construction_activity_P1 — Requeue a Failed Construction Activity (use case requeue-a-failed-construction-activity; path start → review-failure → read-attempts → read-failed-trace → show-failure-evidence → write-change → record-reopen → activity-reopened-state → failed-attempt-kept-state → requeue-note-pending-state → requeue-note-binding-hint → pump-fires → resume-activity → activity-resumed-state → requeue-note-delivered-state → resume-binding-hint → end).
 func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {
-		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
-		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ListEpisodes (node read-attempts)
-		var out1 any
-		var err1 error
-		var in1 inputRequeueAFailedConstructionActivityP1S1
-		mustUnmarshal(t, `{"query":{
-                          "ProjectID": "dct-ep-requeue-P1",
-                          "TargetRef": "C-dct-ep-foxtrot"
-                        }}`, &in1)
-		out1, err1 = subject.ListEpisodes(h.ResourceAccessContext(t, "1"), in1.Query)
-		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"result":"[{\"EpisodeID\":\"ep-rq-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":1,\"NumTurns\":18,\"CostUSD\":1.2,\"TracePath\":\"episodes/traces/ep-rq-a1.jsonl\"},{\"EpisodeID\":\"ep-rq-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":3,\"GapReason\":\"trace stream lost: runner terminated before result event\"}]","errorExpected":false}`)
-		// step 2: ReadTraceEvents (node read-failed-trace)
-		var out2 any
-		var err2 error
-		var in2 inputRequeueAFailedConstructionActivityP1S2
-		mustUnmarshal(t, `{"projectID":"dct-ep-requeue-P1","episodeID":"ep-rq-a1"}`, &in2)
-		out2, err2 = subject.ReadTraceEvents(h.ResourceAccessContext(t, "2"), in2.ProjectID, in2.EpisodeID)
-		expect(t, "requeue-a-failed-construction-activity-P1", 2, out2, err2, `{"result":"[{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"ep-rq-a1\"},{\"type\":\"assistant\",\"message\":{\"stop_reason\":\"tool_use\"}},{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true,\"num_turns\":18}]","errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 

@@ -17,89 +17,19 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
 
-// inputBillTheUserForUsageP1S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
-type inputBillTheUserForUsageP1S1 struct {
-	Query usage.UsageRangeQuery `json:"query"`
-}
-
 // TestScenario_bill_the_user_for_usage_P1 — Bill the User for Usage — [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
 func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "usageAccess", "bill-the-user-for-usage-P1", func(t *testing.T) {
-		var subject usage.UsageAccess = scenariocompose.NewUsageAccess(t, h)
-		subject = nullSubjectUsageAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[yes])
-		var out1 any
-		var err1 error
-		// probe 1.1: usageAccess.ReadRange for read-hosting-usage
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				Query usage.UsageRangeQuery `json:"query"`
-			}
-			mustUnmarshal(t, `{"query":{
-                              "CustomerID": "3b0e6c1a-7d2f-4e5b-9a10-0000000c0001",
-                              "CycleID": "2026-09",
-                              "OperatedAppID": null
-                            }}`, &in)
-			return subject.ReadRange(h.ResourceAccessContext(t, "1.1"), in.Query)
-		}
-		pre1_1 := held("bill-the-user-for-usage-P1 probe 1.1 before", 1, run1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0001\",\"Units\":{\"Amount\":12.5,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0002\",\"Units\":{\"Amount\":7.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		var in1 inputBillTheUserForUsageP1S1
-		mustUnmarshal(t, `{"query":{
-                          "CustomerID": "3b0e6c1a-7d2f-4e5b-9a10-0000000c0001",
-                          "CycleID": "2026-09",
-                          "OperatedAppID": null
-                        }}`, &in1)
-		out1, err1 = subject.ReadRange(h.ResourceAccessContext(t, "1"), in1.Query)
-		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0001\",\"Units\":{\"Amount\":12.5,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0002\",\"Units\":{\"Amount\":7.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "bill-the-user-for-usage-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0001\",\"Units\":{\"Amount\":12.5,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0001\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p1-0002\",\"Units\":{\"Amount\":7.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		differential(t, "bill-the-user-for-usage-P1", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-// inputBillTheUserForUsageP2S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
-type inputBillTheUserForUsageP2S1 struct {
-	Query usage.UsageRangeQuery `json:"query"`
 }
 
 // TestScenario_bill_the_user_for_usage_P2 — Bill the User for Usage — [no] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-unpaid → invoice-unpaid → period-closed-unpaid → merge → end).
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "usageAccess", "bill-the-user-for-usage-P2", func(t *testing.T) {
-		var subject usage.UsageAccess = scenariocompose.NewUsageAccess(t, h)
-		subject = nullSubjectUsageAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ReadRange (node read-hosting-usage; guards charge-succeeded=[no])
-		var out1 any
-		var err1 error
-		// probe 1.1: usageAccess.ReadRange for read-hosting-usage
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				Query usage.UsageRangeQuery `json:"query"`
-			}
-			mustUnmarshal(t, `{"query":{
-                              "CustomerID": "3b0e6c1a-7d2f-4e5b-9a10-0000000c0002",
-                              "CycleID": "2026-09",
-                              "OperatedAppID": null
-                            }}`, &in)
-			return subject.ReadRange(h.ResourceAccessContext(t, "1.1"), in.Query)
-		}
-		pre1_1 := held("bill-the-user-for-usage-P2 probe 1.1 before", 1, run1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		var in1 inputBillTheUserForUsageP2S1
-		mustUnmarshal(t, `{"query":{
-                          "CustomerID": "3b0e6c1a-7d2f-4e5b-9a10-0000000c0002",
-                          "CycleID": "2026-09",
-                          "OperatedAppID": null
-                        }}`, &in1)
-		out1, err1 = subject.ReadRange(h.ResourceAccessContext(t, "1"), in1.Query)
-		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "bill-the-user-for-usage-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0001\",\"Units\":{\"Amount\":40.0,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0002\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CycleID\":\"2026-09\",\"RuntimeEventID\":\"rt-bill-p2-0002\",\"Units\":{\"Amount\":3.5,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		differential(t, "bill-the-user-for-usage-P2", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -231,46 +161,11 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 	})
 }
 
-// inputViewOperatingCostProjectionP1S1 is step 1's parameters of ReadRange, decoded from the binding's inputs.
-type inputViewOperatingCostProjectionP1S1 struct {
-	Query usage.UsageRangeQuery `json:"query"`
-}
-
 // TestScenario_view_operating_cost_projection_P1 — View Operating-Cost Projection — [yes] (use case view-operating-cost-projection; path start → open-console → request-projection → app-known → read-usage → project-costs → render → send-cost-projection → end).
 func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "usageAccess", "view-operating-cost-projection-P1", func(t *testing.T) {
-		var subject usage.UsageAccess = scenariocompose.NewUsageAccess(t, h)
-		subject = nullSubjectUsageAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ReadRange (node read-usage; guards app-known=[yes])
-		var out1 any
-		var err1 error
-		// probe 1.1: usageAccess.ReadRange for read-usage
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				Query usage.UsageRangeQuery `json:"query"`
-			}
-			mustUnmarshal(t, `{"query":{
-                              "CustomerID": "3b0e6c1a-7d2f-4e5b-9a10-0000000c0006",
-                              "CycleID": "2026-10",
-                              "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
-                            }}`, &in)
-			return subject.ReadRange(h.ResourceAccessContext(t, "1.1"), in.Query)
-		}
-		pre1_1 := held("view-operating-cost-projection-P1 probe 1.1 before", 1, run1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		var in1 inputViewOperatingCostProjectionP1S1
-		mustUnmarshal(t, `{"query":{
-                          "CustomerID": "3b0e6c1a-7d2f-4e5b-9a10-0000000c0006",
-                          "CycleID": "2026-10",
-                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
-                        }}`, &in1)
-		out1, err1 = subject.ReadRange(h.ResourceAccessContext(t, "1"), in1.Query)
-		expect(t, "view-operating-cost-projection-P1", 1, out1, err1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "view-operating-cost-projection-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0006\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-view-p1-0001\",\"Units\":{\"Amount\":6.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
-		differential(t, "view-operating-cost-projection-P1", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 

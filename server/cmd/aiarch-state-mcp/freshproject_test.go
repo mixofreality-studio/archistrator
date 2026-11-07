@@ -124,6 +124,31 @@ func writeRepoFile(t *testing.T, repo, rel string, body []byte) {
 	}
 }
 
+// releasedToolchainOwedUntil is the date by which the platform release carrying binding model v2
+// (FPC plan 2, Task 2.11 "release + pin") must be pinned in go.mod. Until then the seated sandbox,
+// which resolves testgen at the pinned (pre-v2) version, cannot decode a v2 plan.
+const releasedToolchainOwedUntil = "2026-12-31"
+
+// requireReleasedToolchain skips the rest of a sandbox test when the testgen the sandbox's go.mod
+// pins predates binding model v2 (it has no -discriminate run). It is a dated skip, not a silent
+// one: after releasedToolchainOwedUntil the old toolchain fails the test instead, so the owed
+// release + pin cannot be forgotten. `remainder` names what is not run.
+func requireReleasedToolchain(t *testing.T, repo, remainder string) {
+	t.Helper()
+	usage, _ := runIn(repo, "go", "tool", "testgen", "-h") // usage goes to stderr with exit 2
+	if strings.Contains(usage, "-discriminate") {
+		return
+	}
+	until, err := time.Parse(time.DateOnly, releasedToolchainOwedUntil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Now().After(until) {
+		t.Fatalf("the sandbox still pins a pre-binding-model-v2 testgen after %s: release the platform and pin it (FPC plan 2 Task 2.11 release + pin); not run: %s", releasedToolchainOwedUntil, remainder)
+	}
+	t.Skipf("FPC plan 2 Task 2.11 release + pin is owed until %s: the sandbox pins a pre-binding-model-v2 testgen, so not run: %s", releasedToolchainOwedUntil, remainder)
+}
+
 func inRepo(t *testing.T, repo string, argv ...string) string {
 	t.Helper()
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -309,6 +334,9 @@ func gate(t *testing.T, repo string, spec projectstate.TaskSpec) (map[string]str
 	}
 	cmd := exec.Command(stateBinary(t), "run-checks", "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
 	cmd.Dir = repo
+	// The sandbox is a standalone module: a workspace the developer's shell exports (go.work of
+	// the archistrator checkout) must not reach golangci-lint, which the runner leaves un-pinned.
+	cmd.Env = append(os.Environ(), "GOWORK=off")
 	_, _ = cmd.CombinedOutput() // exit 1 is a red check; the results file says which
 	results, err := readPrevResults(filepath.Join(out, "res"))
 	if err != nil || results == nil {

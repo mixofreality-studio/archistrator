@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
-	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
 
 // nullOps are the operations the null-subject run replaces: "<Iface>.<Op>" entries of AIARCH_NULL_OPS.
@@ -21,13 +19,5 @@ func TestMain(m *testing.M) {
 	if v := os.Getenv("AIARCH_NULL_OPS"); v != "" {
 		nullOps = strings.Split(v, ",")
 	}
-	scenariohost.MainWithWorkflows(m, scenariocompose.Workflows(), "billingManager")
-}
-
-// nullSubjectBillingManager is plan's subject: the real BillingManager, or its Null wrapper when AIARCH_NULL_OPS names operations of it.
-func nullSubjectBillingManager(inner billing.BillingManager) billing.BillingManager {
-	if len(nullOps) == 0 {
-		return inner
-	}
-	return scenariocompose.NullBillingManager(inner, nullOps...)
+	scenariohost.Main(m, "billingManager")
 }

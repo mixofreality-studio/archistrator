@@ -200,7 +200,8 @@ func TestTaskSpecFrontendScopeCarriesContractPackagesAndManifests(t *testing.T) 
 		!slices.Contains(integ.EditScope.Components[0].Paths, "webApp/src/web-client/**") {
 		t.Fatalf("frontend integration paths %v", integ.EditScope.Components[0].Paths)
 	}
-	if !slices.Contains(integ.EditScope.Extra, "uitests/generated/webClientMcp/**") {
+	// FPC GC-1: the generated Playwright tree is the platform's output, not an agent's scope.
+	if slices.Contains(integ.EditScope.Extra, "uitests/generated/webClientMcp/**") || !slices.Contains(integ.EditScope.Extra, "uitests/package.json") {
 		t.Fatalf("frontend integration extras %v", integ.EditScope.Extra)
 	}
 }
@@ -413,16 +414,7 @@ func TestEditScope_ConstructionExcludesUitests(t *testing.T) {
 				continue
 			}
 			checked++
-			for _, g := range generated {
-				if scopeAdmits(s.EditScope, g) {
-					t.Errorf("%s %s (%s): the scope admits the generated test file %s; an agent writes no test code", a.id, task, s.Identity.Command, g)
-				}
-			}
-			for _, hand := range []string{"uitests/specs/added.spec.ts", "uitests/generated/webClient/hooks.ts", "server/internal/manager/delivery/manager_hooks_test.go"} {
-				if scopeAdmits(s.EditScope, hand) {
-					t.Errorf("%s %s: the scope admits %s, hand-written test code", a.id, task, hand)
-				}
-			}
+			assertScopeExcludesTestCode(t, s, a.id, task, generated)
 		}
 	}
 	if checked == 0 {
@@ -436,6 +428,22 @@ func TestEditScope_ConstructionExcludesUitests(t *testing.T) {
 	for _, want := range []string{"uitests/package.json", "uitests/package-lock.json"} {
 		if !scopeAdmits(s.EditScope, want) {
 			t.Errorf("a surface's integration lost %s", want)
+		}
+	}
+}
+
+// assertScopeExcludesTestCode reports every generated test file and every hand-written test
+// path the task's edit scope admits.
+func assertScopeExcludesTestCode(t *testing.T, s projectstate.TaskSpec, activity, task string, generated []string) {
+	t.Helper()
+	for _, g := range generated {
+		if scopeAdmits(s.EditScope, g) {
+			t.Errorf("%s %s (%s): the scope admits the generated test file %s; an agent writes no test code", activity, task, s.Identity.Command, g)
+		}
+	}
+	for _, hand := range []string{"uitests/specs/added.spec.ts", "uitests/generated/webClient/hooks.ts", "server/internal/manager/delivery/manager_hooks_test.go"} {
+		if scopeAdmits(s.EditScope, hand) {
+			t.Errorf("%s %s: the scope admits %s, hand-written test code", activity, task, hand)
 		}
 	}
 }

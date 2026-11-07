@@ -672,6 +672,11 @@ func refuseBlankContent(pl projectstate.PhaseArtifactPayload) error {
 		if len(pl.UIDesign.Screens) == 0 {
 			return fmt.Errorf("the UIDesign record has no screens: a UI design is the typed screens and elements a user sees (screens:[{id, route, elements:[{id, role, name, within, repeats}]}]), which the UI test steps target by element id; prose alone in \"content\" gives them nothing to target")
 		}
+		for _, sc := range pl.UIDesign.Screens {
+			if len(sc.Elements) == 0 {
+				return fmt.Errorf("the UIDesign screen %q has no elements: a screen is the elements a user sees on its route (elements:[{id, role, name, within, repeats}]), which the UI test steps target by element id", sc.ID)
+			}
+		}
 	}
 	if pl.ProvisioningSpec != nil {
 		records = append(records, record{"ProvisioningSpec", pl.ProvisioningSpec.Content})

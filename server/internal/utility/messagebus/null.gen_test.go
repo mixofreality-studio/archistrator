@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
-	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // nullOps are the operations the null-subject run replaces: "<Iface>.<Op>" entries of AIARCH_NULL_OPS.
@@ -22,12 +20,4 @@ func TestMain(m *testing.M) {
 		nullOps = strings.Split(v, ",")
 	}
 	scenariohost.Main(m, "messageBus")
-}
-
-// nullSubjectMessageBus is plan's subject: the real MessageBus, or its Null wrapper when AIARCH_NULL_OPS names operations of it.
-func nullSubjectMessageBus(inner messagebus.MessageBus) messagebus.MessageBus {
-	if len(nullOps) == 0 {
-		return inner
-	}
-	return scenariocompose.NullMessageBus(inner, nullOps...)
 }

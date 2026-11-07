@@ -16,7 +16,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -139,6 +138,7 @@ func TestRun009ManagerPath(t *testing.T) {
 	requirePassed(t, statuses, logs)
 
 	integrate := activitySpec(t, repo, run009Activity, "integration")
+	requireReleasedToolchain(t, repo, "the integration gate (test-discriminate) and both machine clients' scenarios")
 	runGenerators(t, repo, integrate)
 	inRepo(t, repo, "make", "gen-tests")
 	inRepo(t, repo, "go", "mod", "tidy")
@@ -169,11 +169,11 @@ func TestRun009ManagerPath(t *testing.T) {
 		t.Fatalf("mcpServer's derived contract: %+v", sc)
 	}
 
-	for _, tc := range []struct{ activity, contract, pkg, ctor string }{
-		{"C-web-api", "webApi", "internal/client/web/listkeeping", run009RESTSubject},
-		{"C-mcp-server", "mcpServer", "internal/client/mcpserver/listkeeping", run009MCPSubject},
+	for _, tc := range []struct{ activity, contract, pkg string }{
+		{"C-web-api", "webApi", "internal/client/web/listkeeping"},
+		{"C-mcp-server", "mcpServer", "internal/client/mcpserver/listkeeping"},
 	} {
-		t.Run(tc.contract, func(t *testing.T) { requireClientScenarios(t, repo, tc.activity, tc.contract, tc.pkg, tc.ctor) })
+		t.Run(tc.contract, func(t *testing.T) { requireClientScenarios(t, repo, tc.activity, tc.contract, tc.pkg) })
 	}
 }
 
@@ -193,38 +193,11 @@ func stateContract(t *testing.T, repo, key string) (projectstate.ServiceContract
 	return sc, ok
 }
 
-// run009Subject builds the client's generated Handler over the real Manager. The fixture's Manager
-// answers without its dependencies, so no worker has to serve a workflow for it here.
-const (
-	run009RESTSubject = `Manager: listkeeping.NewListKeepingManager(recognizing.NewRecognizingEngine(), nil, pubsub.NewPubSub()), Security: permitAll{}`
-	run009MCPSubject  = `Manager: listkeeping.NewListKeepingManager(recognizing.NewRecognizingEngine(), nil, pubsub.NewPubSub()), Security: permitAll{}`
-)
-
-const run009ClientHooks = `// Package hooks for the client's scenario tests.
-package listkeeping_test
-
-import (
-	"testing"
-
-	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-
-	listkeepingclient "MODULE/CLIENTPKG"
-	"MODULE/internal/engine/recognizing"
-	"MODULE/internal/manager/listkeeping"
-	"MODULE/internal/utility/pubsub"
-)
-
-func newSubject(t *testing.T, h *scenariohost.Host) toolServer {
-	t.Helper()
-	_ = h
-	return toolServer{Handlers: []toolRegistrar{&listkeepingclient.Handler{SUBJECT}}}
-}
-`
-
 // requireClientScenarios binds every scenario the projection gives one client, generates its tests
-// through that client, fills the hooks, and runs them. A broken surface then goes red: this is the
-// founder's rule that each surface is tested on its own, against what is below it.
-func requireClientScenarios(t *testing.T, repo, activity, contract, pkg, subject string) {
+// through that client (the generated scenariocompose package supplies the subject: an agent writes
+// no hooks file, FPC GC-1), and runs them. A broken surface then goes red: this is the founder's
+// rule that each surface is tested on its own, against what is below it.
+func requireClientScenarios(t *testing.T, repo, activity, contract, pkg string) {
 	t.Helper()
 	spec := activitySpec(t, repo, activity, "integration")
 	scenarios := 0
@@ -239,9 +212,6 @@ func requireClientScenarios(t *testing.T, repo, activity, contract, pkg, subject
 	recordClientPlan(t, repo, contract)
 	runGenerators(t, repo, spec)
 	inRepo(t, repo, "make", "gen-tests")
-	module := strings.TrimSpace(inRepo(t, repo, "go", "list", "-m"))
-	hooks := strings.NewReplacer("MODULE", module, "CLIENTPKG", pkg, "SUBJECT", subject).Replace(run009ClientHooks)
-	writeRepoFile(t, repo, pkg+"/client_hooks_test.go", []byte(hooks))
 	inRepo(t, repo, "go", "mod", "tidy")
 	// The plan is the test engineer's commit; what is left is this task's own.
 	inRepo(t, repo, "git", "add", ".aiarch/state/project.json")
@@ -322,8 +292,8 @@ func recordClientPlan(t *testing.T, repo, contract string) {
 			}
 			steps = append(steps, map[string]any{
 				"seq": st.Seq, "operation": st.Input.Op,
-				"inputs": []map[string]any{{"name": "proof", "value": "proof-value", "schemaRef": "Proof"}},
-				"expect": map[string]any{"result": result}, "unobservable": run009Unobservable(st),
+				"inputs": []map[string]any{literalInput("proof", `"proof-value"`)},
+				"expect": map[string]any{"result": result},
 			})
 		}
 		bindings = append(bindings, map[string]any{"scenario": s.ID, "steps": steps})
@@ -344,16 +314,14 @@ func recordClientPlan(t *testing.T, repo, contract string) {
 	}
 }
 
-// run009Unobservable names what a stimulus expects that a client cannot see.
-func run009Unobservable(st scenario.Stimulus) []string {
-	var out []string
-	for _, o := range st.ExpectedOutputs {
-		out = append(out, o.Node)
+// literalInput is one step input in binding model v2: a {"kind","model"} envelope over a literal
+// JSON value (a bare string would be the retired v1 spelling).
+func literalInput(name, rawJSON string) map[string]any {
+	return map[string]any{
+		"name":      name,
+		"value":     map[string]any{"kind": "literal", "model": map[string]any{"json": json.RawMessage(rawJSON)}},
+		"schemaRef": "",
 	}
-	for _, s := range st.ExpectedStates {
-		out = append(out, s.Node)
-	}
-	return out
 }
 
 // Every one of RUN-009's contracts records, and the spelling it wrote itself is refused, naming

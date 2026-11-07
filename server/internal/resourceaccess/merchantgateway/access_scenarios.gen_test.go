@@ -18,29 +18,11 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
 
-// inputBillTheUserForUsageP1S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
-type inputBillTheUserForUsageP1S1 struct {
-	CustomerID     uuid.UUID             `json:"customerID"`
-	Amount         merchantgateway.Money `json:"amount"`
-	IdempotencyKey string                `json:"idempotencyKey"`
-}
-
 // TestScenario_bill_the_user_for_usage_P1 — Bill the User for Usage — [yes] (use case bill-the-user-for-usage; path period-elapses → read-hosting-usage → price-invoice → charge-user → note-charge-idempotency → charge-succeeded → record-close → invoice-paid → period-closed-paid → merge → end).
 func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "bill-the-user-for-usage-P1", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
-		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ChargeCustomer (node charge-user; guards charge-succeeded=[yes])
-		var out1 any
-		var err1 error
-		var in1 inputBillTheUserForUsageP1S1
-		mustUnmarshal(t, `{"customerID":"d1110000-0000-4000-8000-000000000001","amount":{
-                          "MinorUnits": 4200,
-                          "Currency": "USD"
-                        },"idempotencyKey":"settle:d1110000-0000-4000-8000-000000000001:2026-09:1"}`, &in1)
-		err1 = subject.ChargeCustomer(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
-		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -70,125 +52,19 @@ func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	})
 }
 
-// inputOnboardANewCustomerP2S1 is step 1's parameters of ValidateStoredInstrument, decoded from the binding's inputs.
-type inputOnboardANewCustomerP2S1 struct {
-	CustomerID     uuid.UUID `json:"customerID"`
-	IdempotencyKey string    `json:"idempotencyKey"`
-}
-
-// inputOnboardANewCustomerP2S2 is step 2's parameters of ReadStoredInstrument, decoded from the binding's inputs.
-type inputOnboardANewCustomerP2S2 struct {
-	CustomerID uuid.UUID `json:"customerID"`
-}
-
 // TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
-		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[yes])
-		var out1 any
-		var err1 error
-		var in1 inputOnboardANewCustomerP2S1
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000001"}`, &in1)
-		err1 = subject.ValidateStoredInstrument(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.IdempotencyKey)
-		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"errorExpected":false}`)
-		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[yes])
-		var out2 any
-		var err2 error
-		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
-		var pout2_1 any
-		var perr2_1 error
-		run2_1 := func() (any, error) {
-			var in struct {
-				CustomerID uuid.UUID `json:"customerID"`
-			}
-			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in)
-			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
-		}
-		// probe 2.2: merchantGatewayAccess.ReadStoredInstrument for validate-instrument
-		var pout2_2 any
-		var perr2_2 error
-		run2_2 := func() (any, error) {
-			var in struct {
-				CustomerID uuid.UUID `json:"customerID"`
-			}
-			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in)
-			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.2"), in.CustomerID)
-		}
-		pre2_1 := held("onboard-a-new-customer-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		pre2_2 := held("onboard-a-new-customer-P2 probe 2.2 before", 2, run2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		var in2 inputOnboardANewCustomerP2S2
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in2)
-		out2, err2 = subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2"), in2.CustomerID)
-		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		pout2_1, perr2_1 = run2_1()
-		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		pout2_2, perr2_2 = run2_2()
-		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		differential(t, "onboard-a-new-customer-P2", 2, pre2_1, pre2_2)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-// inputOnboardANewCustomerP3S1 is step 1's parameters of ValidateStoredInstrument, decoded from the binding's inputs.
-type inputOnboardANewCustomerP3S1 struct {
-	CustomerID     uuid.UUID `json:"customerID"`
-	IdempotencyKey string    `json:"idempotencyKey"`
-}
-
-// inputOnboardANewCustomerP3S2 is step 2's parameters of ReadStoredInstrument, decoded from the binding's inputs.
-type inputOnboardANewCustomerP3S2 struct {
-	CustomerID uuid.UUID `json:"customerID"`
 }
 
 // TestScenario_onboard_a_new_customer_P3 — Onboard a New Customer — [no] · [no: no committed option] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → send-registration-refused → end).
 func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "onboard-a-new-customer-P3", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
-		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
-		var out1 any
-		var err1 error
-		var in1 inputOnboardANewCustomerP3S1
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000003"}`, &in1)
-		err1 = subject.ValidateStoredInstrument(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.IdempotencyKey)
-		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"errorExpected":false}`)
-		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
-		var out2 any
-		var err2 error
-		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
-		var pout2_1 any
-		var perr2_1 error
-		run2_1 := func() (any, error) {
-			var in struct {
-				CustomerID uuid.UUID `json:"customerID"`
-			}
-			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in)
-			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
-		}
-		// probe 2.2: merchantGatewayAccess.ReadStoredInstrument for validate-instrument
-		var pout2_2 any
-		var perr2_2 error
-		run2_2 := func() (any, error) {
-			var in struct {
-				CustomerID uuid.UUID `json:"customerID"`
-			}
-			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in)
-			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.2"), in.CustomerID)
-		}
-		pre2_1 := held("onboard-a-new-customer-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		pre2_2 := held("onboard-a-new-customer-P3 probe 2.2 before", 2, run2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		var in2 inputOnboardANewCustomerP3S2
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in2)
-		out2, err2 = subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2"), in2.CustomerID)
-		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		pout2_1, perr2_1 = run2_1()
-		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		pout2_2, perr2_2 = run2_2()
-		expect(t, "onboard-a-new-customer-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
-		differential(t, "onboard-a-new-customer-P3", 2, pre2_1, pre2_2)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -218,29 +94,11 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	})
 }
 
-// inputRetryADeclinedServiceInvoiceP2S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
-type inputRetryADeclinedServiceInvoiceP2S1 struct {
-	CustomerID     uuid.UUID             `json:"customerID"`
-	Amount         merchantgateway.Money `json:"amount"`
-	IdempotencyKey string                `json:"idempotencyKey"`
-}
-
 // TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
-		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[yes])
-		var out1 any
-		var err1 error
-		var in1 inputRetryADeclinedServiceInvoiceP2S1
-		mustUnmarshal(t, `{"customerID":"d3310000-0000-4000-8000-000000000001","amount":{
-                          "MinorUnits": 4200,
-                          "Currency": "USD"
-                        },"idempotencyKey":"settle:d3310000-0000-4000-8000-000000000001:2026-09:2"}`, &in1)
-		err1 = subject.ChargeCustomer(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
-		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 

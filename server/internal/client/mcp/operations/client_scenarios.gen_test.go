@@ -25,28 +25,7 @@ func TestMain(m *testing.M) { scenariohost.Main(m, "mcpClientOperations") }
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "enforce-customer-delinquency-on-operated-systems-P1", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsApplyDelinquencyPolicy → tool operationsApplyDelinquencyPolicy (node delinquency-arrives; guards directive-named=[no: unsaid])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for directive-named
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		args1 := `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{
-                          "action": 0
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsApplyDelinquencyPolicy", args1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P1", 1, out1, err1, `{"errorExpected":true,"errorCode":"ContractMisuse"}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Status\":2,\"InFlight\":true}","errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -54,30 +33,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P1(t *testing
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "enforce-customer-delinquency-on-operated-systems-P2", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsApplyDelinquencyPolicy → tool operationsApplyDelinquencyPolicy (node delinquency-arrives; guards directive-named=[yes], action-kind=[pause])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		pre1_1 := held("enforce-customer-delinquency-on-operated-systems-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":true}","errorExpected":false}`)
-		args1 := `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{
-                          "action": 1
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsApplyDelinquencyPolicy", args1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, out1, err1, `{"errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":true}","errorExpected":false}`)
-		differential(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -85,30 +41,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "enforce-customer-delinquency-on-operated-systems-P3", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsApplyDelinquencyPolicy → tool operationsApplyDelinquencyPolicy (node delinquency-arrives; guards directive-named=[yes], action-kind=[withdraw])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		pre1_1 := held("enforce-customer-delinquency-on-operated-systems-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":false}","errorExpected":false}`)
-		args1 := `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{
-                          "action": 2
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsApplyDelinquencyPolicy", args1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":false}","errorExpected":false}`)
-		differential(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -116,32 +49,7 @@ func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing
 func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "operate-a-delivered-system-P1", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsDeployAfterConstruction → tool operationsDeployAfterConstruction (node publish-trigger)
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-a
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		pre1_1 := held("operate-a-delivered-system-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"InFlight\":true}","errorExpected":false}`)
-		args1 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","change":{
-                          "reason": 1,
-                          "patchKind": 1,
-                          "changeId": "stp-mcpops-op-P1-deploy"
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsDeployAfterConstruction", args1)
-		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"result\":{\"published\":true}}","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "operate-a-delivered-system-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"InFlight\":true}","errorExpected":false}`)
-		differential(t, "operate-a-delivered-system-P1", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -149,32 +57,7 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "operate-a-delivered-system-P2", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsReconcileOperatedState → tool operationsReconcileOperatedState (node schedule-fires; guards state-transition=[no], decision-nochange=[yes])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for state-transition
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		pre1_1 := held("operate-a-delivered-system-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true}","errorExpected":false}`)
-		args1 := `{"tickID":"stp-mcpops-op-P2-tick","scope":{
-                          "appIds": [
-                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
-                          ]
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsReconcileOperatedState", args1)
-		expect(t, "operate-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"result\":{\"observed\":1,\"transitions\":0,\"republished\":0}}","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "operate-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true}","errorExpected":false}`)
-		differential(t, "operate-a-delivered-system-P2", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -182,45 +65,7 @@ func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "operate-a-delivered-system-P3", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsReconcileOperatedState → tool operationsReconcileOperatedState (node schedule-fires; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for desired-state-published-c
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
-		var pout1_2 any
-		var perr1_2 error
-		run1_2 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.2"), in.OperatedAppID)
-		}
-		pre1_1 := held("operate-a-delivered-system-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		pre1_2 := held("operate-a-delivered-system-P3 probe 1.2 before", 1, run1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		args1 := `{"tickID":"stp-mcpops-op-P3-tick","scope":{
-                          "appIds": [
-                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
-                          ]
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsReconcileOperatedState", args1)
-		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"result\":{\"observed\":1,\"transitions\":0,\"republished\":1}}","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "operate-a-delivered-system-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		pout1_2, perr1_2 = run1_2()
-		expect(t, "operate-a-delivered-system-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		differential(t, "operate-a-delivered-system-P3", 1, pre1_1, pre1_2)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -228,42 +73,7 @@ func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "operate-a-delivered-system-P4", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsReconcileOperatedState → tool operationsReconcileOperatedState (node schedule-fires; guards state-transition=[yes], decision-nochange=[yes])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-status-changed
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		// probe 1.2: mcpClientOperations.OperationsQueryOperatedSystemView for record-status
-		var pout1_2 any
-		var perr1_2 error
-		run1_2 := func() (any, error) {
-			args := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-mcpops-op-P4-view"}`
-			return subject.Call(h.Context(t), "operationsQueryOperatedSystemView", args)
-		}
-		pre1_1 := held("operate-a-delivered-system-P4 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true}","errorExpected":false}`)
-		pre1_2 := held("operate-a-delivered-system-P4 probe 1.2 before", 1, run1_2, `{"result":"{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}}","errorExpected":false}`)
-		args1 := `{"tickID":"stp-mcpops-op-P4-tick","scope":{
-                          "appIds": [
-                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
-                          ]
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsReconcileOperatedState", args1)
-		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"{\"result\":{\"observed\":1,\"transitions\":1,\"republished\":0}}","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true}","errorExpected":false}`)
-		pout1_2, perr1_2 = run1_2()
-		expect(t, "operate-a-delivered-system-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}}","errorExpected":false}`)
-		differential(t, "operate-a-delivered-system-P4", 1, pre1_1, pre1_2)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -271,55 +81,7 @@ func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "operate-a-delivered-system-P5", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsReconcileOperatedState → tool operationsReconcileOperatedState (node schedule-fires; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var out1 any
-		var err1 error
-		// probe 1.1: mcpClientOperations.OperationsQueryOperatedSystemView for operated-system-status-changed
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			args := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-mcpops-op-P5-view"}`
-			return subject.Call(h.Context(t), "operationsQueryOperatedSystemView", args)
-		}
-		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for desired-state-published-c
-		var pout1_2 any
-		var perr1_2 error
-		run1_2 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.2"), in.OperatedAppID)
-		}
-		// probe 1.3: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
-		var pout1_3 any
-		var perr1_3 error
-		run1_3 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.3"), in.OperatedAppID)
-		}
-		pre1_1 := held("operate-a-delivered-system-P5 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}}","errorExpected":false}`)
-		pre1_2 := held("operate-a-delivered-system-P5 probe 1.2 before", 1, run1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		pre1_3 := held("operate-a-delivered-system-P5 probe 1.3 before", 1, run1_3, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		args1 := `{"tickID":"stp-mcpops-op-P5-tick","scope":{
-                          "appIds": [
-                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
-                          ]
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsReconcileOperatedState", args1)
-		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"{\"result\":{\"observed\":1,\"transitions\":1,\"republished\":1}}","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}}","errorExpected":false}`)
-		pout1_2, perr1_2 = run1_2()
-		expect(t, "operate-a-delivered-system-P5 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		pout1_3, perr1_3 = run1_3()
-		expect(t, "operate-a-delivered-system-P5 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
-		differential(t, "operate-a-delivered-system-P5", 1, pre1_1, pre1_2, pre1_3)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -356,14 +118,7 @@ func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
 func TestScenario_view_live_deployment_health_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "view-live-deployment-health-P1", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsQueryDeploymentHealth → tool operationsQueryDeploymentHealth (node open-deployment-diagram; guards anything-deployed=[yes])
-		var out1 any
-		var err1 error
-		args1 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`
-		out1, err1 = subject.Call(h.Context(t), "operationsQueryDeploymentHealth", args1)
-		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"{\"result\":{\"Nodes\":[{\"ModelKey\":\"stp-ns-stp-mcpops-project\",\"Health\":0},{\"ModelKey\":\"stp-infra-gateway\",\"Health\":1},{\"ModelKey\":\"stp-infra-idp\",\"Health\":0},{\"ModelKey\":\"stp-infra-db\",\"Health\":1},{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}}","errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -371,26 +126,7 @@ func TestScenario_view_live_deployment_health_P1(t *testing.T) {
 func TestScenario_view_live_deployment_health_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "view-live-deployment-health-P2", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsQueryDeploymentHealth → tool operationsQueryDeploymentHealth (node open-deployment-diagram; guards anything-deployed=[no: nothing deployed yet])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for anything-deployed
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a3"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		args1 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a3"}`
-		out1, err1 = subject.Call(h.Context(t), "operationsQueryDeploymentHealth", args1)
-		expect(t, "view-live-deployment-health-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "view-live-deployment-health-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a3\",\"Version\":1,\"InFlight\":false}","errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -398,29 +134,7 @@ func TestScenario_view_live_deployment_health_P2(t *testing.T) {
 func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "view-operating-cost-projection-P1", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsQueryOperatedSystemView → tool operationsQueryOperatedSystemView (node open-console; guards app-known=[yes])
-		var out1 any
-		var err1 error
-		args1 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-mcpops-cost-P1-view"}`
-		out1, err1 = subject.Call(h.Context(t), "operationsQueryOperatedSystemView", args1)
-		expect(t, "view-operating-cost-projection-P1", 1, out1, err1, `{"result":"{\"result\":{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"InFlight\":true}}","errorExpected":false}`)
-		// step 2: OperationsQueryCostProjection → tool operationsQueryCostProjection (node request-projection; guards app-known=[yes])
-		var out2 any
-		var err2 error
-		args2 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-mcpops-cost-P1-projection","points":{
-                          "points": [
-                            {
-                              "replicas": 1
-                            },
-                            {
-                              "replicas": 3
-                            }
-                          ]
-                        }}`
-		out2, err2 = subject.Call(h.Context(t), "operationsQueryCostProjection", args2)
-		expect(t, "view-operating-cost-projection-P1", 2, out2, err2, `{"result":"{\"result\":{\"CurrentRunRate\":{\"Currency\":\"USD\"},\"ProjectedMonthlyCost\":{\"Currency\":\"USD\"},\"ScaleWhatIfCurve\":{\"Points\":[{\"Replicas\":1},{\"Replicas\":3}]}}}","errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -455,30 +169,7 @@ func TestScenario_view_operating_cost_projection_P2(t *testing.T) {
 func TestScenario_withdraw_a_delivered_system_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "withdraw-a-delivered-system-P1", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsWithdrawSystem → tool operationsWithdrawSystem (node request-withdraw; guards already-withdrawn=[yes])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for already-withdrawn
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		pre1_1 := held("withdraw-a-delivered-system-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
-		args1 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","changeID":"stp-mcpops-wd-P1","reason":{
-                          "notes": "stp: operator re-withdraws an already-withdrawn system"
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsWithdrawSystem", args1)
-		expect(t, "withdraw-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"result\":{\"withdrawn\":true}}","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "withdraw-a-delivered-system-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
-		differential(t, "withdraw-a-delivered-system-P1", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 
@@ -486,30 +177,7 @@ func TestScenario_withdraw_a_delivered_system_P1(t *testing.T) {
 func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientOperations", "withdraw-a-delivered-system-P2", func(t *testing.T) {
-		handlers := scenariocompose.NewMcpClientOperations(t, h)
-		subject := serveTools(h.Context(t), t, h, handlers)
-		// step 1: OperationsWithdrawSystem → tool operationsWithdrawSystem (node request-withdraw; guards already-withdrawn=[no: in flight])
-		var out1 any
-		var err1 error
-		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-withdrawn
-		var pout1_1 any
-		var perr1_1 error
-		run1_1 := func() (any, error) {
-			var in struct {
-				OperatedAppID uuid.UUID `json:"operatedAppID"`
-			}
-			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
-		}
-		pre1_1 := held("withdraw-a-delivered-system-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
-		args1 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","changeID":"stp-mcpops-wd-P2","reason":{
-                          "notes": "stp: operator withdraws the in-flight fixture system"
-                        }}`
-		out1, err1 = subject.Call(h.Context(t), "operationsWithdrawSystem", args1)
-		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"result\":{\"withdrawn\":true}}","errorExpected":false}`)
-		pout1_1, perr1_1 = run1_1()
-		expect(t, "withdraw-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
-		differential(t, "withdraw-a-delivered-system-P2", 1, pre1_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
 }
 

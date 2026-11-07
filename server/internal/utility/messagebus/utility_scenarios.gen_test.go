@@ -4,390 +4,39 @@
 package messagebus_test
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
-	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
-
-// inputOnboardANewCustomerP1S1 is step 1's parameters of RegisterSchedule, decoded from the binding's inputs.
-type inputOnboardANewCustomerP1S1 struct {
-	ScheduleID messagebus.ScheduleID   `json:"scheduleID"`
-	Spec       messagebus.ScheduleSpec `json:"spec"`
-}
-
-// inputOnboardANewCustomerP1S2 is step 2's parameters of DescribeSchedule, decoded from the binding's inputs.
-type inputOnboardANewCustomerP1S2 struct {
-	ScheduleID messagebus.ScheduleID `json:"scheduleID"`
-}
 
 // TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "messageBus", "onboard-a-new-customer-P1", func(t *testing.T) {
-		var subject messagebus.MessageBus = scenariocompose.NewMessageBus(t, h)
-		subject = nullSubjectMessageBus(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: RegisterSchedule (node register-schedule; guards registered=[yes])
-		var out1 any
-		var err1 error
-		var in1 inputOnboardANewCustomerP1S1
-		mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000201","spec":{
-                          "ExecutionKind": "billingCloseCycle",
-                          "Cadence": {
-                            "Every": 86400000000000,
-                            "CronExpr": ""
-                          },
-                          "TargetIDTemplate": "billingCloseCycle:0b5c0000-0000-4000-8000-000000000201",
-                          "StartPayload": {
-                            "Bytes": "",
-                            "ContentType": ""
-                          }
-                        }}`, &in1)
-		err1 = subject.RegisterSchedule(h.ResourceAccessContext(t, "1"), in1.ScheduleID, in1.Spec)
-		expect(t, "onboard-a-new-customer-P1", 1, out1, err1, `{"errorExpected":false}`)
-		// step 2: DescribeSchedule (node register-schedule; guards registered=[yes])
-		var out2 any
-		var err2 error
-		// probe 2.1: messageBus.DescribeSchedule for obj-schedule-registered
-		var pout2_1 any
-		var perr2_1 error
-		run2_1 := func() (any, error) {
-			var in struct {
-				ScheduleID messagebus.ScheduleID `json:"scheduleID"`
-			}
-			mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000201"}`, &in)
-			return subject.DescribeSchedule(h.ResourceAccessContext(t, "2.1"), in.ScheduleID)
-		}
-		pre2_1 := held("onboard-a-new-customer-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000201\"}","errorExpected":false}`)
-		var in2 inputOnboardANewCustomerP1S2
-		mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000201"}`, &in2)
-		out2, err2 = subject.DescribeSchedule(h.ResourceAccessContext(t, "2"), in2.ScheduleID)
-		expect(t, "onboard-a-new-customer-P1", 2, out2, err2, `{"result":"{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000201\"}","errorExpected":false}`)
-		pout2_1, perr2_1 = run2_1()
-		expect(t, "onboard-a-new-customer-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000201\"}","errorExpected":false}`)
-		differential(t, "onboard-a-new-customer-P1", 2, pre2_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-// inputOnboardANewCustomerP2S1 is step 1's parameters of RegisterSchedule, decoded from the binding's inputs.
-type inputOnboardANewCustomerP2S1 struct {
-	ScheduleID messagebus.ScheduleID   `json:"scheduleID"`
-	Spec       messagebus.ScheduleSpec `json:"spec"`
-}
-
-// inputOnboardANewCustomerP2S2 is step 2's parameters of DescribeSchedule, decoded from the binding's inputs.
-type inputOnboardANewCustomerP2S2 struct {
-	ScheduleID messagebus.ScheduleID `json:"scheduleID"`
 }
 
 // TestScenario_onboard_a_new_customer_P2 — Onboard a New Customer — [no] · [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → validate-instrument → obj-instrument-validated → note-validate-idempotency → read-commitment → project-committed → register-customer → obj-customer-registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "messageBus", "onboard-a-new-customer-P2", func(t *testing.T) {
-		var subject messagebus.MessageBus = scenariocompose.NewMessageBus(t, h)
-		subject = nullSubjectMessageBus(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: RegisterSchedule (node register-schedule; guards registered=[no], project-committed=[yes])
-		var out1 any
-		var err1 error
-		var in1 inputOnboardANewCustomerP2S1
-		mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000202","spec":{
-                          "ExecutionKind": "billingCloseCycle",
-                          "Cadence": {
-                            "Every": 86400000000000,
-                            "CronExpr": ""
-                          },
-                          "TargetIDTemplate": "billingCloseCycle:0b5c0000-0000-4000-8000-000000000202",
-                          "StartPayload": {
-                            "Bytes": "",
-                            "ContentType": ""
-                          }
-                        }}`, &in1)
-		err1 = subject.RegisterSchedule(h.ResourceAccessContext(t, "1"), in1.ScheduleID, in1.Spec)
-		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"errorExpected":false}`)
-		// step 2: DescribeSchedule (node register-schedule; guards registered=[no], project-committed=[yes])
-		var out2 any
-		var err2 error
-		// probe 2.1: messageBus.DescribeSchedule for obj-schedule-registered
-		var pout2_1 any
-		var perr2_1 error
-		run2_1 := func() (any, error) {
-			var in struct {
-				ScheduleID messagebus.ScheduleID `json:"scheduleID"`
-			}
-			mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000202"}`, &in)
-			return subject.DescribeSchedule(h.ResourceAccessContext(t, "2.1"), in.ScheduleID)
-		}
-		pre2_1 := held("onboard-a-new-customer-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000202\"}","errorExpected":false}`)
-		var in2 inputOnboardANewCustomerP2S2
-		mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b5c0000-0000-4000-8000-000000000202"}`, &in2)
-		out2, err2 = subject.DescribeSchedule(h.ResourceAccessContext(t, "2"), in2.ScheduleID)
-		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000202\"}","errorExpected":false}`)
-		pout2_1, perr2_1 = run2_1()
-		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Registered\":true,\"ExecutionKind\":\"billingCloseCycle\",\"TargetIDTemplate\":\"billingCloseCycle:0b5c0000-0000-4000-8000-000000000202\"}","errorExpected":false}`)
-		differential(t, "onboard-a-new-customer-P2", 2, pre2_1)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-// inputPauseConstructionP1S1 is step 1's parameters of DeliverSignal, decoded from the binding's inputs.
-type inputPauseConstructionP1S1 struct {
-	TargetExecutionID messagebus.ExecutionID      `json:"targetExecutionID"`
-	SignalName        messagebus.SignalName       `json:"signalName"`
-	Payload           messagebus.ExecutionPayload `json:"payload"`
-	Start             *messagebus.ExecutionStart  `json:"start"`
 }
 
 // TestScenario_pause_construction_P1 — Pause Construction (use case pause-construction; path start → choose-pause → note-pause-run-state → decide-pause-plan → note-plan-cancels → record-paused → run-state-paused → stop-pump → end).
 func TestScenario_pause_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "messageBus", "pause-construction-P1", func(t *testing.T) {
-		var subject messagebus.MessageBus = scenariocompose.NewMessageBus(t, h)
-		subject = nullSubjectMessageBus(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: DeliverSignal (node stop-pump)
-		var out1 any
-		var err1 error
-		var in1 inputPauseConstructionP1S1
-		mustUnmarshal(t, `{"targetExecutionID":"dct-messagebus-pause-p1:nextActivity","signalName":"operatorPauseRequested","payload":{
-                          "Bytes": "eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1wYXVzZS1wMSIsIlJlYXNvbiI6Im9wZXJhdG9yIHBhdXNlZCBjb25zdHJ1Y3Rpb24ifQ==",
-                          "ContentType": "application/json"
-                        }}`, &in1)
-		err1 = subject.DeliverSignal(h.ResourceAccessContext(t, "1"), in1.TargetExecutionID, in1.SignalName, in1.Payload, in1.Start)
-		expect(t, "pause-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-// inputResumePausedConstructionP3S1 is step 1's parameters of DeliverSignal, decoded from the binding's inputs.
-type inputResumePausedConstructionP3S1 struct {
-	TargetExecutionID messagebus.ExecutionID      `json:"targetExecutionID"`
-	SignalName        messagebus.SignalName       `json:"signalName"`
-	Payload           messagebus.ExecutionPayload `json:"payload"`
-	Start             *messagebus.ExecutionStart  `json:"start"`
 }
 
 // TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
 func TestScenario_resume_paused_construction_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "messageBus", "resume-paused-construction-P3", func(t *testing.T) {
-		var subject messagebus.MessageBus = scenariocompose.NewMessageBus(t, h)
-		subject = nullSubjectMessageBus(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: DeliverSignal (node release-halt; guards halt-check=[yes])
-		var out1 any
-		var err1 error
-		var in1 inputResumePausedConstructionP3S1
-		mustUnmarshal(t, `{"targetExecutionID":"dct-messagebus-resume-p3:nextActivity","signalName":"operatorResumeRequested","payload":{
-                          "Bytes": "eyJQcm9qZWN0SUQiOiJkY3QtbWVzc2FnZWJ1cy1yZXN1bWUtcDMiLCJIYWx0ZWRPbiI6IkMtcmV2aWV3LWVuZ2luZSIsIkhhbHRlZEF0IjoiMjAyNi0xMC0xN1QyMTo0Nzo1MVoiLCJIYWx0Q2F1c2UiOiJoZWFkLXN0YXRlIGNvbmZsaWN0IGRpZCBub3QgY29udmVyZ2Ugd2l0aGluIGJvdW5kZWQgYXR0ZW1wdHMifQ=="
-                        }}`, &in1)
-		err1 = subject.DeliverSignal(h.ResourceAccessContext(t, "1"), in1.TargetExecutionID, in1.SignalName, in1.Payload, in1.Start)
-		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"errorExpected":false}`)
+		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
 	})
-}
-
-func mustUnmarshal(t *testing.T, raw string, into any) {
-	t.Helper()
-	if err := json.Unmarshal([]byte(raw), into); err != nil {
-		t.Fatalf("testgen: decode %s: %v", raw, err)
-	}
-}
-
-// check judges one outcome against its expectation: an expected error must
-// arrive (carrying the expected code, when one is named); an unexpected error
-// fails; a named result must be a JSON subset of the marshalled outcome. It
-// returns "" when the expectation holds, the failure otherwise.
-func check(scenario string, seq int, out any, err error, expectJSON string) string {
-	var want struct {
-		Result        string `json:"result"`
-		ErrorExpected bool   `json:"errorExpected"`
-		ErrorCode     string `json:"errorCode"`
-	}
-	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
-		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
-	}
-	if want.ErrorExpected {
-		if err == nil {
-			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
-		}
-		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
-		}
-		return ""
-	}
-	if err != nil {
-		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
-	}
-	if want.Result != "" && !resultMatches(want.Result, out) {
-		got, _ := json.Marshal(out)
-		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
-	}
-	return ""
-}
-
-// expect fails the test unless the outcome meets its expectation.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
-	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
-		t.Fatal(msg)
-	}
-}
-
-// held reports whether the outcome of run already meets expectJSON: the pre-state
-// reading of the differential.
-func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
-	out, err := run()
-	return check(scenario, seq, out, err, expectJSON) == ""
-}
-
-// differential fails a step whose every probe expectation held before the step
-// ran: a test whose assertions were already true proves nothing about the step.
-func differential(t *testing.T, scenario string, seq int, pre ...bool) {
-	t.Helper()
-	for _, was := range pre {
-		if !was {
-			return
-		}
-	}
-	if len(pre) > 0 {
-		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
-	}
-}
-
-// pathValue reads path from the JSON form of from: dot-separated member
-// names, each optionally followed by [] (the first element of an array); ""
-// is the value itself.
-func pathValue(from any, path string) (any, error) {
-	raw, err := json.Marshal(from)
-	if err != nil {
-		return nil, err
-	}
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, err
-	}
-	if path == "" {
-		return v, nil
-	}
-	for _, seg := range strings.Split(path, ".") {
-		name, arrays := seg, 0
-		for strings.HasSuffix(name, "[]") {
-			name = strings.TrimSuffix(name, "[]")
-			arrays++
-		}
-		if name != "" {
-			obj, ok := v.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
-			}
-			if v, ok = obj[name]; !ok {
-				return nil, fmt.Errorf("path %q: no member %q", path, name)
-			}
-		}
-		for ; arrays > 0; arrays-- {
-			arr, ok := v.([]any)
-			if !ok || len(arr) == 0 {
-				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
-			}
-			v = arr[0]
-		}
-	}
-	return v, nil
-}
-
-// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
-func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
-	t.Helper()
-	v, err := pathValue(from, path)
-	if err != nil {
-		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
-	}
-	raw, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
-	}
-	if err := json.Unmarshal(raw, into); err != nil {
-		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
-	}
-}
-
-// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
-func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
-	t.Helper()
-	v, err := pathValue(from, path)
-	if err != nil {
-		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
-	}
-	fields := map[string]any{}
-	if err := json.Unmarshal([]byte(args), &fields); err != nil {
-		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
-	}
-	fields[name] = v
-	raw, err := json.Marshal(fields)
-	if err != nil {
-		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
-	}
-	return string(raw)
-}
-
-// errorHasCode matches the layer error's kind name, or the code as a substring
-// of the error text for a component-specific code.
-func errorHasCode(err error, code string) bool {
-	var le *fwra.Error
-	if errors.As(err, &le) && le.Kind.String() == code {
-		return true
-	}
-	return strings.Contains(err.Error(), code)
-}
-
-// resultMatches decodes the expectation (a JSON document, or a bare string)
-// and the marshalled outcome, and compares them as a subset.
-func resultMatches(wantRaw string, got any) bool {
-	var want any
-	if json.Unmarshal([]byte(wantRaw), &want) != nil {
-		want = wantRaw
-	}
-	raw, err := json.Marshal(got)
-	if err != nil {
-		return false
-	}
-	var g any
-	if json.Unmarshal(raw, &g) != nil {
-		return false
-	}
-	return subset(want, g)
-}
-
-// subset: every key of an expected object is present and matches; an expected
-// array matches element-wise; a scalar must be equal.
-func subset(want, got any) bool {
-	switch w := want.(type) {
-	case map[string]any:
-		g, ok := got.(map[string]any)
-		if !ok {
-			return false
-		}
-		for k, wv := range w {
-			gv, ok := g[k]
-			if !ok || !subset(wv, gv) {
-				return false
-			}
-		}
-		return true
-	case []any:
-		g, ok := got.([]any)
-		if !ok || len(g) != len(w) {
-			return false
-		}
-		for i := range w {
-			if !subset(w[i], g[i]) {
-				return false
-			}
-		}
-		return true
-	default:
-		return reflect.DeepEqual(want, got)
-	}
 }

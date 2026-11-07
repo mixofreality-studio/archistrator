@@ -32,22 +32,6 @@ func nullSubjectActivityExecutionAccess(inner projectstate.ActivityExecutionAcce
 	return scenariocompose.NullActivityExecutionAccess(inner, nullOps...)
 }
 
-// nullSubjectDesignSessionAccess is plan's subject: the real DesignSessionAccess, or its Null wrapper when AIARCH_NULL_OPS names operations of it.
-func nullSubjectDesignSessionAccess(inner projectstate.DesignSessionAccess) projectstate.DesignSessionAccess {
-	if len(nullOps) == 0 {
-		return inner
-	}
-	return scenariocompose.NullDesignSessionAccess(inner, nullOps...)
-}
-
-// nullSubjectGitActivityStatusAccess is plan's subject: the real GitActivityStatusAccess, or its Null wrapper when AIARCH_NULL_OPS names operations of it.
-func nullSubjectGitActivityStatusAccess(inner projectstate.GitActivityStatusAccess) projectstate.GitActivityStatusAccess {
-	if len(nullOps) == 0 {
-		return inner
-	}
-	return scenariocompose.NullGitActivityStatusAccess(inner, nullOps...)
-}
-
 // nullSubjectProjectStateAccess is plan's subject: the real ProjectStateAccess, or its Null wrapper when AIARCH_NULL_OPS names operations of it.
 func nullSubjectProjectStateAccess(inner projectstate.ProjectStateAccess) projectstate.ProjectStateAccess {
 	if len(nullOps) == 0 {

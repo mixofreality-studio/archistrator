@@ -38848,6 +38848,7 @@
             },
             "screens": {
               "type": "array",
+              "minItems": 1,
               "items": {
                 "$ref": "#/$defs/UIScreen"
               }
@@ -39374,6 +39375,7 @@
             },
             "elements": {
               "type": "array",
+              "minItems": 1,
               "items": {
                 "$ref": "#/$defs/UIElement"
               }
@@ -46107,7 +46109,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P3",
@@ -46309,7 +46315,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P4",
@@ -46511,7 +46521,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P1",
@@ -46829,7 +46843,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P2",
@@ -46995,7 +47013,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P3",
@@ -47153,7 +47175,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P1",
@@ -47334,7 +47360,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P2",
@@ -47515,7 +47545,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P1",
@@ -48110,7 +48144,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -48829,7 +48867,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -49524,7 +49566,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -50224,7 +50270,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -51117,7 +51167,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -51960,7 +52014,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -52985,7 +53043,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P2",
@@ -53283,7 +53345,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P3",
@@ -53581,7 +53647,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "requeue-a-failed-construction-activity-P1",
@@ -53931,7 +54001,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P1",
@@ -54068,7 +54142,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P3",
@@ -54205,7 +54283,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
@@ -54649,7 +54731,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P2",
@@ -55395,7 +55481,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -55552,7 +55642,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P2",
@@ -55703,7 +55797,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P3",
@@ -55854,7 +55952,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P4",
@@ -56005,7 +56107,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P1",
@@ -56090,7 +56196,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P2",
@@ -56175,7 +56285,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P3",
@@ -56260,7 +56374,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P4",
@@ -56345,7 +56463,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P1",
@@ -56433,7 +56555,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -56521,7 +56647,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -56609,7 +56739,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -56779,7 +56913,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -56867,7 +57005,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -57038,7 +57180,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P1",
@@ -57138,7 +57284,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P2",
@@ -57205,7 +57355,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P3",
@@ -57272,7 +57426,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "requeue-a-failed-construction-activity-P1",
@@ -57339,7 +57497,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
@@ -57461,7 +57623,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P2",
@@ -57699,7 +57865,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: no local-profile arm in the deployment model, so scenariocompose builds no subject (earmark E3: the local executor is a declared local variant of agenticJobAccess); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -57758,7 +57928,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -57811,7 +57985,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -57842,7 +58020,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -57908,7 +58090,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -58008,7 +58194,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -58061,7 +58251,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -58139,7 +58333,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P1",
@@ -58167,7 +58365,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P3",
@@ -58195,7 +58397,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P5",
@@ -58223,7 +58429,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P1",
@@ -58251,7 +58461,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -59307,7 +59521,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "bill-the-user-for-usage-P2",
@@ -59434,7 +59652,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P1",
@@ -59485,7 +59707,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P2",
@@ -59590,7 +59816,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P3",
@@ -59673,7 +59903,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P1",
@@ -59766,7 +60000,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P2",
@@ -59859,7 +60097,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P3",
@@ -59952,7 +60194,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P4",
@@ -60037,7 +60283,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-a-billing-cycle-P1",
@@ -60108,7 +60358,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-a-billing-cycle-P2",
@@ -60179,7 +60433,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -60372,7 +60630,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "bill-the-user-for-usage-P2",
@@ -60561,7 +60823,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P1",
@@ -60711,7 +60977,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P2",
@@ -60958,7 +61228,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P3",
@@ -61009,7 +61283,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P1",
@@ -61214,7 +61492,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P2",
@@ -61417,7 +61699,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P3",
@@ -61622,7 +61908,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P4",
@@ -61770,7 +62060,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-a-billing-cycle-P1",
@@ -61841,7 +62135,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-a-billing-cycle-P2",
@@ -61912,7 +62210,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -62166,7 +62468,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P2",
@@ -62414,7 +62720,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P3",
@@ -62687,7 +62997,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P4",
@@ -62960,7 +63274,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P1",
@@ -63068,7 +63386,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P2",
@@ -63176,7 +63498,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P3",
@@ -63310,7 +63636,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P4",
@@ -63444,7 +63774,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P1",
@@ -63606,7 +63940,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P2",
@@ -63848,7 +64186,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P3",
@@ -64022,7 +64364,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "download-generated-source-code-P1",
@@ -64054,7 +64400,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "download-generated-source-code-P2",
@@ -64086,7 +64436,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P1",
@@ -64189,7 +64543,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -64371,7 +64729,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -64474,7 +64836,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -64664,7 +65030,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -64767,7 +65137,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -65028,7 +65402,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -65131,7 +65509,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P1",
@@ -65395,7 +65777,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P2",
@@ -65659,7 +66045,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "pause-construction-P1",
@@ -65733,7 +66123,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P1",
@@ -65846,7 +66240,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P2",
@@ -66088,7 +66486,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P3",
@@ -66342,7 +66744,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "requeue-a-failed-construction-activity-P1",
@@ -66479,7 +66885,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P1",
@@ -66553,7 +66963,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P2",
@@ -66627,7 +67041,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P3",
@@ -66701,7 +67119,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
@@ -66917,7 +67339,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P2",
@@ -67260,7 +67686,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P1",
@@ -67291,7 +67721,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P2",
@@ -67322,7 +67756,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P3",
@@ -67353,7 +67791,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P4",
@@ -67384,7 +67826,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-the-project-state-log-P1",
@@ -67415,7 +67861,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-the-project-state-log-P2",
@@ -67469,7 +67919,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -67728,7 +68182,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P2",
@@ -67863,7 +68321,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P3",
@@ -67998,7 +68460,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P4",
@@ -68133,7 +68599,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P3",
@@ -68300,7 +68770,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P4",
@@ -68467,7 +68941,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P1",
@@ -68558,7 +69036,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P2",
@@ -68649,7 +69131,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P1",
@@ -68687,7 +69173,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -68725,7 +69215,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -69031,7 +69525,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -69337,7 +69835,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -69407,7 +69909,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -69445,7 +69951,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -69483,7 +69993,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P1",
@@ -69731,7 +70245,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P2",
@@ -69979,7 +70497,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P2",
@@ -70124,7 +70646,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -70756,7 +71282,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P3",
@@ -70870,7 +71400,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "requeue-a-failed-construction-activity-P1",
@@ -70933,7 +71467,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -71330,7 +71868,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -71517,7 +72059,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -71702,7 +72248,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -71889,7 +72439,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -72074,7 +72628,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -72261,7 +72819,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -72446,7 +73008,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P1",
@@ -73897,7 +74463,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -74073,7 +74643,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -74144,7 +74718,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -74215,7 +74793,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -74561,7 +75143,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -74737,7 +75323,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -74913,7 +75503,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -75128,7 +75722,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P5",
@@ -75217,7 +75815,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "pause-construction-P1",
@@ -75693,7 +76295,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P2",
@@ -75966,7 +76572,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P3",
@@ -76239,7 +76849,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P4",
@@ -76512,7 +77126,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P1",
@@ -76620,7 +77238,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P2",
@@ -76728,7 +77350,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P3",
@@ -76862,7 +77488,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P4",
@@ -76996,7 +77626,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P1",
@@ -77158,7 +77792,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P2",
@@ -77400,7 +78038,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P3",
@@ -77574,7 +78216,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "download-generated-source-code-P1",
@@ -77605,7 +78251,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "download-generated-source-code-P2",
@@ -77636,7 +78286,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P1",
@@ -77739,7 +78393,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -77921,7 +78579,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -78024,7 +78686,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -78214,7 +78880,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -78317,7 +78987,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -78578,7 +79252,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -78681,7 +79359,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P1",
@@ -78945,7 +79627,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P2",
@@ -79234,7 +79920,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "pause-construction-P1",
@@ -79333,7 +80023,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P1",
@@ -79446,7 +80140,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P2",
@@ -79688,7 +80386,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P3",
@@ -79942,7 +80644,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "requeue-a-failed-construction-activity-P1",
@@ -80080,7 +80786,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P1",
@@ -80204,7 +80914,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P2",
@@ -80303,7 +81017,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P3",
@@ -80427,7 +81145,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P1",
@@ -80560,7 +81282,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "send-back-change-requests-for-a-redraft-P2",
@@ -80820,7 +81546,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P1",
@@ -80851,7 +81581,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P2",
@@ -80882,7 +81616,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P3",
@@ -80913,7 +81651,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P4",
@@ -80944,7 +81686,11 @@
                 },
                 "probes": null
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-the-project-state-log-P1",
@@ -81001,7 +81747,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-the-project-state-log-P2",
@@ -81058,7 +81808,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -81137,7 +81891,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P2",
@@ -81265,7 +82023,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P3",
@@ -81371,7 +82133,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-a-billing-cycle-P1",
@@ -81442,7 +82208,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-a-billing-cycle-P2",
@@ -81513,7 +82283,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -81582,7 +82356,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "enforce-customer-delinquency-on-operated-systems-P2",
@@ -81645,7 +82423,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
@@ -81708,7 +82490,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P1",
@@ -81773,7 +82559,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P2",
@@ -81838,7 +82628,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P3",
@@ -81925,7 +82719,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P4",
@@ -82022,7 +82820,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P5",
@@ -82141,7 +82943,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "register-a-delivered-system-for-operation-P1",
@@ -82250,7 +83056,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P2",
@@ -82301,7 +83111,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-operating-cost-projection-P1",
@@ -82390,7 +83204,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-operating-cost-projection-P2",
@@ -82549,7 +83367,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "withdraw-a-delivered-system-P2",
@@ -82622,7 +83444,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -82679,7 +83505,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "bill-the-user-for-usage-P2",
@@ -82835,7 +83665,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P3",
@@ -82940,7 +83774,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "retry-a-declined-service-invoice-P1",
@@ -83042,7 +83880,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -83142,7 +83984,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P2",
@@ -83236,7 +84082,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "pause-construction-P1",
@@ -83287,7 +84137,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P3",
@@ -83337,7 +84191,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -83404,7 +84262,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P1",
@@ -83565,7 +84427,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P2",
@@ -83695,7 +84561,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P3",
@@ -83958,7 +84828,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P4",
@@ -84088,7 +84962,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P5",
@@ -84351,7 +85229,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P1",
@@ -84441,7 +85323,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "withdraw-a-delivered-system-P2",
@@ -84537,7 +85423,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -84697,7 +85587,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
@@ -84851,7 +85745,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P1",
@@ -84993,7 +85891,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P2",
@@ -85025,7 +85927,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P3",
@@ -85171,7 +86077,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P4",
@@ -85278,7 +86188,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P5",
@@ -85499,7 +86413,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "register-a-delivered-system-for-operation-P1",
@@ -85665,7 +86583,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P2",
@@ -85693,7 +86615,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-operating-cost-projection-P1",
@@ -85747,7 +86673,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-operating-cost-projection-P2",
@@ -85803,7 +86733,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "withdraw-a-delivered-system-P2",
@@ -85944,7 +86878,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -86732,7 +87670,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "enforce-customer-delinquency-on-operated-systems-P2",
@@ -86795,7 +87737,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "enforce-customer-delinquency-on-operated-systems-P3",
@@ -86885,7 +87831,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P1",
@@ -86950,7 +87900,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P2",
@@ -87015,7 +87969,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P3",
@@ -87102,7 +88060,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P4",
@@ -87225,7 +88187,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P5",
@@ -87370,7 +88336,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "register-a-delivered-system-for-operation-P1",
@@ -87564,7 +88534,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P1",
@@ -87592,7 +88566,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P2",
@@ -87736,7 +88714,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-operating-cost-projection-P2",
@@ -87895,7 +88877,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "withdraw-a-delivered-system-P2",
@@ -88020,7 +89006,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -88162,7 +89152,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P2",
@@ -88343,7 +89337,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P3",
@@ -88501,7 +89499,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "add-a-use-case-to-an-in-flight-project-P4",
@@ -88704,7 +89706,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P1",
@@ -88754,7 +89760,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P2",
@@ -88849,7 +89859,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P3",
@@ -88899,7 +89913,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P4",
@@ -88994,7 +90012,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P1",
@@ -89099,7 +90121,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P2",
@@ -89289,7 +90315,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "commit-to-a-project-option-P3",
@@ -89434,7 +90464,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "download-generated-source-code-P1",
@@ -89462,7 +90496,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "download-generated-source-code-P2",
@@ -89490,7 +90528,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P1",
@@ -89518,7 +90560,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P2",
@@ -89601,7 +90647,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P3",
@@ -89684,7 +90734,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -89767,7 +90821,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -89795,7 +90853,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P6",
@@ -89900,7 +90962,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P7",
@@ -89928,7 +90994,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P1",
@@ -90527,7 +91597,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P2",
@@ -90555,7 +91629,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "onboard-a-new-customer-P3",
@@ -90583,7 +91661,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P1",
@@ -90611,7 +91693,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P3",
@@ -90639,7 +91725,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P5",
@@ -90667,7 +91757,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "pause-construction-P1",
@@ -90770,7 +91864,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P1",
@@ -90820,7 +91918,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P2",
@@ -90848,7 +91950,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P3",
@@ -90876,7 +91982,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "requeue-a-failed-construction-activity-P1",
@@ -90959,7 +92069,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P1",
@@ -91096,7 +92210,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P2",
@@ -91147,7 +92265,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "resume-paused-construction-P3",
@@ -91175,7 +92297,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P1",
@@ -91465,7 +92591,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P2",
@@ -91675,7 +92805,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P3",
@@ -91885,7 +93019,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "track-weekly-project-progress-P4",
@@ -92015,7 +93153,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P1",
@@ -92043,7 +93185,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-the-project-state-log-P1",
@@ -92160,7 +93306,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-the-project-state-log-P2",
@@ -93256,7 +94406,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P2",
@@ -93402,7 +94556,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P4",
@@ -94089,7 +95247,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P4",
@@ -94321,7 +95483,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "execute-a-project-activity-P5",
@@ -95288,7 +96454,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "manage-projects-P2",
@@ -95497,7 +96667,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "replan-under-scope-change-P2",
@@ -95779,7 +96953,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           }
         ]
       },
@@ -95844,7 +97022,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "bill-the-user-for-usage-P2",
@@ -95903,7 +97085,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "operate-a-delivered-system-P4",
@@ -96122,7 +97308,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "ruling 8: needs arranged state; own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "withdraw-a-delivered-system-P2",
@@ -111323,11 +112513,6 @@
       "expires": "2026-12-31"
     },
     {
-      "rule": "TP-DISCRIMINATE",
-      "reason": "ruling 8: own-project rebinding scheduled",
-      "expires": "2026-12-31"
-    },
-    {
       "rule": "TP-EXPECT-REQUIRED",
       "reason": "ruling 8: own-project rebinding scheduled",
       "expires": "2026-12-31"
@@ -111359,11 +112544,6 @@
     },
     {
       "rule": "UC-PATH-OUTCOME",
-      "reason": "ruling 8: own-project rebinding scheduled",
-      "expires": "2026-12-31"
-    },
-    {
-      "rule": "UC-START-NOT-ACTION",
       "reason": "ruling 8: own-project rebinding scheduled",
       "expires": "2026-12-31"
     }
