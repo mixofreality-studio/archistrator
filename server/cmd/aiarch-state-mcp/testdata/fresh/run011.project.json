@@ -7391,9 +7391,11 @@
   "testPlan": {
    "actorIdentityAccess": {
     "component": "actorIdentityAccess",
+    "principals": {},
     "bindings": [
      {
       "scenario": "add-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7401,7 +7403,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7418,7 +7427,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7428,18 +7444,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n5",
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "add-a-todo-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7447,7 +7458,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7464,7 +7482,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7474,17 +7499,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "find-the-list-as-it-was-left-on-returning-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7492,7 +7513,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7509,7 +7537,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7519,18 +7554,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n5",
-         "n6"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7538,7 +7568,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7555,7 +7592,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7565,18 +7609,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n5",
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7584,7 +7623,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7601,7 +7647,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7611,18 +7664,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n6",
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "let-the-team-s-agent-tooling-drive-the-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7630,7 +7678,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"assistant-grant-for-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "assistant-grant-for-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7647,7 +7702,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"assistant-grant-for-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "assistant-grant-for-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7657,18 +7719,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n5",
-         "n6"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "mark-a-todo-done-or-not-done-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7676,7 +7733,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7693,7 +7757,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7703,18 +7774,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n5",
-         "n6"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7722,7 +7788,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7739,7 +7812,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7749,18 +7829,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n5",
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7768,7 +7843,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7785,7 +7867,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7795,18 +7884,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n6",
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "remove-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7814,7 +7898,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7831,7 +7922,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7841,18 +7939,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n5",
-         "n6"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "review-the-todo-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7860,7 +7953,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7877,7 +7977,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7887,17 +7994,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n6"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "review-the-todo-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7905,7 +8008,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7922,7 +8032,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7932,17 +8049,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n7"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "see-how-many-todos-are-left-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7950,7 +8063,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7967,7 +8087,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7977,17 +8104,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n5"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7995,7 +8118,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8012,7 +8142,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8022,18 +8159,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n5",
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8041,7 +8173,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8058,7 +8197,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8068,17 +8214,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n8",
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "switch-between-all-active-and-done-todos-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8086,7 +8228,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8103,7 +8252,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8113,18 +8269,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n5",
-         "n6"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "use-the-todo-list-embedded-in-an-mcp-hosted-screen-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8132,7 +8283,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"assistant-grant-for-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "assistant-grant-for-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8149,7 +8307,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"assistant-grant-for-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "assistant-grant-for-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8159,18 +8324,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n4",
-         "n5",
-         "n6"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8178,7 +8338,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8195,7 +8362,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8205,18 +8379,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n11",
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8224,7 +8393,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8241,7 +8417,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8251,18 +8434,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n12",
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P3",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8270,7 +8448,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8287,7 +8472,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8297,18 +8489,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n14",
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P4",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8316,7 +8503,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8333,7 +8527,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8343,18 +8544,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n15",
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P5",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8362,7 +8558,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8379,7 +8582,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8389,18 +8599,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n16",
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P6",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8408,7 +8613,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8425,7 +8637,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8435,18 +8654,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n17",
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P7",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8454,7 +8668,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8471,7 +8692,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8481,18 +8709,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n7",
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P8",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8500,7 +8723,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8517,7 +8747,14 @@
           "inputs": [
            {
             "name": "proof",
-            "value": "{\"credential\":\"member-proof-alice\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "credential": "member-proof-alice"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8527,12 +8764,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n18",
-         "n19"
-        ],
-        "hook": true
+        ]
        }
       ]
      }
@@ -8540,9 +8772,11 @@
    },
    "messageBus": {
     "component": "messageBus",
+    "principals": {},
     "bindings": [
      {
       "scenario": "add-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8550,7 +8784,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-01\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-01"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8559,14 +8801,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "add-a-todo-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8574,7 +8815,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-02\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-02"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8583,14 +8832,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8598,7 +8846,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-03\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-03"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8607,14 +8863,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8622,7 +8877,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-04\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-04"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8631,14 +8894,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "let-the-team-s-agent-tooling-drive-the-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8646,7 +8908,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-05\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-05"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8655,14 +8925,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "mark-a-todo-done-or-not-done-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8670,7 +8939,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-06\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-06"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8679,14 +8956,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8694,7 +8970,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-07\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-07"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8703,14 +8987,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8718,7 +9001,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-08\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-08"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8727,14 +9018,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "remove-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8742,7 +9032,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-09\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-09"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8751,14 +9049,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8766,7 +9063,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-10\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-10"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8775,14 +9080,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8790,7 +9094,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-11\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-11"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8799,14 +9111,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8814,7 +9125,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-12\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-12"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8823,14 +9142,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8838,7 +9156,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-13\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-13"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8847,14 +9173,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P3",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8862,7 +9187,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-14\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-14"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8871,14 +9204,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P4",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8886,7 +9218,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-15\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-15"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8895,14 +9235,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P5",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8910,7 +9249,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-16\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-16"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8919,14 +9266,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P6",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8934,7 +9280,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-17\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-17"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8943,14 +9297,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P7",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8958,7 +9311,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-18\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-18"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8967,14 +9328,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P8",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8982,7 +9342,15 @@
         "inputs": [
          {
           "name": "message",
-          "value": "{\"topic\":\"ListChanged\",\"scope\":\"member-19\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "topic": "ListChanged",
+             "scope": "member-19"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8991,9 +9359,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        }
       ]
      }
@@ -9001,9 +9367,11 @@
    },
    "todoKeepingManager": {
     "component": "todoKeepingManager",
+    "principals": {},
     "bindings": [
      {
       "scenario": "add-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9011,12 +9379,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "  Buy milk  ",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "  Buy milk  "
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9025,14 +9405,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "add-a-todo-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9040,12 +9419,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "   ",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "   "
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9054,14 +9445,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "find-the-list-as-it-was-left-on-returning-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9069,12 +9459,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "all",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "all"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9083,14 +9485,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "review-the-todo-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9098,12 +9499,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "active",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "active"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9112,14 +9525,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "review-the-todo-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9127,12 +9539,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "all",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "all"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9141,14 +9565,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "switch-between-all-active-and-done-todos-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9156,12 +9579,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "completed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "completed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9170,14 +9605,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "see-how-many-todos-are-left-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9185,12 +9619,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "all",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "all"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9199,14 +9645,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "use-the-todo-list-embedded-in-an-mcp-hosted-screen-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9214,12 +9659,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "all",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "all"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9228,14 +9685,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9243,17 +9699,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-A",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-A"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "  Buy oat milk ",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "  Buy oat milk "
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9262,14 +9735,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9277,17 +9749,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-A",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-A"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "   ",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "   "
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9296,14 +9785,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "mark-a-todo-done-or-not-done-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9311,17 +9799,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-A",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-A"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9330,14 +9835,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9345,7 +9849,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9354,14 +9865,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9369,7 +9879,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9378,14 +9895,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "remove-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9393,12 +9909,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-A",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-A"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9407,14 +9935,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9422,7 +9949,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9431,14 +9965,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9446,7 +9979,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9455,14 +9995,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        }
       ]
      },
      {
       "scenario": "let-the-team-s-agent-tooling-drive-the-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9470,12 +10009,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9484,9 +10035,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -9494,17 +10043,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write final report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write final report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9513,9 +10079,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -9523,12 +10087,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9537,9 +10113,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -9547,17 +10121,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9566,9 +10157,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -9576,7 +10165,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9585,9 +10181,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -9595,7 +10189,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9604,14 +10205,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9619,12 +10219,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9633,9 +10245,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -9643,17 +10253,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9662,9 +10289,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -9672,12 +10297,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9686,9 +10323,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -9696,17 +10331,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9715,9 +10367,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -9725,7 +10375,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9734,9 +10391,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -9744,7 +10399,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9753,14 +10415,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9768,12 +10429,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9782,9 +10455,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -9792,17 +10463,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9811,9 +10499,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -9821,12 +10507,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9835,9 +10533,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -9845,17 +10541,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9864,9 +10577,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -9874,7 +10585,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9883,9 +10601,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -9893,7 +10609,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9902,14 +10625,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P3",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9917,12 +10639,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9931,9 +10665,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -9941,17 +10673,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9960,9 +10709,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -9970,12 +10717,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9984,9 +10743,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -9994,17 +10751,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10013,9 +10787,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -10023,7 +10795,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10032,9 +10811,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -10042,7 +10819,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10051,14 +10835,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P4",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10066,12 +10849,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10080,9 +10875,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -10090,17 +10883,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10109,9 +10919,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -10119,12 +10927,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10133,9 +10953,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -10143,17 +10961,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10162,9 +10997,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -10172,7 +11005,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10181,9 +11021,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -10191,7 +11029,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10200,14 +11045,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P5",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10215,12 +11059,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10229,9 +11085,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -10239,17 +11093,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10258,9 +11129,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -10268,12 +11137,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10282,9 +11163,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -10292,17 +11171,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10311,9 +11207,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -10321,7 +11215,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10330,9 +11231,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -10340,7 +11239,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10349,14 +11255,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P6",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10364,12 +11269,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10378,9 +11295,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -10388,17 +11303,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10407,9 +11339,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -10417,12 +11347,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10431,9 +11373,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -10441,17 +11381,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10460,9 +11417,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -10470,7 +11425,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10479,9 +11441,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -10489,7 +11449,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10498,14 +11465,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P7",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10513,12 +11479,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Write report",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Write report"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10527,9 +11505,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -10537,17 +11513,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10556,9 +11549,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -10566,12 +11557,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10580,9 +11583,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -10590,17 +11591,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-W",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-W"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10609,9 +11627,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -10619,7 +11635,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10628,9 +11651,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -10638,7 +11659,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10647,14 +11675,13 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P8",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10662,12 +11689,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "   ",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "   "
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10676,9 +11715,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 2,
@@ -10686,17 +11723,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Seeded renamed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Seeded renamed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10705,9 +11759,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 3,
@@ -10715,12 +11767,24 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-S",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-S"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10729,9 +11793,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 4,
@@ -10739,17 +11801,34 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-T",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-T"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10758,9 +11837,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": true
+        "probes": []
        },
        {
         "seq": 5,
@@ -10768,7 +11845,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10777,9 +11861,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        },
        {
         "seq": 6,
@@ -10787,7 +11869,14 @@
         "inputs": [
          {
           "name": "proof",
-          "value": "{\"credential\":\"member-proof-alice\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "credential": "member-proof-alice"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10796,9 +11885,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [],
-        "unobservable": [],
-        "hook": false
+        "probes": []
        }
       ]
      }
@@ -10806,9 +11893,11 @@
    },
    "todoListAccess": {
     "component": "todoListAccess",
+    "principals": {},
     "bindings": [
      {
       "scenario": "add-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10816,12 +11905,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-add-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-add-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Buy oat milk",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Buy oat milk"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10838,7 +11937,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-add-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-add-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10848,9 +11952,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 2,
@@ -10858,7 +11960,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-add-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-add-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10875,7 +11982,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-add-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-add-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10885,16 +11997,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "add-a-todo-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10902,7 +12011,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-add-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-add-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10919,7 +12033,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-add-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-add-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10929,16 +12048,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "find-the-list-as-it-was-left-on-returning-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10946,7 +12062,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-find-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-find-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10963,7 +12084,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-find-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-find-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10973,9 +12099,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -10983,12 +12107,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-find-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-find-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "all",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "all"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11005,12 +12139,22 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-find-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-find-1"
+             }
+            },
             "schemaRef": ""
            },
            {
             "name": "view",
-            "value": "all",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "all"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11020,9 +12164,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -11030,7 +12172,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-find-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-find-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11047,7 +12194,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-find-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-find-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11057,14 +12209,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11072,17 +12223,32 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-fix-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-fix-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Draft final agenda",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Draft final agenda"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11099,7 +12265,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-fix-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-fix-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11109,9 +12280,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -11119,7 +12288,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-fix-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-fix-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11136,7 +12310,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-fix-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-fix-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11146,16 +12325,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11163,12 +12339,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-fix-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-fix-2"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11185,7 +12371,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-fix-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-fix-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11195,9 +12386,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -11205,7 +12394,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-fix-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-fix-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11222,7 +12416,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-fix-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-fix-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11232,16 +12431,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "let-the-team-s-agent-tooling-drive-the-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11249,12 +12445,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-agent-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-agent-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Draft agenda",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Draft agenda"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11263,9 +12469,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -11273,17 +12477,32 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-agent-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-agent-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Draft final agenda",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Draft final agenda"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11292,9 +12511,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 3,
@@ -11302,12 +12519,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-agent-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-agent-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11316,9 +12543,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 4,
@@ -11326,17 +12551,32 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-agent-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-agent-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11345,9 +12585,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 5,
@@ -11355,12 +12593,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-agent-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-agent-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11369,9 +12617,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 6,
@@ -11379,7 +12625,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-agent-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-agent-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11396,7 +12647,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-agent-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-agent-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11406,9 +12662,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 7,
@@ -11416,7 +12670,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-agent-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-agent-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11433,7 +12692,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-agent-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-agent-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11443,16 +12707,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n6"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "mark-a-todo-done-or-not-done-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11460,17 +12721,32 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-mark-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-mark-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11487,7 +12763,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-mark-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-mark-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11497,9 +12778,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -11507,7 +12786,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-mark-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-mark-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11524,7 +12808,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-mark-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-mark-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11534,16 +12823,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n6"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11551,7 +12837,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-every-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-every-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11560,9 +12851,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -11570,12 +12859,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-every-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-every-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11592,7 +12891,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-every-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-every-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11602,9 +12906,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -11612,7 +12914,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-every-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-every-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11629,7 +12936,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-every-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-every-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11639,16 +12951,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-and-undo-it-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11656,7 +12965,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-every-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-every-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11665,9 +12979,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -11675,12 +12987,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-every-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-every-2"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11697,7 +13019,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-every-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-every-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11707,9 +13034,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -11717,7 +13042,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-every-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-every-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11734,7 +13064,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-every-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-every-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11744,16 +13079,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "remove-a-todo-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11761,12 +13093,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-remove-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-remove-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11783,7 +13125,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-remove-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-remove-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11793,9 +13140,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -11803,7 +13148,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-remove-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-remove-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11820,7 +13170,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-remove-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-remove-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11830,16 +13185,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n6"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "review-the-todo-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11847,7 +13199,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-review-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-review-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11864,7 +13221,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-review-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-review-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11874,9 +13236,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -11884,12 +13244,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-review-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-review-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "active",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "active"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11906,12 +13276,22 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-review-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-review-1"
+             }
+            },
             "schemaRef": ""
            },
            {
             "name": "view",
-            "value": "active",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "active"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11921,14 +13301,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "review-the-todo-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -11936,7 +13315,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-review-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-review-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11953,7 +13337,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-review-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-review-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11963,9 +13352,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -11973,7 +13360,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-review-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-review-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11990,7 +13382,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-review-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-review-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12000,14 +13397,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "see-how-many-todos-are-left-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12015,7 +13411,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-count-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-count-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12032,7 +13433,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-count-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-count-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12042,9 +13448,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12052,7 +13456,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-count-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-count-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12069,7 +13478,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-count-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-count-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12079,14 +13493,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12094,7 +13507,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-sweep-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-sweep-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12111,7 +13529,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-sweep-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-sweep-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12121,9 +13544,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12131,7 +13552,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-sweep-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-sweep-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12148,7 +13574,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-sweep-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-sweep-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12158,16 +13589,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "sweep-away-finished-todos-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12175,7 +13603,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-sweep-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-sweep-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12192,7 +13625,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-sweep-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-sweep-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12202,16 +13640,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n9"
-        ],
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "switch-between-all-active-and-done-todos-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12219,7 +13654,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-switch-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-switch-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12236,7 +13676,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-switch-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-switch-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12246,9 +13691,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12256,12 +13699,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-switch-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-switch-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "completed",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "completed"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12278,12 +13731,22 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-switch-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-switch-1"
+             }
+            },
             "schemaRef": ""
            },
            {
             "name": "view",
-            "value": "completed",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "completed"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12293,9 +13756,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -12303,7 +13764,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-switch-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-switch-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12320,7 +13786,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-switch-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-switch-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12330,14 +13801,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "use-the-todo-list-embedded-in-an-mcp-hosted-screen-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12345,7 +13815,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-mcp-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-mcp-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12362,7 +13837,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-mcp-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-mcp-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12372,9 +13852,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12382,12 +13860,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-mcp-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-mcp-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "view",
-          "value": "active",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "active"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12404,12 +13892,22 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-mcp-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-mcp-1"
+             }
+            },
             "schemaRef": ""
            },
            {
             "name": "view",
-            "value": "active",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "active"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12419,9 +13917,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -12429,7 +13925,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-mcp-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-mcp-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12446,7 +13947,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-mcp-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-mcp-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12456,14 +13962,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12471,17 +13976,32 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Draft final agenda",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Draft final agenda"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12498,7 +14018,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12508,9 +14033,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12518,7 +14041,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-1",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12535,7 +14063,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-1",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-1"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12545,16 +14078,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12562,12 +14092,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-2"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12584,7 +14124,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12594,9 +14139,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12604,7 +14147,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-2",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12621,7 +14169,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-2",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-2"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12631,16 +14184,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P3",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12648,12 +14198,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-3",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-3"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12670,7 +14230,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-3",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-3"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12680,9 +14245,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12690,7 +14253,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-3",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-3"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12707,7 +14275,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-3",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-3"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12717,16 +14290,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P4",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12734,17 +14304,32 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-4",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todo",
-          "value": "todo-id-supplied-by-hook",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "todo-id-supplied-by-hook"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12761,7 +14346,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-4",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-4"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12771,9 +14361,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12781,7 +14369,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-4",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-4"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12798,7 +14391,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-4",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-4"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12808,16 +14406,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P5",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12825,12 +14420,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-5",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-5"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "completed",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12847,7 +14452,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-5",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-5"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12857,9 +14467,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12867,7 +14475,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-5",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-5"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12884,7 +14497,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-5",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-5"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12894,16 +14512,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P6",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12911,7 +14526,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-6",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-6"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12928,7 +14548,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-6",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-6"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12938,9 +14563,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -12948,7 +14571,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-6",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-6"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -12965,7 +14593,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-6",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-6"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -12975,16 +14608,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P7",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -12992,12 +14622,22 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-7",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-7"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "title",
-          "value": "Order stickers",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "Order stickers"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -13014,7 +14654,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-7",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-7"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -13024,9 +14669,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 2,
@@ -13034,7 +14677,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-7",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-7"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -13051,7 +14699,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-7",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-7"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -13061,16 +14714,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-the-todo-list-P8",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -13078,7 +14728,12 @@
         "inputs": [
          {
           "name": "member",
-          "value": "member-work-8",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "member-work-8"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -13095,7 +14750,12 @@
           "inputs": [
            {
             "name": "member",
-            "value": "member-work-8",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": "member-work-8"
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -13105,11 +14765,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": [
-         "n19"
-        ],
-        "hook": false
+        ]
        }
       ]
      }
@@ -14679,5 +16335,72 @@
  "reviewPolicy": {
   "preset": "vibes"
  },
+ "ruleWaivers": [
+  {
+   "rule": "CC-DECIDED-BY-ACTOR-STEP",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "SCN-ACTOR-PATH-CLIENT",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "SCN-UNADDRESSED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-ACTOR-OBSERVED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-CLIENT-CONTRACTED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-DISCRIMINATE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-EXPECT-REQUIRED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-PRINCIPAL",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-PROBE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-STATE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "UC-OUTCOME-AT-ASKING-SURFACE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "UC-PATH-OUTCOME",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "UC-START-NOT-ACTION",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  }
+ ],
  "updatedAt": "2026-11-04T08:28:44.68711Z"
 }

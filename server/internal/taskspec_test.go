@@ -165,7 +165,7 @@ func TestTaskSpecForFrontendIntegration(t *testing.T) {
 		!slices.Equal(s.EditScope.Components[0].Paths, []string{"webApp/src/shared/**", "webApp/src/web-client/**"}) {
 		t.Fatalf("frontend scope: %+v", s.EditScope)
 	}
-	for _, want := range []string{"webApp/package.json", "webApp/package-lock.json", "uitests/generated/webClient/**", "uitests/**"} {
+	for _, want := range []string{"webApp/package.json", "webApp/package-lock.json", "uitests/package.json"} {
 		if !slices.Contains(s.EditScope.Extra, want) {
 			t.Errorf("frontend integration extras %v lack %s", s.EditScope.Extra, want)
 		}
@@ -387,12 +387,11 @@ func TestTaskSpecForEveryActivityTask(t *testing.T) {
 	}
 }
 
-// R52 (spec §5.2 step 5): an integration job's pre-step runs `make gen-tests`, which
-// rewrites EVERY component's generated scenario tests (and seeds missing hooks files), and
-// its gen-tests-check gate covers them all. So every path the real testgen produces for
-// this repo's committed plans must lie inside every integration task's edit scope — this
-// is the drift gate on projectstate's copy of testgen's output layout.
-func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
+// FPC plan 2 (GC-1): an agent writes no test code, so no integration task's edit scope admits a
+// path the real testgen produces (the generated Go scenarios, the Playwright output), and no
+// construction scope does either. The platform's pre-step regenerates them; gen-tests-check holds
+// them current. This is the drift gate on projectstate's scope against testgen's output layout.
+func TestEditScope_ConstructionExcludesUitests(t *testing.T) {
 	_, raw := ownProjectJSON(t)
 	p := ownProject(t)
 	// archistrator's module is server/, and server/Makefile.scenarios.mk runs testgen with
@@ -406,63 +405,73 @@ func TestIntegrationScopeAdmitsEveryGeneratedTestPath(t *testing.T) {
 		!slices.ContainsFunc(generated, func(g string) bool { return strings.HasPrefix(g, "uitests/generated/") }) {
 		t.Fatalf("testgen produced no Go and/or Playwright output for this repo: %v", generated)
 	}
-	integrations := 0
+	checked := 0
 	for _, a := range allActivities(t, p) {
-		s, err := projectstate.TaskSpecFor(p, a.id, "integration")
-		if err != nil || (s.Identity.Command != "service-integration" && s.Identity.Command != "frontend-integration") {
-			continue
-		}
-		integrations++
-		for _, g := range generated {
-			// Hand-filled hooks files are admitted only for the component's own contracts
-			// (R61), asserted below for C-agentic-job-access.
-			if strings.HasSuffix(g, "_hooks_test.go") || strings.HasSuffix(g, "/hooks.ts") {
+		for _, task := range []string{"construction", "integration"} {
+			s, err := projectstate.TaskSpecFor(p, a.id, task)
+			if err != nil || s.EditScope.StateOnly {
 				continue
 			}
-			if !scopeAdmits(s.EditScope, g) {
-				t.Errorf("%s integration (%s): generated path %s lies outside its edit scope", a.id, s.Identity.Command, g)
+			checked++
+			for _, g := range generated {
+				if scopeAdmits(s.EditScope, g) {
+					t.Errorf("%s %s (%s): the scope admits the generated test file %s; an agent writes no test code", a.id, task, s.Identity.Command, g)
+				}
+			}
+			for _, hand := range []string{"uitests/specs/added.spec.ts", "uitests/generated/webClient/hooks.ts", "server/internal/manager/delivery/manager_hooks_test.go"} {
+				if scopeAdmits(s.EditScope, hand) {
+					t.Errorf("%s %s: the scope admits %s, hand-written test code", a.id, task, hand)
+				}
 			}
 		}
 	}
-	if integrations == 0 {
-		t.Fatal("no service or frontend integration task to check")
+	if checked == 0 {
+		t.Fatal("no construction or integration task to check")
 	}
-	// The derivation is not a blanket: another component's hand-written code stays out.
-	s, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
+	// The Playwright project's own manifests stay in a surface's scope: its dependencies are wiring.
+	s, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scopeAdmits(s.EditScope, "server/internal/manager/delivery/deliverymanager.go") {
-		t.Error("agentic-job-access integration admits the delivery manager's hand-written code")
-	}
-	assertIntegrationHooksScope(t, s.EditScope, generated)
-}
-
-// assertIntegrationHooksScope pins R61 for C-agentic-job-access: another component's
-// hand-filled hooks stay out of its integration scope and its own seeded hooks are in.
-func assertIntegrationHooksScope(t *testing.T, scope projectstate.SpecEditScope, generated []string) {
-	t.Helper()
-	// R61: another component's once-seeded, hand-filled hooks stay out, the component's own
-	// seeded hooks are in, and a web client's hooks.ts is not repo-wide admitted.
-	for _, other := range []string{
-		"server/internal/manager/delivery/manager_hooks_test.go",
-		"uitests/generated/webClient/hooks.ts",
-	} {
-		if scopeAdmits(scope, other) {
-			t.Errorf("agentic-job-access integration admits %s, another component's hand-written hooks", other)
+	for _, want := range []string{"uitests/package.json", "uitests/package-lock.json"} {
+		if !scopeAdmits(s.EditScope, want) {
+			t.Errorf("a surface's integration lost %s", want)
 		}
 	}
-	ownHooks := "server/internal/resourceaccess/agenticjob/access_hooks_test.go"
-	if !slices.Contains(generated, ownHooks) {
-		t.Fatalf("testgen no longer seeds %s", ownHooks)
+}
+
+// The integration gates the platform added with binding model v2: the null-subject run for a Go
+// component, the surface check for a browser surface.
+func TestIntegrationChecksCarryDiscriminationAndSurfaceCheck(t *testing.T) {
+	p := ownProject(t)
+	svc, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !scopeAdmits(scope, ownHooks) {
-		t.Errorf("agentic-job-access integration does not admit its own seeded hooks file %s", ownHooks)
+	if !hasCheck(svc, "command:test-discriminate") {
+		t.Errorf("a Go component's integration lacks command:test-discriminate: %v", checkIDs(svc))
+	}
+	web, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "integration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	surface := checkByID(t, web, "command:surface-check")
+	if got := strings.Join(surface.Source.Argv, " "); !strings.Contains(got, "playwright test -c generated/webClient/playwright.config.gen.ts --grep surface") {
+		t.Errorf("surface-check argv = %q", got)
+	}
+	if surface.Source.Dir != "uitests" {
+		t.Errorf("surface-check runs in %q, want uitests", surface.Source.Dir)
+	}
+	cons, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasCheck(cons, "command:test-discriminate") {
+		t.Error("construction does not run the discrimination: its tests are generated at integration")
 	}
 }
 
-// testgenOutputPaths is every path the real testgen writes for raw, repo-relative: the
-// generated files and the seeded hooks files, sorted.
+// testgenOutputPaths is every path the real testgen writes for raw, repo-relative, sorted.
 func testgenOutputPaths(t *testing.T, raw []byte, moduleDir string) []string {
 	t.Helper()
 	out, err := testgen.Generate(raw, testgen.Config{

@@ -5820,9 +5820,11 @@
   "testPlan": {
    "listAccess": {
     "component": "listAccess",
+    "principals": {},
     "bindings": [
      {
       "scenario": "find-my-list-still-there-when-i-come-back-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -5830,7 +5832,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -5847,7 +5856,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -5857,9 +5873,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -5867,7 +5881,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -5884,7 +5905,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -5894,14 +5922,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -5909,17 +5936,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"A2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "A2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -5936,7 +5980,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -5946,9 +5997,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -5956,7 +6005,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -5973,7 +6029,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -5983,14 +6046,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "fix-a-todo-s-wording-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -5998,12 +6060,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6020,7 +6094,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6030,9 +6111,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -6040,7 +6119,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6057,7 +6143,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6067,14 +6160,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "let-our-agent-tooling-drive-the-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6082,17 +6174,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t4\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"C\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "C"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6101,9 +6210,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -6111,17 +6218,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"A2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "A2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6130,9 +6254,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 3,
@@ -6140,12 +6262,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6154,9 +6288,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 4,
@@ -6164,17 +6296,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t4\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6183,9 +6332,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 5,
@@ -6193,12 +6340,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6207,9 +6366,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 6,
@@ -6217,7 +6374,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6234,7 +6398,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6244,9 +6415,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 7,
@@ -6254,7 +6423,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6271,7 +6447,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6288,7 +6471,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6298,14 +6488,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "mark-a-todo-done-or-unmark-it-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6313,17 +6502,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6340,7 +6546,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6350,9 +6563,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -6360,7 +6571,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6377,7 +6595,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6387,14 +6612,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-or-undo-that-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6402,7 +6626,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6411,9 +6642,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -6421,12 +6650,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6443,7 +6684,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6453,9 +6701,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -6463,7 +6709,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6480,7 +6733,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6490,14 +6750,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "mark-everything-done-at-once-or-undo-that-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6505,7 +6764,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6514,9 +6780,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -6524,12 +6788,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6546,7 +6822,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6556,9 +6839,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -6566,7 +6847,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6583,7 +6871,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6593,14 +6888,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "remove-a-todo-i-don-t-want-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6608,12 +6902,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6630,7 +6936,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6640,9 +6953,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -6650,7 +6961,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6667,7 +6985,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6677,14 +7002,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "review-a-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6692,7 +7016,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6709,7 +7040,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6719,9 +7057,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -6729,7 +7065,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6746,7 +7089,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6756,14 +7106,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "review-a-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6771,7 +7120,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6788,7 +7144,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6798,9 +7161,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -6808,7 +7169,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6825,7 +7193,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6835,14 +7210,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "see-at-a-glance-how-many-todos-i-have-left-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6850,7 +7224,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6867,7 +7248,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6877,14 +7265,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        }
       ]
      },
      {
       "scenario": "sweep-away-everything-i-ve-already-finished-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6892,7 +7279,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6901,9 +7295,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -6911,7 +7303,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6928,7 +7327,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6938,9 +7344,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -6948,7 +7352,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6965,7 +7376,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -6975,14 +7393,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "sweep-away-everything-i-ve-already-finished-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -6990,7 +7407,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -6999,9 +7423,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 2,
@@ -7009,7 +7431,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7026,7 +7455,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7036,14 +7472,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "switch-between-everything-what-s-left-and-what-s-done-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7051,7 +7486,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7068,7 +7510,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7078,9 +7527,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -7088,7 +7535,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7105,7 +7559,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7115,14 +7576,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "type-a-new-todo-and-add-it-to-my-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7130,17 +7590,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t4\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"C\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "C"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7157,7 +7634,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7167,9 +7651,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 2,
@@ -7177,7 +7659,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7194,7 +7683,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7204,14 +7700,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "type-a-new-todo-and-add-it-to-my-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7219,7 +7714,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7236,7 +7738,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7246,14 +7755,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "use-the-list-embedded-in-a-host-workspace-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7261,7 +7769,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7278,7 +7793,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7288,9 +7810,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -7298,7 +7818,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7315,7 +7842,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7325,14 +7859,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P1",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7340,12 +7873,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7362,7 +7907,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7372,9 +7924,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -7382,7 +7932,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7399,7 +7956,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7416,7 +7980,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7426,14 +7997,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P10",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7441,17 +8011,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"A2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "A2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7468,7 +8055,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7478,9 +8072,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -7488,7 +8080,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7505,7 +8104,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7515,14 +8121,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P11",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7530,12 +8135,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7552,7 +8169,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7562,9 +8186,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -7572,7 +8194,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7589,7 +8218,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7606,7 +8242,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7616,14 +8259,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P12",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7631,12 +8273,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7653,7 +8307,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7663,9 +8324,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -7673,7 +8332,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7690,7 +8356,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7700,14 +8373,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P13",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7715,7 +8387,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7724,9 +8403,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -7734,12 +8411,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7756,7 +8445,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7766,9 +8462,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -7776,7 +8470,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7793,7 +8494,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7810,7 +8518,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7820,14 +8535,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P14",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7835,7 +8549,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7844,9 +8565,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -7854,12 +8573,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7876,7 +8607,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7886,9 +8624,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -7896,7 +8632,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7913,7 +8656,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7923,14 +8673,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P15",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -7938,7 +8687,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7947,9 +8703,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -7957,12 +8711,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -7979,7 +8745,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -7989,9 +8762,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -7999,7 +8770,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8016,7 +8794,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8033,7 +8818,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8043,14 +8835,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P16",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8058,7 +8849,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8067,9 +8865,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -8077,12 +8873,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8099,7 +8907,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8109,9 +8924,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -8119,7 +8932,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8136,7 +8956,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8146,14 +8973,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P17",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8161,7 +8987,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8170,9 +9003,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -8180,7 +9011,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8197,7 +9035,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8207,9 +9052,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -8217,7 +9060,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8234,7 +9084,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8251,7 +9108,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8261,14 +9125,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P18",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8276,7 +9139,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8285,9 +9155,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -8295,7 +9163,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8312,7 +9187,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8322,9 +9204,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -8332,7 +9212,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8349,7 +9236,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8359,14 +9253,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P19",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8374,7 +9267,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8383,9 +9283,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 2,
@@ -8393,7 +9291,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8410,7 +9315,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8427,7 +9339,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8437,14 +9356,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P2",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8452,12 +9370,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8474,7 +9404,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8484,9 +9421,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -8494,7 +9429,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8511,7 +9453,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8521,14 +9470,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P20",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8536,7 +9484,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8545,9 +9500,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 2,
@@ -8555,7 +9508,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8572,7 +9532,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8582,14 +9549,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P21",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8597,12 +9563,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8619,7 +9597,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8629,9 +9614,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -8639,7 +9622,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8656,7 +9646,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8673,7 +9670,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8683,14 +9687,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P22",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8698,12 +9701,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8720,7 +9735,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8730,9 +9752,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -8740,7 +9760,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8757,7 +9784,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8767,14 +9801,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P23",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8782,17 +9815,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8809,7 +9859,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8819,9 +9876,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -8829,7 +9884,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8846,7 +9908,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8863,7 +9932,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8873,14 +9949,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P24",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8888,17 +9963,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t2"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8915,7 +10007,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8925,9 +10024,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -8935,7 +10032,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -8952,7 +10056,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -8962,14 +10073,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P25",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -8977,17 +10087,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t4\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"C\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "C"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9004,7 +10131,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9014,9 +10148,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 2,
@@ -9024,7 +10156,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9041,7 +10180,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9058,7 +10204,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9068,14 +10221,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P26",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9083,17 +10235,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t4\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"C\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "C"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9110,7 +10279,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9120,9 +10296,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 2,
@@ -9130,7 +10304,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9147,7 +10328,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9157,14 +10345,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P27",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9172,7 +10359,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9189,7 +10383,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9206,7 +10407,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9216,14 +10424,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P28",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9231,7 +10438,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9248,7 +10462,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9258,14 +10479,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P29",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9273,17 +10493,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"A2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "A2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9300,7 +10537,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9310,9 +10554,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -9320,7 +10562,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9337,7 +10586,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9354,7 +10610,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9364,14 +10627,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P3",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9379,17 +10641,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9406,7 +10685,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9416,9 +10702,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -9426,7 +10710,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9443,7 +10734,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9460,7 +10758,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9470,14 +10775,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P30",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9485,17 +10789,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"A2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "A2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9512,7 +10833,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9522,9 +10850,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -9532,7 +10858,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9549,7 +10882,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9559,14 +10899,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P31",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9574,12 +10913,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9596,7 +10947,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9606,9 +10964,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -9616,7 +10972,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9633,7 +10996,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9650,7 +11020,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9660,14 +11037,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P32",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9675,12 +11051,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9697,7 +11085,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9707,9 +11102,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -9717,7 +11110,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9734,7 +11134,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9744,14 +11151,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P33",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9759,7 +11165,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9768,9 +11181,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -9778,12 +11189,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9800,7 +11223,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9810,9 +11240,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -9820,7 +11248,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9837,7 +11272,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9854,7 +11296,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9864,14 +11313,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P34",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9879,7 +11327,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9888,9 +11343,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -9898,12 +11351,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "true",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": true
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9920,7 +11385,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9930,9 +11402,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -9940,7 +11410,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9957,7 +11434,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -9967,14 +11451,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P35",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -9982,7 +11465,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -9991,9 +11481,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -10001,12 +11489,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10023,7 +11523,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10033,9 +11540,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -10043,7 +11548,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10060,7 +11572,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10077,7 +11596,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10087,14 +11613,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P36",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10102,7 +11627,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10111,9 +11643,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -10121,12 +11651,24 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10143,7 +11685,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10153,9 +11702,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -10163,7 +11710,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10180,7 +11734,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10190,14 +11751,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P37",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10205,7 +11765,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10214,9 +11781,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -10224,7 +11789,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10241,7 +11813,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10251,9 +11830,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -10261,7 +11838,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10278,7 +11862,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10295,7 +11886,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10305,14 +11903,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P38",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10320,7 +11917,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10329,9 +11933,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": true
+        "probes": null
        },
        {
         "seq": 2,
@@ -10339,7 +11941,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10356,7 +11965,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10366,9 +11982,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 3,
@@ -10376,7 +11990,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10393,7 +12014,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10403,14 +12031,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P39",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10418,7 +12045,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10427,9 +12061,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 2,
@@ -10437,7 +12069,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10454,7 +12093,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10471,7 +12117,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10481,14 +12134,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P4",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10496,17 +12148,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t2"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "done",
-          "value": "false",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": false
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10523,7 +12192,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10533,9 +12209,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -10543,7 +12217,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10560,7 +12241,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10570,14 +12258,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P40",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10585,7 +12272,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10594,9 +12288,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": null,
-        "unobservable": null,
-        "hook": false
+        "probes": null
        },
        {
         "seq": 2,
@@ -10604,7 +12296,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10621,7 +12320,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10631,14 +12337,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P5",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10646,17 +12351,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t4\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"C\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "C"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10673,7 +12395,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10683,9 +12412,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 2,
@@ -10693,7 +12420,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10710,7 +12444,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10727,7 +12468,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10737,14 +12485,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P6",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10752,17 +12499,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t4\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t4"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"C\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "C"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10779,7 +12543,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10789,9 +12560,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        },
        {
         "seq": 2,
@@ -10799,7 +12568,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10816,7 +12592,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10826,14 +12609,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P7",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10841,7 +12623,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10858,7 +12647,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10875,7 +12671,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10885,14 +12688,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P8",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10900,7 +12702,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10917,7 +12726,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10927,14 +12743,13 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      },
      {
       "scenario": "work-a-list-P9",
+      "arrange": [],
       "steps": [
        {
         "seq": 1,
@@ -10942,17 +12757,34 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "todoId",
-          "value": "\"t1\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "t1"
+           }
+          },
           "schemaRef": ""
          },
          {
           "name": "wording",
-          "value": "\"A2\"",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": "A2"
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -10969,7 +12801,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -10979,9 +12818,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": true
+        ]
        },
        {
         "seq": 2,
@@ -10989,7 +12826,14 @@
         "inputs": [
          {
           "name": "member",
-          "value": "{\"memberId\":\"m\"}",
+          "value": {
+           "kind": "literal",
+           "model": {
+            "json": {
+             "memberId": "m"
+            }
+           }
+          },
           "schemaRef": ""
          }
         ],
@@ -11006,7 +12850,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11023,7 +12874,14 @@
           "inputs": [
            {
             "name": "member",
-            "value": "{\"memberId\":\"m\"}",
+            "value": {
+             "kind": "literal",
+             "model": {
+              "json": {
+               "memberId": "m"
+              }
+             }
+            },
             "schemaRef": ""
            }
           ],
@@ -11033,9 +12891,7 @@
            "errorCode": ""
           }
          }
-        ],
-        "unobservable": null,
-        "hook": false
+        ]
        }
       ]
      }
@@ -11812,5 +13668,72 @@
  "reviewPolicy": {
   "preset": "vibes"
  },
+ "ruleWaivers": [
+  {
+   "rule": "CC-DECIDED-BY-ACTOR-STEP",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "SCN-ACTOR-PATH-CLIENT",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "SCN-UNADDRESSED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-ACTOR-OBSERVED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-CLIENT-CONTRACTED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-DISCRIMINATE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-EXPECT-REQUIRED",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-PRINCIPAL",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-PROBE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "TP-STATE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "UC-OUTCOME-AT-ASKING-SURFACE",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "UC-PATH-OUTCOME",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  },
+  {
+   "rule": "UC-START-NOT-ACTION",
+   "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+   "expires": "2099-12-31"
+  }
+ ],
  "updatedAt": "2026-11-03T06:45:37.20051Z"
 }

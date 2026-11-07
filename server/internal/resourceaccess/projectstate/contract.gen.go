@@ -4,6 +4,8 @@
 package projectstate
 
 import (
+	"encoding/json"
+	"fmt"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"time"
 )
@@ -119,6 +121,116 @@ type Actor struct {
 	ID   string `json:"id"`
 	Role string `json:"role"`
 }
+
+type AdvanceClock struct {
+	Duration string `json:"duration"`
+}
+
+// ArrangeCall is the generated sealed sum interface for this contract.
+//
+//sumtype:decl
+type ArrangeCall interface {
+	Kind() ArrangeKind
+	isArrangeCall() // unexported marker: seals the sum to this package's variants
+}
+
+func (*ContractCall) isArrangeCall()    {}
+func (*ContractCall) Kind() ArrangeKind { return ArrangeContractCall }
+
+func (*AdvanceClock) isArrangeCall()    {}
+func (*AdvanceClock) Kind() ArrangeKind { return ArrangeAdvanceClock }
+
+func (*FailNext) isArrangeCall()    {}
+func (*FailNext) Kind() ArrangeKind { return ArrangeFailNext }
+
+func (*SeedResource) isArrangeCall()    {}
+func (*SeedResource) Kind() ArrangeKind { return ArrangeSeedResource }
+
+// ArrangeCallEnvelope is the wire form of a ArrangeCall: the string kind discriminator + the
+// concrete variant's own JSON under "model".
+type ArrangeCallEnvelope struct {
+	Kind  string          `json:"kind"`
+	Model json.RawMessage `json:"model,omitempty"`
+}
+
+// kindStringArrangeCall maps a variant's discriminator value to its wire kind string.
+func kindStringArrangeCall(k ArrangeKind) (string, bool) {
+	switch k {
+	case ArrangeContractCall:
+		return "contractCall", true
+	case ArrangeAdvanceClock:
+		return "advanceClock", true
+	case ArrangeFailNext:
+		return "failNext", true
+	case ArrangeSeedResource:
+		return "seedResource", true
+	default:
+		return "", false
+	}
+}
+
+// MarshalArrangeCall encodes a ArrangeCall to its {"kind","model"} envelope, byte-identical to
+// the hand-written wire form. A nil value encodes as the zero envelope.
+func MarshalArrangeCall(v ArrangeCall) ([]byte, error) {
+	if v == nil {
+		return json.Marshal(ArrangeCallEnvelope{})
+	}
+	kind, ok := kindStringArrangeCall(v.Kind())
+	if !ok {
+		return nil, fmt.Errorf("marshal ArrangeCall: no wire kind for %v", v.Kind())
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal ArrangeCall %v: %w", v.Kind(), err)
+	}
+	return json.Marshal(ArrangeCallEnvelope{Kind: kind, Model: raw})
+}
+
+// newArrangeCallForKind returns a freshly-allocated zero-value concrete variant for
+// the wire kind string, suitable for json.Unmarshal, or (nil,false) if unknown.
+func newArrangeCallForKind(kind string) (ArrangeCall, bool) {
+	switch kind {
+	case "contractCall":
+		return &ContractCall{}, true
+	case "advanceClock":
+		return &AdvanceClock{}, true
+	case "failNext":
+		return &FailNext{}, true
+	case "seedResource":
+		return &SeedResource{}, true
+	default:
+		return nil, false
+	}
+}
+
+// UnmarshalArrangeCall decodes a {"kind","model"} envelope back into the concrete
+// variant selected by its kind. An empty model payload decodes to a nil value.
+func UnmarshalArrangeCall(data []byte) (ArrangeCall, error) {
+	var env ArrangeCallEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	if len(env.Model) == 0 {
+		return nil, nil
+	}
+	v, ok := newArrangeCallForKind(env.Kind)
+	if !ok {
+		return nil, fmt.Errorf("unknown kind %q for ArrangeCall", env.Kind)
+	}
+	if err := json.Unmarshal(env.Model, v); err != nil {
+		return nil, fmt.Errorf("unmarshal ArrangeCall %q: %w", env.Kind, err)
+	}
+	return v, nil
+}
+
+type ArrangeKind string
+
+const (
+	ArrangeContractCall ArrangeKind = "contractCall"
+	ArrangeAdvanceClock ArrangeKind = "advanceClock"
+	ArrangeFailNext     ArrangeKind = "failNext"
+	ArrangeSeedResource ArrangeKind = "seedResource"
+)
 
 type ArtifactKind int
 
@@ -296,6 +408,13 @@ type ContainerInstance struct {
 
 type ContainerSurface string
 
+type ContractCall struct {
+	Component string     `json:"component"`
+	Operation string     `json:"operation"`
+	Inputs    []TestArg  `json:"inputs"`
+	Expect    TestExpect `json:"expect"`
+}
+
 type ContractInterface struct {
 	Name       string              `json:"name"`
 	Layer      string              `json:"layer"`
@@ -456,6 +575,12 @@ type EvPoint struct {
 	AcPct      *float64 `json:"acPct,omitempty"`
 }
 
+type FailNext struct {
+	Component string `json:"component"`
+	Operation string `json:"operation"`
+	ErrorCode string `json:"errorCode"`
+}
+
 type FailureReason int
 
 const (
@@ -524,6 +649,10 @@ const (
 type LifecyclePin struct {
 	TypeKey       string `json:"typeKey"`
 	AssetsVersion string `json:"assetsVersion"`
+}
+
+type LiteralValue struct {
+	JSON json.RawMessage `json:"json"`
 }
 
 type MissionStatement struct {
@@ -702,6 +831,12 @@ type QualityGate struct {
 	Mode         string `json:"mode"`
 }
 
+type RefValue struct {
+	Step  int    `json:"step"`
+	Path  string `json:"path"`
+	Probe *int   `json:"probe,omitempty"`
+}
+
 type RejectedVolatility struct {
 	Name   string         `json:"name"`
 	Reason string         `json:"reason"`
@@ -849,6 +984,12 @@ type RoundReviewer struct {
 	Required bool   `json:"required"`
 }
 
+type RuleWaiver struct {
+	Rule    string `json:"rule"`
+	Reason  string `json:"reason"`
+	Expires string `json:"expires"`
+}
+
 type SRSRecord struct {
 	Component  string     `json:"component"`
 	Content    string     `json:"content"`
@@ -864,6 +1005,7 @@ type ScalingPolicy struct {
 
 type ScenarioBinding struct {
 	Scenario string        `json:"scenario"`
+	Arrange  []ArrangeCall `json:"arrange"`
 	Steps    []StepBinding `json:"steps"`
 	Skip     *SkipReason   `json:"skip,omitempty"`
 }
@@ -898,6 +1040,11 @@ type SdpReview struct {
 	Recommendation OptionID       `json:"recommendation"`
 	Rationale      string         `json:"rationale"`
 	ChosenOption   *OptionID      `json:"chosenOption,omitempty"`
+}
+
+type SeedResource struct {
+	Resource string          `json:"resource"`
+	Fixture  json.RawMessage `json:"fixture"`
 }
 
 type SettlementTerms struct {
@@ -941,13 +1088,12 @@ type StandardCheck struct {
 }
 
 type StepBinding struct {
-	Seq          int        `json:"seq"`
-	Operation    string     `json:"operation"`
-	Inputs       []TestArg  `json:"inputs"`
-	Expect       TestExpect `json:"expect"`
-	Probes       []Probe    `json:"probes"`
-	Unobservable []string   `json:"unobservable"`
-	Hook         bool       `json:"hook"`
+	Seq       int         `json:"seq"`
+	Operation string      `json:"operation"`
+	Inputs    []TestArg   `json:"inputs"`
+	Expect    TestExpect  `json:"expect"`
+	Probes    []Probe     `json:"probes"`
+	Before    *TestExpect `json:"before,omitempty"`
 }
 
 type SubjectKind string
@@ -983,10 +1129,100 @@ type TaskAttemptInput struct {
 }
 
 type TestArg struct {
-	Name      string `json:"name"`
-	Value     string `json:"value"`
-	SchemaRef string `json:"schemaRef"`
+	Name      string       `json:"name"`
+	Value     TestArgValue `json:"value"`
+	SchemaRef string       `json:"schemaRef"`
 }
+
+// TestArgValue is the generated sealed sum interface for this contract.
+//
+//sumtype:decl
+type TestArgValue interface {
+	Kind() TestArgValueKind
+	isTestArgValue() // unexported marker: seals the sum to this package's variants
+}
+
+func (*LiteralValue) isTestArgValue()        {}
+func (*LiteralValue) Kind() TestArgValueKind { return TestArgLiteral }
+
+func (*RefValue) isTestArgValue()        {}
+func (*RefValue) Kind() TestArgValueKind { return TestArgRef }
+
+// TestArgValueEnvelope is the wire form of a TestArgValue: the string kind discriminator + the
+// concrete variant's own JSON under "model".
+type TestArgValueEnvelope struct {
+	Kind  string          `json:"kind"`
+	Model json.RawMessage `json:"model,omitempty"`
+}
+
+// kindStringTestArgValue maps a variant's discriminator value to its wire kind string.
+func kindStringTestArgValue(k TestArgValueKind) (string, bool) {
+	switch k {
+	case TestArgLiteral:
+		return "literal", true
+	case TestArgRef:
+		return "ref", true
+	default:
+		return "", false
+	}
+}
+
+// MarshalTestArgValue encodes a TestArgValue to its {"kind","model"} envelope, byte-identical to
+// the hand-written wire form. A nil value encodes as the zero envelope.
+func MarshalTestArgValue(v TestArgValue) ([]byte, error) {
+	if v == nil {
+		return json.Marshal(TestArgValueEnvelope{})
+	}
+	kind, ok := kindStringTestArgValue(v.Kind())
+	if !ok {
+		return nil, fmt.Errorf("marshal TestArgValue: no wire kind for %v", v.Kind())
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal TestArgValue %v: %w", v.Kind(), err)
+	}
+	return json.Marshal(TestArgValueEnvelope{Kind: kind, Model: raw})
+}
+
+// newTestArgValueForKind returns a freshly-allocated zero-value concrete variant for
+// the wire kind string, suitable for json.Unmarshal, or (nil,false) if unknown.
+func newTestArgValueForKind(kind string) (TestArgValue, bool) {
+	switch kind {
+	case "literal":
+		return &LiteralValue{}, true
+	case "ref":
+		return &RefValue{}, true
+	default:
+		return nil, false
+	}
+}
+
+// UnmarshalTestArgValue decodes a {"kind","model"} envelope back into the concrete
+// variant selected by its kind. An empty model payload decodes to a nil value.
+func UnmarshalTestArgValue(data []byte) (TestArgValue, error) {
+	var env TestArgValueEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	if len(env.Model) == 0 {
+		return nil, nil
+	}
+	v, ok := newTestArgValueForKind(env.Kind)
+	if !ok {
+		return nil, fmt.Errorf("unknown kind %q for TestArgValue", env.Kind)
+	}
+	if err := json.Unmarshal(env.Model, v); err != nil {
+		return nil, fmt.Errorf("unmarshal TestArgValue %q: %w", env.Kind, err)
+	}
+	return v, nil
+}
+
+type TestArgValueKind string
+
+const (
+	TestArgLiteral TestArgValueKind = "literal"
+	TestArgRef     TestArgValueKind = "ref"
+)
 
 type TestExpect struct {
 	Result        string `json:"result"`
@@ -995,9 +1231,15 @@ type TestExpect struct {
 }
 
 type TestPlanRecord struct {
-	Component  string            `json:"component"`
-	Bindings   []ScenarioBinding `json:"bindings"`
-	AuthoredAt *time.Time        `json:"authoredAt,omitempty"`
+	Component  string                   `json:"component"`
+	Principals map[string]TestPrincipal `json:"principals"`
+	Bindings   []ScenarioBinding        `json:"bindings"`
+	AuthoredAt *time.Time               `json:"authoredAt,omitempty"`
+}
+
+type TestPrincipal struct {
+	Subject string   `json:"subject"`
+	Roles   []string `json:"roles"`
 }
 
 type TestingVariant int
@@ -1031,10 +1273,464 @@ type TrustSummaries struct {
 	DataOwnership string `json:"dataOwnership"`
 }
 
+type UIAbsent struct {
+	Target UITarget `json:"target"`
+}
+
+// UIAction is the generated sealed sum interface for this contract.
+//
+//sumtype:decl
+type UIAction interface {
+	Kind() UIActionKind
+	isUIAction() // unexported marker: seals the sum to this package's variants
+}
+
+func (*UINavigate) isUIAction()        {}
+func (*UINavigate) Kind() UIActionKind { return UIActionNavigate }
+
+func (*UIClick) isUIAction()        {}
+func (*UIClick) Kind() UIActionKind { return UIActionClick }
+
+func (*UIDblclick) isUIAction()        {}
+func (*UIDblclick) Kind() UIActionKind { return UIActionDblclick }
+
+func (*UIFill) isUIAction()        {}
+func (*UIFill) Kind() UIActionKind { return UIActionFill }
+
+func (*UIPress) isUIAction()        {}
+func (*UIPress) Kind() UIActionKind { return UIActionPress }
+
+func (*UICheck) isUIAction()        {}
+func (*UICheck) Kind() UIActionKind { return UIActionCheck }
+
+func (*UIUncheck) isUIAction()        {}
+func (*UIUncheck) Kind() UIActionKind { return UIActionUncheck }
+
+func (*UIHover) isUIAction()        {}
+func (*UIHover) Kind() UIActionKind { return UIActionHover }
+
+func (*UISelect) isUIAction()        {}
+func (*UISelect) Kind() UIActionKind { return UIActionSelect }
+
+// UIActionEnvelope is the wire form of a UIAction: the string kind discriminator + the
+// concrete variant's own JSON under "model".
+type UIActionEnvelope struct {
+	Kind  string          `json:"kind"`
+	Model json.RawMessage `json:"model,omitempty"`
+}
+
+// kindStringUIAction maps a variant's discriminator value to its wire kind string.
+func kindStringUIAction(k UIActionKind) (string, bool) {
+	switch k {
+	case UIActionNavigate:
+		return "navigate", true
+	case UIActionClick:
+		return "click", true
+	case UIActionDblclick:
+		return "dblclick", true
+	case UIActionFill:
+		return "fill", true
+	case UIActionPress:
+		return "press", true
+	case UIActionCheck:
+		return "check", true
+	case UIActionUncheck:
+		return "uncheck", true
+	case UIActionHover:
+		return "hover", true
+	case UIActionSelect:
+		return "select", true
+	default:
+		return "", false
+	}
+}
+
+// MarshalUIAction encodes a UIAction to its {"kind","model"} envelope, byte-identical to
+// the hand-written wire form. A nil value encodes as the zero envelope.
+func MarshalUIAction(v UIAction) ([]byte, error) {
+	if v == nil {
+		return json.Marshal(UIActionEnvelope{})
+	}
+	kind, ok := kindStringUIAction(v.Kind())
+	if !ok {
+		return nil, fmt.Errorf("marshal UIAction: no wire kind for %v", v.Kind())
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal UIAction %v: %w", v.Kind(), err)
+	}
+	return json.Marshal(UIActionEnvelope{Kind: kind, Model: raw})
+}
+
+// newUIActionForKind returns a freshly-allocated zero-value concrete variant for
+// the wire kind string, suitable for json.Unmarshal, or (nil,false) if unknown.
+func newUIActionForKind(kind string) (UIAction, bool) {
+	switch kind {
+	case "navigate":
+		return &UINavigate{}, true
+	case "click":
+		return &UIClick{}, true
+	case "dblclick":
+		return &UIDblclick{}, true
+	case "fill":
+		return &UIFill{}, true
+	case "press":
+		return &UIPress{}, true
+	case "check":
+		return &UICheck{}, true
+	case "uncheck":
+		return &UIUncheck{}, true
+	case "hover":
+		return &UIHover{}, true
+	case "select":
+		return &UISelect{}, true
+	default:
+		return nil, false
+	}
+}
+
+// UnmarshalUIAction decodes a {"kind","model"} envelope back into the concrete
+// variant selected by its kind. An empty model payload decodes to a nil value.
+func UnmarshalUIAction(data []byte) (UIAction, error) {
+	var env UIActionEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	if len(env.Model) == 0 {
+		return nil, nil
+	}
+	v, ok := newUIActionForKind(env.Kind)
+	if !ok {
+		return nil, fmt.Errorf("unknown kind %q for UIAction", env.Kind)
+	}
+	if err := json.Unmarshal(env.Model, v); err != nil {
+		return nil, fmt.Errorf("unmarshal UIAction %q: %w", env.Kind, err)
+	}
+	return v, nil
+}
+
+type UIActionKind string
+
+const (
+	UIActionNavigate UIActionKind = "navigate"
+	UIActionClick    UIActionKind = "click"
+	UIActionDblclick UIActionKind = "dblclick"
+	UIActionFill     UIActionKind = "fill"
+	UIActionPress    UIActionKind = "press"
+	UIActionCheck    UIActionKind = "check"
+	UIActionUncheck  UIActionKind = "uncheck"
+	UIActionHover    UIActionKind = "hover"
+	UIActionSelect   UIActionKind = "select"
+)
+
+type UICheck struct {
+	Target UITarget `json:"target"`
+}
+
+type UIChecked struct {
+	Target UITarget `json:"target"`
+}
+
+type UIClick struct {
+	Target UITarget `json:"target"`
+}
+
+type UICount struct {
+	Target UITarget `json:"target"`
+	N      int      `json:"n"`
+}
+
+type UIDblclick struct {
+	Target UITarget `json:"target"`
+}
+
 type UIDesignRecord struct {
 	Surface    string     `json:"surface"`
+	Screens    []UIScreen `json:"screens"`
 	Content    string     `json:"content"`
 	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type UIDisabled struct {
+	Target UITarget `json:"target"`
+}
+
+type UIElement struct {
+	ID      string  `json:"id"`
+	Role    UIRole  `json:"role"`
+	Name    string  `json:"name"`
+	Within  *string `json:"within,omitempty"`
+	Repeats bool    `json:"repeats"`
+}
+
+type UIEnabled struct {
+	Target UITarget `json:"target"`
+}
+
+type UIFill struct {
+	Target UITarget `json:"target"`
+	Value  string   `json:"value"`
+}
+
+type UIFocused struct {
+	Target UITarget `json:"target"`
+}
+
+type UIHidden struct {
+	Target UITarget `json:"target"`
+}
+
+type UIHover struct {
+	Target UITarget `json:"target"`
+}
+
+type UINavigate struct {
+	Route string `json:"route"`
+}
+
+// UIObservable is the generated sealed sum interface for this contract.
+//
+//sumtype:decl
+type UIObservable interface {
+	Kind() UIObservableKind
+	isUIObservable() // unexported marker: seals the sum to this package's variants
+}
+
+func (*UIVisible) isUIObservable()        {}
+func (*UIVisible) Kind() UIObservableKind { return UIObservableVisible }
+
+func (*UIHidden) isUIObservable()        {}
+func (*UIHidden) Kind() UIObservableKind { return UIObservableHidden }
+
+func (*UIAbsent) isUIObservable()        {}
+func (*UIAbsent) Kind() UIObservableKind { return UIObservableAbsent }
+
+func (*UIText) isUIObservable()        {}
+func (*UIText) Kind() UIObservableKind { return UIObservableText }
+
+func (*UIValue) isUIObservable()        {}
+func (*UIValue) Kind() UIObservableKind { return UIObservableValue }
+
+func (*UIChecked) isUIObservable()        {}
+func (*UIChecked) Kind() UIObservableKind { return UIObservableChecked }
+
+func (*UIUnchecked) isUIObservable()        {}
+func (*UIUnchecked) Kind() UIObservableKind { return UIObservableUnchecked }
+
+func (*UIEnabled) isUIObservable()        {}
+func (*UIEnabled) Kind() UIObservableKind { return UIObservableEnabled }
+
+func (*UIDisabled) isUIObservable()        {}
+func (*UIDisabled) Kind() UIObservableKind { return UIObservableDisabled }
+
+func (*UIFocused) isUIObservable()        {}
+func (*UIFocused) Kind() UIObservableKind { return UIObservableFocused }
+
+func (*UICount) isUIObservable()        {}
+func (*UICount) Kind() UIObservableKind { return UIObservableCount }
+
+func (*UIURL) isUIObservable()        {}
+func (*UIURL) Kind() UIObservableKind { return UIObservableURL }
+
+// UIObservableEnvelope is the wire form of a UIObservable: the string kind discriminator + the
+// concrete variant's own JSON under "model".
+type UIObservableEnvelope struct {
+	Kind  string          `json:"kind"`
+	Model json.RawMessage `json:"model,omitempty"`
+}
+
+// kindStringUIObservable maps a variant's discriminator value to its wire kind string.
+func kindStringUIObservable(k UIObservableKind) (string, bool) {
+	switch k {
+	case UIObservableVisible:
+		return "visible", true
+	case UIObservableHidden:
+		return "hidden", true
+	case UIObservableAbsent:
+		return "absent", true
+	case UIObservableText:
+		return "text", true
+	case UIObservableValue:
+		return "value", true
+	case UIObservableChecked:
+		return "checked", true
+	case UIObservableUnchecked:
+		return "unchecked", true
+	case UIObservableEnabled:
+		return "enabled", true
+	case UIObservableDisabled:
+		return "disabled", true
+	case UIObservableFocused:
+		return "focused", true
+	case UIObservableCount:
+		return "count", true
+	case UIObservableURL:
+		return "url", true
+	default:
+		return "", false
+	}
+}
+
+// MarshalUIObservable encodes a UIObservable to its {"kind","model"} envelope, byte-identical to
+// the hand-written wire form. A nil value encodes as the zero envelope.
+func MarshalUIObservable(v UIObservable) ([]byte, error) {
+	if v == nil {
+		return json.Marshal(UIObservableEnvelope{})
+	}
+	kind, ok := kindStringUIObservable(v.Kind())
+	if !ok {
+		return nil, fmt.Errorf("marshal UIObservable: no wire kind for %v", v.Kind())
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal UIObservable %v: %w", v.Kind(), err)
+	}
+	return json.Marshal(UIObservableEnvelope{Kind: kind, Model: raw})
+}
+
+// newUIObservableForKind returns a freshly-allocated zero-value concrete variant for
+// the wire kind string, suitable for json.Unmarshal, or (nil,false) if unknown.
+func newUIObservableForKind(kind string) (UIObservable, bool) {
+	switch kind {
+	case "visible":
+		return &UIVisible{}, true
+	case "hidden":
+		return &UIHidden{}, true
+	case "absent":
+		return &UIAbsent{}, true
+	case "text":
+		return &UIText{}, true
+	case "value":
+		return &UIValue{}, true
+	case "checked":
+		return &UIChecked{}, true
+	case "unchecked":
+		return &UIUnchecked{}, true
+	case "enabled":
+		return &UIEnabled{}, true
+	case "disabled":
+		return &UIDisabled{}, true
+	case "focused":
+		return &UIFocused{}, true
+	case "count":
+		return &UICount{}, true
+	case "url":
+		return &UIURL{}, true
+	default:
+		return nil, false
+	}
+}
+
+// UnmarshalUIObservable decodes a {"kind","model"} envelope back into the concrete
+// variant selected by its kind. An empty model payload decodes to a nil value.
+func UnmarshalUIObservable(data []byte) (UIObservable, error) {
+	var env UIObservableEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	if len(env.Model) == 0 {
+		return nil, nil
+	}
+	v, ok := newUIObservableForKind(env.Kind)
+	if !ok {
+		return nil, fmt.Errorf("unknown kind %q for UIObservable", env.Kind)
+	}
+	if err := json.Unmarshal(env.Model, v); err != nil {
+		return nil, fmt.Errorf("unmarshal UIObservable %q: %w", env.Kind, err)
+	}
+	return v, nil
+}
+
+type UIObservableKind string
+
+const (
+	UIObservableVisible   UIObservableKind = "visible"
+	UIObservableHidden    UIObservableKind = "hidden"
+	UIObservableAbsent    UIObservableKind = "absent"
+	UIObservableText      UIObservableKind = "text"
+	UIObservableValue     UIObservableKind = "value"
+	UIObservableChecked   UIObservableKind = "checked"
+	UIObservableUnchecked UIObservableKind = "unchecked"
+	UIObservableEnabled   UIObservableKind = "enabled"
+	UIObservableDisabled  UIObservableKind = "disabled"
+	UIObservableFocused   UIObservableKind = "focused"
+	UIObservableCount     UIObservableKind = "count"
+	UIObservableURL       UIObservableKind = "url"
+)
+
+type UIObservation []UIObservable
+
+type UIPress struct {
+	Target UITarget `json:"target"`
+	Key    string   `json:"key"`
+}
+
+type UIRole string
+
+const (
+	UIRoleButton     UIRole = "button"
+	UIRoleCheckbox   UIRole = "checkbox"
+	UIRoleTextbox    UIRole = "textbox"
+	UIRoleListitem   UIRole = "listitem"
+	UIRoleList       UIRole = "list"
+	UIRoleLink       UIRole = "link"
+	UIRoleHeading    UIRole = "heading"
+	UIRoleStatus     UIRole = "status"
+	UIRoleDialog     UIRole = "dialog"
+	UIRoleNavigation UIRole = "navigation"
+	UIRoleMain       UIRole = "main"
+	UIRoleForm       UIRole = "form"
+	UIRoleOption     UIRole = "option"
+	UIRoleCombobox   UIRole = "combobox"
+	UIRoleSwitch     UIRole = "switch"
+	UIRoleTab        UIRole = "tab"
+	UIRoleTabpanel   UIRole = "tabpanel"
+	UIRoleTable      UIRole = "table"
+	UIRoleRow        UIRole = "row"
+	UIRoleCell       UIRole = "cell"
+	UIRoleImg        UIRole = "img"
+)
+
+type UIScreen struct {
+	ID       string      `json:"id"`
+	Route    string      `json:"route"`
+	Elements []UIElement `json:"elements"`
+}
+
+type UISelect struct {
+	Target UITarget `json:"target"`
+	Option string   `json:"option"`
+}
+
+type UITarget struct {
+	Element string `json:"element"`
+	Nth     *int   `json:"nth,omitempty"`
+}
+
+type UIText struct {
+	Target UITarget `json:"target"`
+	Text   string   `json:"text"`
+}
+
+type UIURL struct {
+	Route string `json:"route"`
+}
+
+type UIUncheck struct {
+	Target UITarget `json:"target"`
+}
+
+type UIUnchecked struct {
+	Target UITarget `json:"target"`
+}
+
+type UIValue struct {
+	Target UITarget `json:"target"`
+	Value  string   `json:"value"`
+}
+
+type UIVisible struct {
+	Target UITarget `json:"target"`
 }
 
 type UXRequirementsRecord struct {

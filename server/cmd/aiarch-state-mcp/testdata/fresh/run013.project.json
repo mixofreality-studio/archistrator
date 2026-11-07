@@ -5886,5 +5886,72 @@
   "reviewPolicy": {
     "preset": "vibes"
   },
+  "ruleWaivers": [
+    {
+      "rule": "CC-DECIDED-BY-ACTOR-STEP",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "SCN-ACTOR-PATH-CLIENT",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "SCN-UNADDRESSED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-ACTOR-OBSERVED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-CLIENT-CONTRACTED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-DISCRIMINATE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-EXPECT-REQUIRED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-PRINCIPAL",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-PROBE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-STATE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-OUTCOME-AT-ASKING-SURFACE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-PATH-OUTCOME",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-START-NOT-ACTION",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    }
+  ],
   "updatedAt": "2026-11-04T14:43:29.635172Z"
 }

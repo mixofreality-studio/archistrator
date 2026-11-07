@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // TestMethodDesignArtifacts runs the platform methodcheck gate over archistrator's
@@ -59,7 +61,28 @@ func TestMethodDesignArtifacts(t *testing.T) {
 		// (projectstate, review); layer-scoped compKey keeps same-named leaves in
 		// different layers distinct. framework-go v0.4.1.
 		NameNormalizer: methodcheck.StereotypeSuffixNormalizer,
+		// Ruling 8: the rules binding model v2 added are Errors for a new project and Warnings
+		// here, under the project's own dated ruleWaivers (the same policy every state-tool
+		// enforcement point applies). Warnings are logged and the waiver's expiry is the
+		// deadline: once it passes, the rule is an Error again.
+		FindingPolicy: ownRuleWaivers(t, root),
 	})
+}
+
+// ownRuleWaivers is the project's ruleWaivers as a methodcheck finding policy.
+func ownRuleWaivers(t *testing.T, root string) func([]methodcheck.Finding) []methodcheck.Finding {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(root, ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj, ok, err := projectstate.DecodeProjectJSON(raw, "")
+	if err != nil || !ok {
+		t.Fatalf("decode the project: ok=%v err=%v", ok, err)
+	}
+	return func(findings []methodcheck.Finding) []methodcheck.Finding {
+		return projectstate.ApplyRuleWaivers(proj.RuleWaivers, time.Now().UTC(), findings)
+	}
 }
 
 // findRepoRoot ascends from the current working directory until it finds a

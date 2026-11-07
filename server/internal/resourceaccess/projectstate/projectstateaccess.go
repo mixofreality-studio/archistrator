@@ -32,6 +32,7 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"encoding/json"
+	_ "embed" // uidialect.defs.json
 	"errors"
 	"fmt"
 	"log/slog"
@@ -2007,6 +2008,8 @@ type projectDoc struct {
 	// human approval. Omitted when empty so existing project.json documents decode as
 	// the zero value (inert — no phases gated).
 	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
+	// RuleWaivers: see Project.RuleWaivers. Omitted when the project waives nothing.
+	RuleWaivers []RuleWaiver `json:"ruleWaivers,omitempty"`
 	// ModuleDir is the repo-relative directory holding the project's Go module
 	// (server/go.mod). Empty means the repo root, the scaffold default.
 	ModuleDir string `json:"moduleDir,omitempty"`
@@ -2088,6 +2091,7 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		OperatorPaused:       doc.OperatorPaused,
 		PauseReason:          doc.PauseReason,
 		ReviewPolicy:         doc.ReviewPolicy,
+		RuleWaivers:          doc.RuleWaivers,
 		ModuleDir:            doc.ModuleDir,
 		UpdatedAt:            doc.UpdatedAt,
 	}
@@ -2310,6 +2314,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		OperatorPaused:       p.OperatorPaused,
 		PauseReason:          p.PauseReason,
 		ReviewPolicy:         p.ReviewPolicy,
+		RuleWaivers:          p.RuleWaivers,
 		ModuleDir:            p.ModuleDir,
 		UpdatedAt:            updatedAt,
 	}
@@ -4259,6 +4264,7 @@ type ProjectEnvelope struct {
 	LegacyActivityConstruction map[string]LegacyActivityConstructionRow `json:"activityConstruction,omitempty"`
 	ServiceContracts           map[string]ServiceContract               `json:"serviceContracts,omitempty"`
 	ReviewPolicy               *ReviewPolicy                            `json:"reviewPolicy,omitempty"`
+	RuleWaivers                []RuleWaiver                             `json:"ruleWaivers,omitempty"`
 	// TestingState is the fourth construction-fidelity section (deterministic component
 	// testing, §6.5): the venue's recorded runs (.testingState.checkRuns) live on the
 	// ACTIVITY BRANCH until finalizeWalk merges it, and the testing gate reads them across
@@ -4310,6 +4316,7 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 		out.PlanBindingDigests = digests
 	}
 	out.ModuleDir = p.ModuleDir
+	out.RuleWaivers = p.RuleWaivers
 	out.OperatorPaused = p.OperatorPaused
 	out.PauseReason = p.PauseReason
 	if len(p.ReviewPolicy.GatedPhasesByType) != 0 || p.ReviewPolicy.Preset != nil {
@@ -4351,6 +4358,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	p.PlanDigests = e.PlanBindingDigests
 	p.UpstreamDefects = e.UpstreamDefects
 	p.ModuleDir = e.ModuleDir
+	p.RuleWaivers = e.RuleWaivers
 	p.OperatorPaused = e.OperatorPaused
 	p.PauseReason = e.PauseReason
 	if e.ReviewPolicy != nil {
@@ -6429,6 +6437,10 @@ type Project struct {
 	// phase) pairs require human approval during construction. The zero value gates
 	// nothing — the construction loop behaves as before this feature was introduced.
 	ReviewPolicy ReviewPolicy `json:"reviewPolicy"`
+	// RuleWaivers are the project's conscious, dated exceptions to named methodcheck rules
+	// (ruling 8): a waived rule's Errors are Warnings until its waiver expires. Empty for a
+	// project that waives nothing, which is every new project.
+	RuleWaivers []RuleWaiver `json:"ruleWaivers,omitempty"`
 	// ModuleDir is the repo-relative directory holding the project's Go module
 	// (server/go.mod). Empty means the repo root, the scaffold default.
 	ModuleDir string `json:"moduleDir,omitempty"`
@@ -12858,9 +12870,14 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 		checks = append(checks, commandCheck("gen-temporal-check", "appgen temporal output is current", appgenArgv(p, "temporal", "-check"), dir, commandCheckTimeoutSec))
 	}
 	if integration {
+		// An agent writes no test code (GC-1, ARCH-TEST-COMPOSE): the scope holds the wiring
+		// (the composition root's seeded hooks.go and what appgen writes) and none of the
+		// generated scenario tests, which the job generates from the reviewed plan.
 		scope.Extra = append(scope.Extra, inModule(p, "cmd/server/hooks.go"))
-		scope.Extra = append(scope.Extra, generatedTestPaths(p, contracts)...)
-		checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec))
+		checks = append(checks,
+			commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec),
+			// TP-DISCRIMINATE: every scenario must fail once its operation is nulled.
+			commandCheck("test-discriminate", "Every scenario fails against a null subject", []string{"make", "test-discriminate"}, dir, scenarioCheckTimeoutSec))
 		if composesServer(p, contracts) {
 			scope.Extra = append(scope.Extra, compositionPaths(p)...)
 			checks = append(checks, compositionChecks(p, dir)...)
@@ -12943,6 +12960,9 @@ func compositionPaths(p *Project) []string {
 		inModule(p, "cmd/server") + generatedFilesGlobSuffix,
 		inModule(p, devstackDir) + generatedFilesGlobSuffix,
 		inModule(p, "internal/client") + generatedFilesGlobSuffix,
+		// internal/scenariocompose is what a generated test builds its subject from, written
+		// by `appgen compose` beside the composition root; gen-compose-check holds it.
+		inModule(p, "internal/scenariocompose") + generatedFilesGlobSuffix,
 		inModule(p, "api/openapi.yaml"),
 	}
 }
@@ -13091,14 +13111,22 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 		paths := append(slices.Clone(surface), packageGlobs(p, goPackagesOf(p, contracts))...)
 		slices.Sort(paths)
 		scope.Components[0].Paths = paths
-		for _, c := range contracts {
-			scope.Extra = append(scope.Extra, "uitests/generated/"+c+"/**")
-		}
-		scope.Extra = append(scope.Extra, "uitests/**")
-		scope.Extra = append(scope.Extra, generatedTestPaths(p, contracts)...)
+		// The UI tests are generated from the typed UI design and the plan, never written
+		// (GC-1): the scope holds the surface's code and the Playwright project's manifests
+		// (uitestsSeats), and none of uitests/generated.
 		checks = append(checks,
 			commandCheck(installUITestsCheck, "The UI tests install", []string{"sh", "-c", "npm ci --ignore-scripts && npx playwright install chromium"}, "uitests", commandCheckTimeoutSec),
 			commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, p.ModuleDir, commandCheckTimeoutSec))
+		for _, c := range contracts {
+			if p.ServiceContracts[c].GoPackage != "" {
+				continue
+			}
+			// The generated surface check: every control the design names is on the page with
+			// the role and accessible name the design gives it.
+			checks = append(checks, commandCheck(surfaceCheckID, "The surface has every designed element",
+				[]string{"npx", "playwright", "test", "-c", "generated/" + c + "/playwright.config.gen.ts", "--grep", "surface"},
+				"uitests", scenarioCheckTimeoutSec))
+		}
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
 			return SpecEditScope{}, nil, err
@@ -13119,60 +13147,8 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 // installUITestsCheck is the check id of the UI tests' install.
 const installUITestsCheck = "install-uitests"
 
-// generatedTestsUITestsDir is where testgen writes the web clients' Playwright output,
-// repo-relative: the scaffold Makefile passes `-uitests uitests/generated` from the repo
-// root, and archistrator's server/Makefile.scenarios.mk takes testgen's default
-// (../uitests/generated from server/), which is the same directory.
-const generatedTestsUITestsDir = "uitests/generated"
-
-// generatedTestStereotypes is testgen's layer → file-stereotype map (testgen.stereotypeOf,
-// framework-go-app-generator/testgen/testgen.go): a Go-hosted contract's tests land in
-// <goPackage>/<stereotype>_scenarios.gen_test.go beside its once-seeded
-// <goPackage>/<stereotype>_hooks_test.go. An unknown layer names its files after its own
-// lowercased key, as testgen does. TestIntegrationScopeAdmitsEveryGeneratedTestPath runs
-// the real testgen over this repo's plans and fails if this layout drifts from it.
-var generatedTestStereotypes = map[string]string{
-	"manager":        "manager",
-	"engine":         "engine",
-	"resourceaccess": "access",
-	"client":         "client",
-	"utility":        "utility",
-}
-
-// generatedTestPaths is every path the integrating component's `make gen-tests` run may
-// write or seed (R52, R61, spec §5.2 step 5). The integration job's pre-step regenerates
-// EVERY component's tests and gen-tests-check covers them all, so the purely generated
-// outputs are admitted repo-wide: the Playwright directory's `*.gen.*` files and every Go
-// contract's `*_scenarios.gen_test.go`. The once-seeded, hand-filled hooks files are not:
-// only the ones the component's OWN contracts seed are admitted, so another component's
-// hand-written hooks (or a web client's hooks.ts) stay out of scope and a stale one is a
-// loud gate failure rather than an agent edit. Derived from serviceContracts and moduleDir
-// only (not the test plans), so it is the same off the Temporal envelope as off the
-// checkout and the spec hash agrees on both sides.
-func generatedTestPaths(p *Project, contracts []string) []string {
-	out := []string{generatedTestsUITestsDir + generatedFilesGlobSuffix}
-	for id, sc := range p.ServiceContracts {
-		if sc.GoPackage == "" {
-			continue
-		}
-		layer := sc.Layer
-		if layer == "" {
-			layer = sc.Interface.Layer
-		}
-		layer = strings.ToLower(layer)
-		st, ok := generatedTestStereotypes[layer]
-		if !ok {
-			st = layer
-		}
-		dir := inModule(p, sc.GoPackage)
-		out = append(out, path.Join(dir, st+"_scenarios.gen_test.go"))
-		if slices.Contains(contracts, id) {
-			out = append(out, path.Join(dir, st+"_hooks_test.go"))
-		}
-	}
-	slices.Sort(out)
-	return slices.Compact(out)
-}
+// surfaceCheckID is the check id of the generated surface check.
+const surfaceCheckID = "surface-check"
 
 // scenarioChecks is one check per scenario projected onto each contract.
 func scenarioChecks(p *Project, contracts []string) ([]SpecCheck, error) {
@@ -13212,36 +13188,17 @@ func IsClientComponent(p *Project, componentID string) bool {
 	return c != nil && c.Kind == CompClient
 }
 
-// browserContractDefs is the web dialect every browser operation speaks (the-method-testing §1):
-// one browser action in, what the step observes out. A step states what a user does and sees:
-// check/uncheck a box, double-click, hover, press a key on an element, not just click and fill.
-// The kind enum is closed and each observable states exactly one thing, so a contract carrying
-// another kind is refused at record time (methodcheck's TP rules hold every binding to the same
-// dialect, and testgen fails generation on anything outside it). The kinds are the platform's one
-// list, methodcheck.UIActionKinds / UIObservableKinds, which testgen exports as the kinds it
-// emits; TestBrowserContractDialect holds this schema to them.
-const browserContractDefs = `{
- "UIAction": {"type": "object", "description": "One browser action a scenario step performs on the element carrying data-testid target: click, fill it with value, check or uncheck it, dblclick, hover, or press key value on it; or navigate to the route value (no target).",
-  "properties": {"kind": {"type": "string", "enum": ["check", "click", "dblclick", "fill", "hover", "navigate", "press", "uncheck"]}, "target": {"type": "string"}, "value": {"type": "string"}},
-  "required": ["kind"], "additionalProperties": false,
-  "allOf": [
-   {"if": {"properties": {"kind": {"enum": ["check", "click", "dblclick", "fill", "hover", "press", "uncheck"]}}}, "then": {"required": ["target"]}},
-   {"if": {"properties": {"kind": {"enum": ["navigate", "press"]}}}, "then": {"required": ["value"]}},
-   {"if": {"properties": {"kind": {"enum": ["check", "click", "dblclick", "hover", "uncheck"]}}}, "then": {"not": {"required": ["value"]}}},
-   {"if": {"properties": {"kind": {"const": "navigate"}}}, "then": {"not": {"required": ["target"]}}}
-  ]},
- "UIObservable": {"type": "object", "description": "One observation after the action, stating exactly one thing: the data-testid that is visible, checked or unchecked; the text a data-testid (target) holds; or the URL.",
-  "properties": {"visible": {"type": "string"}, "text": {"type": "string"}, "target": {"type": "string"}, "url": {"type": "string"}, "checked": {"type": "string"}, "unchecked": {"type": "string"}}, "additionalProperties": false,
-  "oneOf": [
-   {"required": ["visible"], "not": {"anyOf": [{"required": ["text"]}, {"required": ["target"]}, {"required": ["url"]}, {"required": ["checked"]}, {"required": ["unchecked"]}]}},
-   {"required": ["text", "target"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["url"]}, {"required": ["checked"]}, {"required": ["unchecked"]}]}},
-   {"required": ["url"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["text"]}, {"required": ["target"]}, {"required": ["checked"]}, {"required": ["unchecked"]}]}},
-   {"required": ["checked"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["text"]}, {"required": ["target"]}, {"required": ["url"]}, {"required": ["unchecked"]}]}},
-   {"required": ["unchecked"], "not": {"anyOf": [{"required": ["visible"]}, {"required": ["text"]}, {"required": ["target"]}, {"required": ["url"]}, {"required": ["checked"]}]}}
-  ]},
- "UIObservation": {"description": "What the step observes: one observable, or several.",
-  "oneOf": [{"$ref": "#/$defs/UIObservable"}, {"type": "array", "items": {"$ref": "#/$defs/UIObservable"}}]}
-}`
+// uiDialectDefs is the web dialect every browser operation speaks (the-method-testing §1), the one
+// $defs document every browser contract carries and projectStateAccess's own $defs repeat:
+// sum-typed UIAction and UIObservable ({"kind","model"} envelopes over a design element target),
+// and a UIObservation of at least one observable. The kinds are the platform's one list,
+// methodcheck.UIActionKinds / UIObservableKinds, which testgen exports as the kinds it emits;
+// TestBrowserContractDialect holds this document to them, and TestDialectDefsAreProjectStateAccessDefs
+// holds projectStateAccess's copy to it. A contract carrying another kind is refused at record time
+// (methodcheck's TP rules hold every binding to the same dialect).
+//
+//go:embed uidialect.defs.json
+var uiDialectDefs []byte
 
 // RecordBrowserContract writes a browser surface's contract from the design, in the same
 // mutation that records its UI design and again on every re-record. Beyond the operation names
@@ -13335,7 +13292,7 @@ func browserContract(key, name string, ops []string) (ServiceContract, error) {
 		"component": key,
 		"layer":     "Client",
 		"title":     key + " contract",
-		"$defs":     json.RawMessage(browserContractDefs),
+		"$defs":     json.RawMessage(uiDialectDefs),
 		"interface": map[string]any{"name": name, "layer": "client", "operations": operations},
 	})
 	if err != nil {
@@ -13552,4 +13509,160 @@ func machineClientContract(p *Project, c *Component, key, manager string, ops []
 	sc.Interface.Name, sc.Interface.Layer = c.Name+strings.TrimSuffix(source.Interface.Name, "Manager"), "client"
 	sc.Deps, sc.Infra = nil, nil
 	return sc, nil
+}
+
+// ---- binding model v2 (FPC plan 2) ----
+
+// BrowserDialectDefs is the $defs document every browser contract carries, as raw JSON.
+func BrowserDialectDefs() json.RawMessage { return json.RawMessage(uiDialectDefs) }
+
+// readVerbs are the Method operation-name prefixes that mark a side-effect-free read.
+var readVerbs = []string{"Get", "Read", "List", "Query", "Observe", "Retrieve", "Fetch"}
+
+// OperationReadOnly classifies a contract operation as one that only observes: every Engine
+// operation (Engines are pure computation), and any other operation whose name begins with a
+// read verb. It is the one classifier behind both the internal tool catalog's readOnlyHint and
+// a recorded contract's readOnly flag, which methodcheck holds a test probe to.
+func OperationReadOnly(layer, operation string) bool {
+	if strings.EqualFold(layer, "engine") {
+		return true
+	}
+	return slices.ContainsFunc(readVerbs, func(v string) bool { return strings.HasPrefix(operation, v) })
+}
+
+// ApplyRuleWaivers downgrades to Warning every Error finding of a rule that a waiver names, for as
+// long as the waiver holds: today is on or before its expires day (YYYY-MM-DD). A waiver with no
+// readable expiry holds for nothing, so a typo fails closed. The downgraded message says why.
+func ApplyRuleWaivers(waivers []RuleWaiver, today time.Time, findings []methodcheck.Finding) []methodcheck.Finding {
+	if len(waivers) == 0 {
+		return findings
+	}
+	day := today.UTC().Format("2006-01-02")
+	held := map[string]RuleWaiver{}
+	for _, w := range waivers {
+		if _, err := time.Parse("2006-01-02", w.Expires); err == nil && day <= w.Expires {
+			held[w.Rule] = w
+		}
+	}
+	out := make([]methodcheck.Finding, len(findings))
+	for i, f := range findings {
+		out[i] = f
+		if w, ok := held[string(f.RuleID)]; ok && f.Severity == methodcheck.SeverityError {
+			out[i].Severity = methodcheck.SeverityWarning
+			out[i].Message += " [downgraded to warning: waived until " + w.Expires + ": " + w.Reason + "]"
+		}
+	}
+	return out
+}
+
+// decodeStrictJSON decodes raw into v refusing any field v does not declare and any trailing data.
+// A custom UnmarshalJSON is not covered by the outer decoder's DisallowUnknownFields, so each one
+// here restates it.
+func decodeStrictJSON(raw []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if dec.More() {
+		return errors.New("unexpected data after the value")
+	}
+	return nil
+}
+
+// decodeSum strictly decodes a {"kind","model"} envelope into the variant factory(kind) names; an
+// unknown kind, an absent model, or a field the variant does not declare is an error.
+func decodeSum[T any](raw []byte, what string, factory func(string) (T, bool)) (T, error) {
+	var zero T
+	var env struct {
+		Kind  string          `json:"kind"`
+		Model json.RawMessage `json:"model"`
+	}
+	if err := decodeStrictJSON(raw, &env); err != nil {
+		return zero, fmt.Errorf("%s: expected a {\"kind\",\"model\"} envelope: %w", what, err)
+	}
+	v, ok := factory(env.Kind)
+	if !ok {
+		return zero, fmt.Errorf("%s: unknown kind %q", what, env.Kind)
+	}
+	if len(env.Model) == 0 {
+		return zero, fmt.Errorf("%s %q: no model", what, env.Kind)
+	}
+	if err := decodeStrictJSON(env.Model, v); err != nil {
+		return zero, fmt.Errorf("%s %q: %w", what, env.Kind, err)
+	}
+	return v, nil
+}
+
+// MarshalJSON writes the argument with its value as a {"kind","model"} envelope.
+func (a TestArg) MarshalJSON() ([]byte, error) {
+	value, err := MarshalTestArgValue(a.Value)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(struct {
+		Name      string          `json:"name"`
+		Value     json.RawMessage `json:"value"`
+		SchemaRef string          `json:"schemaRef"`
+	}{a.Name, value, a.SchemaRef})
+}
+
+// UnmarshalJSON strictly decodes an argument; its value is a literal or a ref, nothing else.
+func (a *TestArg) UnmarshalJSON(raw []byte) error {
+	var aux struct {
+		Name      string          `json:"name"`
+		Value     json.RawMessage `json:"value"`
+		SchemaRef string          `json:"schemaRef"`
+	}
+	if err := decodeStrictJSON(raw, &aux); err != nil {
+		return err
+	}
+	v, err := decodeSum(aux.Value, "input "+strconv.Quote(aux.Name)+" value", newTestArgValueForKind)
+	if err != nil {
+		return err
+	}
+	*a = TestArg{Name: aux.Name, Value: v, SchemaRef: aux.SchemaRef}
+	return nil
+}
+
+// MarshalJSON writes the binding with each arrange call as a {"kind","model"} envelope; an absent
+// arrange is the empty list, as the schema requires it.
+func (b ScenarioBinding) MarshalJSON() ([]byte, error) {
+	arrange := make([]json.RawMessage, 0, len(b.Arrange))
+	for _, c := range b.Arrange {
+		raw, err := MarshalArrangeCall(c)
+		if err != nil {
+			return nil, err
+		}
+		arrange = append(arrange, raw)
+	}
+	return json.Marshal(struct {
+		Scenario string            `json:"scenario"`
+		Arrange  []json.RawMessage `json:"arrange"`
+		Steps    []StepBinding     `json:"steps"`
+		Skip     *SkipReason       `json:"skip,omitempty"`
+	}{b.Scenario, arrange, b.Steps, b.Skip})
+}
+
+// UnmarshalJSON strictly decodes a binding, each arrange call through its envelope.
+func (b *ScenarioBinding) UnmarshalJSON(raw []byte) error {
+	var aux struct {
+		Scenario string            `json:"scenario"`
+		Arrange  []json.RawMessage `json:"arrange"`
+		Steps    []StepBinding     `json:"steps"`
+		Skip     *SkipReason       `json:"skip"`
+	}
+	if err := decodeStrictJSON(raw, &aux); err != nil {
+		return fmt.Errorf("binding %q: %w", aux.Scenario, err)
+	}
+	arrange := make([]ArrangeCall, 0, len(aux.Arrange))
+	for i, r := range aux.Arrange {
+		c, err := decodeSum(r, fmt.Sprintf("binding %q arrange[%d]", aux.Scenario, i), newArrangeCallForKind)
+		if err != nil {
+			return err
+		}
+		arrange = append(arrange, c)
+	}
+	*b = ScenarioBinding{Scenario: aux.Scenario, Arrange: arrange, Steps: aux.Steps, Skip: aux.Skip}
+	return nil
 }

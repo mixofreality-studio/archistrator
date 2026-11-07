@@ -7,12 +7,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -22,28 +25,85 @@ func TestMain(m *testing.M) { scenariohost.Main(m, "mcpClient") }
 func TestScenario_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "add-a-use-case-to-an-in-flight-project-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node capture-uc; guards core-check=[variation], replan-check=[no])
-		out1, err1 := stepAddAUseCaseToAnInFlightProjectP1S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
 		// step 2: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node capture-uc; guards core-check=[variation], replan-check=[no])
-		out2, err2 := stepAddAUseCaseToAnInFlightProjectP1S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for use-case-model-amendment-open
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args2)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 2, pre2_1)
 		// step 3: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node redraft-review; guards core-check=[variation], replan-check=[no])
-		out3, err3 := stepAddAUseCaseToAnInFlightProjectP1S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for use-case-model-recommitted
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args3)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 3, pre3_1)
 		// step 4: DeliveryAcknowledgeStaleBasis → tool deliveryAcknowledgeStaleBasis (node reconcile; guards core-check=[variation], replan-check=[no])
-		out4, err4 := subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 4, out4, err4, `{"errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for stale-artifacts-reconciled
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		args4 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", args4)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 4, pre4_1)
 	})
 }
 
@@ -51,28 +111,85 @@ func TestScenario_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "add-a-use-case-to-an-in-flight-project-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node capture-uc; guards core-check=[variation], replan-check=[yes])
-		out1, err1 := stepAddAUseCaseToAnInFlightProjectP2S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
 		// step 2: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node capture-uc; guards core-check=[variation], replan-check=[yes])
-		out2, err2 := stepAddAUseCaseToAnInFlightProjectP2S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for use-case-model-amendment-open
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args2)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P2", 2, pre2_1)
 		// step 3: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node redraft-review; guards core-check=[variation], replan-check=[yes])
-		out3, err3 := stepAddAUseCaseToAnInFlightProjectP2S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for use-case-model-recommitted
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args3)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P2", 3, pre3_1)
 		// step 4: DeliveryAcknowledgeStaleBasis → tool deliveryAcknowledgeStaleBasis (node reconcile; guards core-check=[variation], replan-check=[yes])
-		out4, err4 := subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 4, out4, err4, `{"errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for stale-artifacts-reconciled
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("add-a-use-case-to-an-in-flight-project-P2 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		args4 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", args4)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P2", 4, pre4_1)
 	})
 }
 
@@ -80,28 +197,85 @@ func TestScenario_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "add-a-use-case-to-an-in-flight-project-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node capture-uc; guards core-check=[core: rare], replan-check=[no])
-		out1, err1 := stepAddAUseCaseToAnInFlightProjectP3S1(t, h, subject, `{"query":{"kind":"designHealth","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "designHealth",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"designHealth\"}}","errorExpected":false}`)
 		// step 2: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node capture-uc; guards core-check=[core: rare], replan-check=[no])
-		out2, err2 := stepAddAUseCaseToAnInFlightProjectP3S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for use-case-model-amendment-open
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args2)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P3", 2, pre2_1)
 		// step 3: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node redraft-review; guards core-check=[core: rare], replan-check=[no])
-		out3, err3 := stepAddAUseCaseToAnInFlightProjectP3S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for use-case-model-recommitted
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P3 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args3)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P3", 3, pre3_1)
 		// step 4: DeliveryAcknowledgeStaleBasis → tool deliveryAcknowledgeStaleBasis (node reconcile; guards core-check=[core: rare], replan-check=[no])
-		out4, err4 := subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 4, out4, err4, `{"errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for stale-artifacts-reconciled
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("add-a-use-case-to-an-in-flight-project-P3 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		args4 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", args4)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P3", 4, pre4_1)
 	})
 }
 
@@ -109,28 +283,85 @@ func TestScenario_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "add-a-use-case-to-an-in-flight-project-P4", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node capture-uc; guards core-check=[core: rare], replan-check=[yes])
-		out1, err1 := stepAddAUseCaseToAnInFlightProjectP4S1(t, h, subject, `{"query":{"kind":"designHealth","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "designHealth",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"designHealth\"}}","errorExpected":false}`)
 		// step 2: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node capture-uc; guards core-check=[core: rare], replan-check=[yes])
-		out2, err2 := stepAddAUseCaseToAnInFlightProjectP4S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for use-case-model-amendment-open
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P4 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (a variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args2)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P4", 2, pre2_1)
 		// step 3: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node redraft-review; guards core-check=[core: rare], replan-check=[yes])
-		out3, err3 := stepAddAUseCaseToAnInFlightProjectP4S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for use-case-model-recommitted
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":4}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 4
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P4 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args3)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":4,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P4", 3, pre3_1)
 		// step 4: DeliveryAcknowledgeStaleBasis → tool deliveryAcknowledgeStaleBasis (node reconcile; guards core-check=[core: rare], replan-check=[yes])
-		out4, err4 := subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 4, out4, err4, `{"errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for stale-artifacts-reconciled
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("add-a-use-case-to-an-in-flight-project-P4 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		args4 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","note":"Reviewed: the audit-export use case adds no component and no call to the committed architecture; unaffected."}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryAcknowledgeStaleBasis", args4)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P4", 4, pre4_1)
 	})
 }
 
@@ -138,13 +369,32 @@ func TestScenario_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
 func TestScenario_ask_a_clarifying_question_during_review_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "ask-a-clarifying-question-during-review-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryAskQuestions → tool deliveryAskQuestions (node write-questions; guards artifact-state=[yes: session branch], answer-ran=[yes])
-		out1, err1 := stepAskAClarifyingQuestionDuringReviewP1S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`)
-		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryActivityView for thread-open-on-session-branch
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre1_1 := held("ask-a-clarifying-question-during-review-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryAskQuestions", args1)
+		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "ask-a-clarifying-question-during-review-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P1", 1, pre1_1)
 	})
 }
 
@@ -152,13 +402,32 @@ func TestScenario_ask_a_clarifying_question_during_review_P1(t *testing.T) {
 func TestScenario_ask_a_clarifying_question_during_review_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryAskQuestions → tool deliveryAskQuestions (node write-questions; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
-		out1, err1 := stepAskAClarifyingQuestionDuringReviewP2S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`)
-		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryActivityView for thread-open-on-session-branch
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre1_1 := held("ask-a-clarifying-question-during-review-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryAskQuestions", args1)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "ask-a-clarifying-question-during-review-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P2", 1, pre1_1)
 	})
 }
 
@@ -166,16 +435,46 @@ func TestScenario_ask_a_clarifying_question_during_review_P2(t *testing.T) {
 func TestScenario_ask_a_clarifying_question_during_review_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "ask-a-clarifying-question-during-review-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryAskQuestions → tool deliveryAskQuestions (node write-questions; guards artifact-state=[no: committed], answer-ran=[yes])
-		out1, err1 := stepAskAClarifyingQuestionDuringReviewP3S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`)
-		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryActivityView for thread-seeded-on-main
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`)
-		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"done\"}}","errorExpected":false}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
 		// probe 1.2: mcpClient.DeliveryQueryProjectView for thread-seeded-on-main
-		pout1_2, perr1_2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout1_2 any
+		var perr1_2 error
+		run1_2 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre1_1 := held("ask-a-clarifying-question-during-review-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"done\"}}","errorExpected":false}`)
+		pre1_2 := held("ask-a-clarifying-question-during-review-P3 probe 1.2 before", 1, run1_2, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryAskQuestions", args1)
+		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"done\"}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P3", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -183,16 +482,46 @@ func TestScenario_ask_a_clarifying_question_during_review_P3(t *testing.T) {
 func TestScenario_ask_a_clarifying_question_during_review_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "ask-a-clarifying-question-during-review-P4", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryAskQuestions → tool deliveryAskQuestions (node write-questions; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
-		out1, err1 := stepAskAClarifyingQuestionDuringReviewP4S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`)
-		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryActivityView for thread-seeded-on-main
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`)
-		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"done\"}}","errorExpected":false}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
 		// probe 1.2: mcpClient.DeliveryQueryProjectView for thread-seeded-on-main
-		pout1_2, perr1_2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout1_2 any
+		var perr1_2 error
+		run1_2 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre1_1 := held("ask-a-clarifying-question-during-review-P4 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"done\"}}","errorExpected":false}`)
+		pre1_2 := held("ask-a-clarifying-question-during-review-P4 probe 1.2 before", 1, run1_2, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","addressee":"architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryAskQuestions", args1)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"architecture\",\"state\":\"done\"}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"stage\":1}}}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P4", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -200,19 +529,48 @@ func TestScenario_ask_a_clarifying_question_during_review_P4(t *testing.T) {
 func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "commit-to-a-project-option-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node await-decision; guards decision=[commit], revoke-window=[no])
-		out1, err1 := stepCommitToAProjectOptionP1S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`)
-		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryActivityView for present-sdp-review
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre1_1 := held("commit-to-a-project-option-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args1)
+		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "commit-to-a-project-option-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P1", 1, pre1_1)
 		// step 2: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node review-options; guards decision=[commit], revoke-window=[no])
-		out2, err2 := stepCommitToAProjectOptionP1S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":1,"optionId":"NormalSolution"}}`)
-		expect(t, "commit-to-a-project-option-P1", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for sdp-review-committed
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("commit-to-a-project-option-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 1,
+                          "optionId": "NormalSolution"
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args2)
+		expect(t, "commit-to-a-project-option-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "commit-to-a-project-option-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P1", 2, pre2_1)
 	})
 }
 
@@ -220,25 +578,70 @@ func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
 func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "commit-to-a-project-option-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node await-decision; guards decision=[commit], revoke-window=[yes])
-		out1, err1 := stepCommitToAProjectOptionP2S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`)
-		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryActivityView for present-sdp-review
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre1_1 := held("commit-to-a-project-option-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args1)
+		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "commit-to-a-project-option-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P2", 1, pre1_1)
 		// step 2: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node review-options; guards decision=[commit], revoke-window=[yes])
-		out2, err2 := stepCommitToAProjectOptionP2S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":1,"optionId":"NormalSolution"}}`)
-		expect(t, "commit-to-a-project-option-P2", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for sdp-review-committed
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("commit-to-a-project-option-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 1,
+                          "optionId": "NormalSolution"
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args2)
+		expect(t, "commit-to-a-project-option-P2", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "commit-to-a-project-option-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P2", 2, pre2_1)
 		// step 3: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node revoke; guards decision=[commit], revoke-window=[yes])
-		out3, err3 := stepCommitToAProjectOptionP2S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":3}}`)
-		expect(t, "commit-to-a-project-option-P2", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for sdp-review-revoked
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("commit-to-a-project-option-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":1,\"PhaseName\":\"project-design\"}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 3
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args3)
+		expect(t, "commit-to-a-project-option-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "commit-to-a-project-option-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":1,\"PhaseName\":\"project-design\"}}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P2", 3, pre3_1)
 	})
 }
 
@@ -246,19 +649,50 @@ func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
 func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "commit-to-a-project-option-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node await-decision; guards decision=[reject-all + feedback])
-		out1, err1 := stepCommitToAProjectOptionP3S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`)
-		expect(t, "commit-to-a-project-option-P3", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryActivityView for present-sdp-review
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre1_1 := held("commit-to-a-project-option-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args1)
+		expect(t, "commit-to-a-project-option-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "commit-to-a-project-option-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P3", 1, pre1_1)
 		// step 2: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node review-options; guards decision=[reject-all + feedback])
-		out2, err2 := subject.Call(h.Context(t), "deliverySubmitReviewDecision", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":2},"feedback":{"notes":"Reject all options: each overruns the 9-month window; re-plan with a 3-developer cap and the billing integration deferred.","comments":null}}`)
-		expect(t, "commit-to-a-project-option-P3", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for sdp-review-rejected
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("commit-to-a-project-option-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":1,\"PhaseName\":\"project-design\"}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Reject all options: each overruns the 9-month window; re-plan with a 3-developer cap and the billing integration deferred.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args2)
+		expect(t, "commit-to-a-project-option-P3", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "commit-to-a-project-option-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":1,\"PhaseName\":\"project-design\"}}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P3", 2, pre2_1)
 	})
 }
 
@@ -266,9 +700,16 @@ func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
 func TestScenario_download_generated_source_code_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "download-generated-source-code-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node open-repo; guards fetch-how=[clone or pull])
-		out1, err1 := stepDownloadGeneratedSourceCodeP1S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "download-generated-source-code-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"constructionStarted\":true}}}","errorExpected":false}`)
 	})
 }
@@ -277,9 +718,16 @@ func TestScenario_download_generated_source_code_P1(t *testing.T) {
 func TestScenario_download_generated_source_code_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "download-generated-source-code-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node open-repo; guards fetch-how=[archive])
-		out1, err1 := stepDownloadGeneratedSourceCodeP2S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "download-generated-source-code-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"constructionStarted\":true}}}","errorExpected":false}`)
 	})
 }
@@ -288,16 +736,31 @@ func TestScenario_download_generated_source_code_P2(t *testing.T) {
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryExecuteNextActivity → tool deliveryExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=yes)
-		out1, err1 := stepExecuteAProjectActivityP1S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P1-tick-0001"}`)
+		var out1 any
+		var err1 error
+		args1 := `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P1-tick-0001"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryExecuteNextActivity", args1)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"result\":{\"dispatched\":true,\"activityIds\":[\"C-review-engine\"]}}","errorExpected":false}`)
 		// step 2: DeliveryQueryActivityView → tool deliveryQueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=yes)
-		out2, err2 := stepExecuteAProjectActivityP1S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
-		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for activity-exit-recorded
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("execute-a-project-activity-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryActivityView", args2)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P1", 2, pre2_1)
 	})
 }
 
@@ -305,22 +768,52 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryExecuteNextActivity → tool deliveryExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		out1, err1 := stepExecuteAProjectActivityP2S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P2-tick-0001"}`)
+		var out1 any
+		var err1 error
+		args1 := `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P2-tick-0001"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryExecuteNextActivity", args1)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"result\":{\"dispatched\":true,\"activityIds\":[\"C-review-engine\"]}}","errorExpected":false}`)
 		// step 2: DeliveryQueryActivityView → tool deliveryQueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		out2, err2 := stepExecuteAProjectActivityP2S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
-		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for escalate-operator
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("execute-a-project-activity-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryActivityView", args2)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P2", 2, pre2_1)
 		// step 3: DeliveryOverrideActivity → tool deliveryOverrideActivity (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		out3, err3 := stepExecuteAProjectActivityP2S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{"kind":2,"notes":"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.","comments":null}}`)
-		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryActivityView for activity-exit-recorded
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre3_1 := held("execute-a-project-activity-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.",
+                          "comments": null
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliveryOverrideActivity", args3)
+		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "execute-a-project-activity-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P2", 3, pre3_1)
 	})
 }
 
@@ -328,16 +821,31 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryExecuteNextActivity → tool deliveryExecuteNextActivity (node pump-fires; guards task-kind=review, requires-human=agents only, verdict=approve)
-		out1, err1 := stepExecuteAProjectActivityP3S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P3-tick-0001"}`)
+		var out1 any
+		var err1 error
+		args1 := `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P3-tick-0001"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryExecuteNextActivity", args1)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"result\":{\"dispatched\":true,\"activityIds\":[\"C-review-engine\"]}}","errorExpected":false}`)
 		// step 2: DeliveryQueryActivityView → tool deliveryQueryActivityView (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=approve)
-		out2, err2 := stepExecuteAProjectActivityP3S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
-		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for activity-exit-recorded
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("execute-a-project-activity-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryActivityView", args2)
+		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P3", 2, pre2_1)
 	})
 }
 
@@ -345,22 +853,50 @@ func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P4", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryExecuteNextActivity → tool deliveryExecuteNextActivity (node pump-fires; guards task-kind=review, requires-human=human required, verdict=approve)
-		out1, err1 := stepExecuteAProjectActivityP4S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P4-tick-0001"}`)
+		var out1 any
+		var err1 error
+		args1 := `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P4-tick-0001"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryExecuteNextActivity", args1)
 		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"result\":{\"dispatched\":true,\"activityIds\":[\"C-review-engine\"]}}","errorExpected":false}`)
 		// step 2: DeliveryQueryActivityView → tool deliveryQueryActivityView (node activity-eligible; guards task-kind=review, requires-human=human required, verdict=approve)
-		out2, err2 := stepExecuteAProjectActivityP4S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
-		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for requires-human
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("execute-a-project-activity-P4 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryActivityView", args2)
+		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P4", 2, pre2_1)
 		// step 3: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node human-decision; guards task-kind=review, requires-human=human required, verdict=approve)
-		out3, err3 := stepExecuteAProjectActivityP4S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","taskID":"codeReview","decision":{"decision":1}}`)
-		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryActivityView for activity-exit-recorded
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre3_1 := held("execute-a-project-activity-P4 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","taskID":"codeReview","decision":{
+                          "decision": 1
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args3)
+		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "execute-a-project-activity-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P4", 3, pre3_1)
 	})
 }
 
@@ -368,16 +904,31 @@ func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P5", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryExecuteNextActivity → tool deliveryExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		out1, err1 := stepExecuteAProjectActivityP5S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P5-tick-0001"}`)
+		var out1 any
+		var err1 error
+		args1 := `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P5-tick-0001"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryExecuteNextActivity", args1)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"result\":{\"dispatched\":true,\"activityIds\":[\"C-review-engine\"]}}","errorExpected":false}`)
 		// step 2: DeliveryQueryActivityView → tool deliveryQueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		out2, err2 := stepExecuteAProjectActivityP5S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
-		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for activity-exit-recorded
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("execute-a-project-activity-P5 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryActivityView", args2)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P5 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P5", 2, pre2_1)
 	})
 }
 
@@ -385,28 +936,73 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P6", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryExecuteNextActivity → tool deliveryExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		out1, err1 := stepExecuteAProjectActivityP6S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P6-tick-0001"}`)
+		var out1 any
+		var err1 error
+		args1 := `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P6-tick-0001"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryExecuteNextActivity", args1)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"result\":{\"dispatched\":true,\"activityIds\":[\"C-review-engine\"]}}","errorExpected":false}`)
 		// step 2: DeliveryQueryActivityView → tool deliveryQueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		out2, err2 := stepExecuteAProjectActivityP6S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
-		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for escalate-operator
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("execute-a-project-activity-P6 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryActivityView", args2)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P6 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P6", 2, pre2_1)
 		// step 3: DeliveryOverrideActivity → tool deliveryOverrideActivity (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		out3, err3 := stepExecuteAProjectActivityP6S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{"kind":2,"notes":"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.","comments":null}}`)
-		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryActivityView for escalate-operator
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre3_1 := held("execute-a-project-activity-P6 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.",
+                          "comments": null
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliveryOverrideActivity", args3)
+		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "execute-a-project-activity-P6 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P6", 3, pre3_1)
 		// step 4: DeliveryOverrideActivity → tool deliveryOverrideActivity (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		out4, err4 := stepExecuteAProjectActivityP6S4(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{"kind":2,"notes":"Retry again: pin the integration test's Temporal namespace; the earlier failure was a namespace collision.","comments":null}}`)
-		expect(t, "execute-a-project-activity-P6", 4, out4, err4, `{"errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryActivityView for activity-exit-recorded
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre4_1 := held("execute-a-project-activity-P6 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		args4 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Retry again: pin the integration test's Temporal namespace; the earlier failure was a namespace collision.",
+                          "comments": null
+                        }}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryOverrideActivity", args4)
+		expect(t, "execute-a-project-activity-P6", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "execute-a-project-activity-P6 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P6", 4, pre4_1)
 	})
 }
 
@@ -414,16 +1010,31 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P7", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryExecuteNextActivity → tool deliveryExecuteNextActivity (node pump-fires; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		out1, err1 := stepExecuteAProjectActivityP7S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P7-tick-0001"}`)
+		var out1 any
+		var err1 error
+		args1 := `{"projectID":"dct-owner/dct-mcp","tickID":"dct-mcp-exec-P7-tick-0001"}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryExecuteNextActivity", args1)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"result\":{\"dispatched\":true,\"activityIds\":[\"C-review-engine\"]}}","errorExpected":false}`)
 		// step 2: DeliveryQueryActivityView → tool deliveryQueryActivityView (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		out2, err2 := stepExecuteAProjectActivityP7S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
-		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for activity-exit-recorded
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("execute-a-project-activity-P7 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryActivityView", args2)
+		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"type\":\"service\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P7 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"done\"}}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P7", 2, pre2_1)
 	})
 }
 
@@ -431,28 +1042,86 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 func TestScenario_manage_projects_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "manage-projects-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryStartProject → tool deliveryStartProject (node prepare-repo; guards operating-model=[no: self-operated])
-		out1, err1 := stepManageProjectsP1S1(t, h, subject, `{"owner":"dct-mcp-owner-p1","name":"dct-gtd-app","model":"selfOperated","start":false}`)
+		var out1 any
+		var err1 error
+		args1 := `{"owner":"dct-mcp-owner-p1","name":"dct-gtd-app","model":"selfOperated","start":false}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryStartProject", args1)
 		expect(t, "manage-projects-P1", 1, out1, err1, `{"result":"{\"result\":{\"projectId\":\"dct-gtd-app\"}}","errorExpected":false}`)
 		// step 2: DeliveryQueryProjectView → tool deliveryQueryProjectView (node catalog-open; guards operating-model=[no: self-operated])
-		out2, err2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`)
-		expect(t, "manage-projects-P1", 2, out2, err2, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for obj-project-head-state-created
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"projects","owner":"dct-mcp-owner-p1"}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "projects",
+                              "owner": "dct-mcp-owner-p1"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("manage-projects-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\"}]}}","errorExpected":false}`)
+		args2 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-gtd-app"
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryProjectView", args2)
+		expect(t, "manage-projects-P1", 2, out2, err2, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "manage-projects-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p1\"}]}}","errorExpected":false}`)
+		differential(t, "manage-projects-P1", 2, pre2_1)
 		// step 3: DeliverySetProjectExecutionPolicy → tool deliverySetProjectExecutionPolicy (node set-review-policy; guards operating-model=[no: self-operated])
-		out3, err3 := subject.Call(h.Context(t), "deliverySetProjectExecutionPolicy", `{"projectID":"dct-gtd-app","policy":{"preset":"checkpoints"}}`)
-		expect(t, "manage-projects-P1", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for obj-review-policy-set
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("manage-projects-P1 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"checkpoints\"}}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-gtd-app","policy":{
+                          "preset": "checkpoints"
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySetProjectExecutionPolicy", args3)
+		expect(t, "manage-projects-P1", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "manage-projects-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"checkpoints\"}}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P1", 3, pre3_1)
 		// step 4: DeliveryStartProject → tool deliveryStartProject (node capture-research; guards operating-model=[no: self-operated])
-		out4, err4 := subject.Call(h.Context(t), "deliveryStartProject", `{"owner":"dct-mcp-owner-p1","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{"sources":[{"title":"GTD method notes","content":"Capture, clarify, organize, reflect, engage. Weekly review is mandatory."}]},"start":true}`)
-		expect(t, "manage-projects-P1", 4, out4, err4, `{"result":"{\"result\":{\"projectId\":\"dct-gtd-app\"}}","errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for obj-research-input-captured
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("manage-projects-P1 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}","errorExpected":false}`)
+		args4 := `{"owner":"dct-mcp-owner-p1","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{
+                          "sources": [
+                            {
+                              "title": "GTD method notes",
+                              "content": "Capture, clarify, organize, reflect, engage. Weekly review is mandatory."
+                            }
+                          ]
+                        },"start":true}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryStartProject", args4)
+		expect(t, "manage-projects-P1", 4, out4, err4, `{"result":"{\"result\":{\"projectId\":\"dct-gtd-app\"}}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "manage-projects-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P1", 4, pre4_1)
 	})
 }
 
@@ -460,31 +1129,99 @@ func TestScenario_manage_projects_P1(t *testing.T) {
 func TestScenario_manage_projects_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "manage-projects-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryStartProject → tool deliveryStartProject (node prepare-repo; guards operating-model=[yes])
-		out1, err1 := stepManageProjectsP2S1(t, h, subject, `{"owner":"dct-mcp-owner-p2","name":"dct-gtd-app","model":"archistratorOperated","start":false}`)
+		var out1 any
+		var err1 error
+		args1 := `{"owner":"dct-mcp-owner-p2","name":"dct-gtd-app","model":"archistratorOperated","start":false}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryStartProject", args1)
 		expect(t, "manage-projects-P2", 1, out1, err1, `{"result":"{\"result\":{\"projectId\":\"dct-gtd-app\"}}","errorExpected":false}`)
 		// step 2: DeliveryQueryProjectView → tool deliveryQueryProjectView (node catalog-open; guards operating-model=[yes])
-		out2, err2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`)
-		expect(t, "manage-projects-P2", 2, out2, err2, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for obj-project-head-state-created
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"projects","owner":"dct-mcp-owner-p2"}}`)
-		expect(t, "manage-projects-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\"}]}}","errorExpected":false}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "projects",
+                              "owner": "dct-mcp-owner-p2"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
 		// probe 2.2: mcpClient.DeliveryQueryProjectView for obj-operating-model-operated
-		pout2_2, perr2_2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`)
+		var pout2_2 any
+		var perr2_2 error
+		run2_2 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("manage-projects-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\"}]}}","errorExpected":false}`)
+		pre2_2 := held("manage-projects-P2 probe 2.2 before", 2, run2_2, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"operatingModel\":\"archistratorOperated\"}}}","errorExpected":false}`)
+		args2 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-gtd-app"
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryProjectView", args2)
+		expect(t, "manage-projects-P2", 2, out2, err2, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
+		expect(t, "manage-projects-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-mcp-owner-p2\"}]}}","errorExpected":false}`)
+		pout2_2, perr2_2 = run2_2()
 		expect(t, "manage-projects-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"operatingModel\":\"archistratorOperated\"}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P2", 2, pre2_1, pre2_2)
 		// step 3: DeliverySetProjectExecutionPolicy → tool deliverySetProjectExecutionPolicy (node set-review-policy; guards operating-model=[yes])
-		out3, err3 := subject.Call(h.Context(t), "deliverySetProjectExecutionPolicy", `{"projectID":"dct-gtd-app","policy":{"preset":"full"}}`)
-		expect(t, "manage-projects-P2", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for obj-review-policy-set
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("manage-projects-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"full\"}}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-gtd-app","policy":{
+                          "preset": "full"
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySetProjectExecutionPolicy", args3)
+		expect(t, "manage-projects-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "manage-projects-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"reviewPolicy\":{\"preset\":\"full\"}}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P2", 3, pre3_1)
 		// step 4: DeliveryStartProject → tool deliveryStartProject (node capture-research; guards operating-model=[yes])
-		out4, err4 := subject.Call(h.Context(t), "deliveryStartProject", `{"owner":"dct-mcp-owner-p2","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{"sources":[{"title":"GTD method notes","content":"Capture, clarify, organize, reflect, engage. Weekly review is mandatory."}]},"start":true}`)
-		expect(t, "manage-projects-P2", 4, out4, err4, `{"result":"{\"result\":{\"projectId\":\"dct-gtd-app\"}}","errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for obj-research-input-captured
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("manage-projects-P2 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}","errorExpected":false}`)
+		args4 := `{"owner":"dct-mcp-owner-p2","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{
+                          "sources": [
+                            {
+                              "title": "GTD method notes",
+                              "content": "Capture, clarify, organize, reflect, engage. Weekly review is mandatory."
+                            }
+                          ]
+                        },"start":true}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryStartProject", args4)
+		expect(t, "manage-projects-P2", 4, out4, err4, `{"result":"{\"result\":{\"projectId\":\"dct-gtd-app\"}}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "manage-projects-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P2", 4, pre4_1)
 	})
 }
 
@@ -492,16 +1229,41 @@ func TestScenario_manage_projects_P2(t *testing.T) {
 func TestScenario_pause_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "pause-construction-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-pause)
-		out1, err1 := stepPauseConstructionP1S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","runState":"paused","reason":"Holding construction while the billing vendor contract is renegotiated."}`)
-		expect(t, "pause-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryProjectView for run-state-paused
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
-		expect(t, "pause-construction-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true,\"pauseReason\":\"Holding construction while the billing vendor contract is renegotiated.\"}}}","errorExpected":false}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
 		// probe 1.2: mcpClient.DeliveryQueryProjectView for stop-pump
-		pout1_2, perr1_2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"pump","projectId":"dct-owner/dct-mcp"}}`)
+		var pout1_2 any
+		var perr1_2 error
+		run1_2 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "pump",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre1_1 := held("pause-construction-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true,\"pauseReason\":\"Holding construction while the billing vendor contract is renegotiated.\"}}}","errorExpected":false}`)
+		pre1_2 := held("pause-construction-P1 probe 1.2 before", 1, run1_2, `{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":false}}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","runState":"paused","reason":"Holding construction while the billing vendor contract is renegotiated."}`
+		out1, err1 = subject.Call(h.Context(t), "deliverySetProjectRunState", args1)
+		expect(t, "pause-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "pause-construction-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true,\"pauseReason\":\"Holding construction while the billing vendor contract is renegotiated.\"}}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "pause-construction-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":false}}}","errorExpected":false}`)
+		differential(t, "pause-construction-P1", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -509,16 +1271,41 @@ func TestScenario_pause_construction_P1(t *testing.T) {
 func TestScenario_replan_under_scope_change_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "replan-under-scope-change-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node raise-scope-trigger; guards classify=[yes])
-		out1, err1 := stepReplanUnderScopeChangeP1S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "replan-under-scope-change-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
 		// step 2: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node back-to-design; guards classify=[yes])
-		out2, err2 := stepReplanUnderScopeChangeP1S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","feedback":{"notes":"Architecture change: split billing into metering and invoicing components; this is not a scope change.","comments":null}}`)
-		expect(t, "replan-under-scope-change-P1", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for system-amendment-open
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("replan-under-scope-change-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureDraft","feedback":{
+                          "notes": "Architecture change: split billing into metering and invoicing components; this is not a scope change.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args2)
+		expect(t, "replan-under-scope-change-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "replan-under-scope-change-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5}}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P1", 2, pre2_1)
 	})
 }
 
@@ -526,25 +1313,66 @@ func TestScenario_replan_under_scope_change_P1(t *testing.T) {
 func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "replan-under-scope-change-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node raise-scope-trigger; guards classify=[no: scope change], mgmt=[accept])
-		out1, err1 := stepReplanUnderScopeChangeP2S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
 		// step 2: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node reenter; guards classify=[no: scope change], mgmt=[accept])
-		out2, err2 := stepReplanUnderScopeChangeP2S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","feedback":{"notes":"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.","comments":null}}`)
+		var out2 any
+		var err2 error
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","feedback":{
+                          "notes": "Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args2)
 		expect(t, "replan-under-scope-change-P2", 2, out2, err2, `{"errorExpected":false}`)
 		// step 3: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node present; guards classify=[no: scope change], mgmt=[accept])
-		out3, err3 := stepReplanUnderScopeChangeP2S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`)
-		expect(t, "replan-under-scope-change-P2", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryActivityView for sdp-revision-staged
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre3_1 := held("replan-under-scope-change-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`
+		out3, err3 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args3)
+		expect(t, "replan-under-scope-change-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "replan-under-scope-change-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P2", 3, pre3_1)
 		// step 4: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node mgmt; guards classify=[no: scope change], mgmt=[accept])
-		out4, err4 := subject.Call(h.Context(t), "deliverySubmitReviewDecision", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":1,"optionId":"NormalSolution"}}`)
-		expect(t, "replan-under-scope-change-P2", 4, out4, err4, `{"errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for sdp-revision-adopted
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("replan-under-scope-change-P2 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		args4 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 1,
+                          "optionId": "NormalSolution"
+                        }}`
+		out4, err4 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args4)
+		expect(t, "replan-under-scope-change-P2", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "replan-under-scope-change-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P2", 4, pre4_1)
 	})
 }
 
@@ -552,25 +1380,68 @@ func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "replan-under-scope-change-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node raise-scope-trigger; guards classify=[no: scope change], mgmt=[reject])
-		out1, err1 := stepReplanUnderScopeChangeP3S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
 		// step 2: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node reenter; guards classify=[no: scope change], mgmt=[reject])
-		out2, err2 := stepReplanUnderScopeChangeP3S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","feedback":{"notes":"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.","comments":null}}`)
+		var out2 any
+		var err2 error
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","feedback":{
+                          "notes": "Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args2)
 		expect(t, "replan-under-scope-change-P3", 2, out2, err2, `{"errorExpected":false}`)
 		// step 3: DeliveryDispatchActivityTask → tool deliveryDispatchActivityTask (node present; guards classify=[no: scope change], mgmt=[reject])
-		out3, err3 := stepReplanUnderScopeChangeP3S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`)
-		expect(t, "replan-under-scope-change-P3", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryActivityView for sdp-revision-staged
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre3_1 := held("replan-under-scope-change-P3 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview"}`
+		out3, err3 = subject.Call(h.Context(t), "deliveryDispatchActivityTask", args3)
+		expect(t, "replan-under-scope-change-P3", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "replan-under-scope-change-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P3", 3, pre3_1)
 		// step 4: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node mgmt; guards classify=[no: scope change], mgmt=[reject])
-		out4, err4 := subject.Call(h.Context(t), "deliverySubmitReviewDecision", `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":2},"feedback":{"notes":"Reject the revision: the added cost exceeds the approved ceiling; the current commitment stands.","comments":null}}`)
-		expect(t, "replan-under-scope-change-P3", 4, out4, err4, `{"errorExpected":false}`)
+		var out4 any
+		var err4 error
 		// probe 4.1: mcpClient.DeliveryQueryProjectView for sdp-revision-rejected
-		pout4_1, perr4_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout4_1 any
+		var perr4_1 error
+		run4_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre4_1 := held("replan-under-scope-change-P3 probe 4.1 before", 4, run4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		args4 := `{"projectID":"dct-owner/dct-mcp","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Reject the revision: the added cost exceeds the approved ceiling; the current commitment stands.",
+                          "comments": null
+                        }}`
+		out4, err4 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args4)
+		expect(t, "replan-under-scope-change-P3", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "replan-under-scope-change-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Phase\":2,\"PhaseName\":\"construction\"}}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P3", 4, pre4_1)
 	})
 }
 
@@ -578,19 +1449,57 @@ func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node review-failure)
-		out1, err1 := stepRequeueAFailedConstructionActivityP1S1(t, h, subject, `{"query":{"kind":"episodes","projectId":"dct-owner/dct-mcp","activityId":"C-review-engine"}}`)
-		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"episodes\"}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: deliveryManager.QueryProjectView for read-failed-trace
-		pout1_1, perr1_1 := probeRequeueAFailedConstructionActivityP1S1N1(t, h, subject)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "timeline",
+                              "projectId": "dct-owner/dct-mcp",
+                              "episodeId": "dct-ep-review-engine-0003"
+                            }}`, &in)
+			return scenariocompose.NewDeliveryManager(t, h).QueryProjectView(h.ManagerContext(t), in.Query)
+		}
+		pre1_1 := held("requeue-a-failed-construction-activity-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"outcome\":1}}}","errorExpected":false}`)
+		args1 := `{"query":{
+                          "kind": "episodes",
+                          "projectId": "dct-owner/dct-mcp",
+                          "activityId": "C-review-engine"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
+		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"episodes\"}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "requeue-a-failed-construction-activity-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"outcome\":1}}}","errorExpected":false}`)
+		differential(t, "requeue-a-failed-construction-activity-P1", 1, pre1_1)
 		// step 2: DeliveryOverrideActivity → tool deliveryOverrideActivity (node write-change)
-		out2, err2 := stepRequeueAFailedConstructionActivityP1S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{"kind":2,"notes":"Re-queue: the construction attempt failed because the contract's ReviewSet result changed; regenerate the fake and rerun from the first incomplete phase.","comments":null}}`)
-		expect(t, "requeue-a-failed-construction-activity-P1", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryActivityView for activity-resumed-state
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryActivityView", `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine"}`
+			return subject.Call(h.Context(t), "deliveryQueryActivityView", args)
+		}
+		pre2_1 := held("requeue-a-failed-construction-activity-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"running\"}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Re-queue: the construction attempt failed because the contract's ReviewSet result changed; regenerate the fake and rerun from the first incomplete phase.",
+                          "comments": null
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryOverrideActivity", args2)
+		expect(t, "requeue-a-failed-construction-activity-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "requeue-a-failed-construction-activity-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"activityId\":\"C-review-engine\",\"state\":\"running\"}}","errorExpected":false}`)
+		differential(t, "requeue-a-failed-construction-activity-P1", 2, pre2_1)
 	})
 }
 
@@ -598,19 +1507,50 @@ func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 func TestScenario_resume_paused_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "resume-paused-construction-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards halt-check=[no], pause-settled=[yes])
-		out1, err1 := stepResumePausedConstructionP1S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "resume-paused-construction-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true}}}","errorExpected":false}`)
 		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[yes])
-		out2, err2 := stepResumePausedConstructionP1S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"Vendor contract signed; resume construction."}`)
-		expect(t, "resume-paused-construction-P1", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for run-state-running
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
-		expect(t, "resume-paused-construction-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false}}}","errorExpected":false}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
 		// probe 2.2: mcpClient.DeliveryQueryProjectView for pump-fires
-		pout2_2, perr2_2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"pump","projectId":"dct-owner/dct-mcp"}}`)
+		var pout2_2 any
+		var perr2_2 error
+		run2_2 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "pump",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("resume-paused-construction-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false}}}","errorExpected":false}`)
+		pre2_2 := held("resume-paused-construction-P1 probe 2.2 before", 2, run2_2, `{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"Vendor contract signed; resume construction."}`
+		out2, err2 = subject.Call(h.Context(t), "deliverySetProjectRunState", args2)
+		expect(t, "resume-paused-construction-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
+		expect(t, "resume-paused-construction-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false}}}","errorExpected":false}`)
+		pout2_2, perr2_2 = run2_2()
 		expect(t, "resume-paused-construction-P1 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}","errorExpected":false}`)
+		differential(t, "resume-paused-construction-P1", 2, pre2_1, pre2_2)
 	})
 }
 
@@ -618,15 +1558,34 @@ func TestScenario_resume_paused_construction_P1(t *testing.T) {
 func TestScenario_resume_paused_construction_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "resume-paused-construction-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards halt-check=[no], pause-settled=[no])
-		out1, err1 := stepResumePausedConstructionP2S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "resume-paused-construction-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true}}}","errorExpected":false}`)
 		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[no])
-		out2, err2 := stepResumePausedConstructionP2S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"Vendor contract signed; resume construction."}`)
-		expect(t, "resume-paused-construction-P2", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for run-state-still-paused
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		args2 := `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"Vendor contract signed; resume construction."}`
+		out2, err2 = subject.Call(h.Context(t), "deliverySetProjectRunState", args2)
+		expect(t, "resume-paused-construction-P2", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "resume-paused-construction-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":true}}}","errorExpected":false}`)
 	})
 }
@@ -635,19 +1594,50 @@ func TestScenario_resume_paused_construction_P2(t *testing.T) {
 func TestScenario_resume_paused_construction_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "resume-paused-construction-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node see-paused; guards halt-check=[yes])
-		out1, err1 := stepResumePausedConstructionP3S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"halted\",\"pumpHalt\":{\"activityId\":\"C-review-engine\"}}}}","errorExpected":false}`)
 		// step 2: DeliverySetProjectRunState → tool deliverySetProjectRunState (node choose-resume; guards halt-check=[yes])
-		out2, err2 := stepResumePausedConstructionP3S2(t, h, subject, `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"The project store accepts writes again; resume construction."}`)
-		expect(t, "resume-paused-construction-P3", 2, out2, err2, `{"errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: mcpClient.DeliveryQueryProjectView for release-halt
-		pout2_1, perr2_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
-		expect(t, "resume-paused-construction-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"running\"}}}","errorExpected":false}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
 		// probe 2.2: mcpClient.DeliveryQueryProjectView for pump-fires
-		pout2_2, perr2_2 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"pump","projectId":"dct-owner/dct-mcp"}}`)
+		var pout2_2 any
+		var perr2_2 error
+		run2_2 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "pump",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre2_1 := held("resume-paused-construction-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"running\"}}}","errorExpected":false}`)
+		pre2_2 := held("resume-paused-construction-P3 probe 2.2 before", 2, run2_2, `{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}","errorExpected":false}`)
+		args2 := `{"projectID":"dct-owner/dct-mcp","runState":"running","reason":"The project store accepts writes again; resume construction."}`
+		out2, err2 = subject.Call(h.Context(t), "deliverySetProjectRunState", args2)
+		expect(t, "resume-paused-construction-P3", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
+		expect(t, "resume-paused-construction-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"operatorPaused\":false,\"runState\":\"running\"}}}","errorExpected":false}`)
+		pout2_2, perr2_2 = run2_2()
 		expect(t, "resume-paused-construction-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"result\":{\"kind\":\"pump\",\"pump\":{\"open\":true}}}","errorExpected":false}`)
+		differential(t, "resume-paused-construction-P3", 2, pre2_1, pre2_2)
 	})
 }
 
@@ -655,15 +1645,50 @@ func TestScenario_resume_paused_construction_P3(t *testing.T) {
 func TestScenario_send_back_change_requests_for_a_redraft_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "send-back-change-requests-for-a-redraft-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node anchor-comments; guards resolved=[yes])
-		out1, err1 := stepSendBackChangeRequestsForARedraftP1S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","decision":{"decision":2},"feedback":{"notes":"Change requests before approval.","comments":[{"jsonPath":"$.containers[3].name","text":"Rename to the volatility it encapsulates.","anchorText":"BillingThing","replyTo":""}]}}`)
-		expect(t, "send-back-change-requests-for-a-redraft-P1", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryProjectView for obj-draft-sent-back
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre1_1 := held("send-back-change-requests-for-a-redraft-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Change requests before approval.",
+                          "comments": [
+                            {
+                              "jsonPath": "$.containers[3].name",
+                              "text": "Rename to the volatility it encapsulates.",
+                              "anchorText": "BillingThing",
+                              "replyTo": ""
+                            }
+                          ]
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args1)
+		expect(t, "send-back-change-requests-for-a-redraft-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P1", 1, pre1_1)
 		// step 2: DeliveryQueryProjectView → tool deliveryQueryProjectView (node re-review; guards resolved=[yes])
-		out2, err2 := stepSendBackChangeRequestsForARedraftP1S2(t, h, subject, `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var out2 any
+		var err2 error
+		args2 := `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-mcp",
+                          "artifactKind": 5
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryProjectView", args2)
 		expect(t, "send-back-change-requests-for-a-redraft-P1", 2, out2, err2, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5}}}","errorExpected":false}`)
 	})
 }
@@ -672,24 +1697,93 @@ func TestScenario_send_back_change_requests_for_a_redraft_P1(t *testing.T) {
 func TestScenario_send_back_change_requests_for_a_redraft_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "send-back-change-requests-for-a-redraft-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node anchor-comments; guards resolved=[no: iterate], resolved=[yes])
-		out1, err1 := stepSendBackChangeRequestsForARedraftP2S1(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","decision":{"decision":2},"feedback":{"notes":"Change requests before approval.","comments":[{"jsonPath":"$.containers[3].name","text":"Rename to the volatility it encapsulates.","anchorText":"BillingThing","replyTo":""}]}}`)
-		expect(t, "send-back-change-requests-for-a-redraft-P2", 1, out1, err1, `{"errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryProjectView for obj-draft-sent-back
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre1_1 := held("send-back-change-requests-for-a-redraft-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}}","errorExpected":false}`)
+		args1 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Change requests before approval.",
+                          "comments": [
+                            {
+                              "jsonPath": "$.containers[3].name",
+                              "text": "Rename to the volatility it encapsulates.",
+                              "anchorText": "BillingThing",
+                              "replyTo": ""
+                            }
+                          ]
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args1)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P2", 1, pre1_1)
 		// step 2: DeliveryQueryProjectView → tool deliveryQueryProjectView (node re-review; guards resolved=[no: iterate], resolved=[yes])
-		out2, err2 := stepSendBackChangeRequestsForARedraftP2S2(t, h, subject, `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var out2 any
+		var err2 error
+		args2 := `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-mcp",
+                          "artifactKind": 5
+                        }}`
+		out2, err2 = subject.Call(h.Context(t), "deliveryQueryProjectView", args2)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 2, out2, err2, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5}}}","errorExpected":false}`)
 		// step 3: DeliverySubmitReviewDecision → tool deliverySubmitReviewDecision (node anchor-comments; guards resolved=[no: iterate], resolved=[yes])
-		out3, err3 := stepSendBackChangeRequestsForARedraftP2S3(t, h, subject, `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","decision":{"decision":2},"feedback":{"notes":"Second round: one request is not resolved.","comments":[{"jsonPath":"$.containers[3].responsibilities","text":"The response renamed it but still lists invoicing; move invoicing out.","anchorText":"invoicing","replyTo":""}]}}`)
-		expect(t, "send-back-change-requests-for-a-redraft-P2", 3, out3, err3, `{"errorExpected":false}`)
+		var out3 any
+		var err3 error
 		// probe 3.1: mcpClient.DeliveryQueryProjectView for obj-draft-sent-back
-		pout3_1, perr3_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var pout3_1 any
+		var perr3_1 error
+		run3_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-mcp",
+                              "artifactKind": 5
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre3_1 := held("send-back-change-requests-for-a-redraft-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"anchorText\":\"invoicing\",\"status\":\"open\"}]}}}","errorExpected":false}`)
+		args3 := `{"projectID":"dct-owner/dct-mcp","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Second round: one request is not resolved.",
+                          "comments": [
+                            {
+                              "jsonPath": "$.containers[3].responsibilities",
+                              "text": "The response renamed it but still lists invoicing; move invoicing out.",
+                              "anchorText": "invoicing",
+                              "replyTo": ""
+                            }
+                          ]
+                        }}`
+		out3, err3 = subject.Call(h.Context(t), "deliverySubmitReviewDecision", args3)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"anchorText\":\"invoicing\",\"status\":\"open\"}]}}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P2", 3, pre3_1)
 		// step 4: DeliveryQueryProjectView → tool deliveryQueryProjectView (node re-review; guards resolved=[no: iterate], resolved=[yes])
-		out4, err4 := stepSendBackChangeRequestsForARedraftP2S4(t, h, subject, `{"query":{"kind":"session","projectId":"dct-owner/dct-mcp","artifactKind":5}}`)
+		var out4 any
+		var err4 error
+		args4 := `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-mcp",
+                          "artifactKind": 5
+                        }}`
+		out4, err4 = subject.Call(h.Context(t), "deliveryQueryProjectView", args4)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 4, out4, err4, `{"result":"{\"result\":{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-mcp\",\"artifactKind\":5}}}","errorExpected":false}`)
 	})
 }
@@ -698,9 +1792,16 @@ func TestScenario_send_back_change_requests_for_a_redraft_P2(t *testing.T) {
 func TestScenario_track_weekly_project_progress_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "track-weekly-project-progress-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node week-elapses; guards enough-points=[no], off-track=[yes])
-		out1, err1 := stepTrackWeeklyProjectProgressP1S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "track-weekly-project-progress-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"PhaseName\":\"construction\",\"constructionStarted\":true}}}","errorExpected":false}`)
 	})
 }
@@ -709,9 +1810,16 @@ func TestScenario_track_weekly_project_progress_P1(t *testing.T) {
 func TestScenario_track_weekly_project_progress_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "track-weekly-project-progress-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node week-elapses; guards enough-points=[no], off-track=[no])
-		out1, err1 := stepTrackWeeklyProjectProgressP2S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "track-weekly-project-progress-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"PhaseName\":\"construction\",\"constructionStarted\":true}}}","errorExpected":false}`)
 	})
 }
@@ -720,9 +1828,16 @@ func TestScenario_track_weekly_project_progress_P2(t *testing.T) {
 func TestScenario_track_weekly_project_progress_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "track-weekly-project-progress-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node week-elapses; guards enough-points=[yes], off-track=[yes])
-		out1, err1 := stepTrackWeeklyProjectProgressP3S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "track-weekly-project-progress-P3", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"PhaseName\":\"construction\",\"constructionStarted\":true}}}","errorExpected":false}`)
 	})
 }
@@ -731,9 +1846,16 @@ func TestScenario_track_weekly_project_progress_P3(t *testing.T) {
 func TestScenario_track_weekly_project_progress_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "track-weekly-project-progress-P4", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node week-elapses; guards enough-points=[yes], off-track=[no])
-		out1, err1 := stepTrackWeeklyProjectProgressP4S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var out1 any
+		var err1 error
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
 		expect(t, "track-weekly-project-progress-P4", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"PhaseName\":\"construction\",\"constructionStarted\":true}}}","errorExpected":false}`)
 	})
 }
@@ -742,13 +1864,31 @@ func TestScenario_track_weekly_project_progress_P4(t *testing.T) {
 func TestScenario_view_the_project_state_log_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "view-the-project-state-log-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node open-history; guards inspect=[yes])
-		out1, err1 := stepViewTheProjectStateLogP1S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
-		expect(t, "view-the-project-state-log-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\"}}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryProjectView for project-state-unchanged
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre1_1 := held("view-the-project-state-log-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Version\":7}}}","errorExpected":false}`)
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
+		expect(t, "view-the-project-state-log-P1", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\"}}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-the-project-state-log-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Version\":7}}}","errorExpected":false}`)
+		differential(t, "view-the-project-state-log-P1", 1, pre1_1)
 	})
 }
 
@@ -756,13 +1896,31 @@ func TestScenario_view_the_project_state_log_P1(t *testing.T) {
 func TestScenario_view_the_project_state_log_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "view-the-project-state-log-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClient(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: DeliveryQueryProjectView → tool deliveryQueryProjectView (node open-history; guards inspect=[no])
-		out1, err1 := stepViewTheProjectStateLogP2S1(t, h, subject, `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
-		expect(t, "view-the-project-state-log-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\"}}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: mcpClient.DeliveryQueryProjectView for project-state-unchanged
-		pout1_1, perr1_1 := subject.Call(h.Context(t), "deliveryQueryProjectView", `{"query":{"kind":"summary","projectId":"dct-owner/dct-mcp"}}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			args := `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-mcp"
+                            }}`
+			return subject.Call(h.Context(t), "deliveryQueryProjectView", args)
+		}
+		pre1_1 := held("view-the-project-state-log-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Version\":7}}}","errorExpected":false}`)
+		args1 := `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-mcp"
+                        }}`
+		out1, err1 = subject.Call(h.Context(t), "deliveryQueryProjectView", args1)
+		expect(t, "view-the-project-state-log-P2", 1, out1, err1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\"}}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-the-project-state-log-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"result\":{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-mcp\",\"Version\":7}}}","errorExpected":false}`)
+		differential(t, "view-the-project-state-log-P2", 1, pre1_1)
 	})
 }
 
@@ -772,25 +1930,6 @@ type toolRegistrar interface {
 	Register(srv *mcp.Server)
 }
 
-// permitAll is the Security a newSubject hands the handler. These scenarios prove the transport
-// over the real Manager; the app's own authorization policy is its composition root's hooks.
-type permitAll struct{ security.Security }
-
-// Authorize permits every call.
-func (permitAll) Authorize(context.Context, security.Principal, security.Action, security.ResourceRef) (security.Decision, error) {
-	return security.Decision{Permit: true}, nil
-}
-
-// toolServer is what newSubject builds: the handlers whose tools the
-// scenarios call, and the context the in-process server serves them under
-// (nil: the host's) — the one place a principal the tools read is set. A
-// context with no principal is served as one scenario principal, as the
-// server's auth middleware authenticates every call.
-type toolServer struct {
-	Handlers []toolRegistrar
-	Context  context.Context
-}
-
 // toolSession is every scenario's subject: an MCP client session on the
 // in-process server.
 type toolSession struct {
@@ -798,18 +1937,17 @@ type toolSession struct {
 }
 
 // serveTools registers every handler on a fresh server, connects a client to
-// it over an in-memory transport, and closes both when the test ends.
-func serveTools(t *testing.T, h *scenariohost.Host, srv toolServer) *toolSession {
+// it over an in-memory transport, and closes both when the test ends. The
+// server serves its calls under ctx, the principal the session acts as; a ctx
+// carrying none is served as one scenario principal, as the server's auth
+// middleware authenticates every call.
+func serveTools(ctx context.Context, t *testing.T, h *scenariohost.Host, handlers ...toolRegistrar) *toolSession {
 	t.Helper()
-	ctx := srv.Context
-	if ctx == nil {
-		ctx = h.Context(t)
-	}
 	if _, ok := security.PrincipalFrom(ctx); !ok {
 		ctx = security.WithPrincipal(ctx, security.Principal{Subject: "scenario"})
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "scenario-tools", Version: "testgen"}, nil)
-	for _, r := range srv.Handlers {
+	for _, r := range handlers {
 		r.Register(server)
 	}
 	clientEnd, serverEnd := mcp.NewInMemoryTransports()
@@ -854,34 +1992,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the code as a substring of the error text: a tool

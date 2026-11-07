@@ -6,6 +6,7 @@ package agenticjob_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,9 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "agenticJobAccess") }
 
 // inputAddAUseCaseToAnInFlightProjectP1S1 is step 1's parameters of SubmitAgenticJob, decoded from the binding's inputs.
 type inputAddAUseCaseToAnInFlightProjectP1S1 struct {
@@ -31,26 +32,114 @@ type inputAddAUseCaseToAnInFlightProjectP1S2 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "add-a-use-case-to-an-in-flight-project-P1", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node redraft-review; guards core-check=[variation], replan-check=[no])
-		var in1 inputAddAUseCaseToAnInFlightProjectP1S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P1","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/core-use-cases-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-useCases","DispatchInputs":{"idempotency_token":"stp-aja-auc-P1-1","artifact_kind":"CoreUseCases","command":"core-use-cases-draft","target_branch":"aiarch/session/architecture-useCases","prior_state_ref":"main","job_mode":"draft","activity_id":"requirements","task_id":"coreUseCasesDraft","spec_hash":"16067ec875c0fc685414760ae2dbd072d42d56a7cb90fbb10d582291e75f2800","revision":"requirements:coreUseCasesDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P1"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputAddAUseCaseToAnInFlightProjectP1S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P1",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/core-use-cases-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-useCases",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P1-1",
+                            "artifact_kind": "CoreUseCases",
+                            "command": "core-use-cases-draft",
+                            "target_branch": "aiarch/session/architecture-useCases",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "requirements",
+                            "task_id": "coreUseCasesDraft",
+                            "spec_hash": "16067ec875c0fc685414760ae2dbd072d42d56a7cb90fbb10d582291e75f2800",
+                            "revision": "requirements:coreUseCasesDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P1"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: SubmitAgenticJob (node reconcile; guards core-check=[variation], replan-check=[no])
-		var in2 inputAddAUseCaseToAnInFlightProjectP1S2
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P1","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/system-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-auc-P1-2","artifact_kind":"System","command":"system-draft","target_branch":"aiarch/session/architecture-system","prior_state_ref":"main","job_mode":"draft","activity_id":"architecture","task_id":"architectureDraft","spec_hash":"ac5bd38ae9f1adaa138e37a69c15fcf4b7192c43ad965474d944fd8aacb198bb","revision":"architecture:architectureDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P1"},"WorkflowFile":"aiarch-design.yml"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP1S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeAddAUseCaseToAnInFlightProjectP1S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-auc-P1"}`, &in)
+			return scenariocompose.NewProjectStateAccess(t, h).ReadProject(h.ResourceAccessContext(t, "2.1"), in.ProjectID)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"id\":\"stp-aja-auc-P1\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP1S2
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P1",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/system-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P1-2",
+                            "artifact_kind": "System",
+                            "command": "system-draft",
+                            "target_branch": "aiarch/session/architecture-system",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "architecture",
+                            "task_id": "architectureDraft",
+                            "spec_hash": "ac5bd38ae9f1adaa138e37a69c15fcf4b7192c43ad965474d944fd8aacb198bb",
+                            "revision": "architecture:architectureDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P1"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in2)
+		out2, err2 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "2"), in2.Spec)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aja-auc-P1\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 2, pre2_1)
 	})
 }
 
@@ -68,26 +157,114 @@ type inputAddAUseCaseToAnInFlightProjectP2S2 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "add-a-use-case-to-an-in-flight-project-P2", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node redraft-review; guards core-check=[variation], replan-check=[yes])
-		var in1 inputAddAUseCaseToAnInFlightProjectP2S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P2","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/core-use-cases-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-useCases","DispatchInputs":{"idempotency_token":"stp-aja-auc-P2-1","artifact_kind":"CoreUseCases","command":"core-use-cases-draft","target_branch":"aiarch/session/architecture-useCases","prior_state_ref":"main","job_mode":"draft","activity_id":"requirements","task_id":"coreUseCasesDraft","spec_hash":"def52e893e704eed5610ce883cf8545c5a2e1812acc3497892d792e845eaf067","revision":"requirements:coreUseCasesDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P2"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputAddAUseCaseToAnInFlightProjectP2S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P2",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/core-use-cases-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-useCases",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P2-1",
+                            "artifact_kind": "CoreUseCases",
+                            "command": "core-use-cases-draft",
+                            "target_branch": "aiarch/session/architecture-useCases",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "requirements",
+                            "task_id": "coreUseCasesDraft",
+                            "spec_hash": "def52e893e704eed5610ce883cf8545c5a2e1812acc3497892d792e845eaf067",
+                            "revision": "requirements:coreUseCasesDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P2"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: SubmitAgenticJob (node reconcile; guards core-check=[variation], replan-check=[yes])
-		var in2 inputAddAUseCaseToAnInFlightProjectP2S2
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P2","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/system-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-auc-P2-2","artifact_kind":"System","command":"system-draft","target_branch":"aiarch/session/architecture-system","prior_state_ref":"main","job_mode":"draft","activity_id":"architecture","task_id":"architectureDraft","spec_hash":"e66b0c4b19fe5d29bc919bceb55119e4dbfcce17e95d1a60f4c8c3ea16ef8abd","revision":"architecture:architectureDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P2"},"WorkflowFile":"aiarch-design.yml"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP2S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeAddAUseCaseToAnInFlightProjectP2S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-auc-P2"}`, &in)
+			return scenariocompose.NewProjectStateAccess(t, h).ReadProject(h.ResourceAccessContext(t, "2.1"), in.ProjectID)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"id\":\"stp-aja-auc-P2\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP2S2
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P2",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/system-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P2-2",
+                            "artifact_kind": "System",
+                            "command": "system-draft",
+                            "target_branch": "aiarch/session/architecture-system",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "architecture",
+                            "task_id": "architectureDraft",
+                            "spec_hash": "e66b0c4b19fe5d29bc919bceb55119e4dbfcce17e95d1a60f4c8c3ea16ef8abd",
+                            "revision": "architecture:architectureDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P2"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in2)
+		out2, err2 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "2"), in2.Spec)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aja-auc-P2\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P2", 2, pre2_1)
 	})
 }
 
@@ -105,26 +282,114 @@ type inputAddAUseCaseToAnInFlightProjectP3S2 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "add-a-use-case-to-an-in-flight-project-P3", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node redraft-review; guards core-check=[core: rare], replan-check=[no])
-		var in1 inputAddAUseCaseToAnInFlightProjectP3S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P3","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/core-use-cases-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-useCases","DispatchInputs":{"idempotency_token":"stp-aja-auc-P3-1","artifact_kind":"CoreUseCases","command":"core-use-cases-draft","target_branch":"aiarch/session/architecture-useCases","prior_state_ref":"main","job_mode":"draft","activity_id":"requirements","task_id":"coreUseCasesDraft","spec_hash":"23abcaaa6067a02962d9f86d5b1d66e74027cf6c0aa8fbe29e3bdf77b2791013","revision":"requirements:coreUseCasesDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P3"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputAddAUseCaseToAnInFlightProjectP3S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P3",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/core-use-cases-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-useCases",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P3-1",
+                            "artifact_kind": "CoreUseCases",
+                            "command": "core-use-cases-draft",
+                            "target_branch": "aiarch/session/architecture-useCases",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "requirements",
+                            "task_id": "coreUseCasesDraft",
+                            "spec_hash": "23abcaaa6067a02962d9f86d5b1d66e74027cf6c0aa8fbe29e3bdf77b2791013",
+                            "revision": "requirements:coreUseCasesDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P3"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: SubmitAgenticJob (node reconcile; guards core-check=[core: rare], replan-check=[no])
-		var in2 inputAddAUseCaseToAnInFlightProjectP3S2
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P3","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/system-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-auc-P3-2","artifact_kind":"System","command":"system-draft","target_branch":"aiarch/session/architecture-system","prior_state_ref":"main","job_mode":"draft","activity_id":"architecture","task_id":"architectureDraft","spec_hash":"1db410723132661645abaaad2121f1fb1aa70d21027513e379c1166a94b64f1e","revision":"architecture:architectureDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P3"},"WorkflowFile":"aiarch-design.yml"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP3S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeAddAUseCaseToAnInFlightProjectP3S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-auc-P3"}`, &in)
+			return scenariocompose.NewProjectStateAccess(t, h).ReadProject(h.ResourceAccessContext(t, "2.1"), in.ProjectID)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"id\":\"stp-aja-auc-P3\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP3S2
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P3",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/system-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P3-2",
+                            "artifact_kind": "System",
+                            "command": "system-draft",
+                            "target_branch": "aiarch/session/architecture-system",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "architecture",
+                            "task_id": "architectureDraft",
+                            "spec_hash": "1db410723132661645abaaad2121f1fb1aa70d21027513e379c1166a94b64f1e",
+                            "revision": "architecture:architectureDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P3"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in2)
+		out2, err2 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "2"), in2.Spec)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aja-auc-P3\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P3", 2, pre2_1)
 	})
 }
 
@@ -142,26 +407,114 @@ type inputAddAUseCaseToAnInFlightProjectP4S2 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "add-a-use-case-to-an-in-flight-project-P4", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node redraft-review; guards core-check=[core: rare], replan-check=[yes])
-		var in1 inputAddAUseCaseToAnInFlightProjectP4S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P4","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/core-use-cases-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-useCases","DispatchInputs":{"idempotency_token":"stp-aja-auc-P4-1","artifact_kind":"CoreUseCases","command":"core-use-cases-draft","target_branch":"aiarch/session/architecture-useCases","prior_state_ref":"main","job_mode":"draft","activity_id":"requirements","task_id":"coreUseCasesDraft","spec_hash":"7684a6f7d53b583067a927f9177b8b9f5b1e0422b7c879125a652eb24a4d843f","revision":"requirements:coreUseCasesDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P4"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputAddAUseCaseToAnInFlightProjectP4S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P4",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/core-use-cases-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-useCases",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P4-1",
+                            "artifact_kind": "CoreUseCases",
+                            "command": "core-use-cases-draft",
+                            "target_branch": "aiarch/session/architecture-useCases",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "requirements",
+                            "task_id": "coreUseCasesDraft",
+                            "spec_hash": "7684a6f7d53b583067a927f9177b8b9f5b1e0422b7c879125a652eb24a4d843f",
+                            "revision": "requirements:coreUseCasesDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P4"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: SubmitAgenticJob (node reconcile; guards core-check=[core: rare], replan-check=[yes])
-		var in2 inputAddAUseCaseToAnInFlightProjectP4S2
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-auc-P4","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/system-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-auc-P4-2","artifact_kind":"System","command":"system-draft","target_branch":"aiarch/session/architecture-system","prior_state_ref":"main","job_mode":"draft","activity_id":"architecture","task_id":"architectureDraft","spec_hash":"937773054d878ec929316b01e90a9b0ce94976d9f0fbb1702098d070a58447ac","revision":"architecture:architectureDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-auc-P4"},"WorkflowFile":"aiarch-design.yml"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP4S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: projectStateAccess.ReadProject for stale-artifacts-reconciled
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeAddAUseCaseToAnInFlightProjectP4S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-auc-P4"}`, &in)
+			return scenariocompose.NewProjectStateAccess(t, h).ReadProject(h.ResourceAccessContext(t, "2.1"), in.ProjectID)
+		}
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P4 probe 2.1 before", 2, run2_1, `{"result":"{\"id\":\"stp-aja-auc-P4\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP4S2
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-auc-P4",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/system-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-auc-P4-2",
+                            "artifact_kind": "System",
+                            "command": "system-draft",
+                            "target_branch": "aiarch/session/architecture-system",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "architecture",
+                            "task_id": "architectureDraft",
+                            "spec_hash": "937773054d878ec929316b01e90a9b0ce94976d9f0fbb1702098d070a58447ac",
+                            "revision": "architecture:architectureDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-auc-P4"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in2)
+		out2, err2 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "2"), in2.Spec)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aja-auc-P4\",\"slots\":{\"5\":{\"status\":2}}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P4", 2, pre2_1)
 	})
 }
 
@@ -179,20 +532,56 @@ type inputAskAClarifyingQuestionDuringReviewP1S2 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "ask-a-clarifying-question-during-review-P1", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-answer-job; guards artifact-state=[yes: session branch], answer-ran=[yes])
-		var in1 inputAskAClarifyingQuestionDuringReviewP1S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-acq-P1","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/design-answer"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-acq-P1-1","artifact_kind":"System","command":"design-answer","target_branch":"aiarch/session/architecture-system","prior_state_ref":"aiarch/session/architecture-system","job_mode":"answer"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-acq-P1"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputAskAClarifyingQuestionDuringReviewP1S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-acq-P1",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/design-answer"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-acq-P1-1",
+                            "artifact_kind": "System",
+                            "command": "design-answer",
+                            "target_branch": "aiarch/session/architecture-system",
+                            "prior_state_ref": "aiarch/session/architecture-system",
+                            "job_mode": "answer"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-acq-P1"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node dispatch-answer-job; guards artifact-state=[yes: session branch], answer-ran=[yes])
-		var in2 inputAskAClarifyingQuestionDuringReviewP1S2
-		mustUnmarshal(t, `{"handle":"stp-aja-acq-P1-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAskAClarifyingQuestionDuringReviewP1S2(t, h, subject, in2)
+		var in2 inputAskAClarifyingQuestionDuringReviewP1S2
+		mustUnmarshal(t, `{"handle":"stp-aja-acq-P1-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "ask-a-clarifying-question-during-review-P1", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 	})
 }
@@ -211,20 +600,56 @@ type inputAskAClarifyingQuestionDuringReviewP2S2 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-answer-job; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
-		var in1 inputAskAClarifyingQuestionDuringReviewP2S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-acq-P2","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/design-answer"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-acq-P2-1","artifact_kind":"System","command":"design-answer","target_branch":"aiarch/session/architecture-system","prior_state_ref":"aiarch/session/architecture-system","job_mode":"answer"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-acq-P2"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAskAClarifyingQuestionDuringReviewP2S1(t, h, subject, in1)
+		var in1 inputAskAClarifyingQuestionDuringReviewP2S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-acq-P2",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/design-answer"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-acq-P2-1",
+                            "artifact_kind": "System",
+                            "command": "design-answer",
+                            "target_branch": "aiarch/session/architecture-system",
+                            "prior_state_ref": "aiarch/session/architecture-system",
+                            "job_mode": "answer"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-acq-P2"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node dispatch-answer-job; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
-		var in2 inputAskAClarifyingQuestionDuringReviewP2S2
-		mustUnmarshal(t, `{"handle":"stp-aja-acq-P2-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAskAClarifyingQuestionDuringReviewP2S2(t, h, subject, in2)
+		var in2 inputAskAClarifyingQuestionDuringReviewP2S2
+		mustUnmarshal(t, `{"handle":"stp-aja-acq-P2-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "ask-a-clarifying-question-during-review-P2", 2, out2, err2, `{"result":"{\"Phase\":3,\"FailedStep\":\"agent\"}","errorExpected":false}`)
 	})
 }
@@ -243,20 +668,56 @@ type inputAskAClarifyingQuestionDuringReviewP3S2 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "ask-a-clarifying-question-during-review-P3", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-answer-job; guards artifact-state=[no: committed], answer-ran=[yes])
-		var in1 inputAskAClarifyingQuestionDuringReviewP3S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-acq-P3","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/design-answer"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/answer/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-acq-P3-1","artifact_kind":"System","command":"design-answer","target_branch":"aiarch/answer/architecture-system","prior_state_ref":"main","job_mode":"answer"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-acq-P3"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputAskAClarifyingQuestionDuringReviewP3S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-acq-P3",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/design-answer"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/answer/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-acq-P3-1",
+                            "artifact_kind": "System",
+                            "command": "design-answer",
+                            "target_branch": "aiarch/answer/architecture-system",
+                            "prior_state_ref": "main",
+                            "job_mode": "answer"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-acq-P3"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node dispatch-answer-job; guards artifact-state=[no: committed], answer-ran=[yes])
-		var in2 inputAskAClarifyingQuestionDuringReviewP3S2
-		mustUnmarshal(t, `{"handle":"stp-aja-acq-P3-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAskAClarifyingQuestionDuringReviewP3S2(t, h, subject, in2)
+		var in2 inputAskAClarifyingQuestionDuringReviewP3S2
+		mustUnmarshal(t, `{"handle":"stp-aja-acq-P3-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "ask-a-clarifying-question-during-review-P3", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 	})
 }
@@ -275,20 +736,56 @@ type inputAskAClarifyingQuestionDuringReviewP4S2 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "ask-a-clarifying-question-during-review-P4", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-answer-job; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
-		var in1 inputAskAClarifyingQuestionDuringReviewP4S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-acq-P4","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/design-answer"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/answer/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-acq-P4-1","artifact_kind":"System","command":"design-answer","target_branch":"aiarch/answer/architecture-system","prior_state_ref":"main","job_mode":"answer"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-acq-P4"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAskAClarifyingQuestionDuringReviewP4S1(t, h, subject, in1)
+		var in1 inputAskAClarifyingQuestionDuringReviewP4S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-acq-P4",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/design-answer"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/answer/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-acq-P4-1",
+                            "artifact_kind": "System",
+                            "command": "design-answer",
+                            "target_branch": "aiarch/answer/architecture-system",
+                            "prior_state_ref": "main",
+                            "job_mode": "answer"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-acq-P4"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node dispatch-answer-job; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
-		var in2 inputAskAClarifyingQuestionDuringReviewP4S2
-		mustUnmarshal(t, `{"handle":"stp-aja-acq-P4-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAskAClarifyingQuestionDuringReviewP4S2(t, h, subject, in2)
+		var in2 inputAskAClarifyingQuestionDuringReviewP4S2
+		mustUnmarshal(t, `{"handle":"stp-aja-acq-P4-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "ask-a-clarifying-question-during-review-P4", 2, out2, err2, `{"result":"{\"Phase\":3,\"FailedStep\":\"agent\"}","errorExpected":false}`)
 	})
 }
@@ -307,21 +804,59 @@ type inputExecuteAProjectActivityP1S2 struct {
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "execute-a-project-activity-P1", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP1S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P1","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P1-1","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"construction","role":"senior-developer","task_id":"construction","spec_hash":"739a73e69e3175776753311279a0d49293812d2cb7f35fc3135e30bec0d971a3","revision":"C-review-engine:construction:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P1"},"WorkflowFile":"aiarch-construct.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P1",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P1-1",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "construction",
+                            "role": "senior-developer",
+                            "task_id": "construction",
+                            "spec_hash": "739a73e69e3175776753311279a0d49293812d2cb7f35fc3135e30bec0d971a3",
+                            "revision": "C-review-engine:construction:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P1"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: dispatch-task
 		// step 2: ObserveAgenticJob (node observe-validate; guards task-kind=dispatch, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP1S2
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P1-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP1S2(t, h, subject, in2)
+		var in2 inputExecuteAProjectActivityP1S2
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P1-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 	})
 }
@@ -340,21 +875,59 @@ type inputExecuteAProjectActivityP2S2 struct {
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "execute-a-project-activity-P2", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP2S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P2","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P2-1","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"construction","role":"senior-developer","task_id":"construction","spec_hash":"aac66c4bec395e8c2f7b0db533d19201abda040669e7d3a6bc48e9c53d77c7ec","revision":"C-review-engine:construction:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P2"},"WorkflowFile":"aiarch-construct.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP2S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P2",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P2-1",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "construction",
+                            "role": "senior-developer",
+                            "task_id": "construction",
+                            "spec_hash": "aac66c4bec395e8c2f7b0db533d19201abda040669e7d3a6bc48e9c53d77c7ec",
+                            "revision": "C-review-engine:construction:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P2"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: dispatch-task
 		// step 2: ObserveAgenticJob (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in2 inputExecuteAProjectActivityP2S2
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P2-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP2S2(t, h, subject, in2)
+		var in2 inputExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P2-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"Phase\":3,\"FailedStep\":\"construct\"}","errorExpected":false}`)
 	})
 }
@@ -373,20 +946,59 @@ type inputExecuteAProjectActivityP3S2 struct {
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "execute-a-project-activity-P3", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in1 inputExecuteAProjectActivityP3S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P3","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P3-1","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"review","role":"architect","task_id":"codeReview","spec_hash":"2deb80c2bb481ffa864b26989e539fdf0d3e956a6e1861883aacc623b6a72fad","revision":"C-review-engine:codeReview:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P3"},"WorkflowFile":"aiarch-construct.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P3",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P3-1",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "review",
+                            "role": "architect",
+                            "task_id": "codeReview",
+                            "spec_hash": "2deb80c2bb481ffa864b26989e539fdf0d3e956a6e1861883aacc623b6a72fad",
+                            "revision": "C-review-engine:codeReview:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P3"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in2 inputExecuteAProjectActivityP3S2
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P3-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP3S2(t, h, subject, in2)
+		var in2 inputExecuteAProjectActivityP3S2
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P3-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 	})
 }
@@ -415,36 +1027,111 @@ type inputExecuteAProjectActivityP5S4 struct {
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "execute-a-project-activity-P5", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP5S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P5","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P5-1","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"construction","role":"senior-developer","task_id":"construction","spec_hash":"66efb25c471ff57b84b88b4170666134ea8f57a7943f5ca6368b8c43afd32621","revision":"C-review-engine:construction:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P5"},"WorkflowFile":"aiarch-construct.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP5S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P5",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P5-1",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "construction",
+                            "role": "senior-developer",
+                            "task_id": "construction",
+                            "spec_hash": "66efb25c471ff57b84b88b4170666134ea8f57a7943f5ca6368b8c43afd32621",
+                            "revision": "C-review-engine:construction:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P5"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: dispatch-task
 		// step 2: ObserveAgenticJob (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP5S2
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P5-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP5S2(t, h, subject, in2)
+		var in2 inputExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P5-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"Phase\":3,\"FailedStep\":\"construct\"}","errorExpected":false}`)
 		// step 3: SubmitAgenticJob (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in3 inputExecuteAProjectActivityP5S3
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P5","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P5-3","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"construction","role":"senior-developer","task_id":"construction","spec_hash":"66efb25c471ff57b84b88b4170666134ea8f57a7943f5ca6368b8c43afd32621","revision":"C-review-engine:construction:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P5"},"WorkflowFile":"aiarch-construct.yml"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.SubmitAgenticJob(callContext(t, h, "3"), in3.Spec)
+		var in3 inputExecuteAProjectActivityP5S3
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P5",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P5-3",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "construction",
+                            "role": "senior-developer",
+                            "task_id": "construction",
+                            "spec_hash": "66efb25c471ff57b84b88b4170666134ea8f57a7943f5ca6368b8c43afd32621",
+                            "revision": "C-review-engine:construction:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P5"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in3)
+		out3, err3 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "3"), in3.Spec)
 		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"errorExpected":false}`)
-		// unobservable: dispatch-task
 		// step 4: ObserveAgenticJob (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in4 inputExecuteAProjectActivityP5S4
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P5-handle-3"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepExecuteAProjectActivityP5S4(t, h, subject, in4)
+		var in4 inputExecuteAProjectActivityP5S4
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P5-handle-3"}`, &in4)
+		out4, err4 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "4"), in4.Handle)
 		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 	})
 }
@@ -463,21 +1150,59 @@ type inputExecuteAProjectActivityP6S2 struct {
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "execute-a-project-activity-P6", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP6S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P6","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P6-1","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"construction","role":"senior-developer","task_id":"construction","spec_hash":"17a48e072bae3bbe5ec5286b35126e863897b7f220aa7b260ed7d5999f4438b3","revision":"C-review-engine:construction:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P6"},"WorkflowFile":"aiarch-construct.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP6S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P6",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P6-1",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "construction",
+                            "role": "senior-developer",
+                            "task_id": "construction",
+                            "spec_hash": "17a48e072bae3bbe5ec5286b35126e863897b7f220aa7b260ed7d5999f4438b3",
+                            "revision": "C-review-engine:construction:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P6"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: dispatch-task
 		// step 2: ObserveAgenticJob (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in2 inputExecuteAProjectActivityP6S2
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P6-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP6S2(t, h, subject, in2)
+		var in2 inputExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P6-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"Phase\":3,\"FailedStep\":\"construct\"}","errorExpected":false}`)
 	})
 }
@@ -506,35 +1231,112 @@ type inputExecuteAProjectActivityP7S4 struct {
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "execute-a-project-activity-P7", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP7S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P7","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P7-1","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"review","role":"architect","task_id":"codeReview","spec_hash":"340a24df0c28689d0c888bf9c42c3552a544c5e6b657bbc8ba92b8250c11af8c","revision":"C-review-engine:codeReview:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P7"},"WorkflowFile":"aiarch-construct.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P7",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P7-1",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "review",
+                            "role": "architect",
+                            "task_id": "codeReview",
+                            "spec_hash": "340a24df0c28689d0c888bf9c42c3552a544c5e6b657bbc8ba92b8250c11af8c",
+                            "revision": "C-review-engine:codeReview:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P7"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node dispatch-reviewers; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP7S2
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P7-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP7S2(t, h, subject, in2)
+		var in2 inputExecuteAProjectActivityP7S2
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P7-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
 		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 		// step 3: SubmitAgenticJob (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in3 inputExecuteAProjectActivityP7S3
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-epa-P7","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-epa-P7-3","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"construction","role":"senior-developer","operator_note":"review sendBack: address the reviewer's anchored comments (revision 2)","task_id":"construction","spec_hash":"a744c68f1294d7a1e7c0b3e68114d3db42c57b9f68c7f5e70f1ef8ff2837e112","revision":"C-review-engine:construction:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-epa-P7"},"WorkflowFile":"aiarch-construct.yml"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.SubmitAgenticJob(callContext(t, h, "3"), in3.Spec)
+		var in3 inputExecuteAProjectActivityP7S3
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-epa-P7",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-epa-P7-3",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "construction",
+                            "role": "senior-developer",
+                            "operator_note": "review sendBack: address the reviewer's anchored comments (revision 2)",
+                            "task_id": "construction",
+                            "spec_hash": "a744c68f1294d7a1e7c0b3e68114d3db42c57b9f68c7f5e70f1ef8ff2837e112",
+                            "revision": "C-review-engine:construction:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-epa-P7"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in3)
+		out3, err3 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "3"), in3.Spec)
 		expect(t, "execute-a-project-activity-P7", 3, out3, err3, `{"errorExpected":false}`)
-		// unobservable: dispatch-task
 		// step 4: ObserveAgenticJob (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in4 inputExecuteAProjectActivityP7S4
-		mustUnmarshal(t, `{"handle":"stp-aja-epa-P7-handle-3"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepExecuteAProjectActivityP7S4(t, h, subject, in4)
+		var in4 inputExecuteAProjectActivityP7S4
+		mustUnmarshal(t, `{"handle":"stp-aja-epa-P7-handle-3"}`, &in4)
+		out4, err4 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "4"), in4.Handle)
 		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 	})
 }
@@ -548,20 +1350,69 @@ type inputReplanUnderScopeChangeP1S1 struct {
 func TestScenario_replan_under_scope_change_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "replan-under-scope-change-P1", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node back-to-design; guards classify=[yes])
-		var in1 inputReplanUnderScopeChangeP1S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-rsc-P1","ActivityID":"architecture","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/system-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-architecture"]}],"Edges":[],"WorkspaceRef":"aiarch/session/architecture-system","DispatchInputs":{"idempotency_token":"stp-aja-rsc-P1-1","artifact_kind":"System","command":"system-draft","target_branch":"aiarch/session/architecture-system","prior_state_ref":"main","job_mode":"draft","activity_id":"architecture","task_id":"architectureDraft","spec_hash":"135aad0f04468f2f153cec901d91eba0cffdb8f6b8d5488d7a263f0f209f0675","revision":"architecture:architectureDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-rsc-P1"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepReplanUnderScopeChangeP1S1(t, h, subject, in1)
-		expect(t, "replan-under-scope-change-P1", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: notify-returned-to-design
 		// probe 1.1: designSessionAccess.ReadProjectOnBranch for system-amendment-open
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeReplanUnderScopeChangeP1S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+				Branch    string                 `json:"branch"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-rsc-P1","branch":"aiarch/session/architecture-system"}`, &in)
+			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "1.1"), in.ProjectID, in.Branch)
+		}
+		pre1_1 := held("replan-under-scope-change-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"id\":\"stp-aja-rsc-P1\",\"slots\":{\"5\":{\"status\":1}}}","errorExpected":false}`)
+		var in1 inputReplanUnderScopeChangeP1S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-rsc-P1",
+                          "ActivityID": "architecture",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/system-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-architecture"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/architecture-system",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-rsc-P1-1",
+                            "artifact_kind": "System",
+                            "command": "system-draft",
+                            "target_branch": "aiarch/session/architecture-system",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "architecture",
+                            "task_id": "architectureDraft",
+                            "spec_hash": "135aad0f04468f2f153cec901d91eba0cffdb8f6b8d5488d7a263f0f209f0675",
+                            "revision": "architecture:architectureDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-rsc-P1"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
+		expect(t, "replan-under-scope-change-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "replan-under-scope-change-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aja-rsc-P1\",\"slots\":{\"5\":{\"status\":1}}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P1", 1, pre1_1)
 	})
 }
 
@@ -574,13 +1425,53 @@ type inputReplanUnderScopeChangeP2S1 struct {
 func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "replan-under-scope-change-P2", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node reenter; guards classify=[no: scope change], mgmt=[accept])
-		var in1 inputReplanUnderScopeChangeP2S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-rsc-P2","ActivityID":"projectDesign","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/activity-list-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-projectDesign"]}],"Edges":[],"WorkspaceRef":"aiarch/session/projectDesign-activityList","DispatchInputs":{"idempotency_token":"stp-aja-rsc-P2-1","artifact_kind":"ActivityList","command":"activity-list-draft","target_branch":"aiarch/session/projectDesign-activityList","prior_state_ref":"main","job_mode":"draft","activity_id":"projectDesign","task_id":"activityListDraft","spec_hash":"f380d0afe843ec65b921662635330a30a3f273d937518a6fd91b993f73afbea2","revision":"projectDesign:activityListDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-rsc-P2"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-rsc-P2",
+                          "ActivityID": "projectDesign",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/activity-list-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-projectDesign"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/projectDesign-activityList",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-rsc-P2-1",
+                            "artifact_kind": "ActivityList",
+                            "command": "activity-list-draft",
+                            "target_branch": "aiarch/session/projectDesign-activityList",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "projectDesign",
+                            "task_id": "activityListDraft",
+                            "spec_hash": "f380d0afe843ec65b921662635330a30a3f273d937518a6fd91b993f73afbea2",
+                            "revision": "projectDesign:activityListDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-rsc-P2"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"errorExpected":false}`)
 	})
 }
@@ -594,13 +1485,53 @@ type inputReplanUnderScopeChangeP3S1 struct {
 func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "replan-under-scope-change-P3", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node reenter; guards classify=[no: scope change], mgmt=[reject])
-		var in1 inputReplanUnderScopeChangeP3S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-rsc-P3","ActivityID":"projectDesign","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/network-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-projectDesign"]}],"Edges":[],"WorkspaceRef":"aiarch/session/projectDesign-network","DispatchInputs":{"idempotency_token":"stp-aja-rsc-P3-1","artifact_kind":"Network","command":"network-draft","target_branch":"aiarch/session/projectDesign-network","prior_state_ref":"main","job_mode":"draft","activity_id":"projectDesign","task_id":"networkDraft","spec_hash":"390f6763ef6fb8f635ff6679d5dd388d545c011c5075bc7f5996c9cb07a03d31","revision":"projectDesign:networkDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-rsc-P3"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.SubmitAgenticJob(callContext(t, h, "1"), in1.Spec)
+		var in1 inputReplanUnderScopeChangeP3S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-rsc-P3",
+                          "ActivityID": "projectDesign",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/network-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-projectDesign"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/projectDesign-network",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-rsc-P3-1",
+                            "artifact_kind": "Network",
+                            "command": "network-draft",
+                            "target_branch": "aiarch/session/projectDesign-network",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "projectDesign",
+                            "task_id": "networkDraft",
+                            "spec_hash": "390f6763ef6fb8f635ff6679d5dd388d545c011c5075bc7f5996c9cb07a03d31",
+                            "revision": "projectDesign:networkDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-rsc-P3"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"errorExpected":false}`)
 	})
 }
@@ -614,13 +1545,53 @@ type inputRequeueAFailedConstructionActivityP1S1 struct {
 func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node resume-activity)
-		var in1 inputRequeueAFailedConstructionActivityP1S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-rfa-P1","ActivityID":"C-review-engine","Steps":[{"Name":"construct","Toolchain":"claude-code","Command":["/service-construction"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-C-review-engine"]}],"Edges":[],"WorkspaceRef":"activity/C-review-engine","DispatchInputs":{"idempotency_token":"stp-aja-rfa-P1-1","activity_id":"C-review-engine","component_id":"reviewEngine","command":"service-construction","phase":"construction","role":"senior-developer","operator_note":"requeue: the prior attempt failed on a flaky venue step; resume from the staged branch","task_id":"construction","spec_hash":"9825e9ec438964df0da03f358879d52a82feb912d35c69a65591a49e29596a5b","revision":"C-review-engine:construction:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-rfa-P1"},"WorkflowFile":"aiarch-construct.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRequeueAFailedConstructionActivityP1S1(t, h, subject, in1)
+		var in1 inputRequeueAFailedConstructionActivityP1S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-rfa-P1",
+                          "ActivityID": "C-review-engine",
+                          "Steps": [
+                            {
+                              "Name": "construct",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/service-construction"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-C-review-engine"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "activity/C-review-engine",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-rfa-P1-1",
+                            "activity_id": "C-review-engine",
+                            "component_id": "reviewEngine",
+                            "command": "service-construction",
+                            "phase": "construction",
+                            "role": "senior-developer",
+                            "operator_note": "requeue: the prior attempt failed on a flaky venue step; resume from the staged branch",
+                            "task_id": "construction",
+                            "spec_hash": "9825e9ec438964df0da03f358879d52a82feb912d35c69a65591a49e29596a5b",
+                            "revision": "C-review-engine:construction:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-rfa-P1"
+                          },
+                          "WorkflowFile": "aiarch-construct.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
 	})
 }
@@ -639,26 +1610,76 @@ type inputSendBackChangeRequestsForARedraftP1S2 struct {
 func TestScenario_send_back_change_requests_for_a_redraft_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "send-back-change-requests-for-a-redraft-P1", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node redraft; guards resolved=[yes])
-		var in1 inputSendBackChangeRequestsForARedraftP1S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-sbr-P1","ActivityID":"requirements","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/mission-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-requirements"]}],"Edges":[],"WorkspaceRef":"aiarch/session/requirements-mission","DispatchInputs":{"idempotency_token":"stp-aja-sbr-P1-1","artifact_kind":"Mission","command":"mission-draft","target_branch":"aiarch/session/requirements-mission","prior_state_ref":"main","job_mode":"draft","activity_id":"requirements","task_id":"missionDraft","spec_hash":"6782d4e679fa4f1fe3ae0ec42d1f958242e4732ceffc4f4100b6f73b1a226a9d","revision":"requirements:missionDraft:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-sbr-P1"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepSendBackChangeRequestsForARedraftP1S1(t, h, subject, in1)
+		var in1 inputSendBackChangeRequestsForARedraftP1S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-sbr-P1",
+                          "ActivityID": "requirements",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/mission-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-requirements"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/requirements-mission",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-sbr-P1-1",
+                            "artifact_kind": "Mission",
+                            "command": "mission-draft",
+                            "target_branch": "aiarch/session/requirements-mission",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "requirements",
+                            "task_id": "missionDraft",
+                            "spec_hash": "6782d4e679fa4f1fe3ae0ec42d1f958242e4732ceffc4f4100b6f73b1a226a9d",
+                            "revision": "requirements:missionDraft:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-sbr-P1"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "send-back-change-requests-for-a-redraft-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node respond-per-comment; guards resolved=[yes])
-		var in2 inputSendBackChangeRequestsForARedraftP1S2
-		mustUnmarshal(t, `{"handle":"stp-aja-sbr-P1-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepSendBackChangeRequestsForARedraftP1S2(t, h, subject, in2)
-		expect(t, "send-back-change-requests-for-a-redraft-P1", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 		// probe 2.1: designSessionAccess.ReadProjectOnBranch for obj-thread-answered
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeSendBackChangeRequestsForARedraftP1S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+				Branch    string                 `json:"branch"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-sbr-P1","branch":"aiarch/session/requirements-mission"}`, &in)
+			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "2.1"), in.ProjectID, in.Branch)
+		}
+		pre2_1 := held("send-back-change-requests-for-a-redraft-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"id\":\"stp-aja-sbr-P1\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}","errorExpected":false}`)
+		var in2 inputSendBackChangeRequestsForARedraftP1S2
+		mustUnmarshal(t, `{"handle":"stp-aja-sbr-P1-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
+		expect(t, "send-back-change-requests-for-a-redraft-P1", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aja-sbr-P1\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P1", 2, pre2_1)
 	})
 }
 
@@ -686,55 +1707,145 @@ type inputSendBackChangeRequestsForARedraftP2S4 struct {
 func TestScenario_send_back_change_requests_for_a_redraft_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "agenticJobAccess", "send-back-change-requests-for-a-redraft-P2", func(t *testing.T) {
-		var subject agenticjob.AgenticJobAccess = newSubject(t, h)
+		var subject agenticjob.AgenticJobAccess = scenariocompose.NewAgenticJobAccess(t, h)
+		subject = nullSubjectAgenticJobAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitAgenticJob (node redraft; guards resolved=[no: iterate], resolved=[yes])
-		var in1 inputSendBackChangeRequestsForARedraftP2S1
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-sbr-P2","ActivityID":"requirements","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/mission-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-requirements"]}],"Edges":[],"WorkspaceRef":"aiarch/session/requirements-mission","DispatchInputs":{"idempotency_token":"stp-aja-sbr-P2-1","artifact_kind":"Mission","command":"mission-draft","target_branch":"aiarch/session/requirements-mission","prior_state_ref":"main","job_mode":"draft","activity_id":"requirements","task_id":"missionDraft","spec_hash":"9384ede66b65ec54675a7d7f6339541904b0d754b526310b1d35208aeddba69f","revision":"requirements:missionDraft:1"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-sbr-P2"},"WorkflowFile":"aiarch-design.yml"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepSendBackChangeRequestsForARedraftP2S1(t, h, subject, in1)
+		var in1 inputSendBackChangeRequestsForARedraftP2S1
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-sbr-P2",
+                          "ActivityID": "requirements",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/mission-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-requirements"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/requirements-mission",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-sbr-P2-1",
+                            "artifact_kind": "Mission",
+                            "command": "mission-draft",
+                            "target_branch": "aiarch/session/requirements-mission",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "requirements",
+                            "task_id": "missionDraft",
+                            "spec_hash": "9384ede66b65ec54675a7d7f6339541904b0d754b526310b1d35208aeddba69f",
+                            "revision": "requirements:missionDraft:1"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-sbr-P2"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in1)
+		out1, err1 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "1"), in1.Spec)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ObserveAgenticJob (node respond-per-comment; guards resolved=[no: iterate], resolved=[yes])
-		var in2 inputSendBackChangeRequestsForARedraftP2S2
-		mustUnmarshal(t, `{"handle":"stp-aja-sbr-P2-handle-1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepSendBackChangeRequestsForARedraftP2S2(t, h, subject, in2)
-		expect(t, "send-back-change-requests-for-a-redraft-P2", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 		// probe 2.1: designSessionAccess.ReadProjectOnBranch for obj-thread-answered
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeSendBackChangeRequestsForARedraftP2S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+				Branch    string                 `json:"branch"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-sbr-P2","branch":"aiarch/session/requirements-mission"}`, &in)
+			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "2.1"), in.ProjectID, in.Branch)
+		}
+		pre2_1 := held("send-back-change-requests-for-a-redraft-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"id\":\"stp-aja-sbr-P2\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}","errorExpected":false}`)
+		var in2 inputSendBackChangeRequestsForARedraftP2S2
+		mustUnmarshal(t, `{"handle":"stp-aja-sbr-P2-handle-1"}`, &in2)
+		out2, err2 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "2"), in2.Handle)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 2, out2, err2, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"id\":\"stp-aja-sbr-P2\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P2", 2, pre2_1)
 		// step 3: SubmitAgenticJob (node redraft; guards resolved=[no: iterate], resolved=[yes])
-		var in3 inputSendBackChangeRequestsForARedraftP2S3
-		mustUnmarshal(t, `{"spec":{"ProjectID":"stp-aja-sbr-P2","ActivityID":"requirements","Steps":[{"Name":"agent","Toolchain":"claude-code","Command":["/mission-draft"],"Resources":{"CPUMillis":2000,"MemMiB":4096,"GPUs":0},"CacheKeys":["aiarch-requirements"]}],"Edges":[],"WorkspaceRef":"aiarch/session/requirements-mission","DispatchInputs":{"idempotency_token":"stp-aja-sbr-P2-3","artifact_kind":"Mission","command":"mission-draft","target_branch":"aiarch/session/requirements-mission","prior_state_ref":"main","job_mode":"draft","activity_id":"requirements","task_id":"missionDraft","spec_hash":"9384ede66b65ec54675a7d7f6339541904b0d754b526310b1d35208aeddba69f","revision":"requirements:missionDraft:2"},"TargetRepo":{"Owner":"stp-org","Name":"stp-aja-sbr-P2"},"WorkflowFile":"aiarch-design.yml"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepSendBackChangeRequestsForARedraftP2S3(t, h, subject, in3)
+		var in3 inputSendBackChangeRequestsForARedraftP2S3
+		mustUnmarshal(t, `{"spec":{
+                          "ProjectID": "stp-aja-sbr-P2",
+                          "ActivityID": "requirements",
+                          "Steps": [
+                            {
+                              "Name": "agent",
+                              "Toolchain": "claude-code",
+                              "Command": [
+                                "/mission-draft"
+                              ],
+                              "Resources": {
+                                "CPUMillis": 2000,
+                                "MemMiB": 4096,
+                                "GPUs": 0
+                              },
+                              "CacheKeys": [
+                                "aiarch-requirements"
+                              ]
+                            }
+                          ],
+                          "Edges": [],
+                          "WorkspaceRef": "aiarch/session/requirements-mission",
+                          "DispatchInputs": {
+                            "idempotency_token": "stp-aja-sbr-P2-3",
+                            "artifact_kind": "Mission",
+                            "command": "mission-draft",
+                            "target_branch": "aiarch/session/requirements-mission",
+                            "prior_state_ref": "main",
+                            "job_mode": "draft",
+                            "activity_id": "requirements",
+                            "task_id": "missionDraft",
+                            "spec_hash": "9384ede66b65ec54675a7d7f6339541904b0d754b526310b1d35208aeddba69f",
+                            "revision": "requirements:missionDraft:2"
+                          },
+                          "TargetRepo": {
+                            "Owner": "stp-org",
+                            "Name": "stp-aja-sbr-P2"
+                          },
+                          "WorkflowFile": "aiarch-design.yml"
+                        }}`, &in3)
+		out3, err3 = subject.SubmitAgenticJob(h.ResourceAccessContext(t, "3"), in3.Spec)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// step 4: ObserveAgenticJob (node respond-per-comment; guards resolved=[no: iterate], resolved=[yes])
-		var in4 inputSendBackChangeRequestsForARedraftP2S4
-		mustUnmarshal(t, `{"handle":"stp-aja-sbr-P2-handle-3"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepSendBackChangeRequestsForARedraftP2S4(t, h, subject, in4)
-		expect(t, "send-back-change-requests-for-a-redraft-P2", 4, out4, err4, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
 		// probe 4.1: designSessionAccess.ReadProjectOnBranch for obj-thread-answered
 		var pout4_1 any
 		var perr4_1 error
-		pout4_1, perr4_1 = probeSendBackChangeRequestsForARedraftP2S4N1(t, h, subject)
+		run4_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+				Branch    string                 `json:"branch"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aja-sbr-P2","branch":"aiarch/session/requirements-mission"}`, &in)
+			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "4.1"), in.ProjectID, in.Branch)
+		}
+		pre4_1 := held("send-back-change-requests-for-a-redraft-P2 probe 4.1 before", 4, run4_1, `{"result":"{\"id\":\"stp-aja-sbr-P2\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}","errorExpected":false}`)
+		var in4 inputSendBackChangeRequestsForARedraftP2S4
+		mustUnmarshal(t, `{"handle":"stp-aja-sbr-P2-handle-3"}`, &in4)
+		out4, err4 = subject.ObserveAgenticJob(h.ResourceAccessContext(t, "4"), in4.Handle)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 4, out4, err4, `{"result":"{\"Phase\":2,\"FailedStep\":\"\"}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"id\":\"stp-aja-sbr-P2\",\"slots\":{\"0\":{\"reviewThread\":[{\"type\":\"changeRequest\",\"status\":\"answered\"}]}}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P2", 4, pre4_1)
 	})
-}
-
-// callContext is the fwra call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
-	t.Helper()
-	_ = step
-	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -744,34 +1855,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

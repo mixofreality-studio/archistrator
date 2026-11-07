@@ -6,6 +6,7 @@ package autoscaler_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,8 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "autoscalerEngine") }
 
 // inputOperateADeliveredSystemP2S1 is step 1's parameters of ProposeDesiredState, decoded from the binding's inputs.
 type inputOperateADeliveredSystemP2S1 struct {
@@ -29,13 +29,45 @@ type inputOperateADeliveredSystemP2S1 struct {
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P2", func(t *testing.T) {
-		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		var subject autoscaler.AutoscalerEngine = scenariocompose.NewAutoscalerEngine(t, h)
+		subject = nullSubjectAutoscalerEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[no], decision-nochange=[yes])
-		var in1 inputOperateADeliveredSystemP2S1
-		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":12.5,"P95LatencyMs":85,"InflightRequests":3,"CurrentReplicas":2,"CPUUtilization":0.5,"MemoryUtilization":0.4,"Health":1,"SLOStatus":1,"TimeSinceLastRequest":1000000000},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":2,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		var in1 inputOperateADeliveredSystemP2S1
+		mustUnmarshal(t, `{"telemetry":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "ObservedAt": "2026-10-03T12:00:00Z",
+                          "RequestsPerSecond": 12.5,
+                          "P95LatencyMs": 85,
+                          "InflightRequests": 3,
+                          "CurrentReplicas": 2,
+                          "CPUUtilization": 0.5,
+                          "MemoryUtilization": 0.4,
+                          "Health": 1,
+                          "SLOStatus": 1,
+                          "TimeSinceLastRequest": 1000000000
+                        },"currentDesired":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "InfrastructureKind": 1,
+                          "Replicas": 2,
+                          "LastDecisionAt": "2026-10-03T11:00:00Z"
+                        },"policy":{
+                          "Kind": 1,
+                          "Mode": 0,
+                          "MinReplicas": 1,
+                          "MaxReplicas": 5,
+                          "BaselineReplicas": 1,
+                          "MaxStepDelta": 2,
+                          "IdleThreshold": 600000000000,
+                          "ScaleUpCPU": 0.8,
+                          "ScaleDownCPU": 0.2,
+                          "ScaleDownGrace": 300000000000,
+                          "SLATier": 1,
+                          "Pinned": false,
+                          "MaxBurstCap": 4
+                        },"infrastructureKind":1}`, &in1)
+		out1, err1 = subject.ProposeDesiredState(h.EngineContext(t), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
 		expect(t, "operate-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"Kind\":0,\"Delta\":0,\"ToBaseline\":0,\"Reason\":{\"Code\":10}}","errorExpected":false}`)
 	})
 }
@@ -52,13 +84,45 @@ type inputOperateADeliveredSystemP3S1 struct {
 func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P3", func(t *testing.T) {
-		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		var subject autoscaler.AutoscalerEngine = scenariocompose.NewAutoscalerEngine(t, h)
+		subject = nullSubjectAutoscalerEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in1 inputOperateADeliveredSystemP3S1
-		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":40,"P95LatencyMs":310,"InflightRequests":25,"CurrentReplicas":2,"CPUUtilization":0.92,"MemoryUtilization":0.6,"Health":1,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":2,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		var in1 inputOperateADeliveredSystemP3S1
+		mustUnmarshal(t, `{"telemetry":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "ObservedAt": "2026-10-03T12:00:00Z",
+                          "RequestsPerSecond": 40,
+                          "P95LatencyMs": 310,
+                          "InflightRequests": 25,
+                          "CurrentReplicas": 2,
+                          "CPUUtilization": 0.92,
+                          "MemoryUtilization": 0.6,
+                          "Health": 1,
+                          "SLOStatus": 1,
+                          "TimeSinceLastRequest": 0
+                        },"currentDesired":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "InfrastructureKind": 1,
+                          "Replicas": 2,
+                          "LastDecisionAt": "2026-10-03T11:00:00Z"
+                        },"policy":{
+                          "Kind": 1,
+                          "Mode": 0,
+                          "MinReplicas": 1,
+                          "MaxReplicas": 5,
+                          "BaselineReplicas": 1,
+                          "MaxStepDelta": 2,
+                          "IdleThreshold": 600000000000,
+                          "ScaleUpCPU": 0.8,
+                          "ScaleDownCPU": 0.2,
+                          "ScaleDownGrace": 300000000000,
+                          "SLATier": 1,
+                          "Pinned": false,
+                          "MaxBurstCap": 4
+                        },"infrastructureKind":1}`, &in1)
+		out1, err1 = subject.ProposeDesiredState(h.EngineContext(t), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
 		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"Kind\":1,\"Delta\":2,\"ToBaseline\":0,\"Reason\":{\"Code\":1}}","errorExpected":false}`)
 	})
 }
@@ -75,13 +139,45 @@ type inputOperateADeliveredSystemP4S1 struct {
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P4", func(t *testing.T) {
-		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		var subject autoscaler.AutoscalerEngine = scenariocompose.NewAutoscalerEngine(t, h)
+		subject = nullSubjectAutoscalerEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[yes], decision-nochange=[yes])
-		var in1 inputOperateADeliveredSystemP4S1
-		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":90,"P95LatencyMs":820,"InflightRequests":60,"CurrentReplicas":5,"CPUUtilization":0.95,"MemoryUtilization":0.7,"Health":2,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":5,"LastDecisionAt":"2026-10-03T11:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":1,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		var in1 inputOperateADeliveredSystemP4S1
+		mustUnmarshal(t, `{"telemetry":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "ObservedAt": "2026-10-03T12:00:00Z",
+                          "RequestsPerSecond": 90,
+                          "P95LatencyMs": 820,
+                          "InflightRequests": 60,
+                          "CurrentReplicas": 5,
+                          "CPUUtilization": 0.95,
+                          "MemoryUtilization": 0.7,
+                          "Health": 2,
+                          "SLOStatus": 1,
+                          "TimeSinceLastRequest": 0
+                        },"currentDesired":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "InfrastructureKind": 1,
+                          "Replicas": 5,
+                          "LastDecisionAt": "2026-10-03T11:00:00Z"
+                        },"policy":{
+                          "Kind": 1,
+                          "Mode": 0,
+                          "MinReplicas": 1,
+                          "MaxReplicas": 5,
+                          "BaselineReplicas": 1,
+                          "MaxStepDelta": 2,
+                          "IdleThreshold": 600000000000,
+                          "ScaleUpCPU": 0.8,
+                          "ScaleDownCPU": 0.2,
+                          "ScaleDownGrace": 300000000000,
+                          "SLATier": 1,
+                          "Pinned": false,
+                          "MaxBurstCap": 4
+                        },"infrastructureKind":1}`, &in1)
+		out1, err1 = subject.ProposeDesiredState(h.EngineContext(t), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
 		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"{\"Kind\":0,\"Delta\":0,\"ToBaseline\":0,\"Reason\":{\"Code\":9}}","errorExpected":false}`)
 	})
 }
@@ -98,24 +194,47 @@ type inputOperateADeliveredSystemP5S1 struct {
 func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P5", func(t *testing.T) {
-		var subject autoscaler.AutoscalerEngine = newSubject(t, h)
+		var subject autoscaler.AutoscalerEngine = scenariocompose.NewAutoscalerEngine(t, h)
+		subject = nullSubjectAutoscalerEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeDesiredState (node autoscale-decide; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in1 inputOperateADeliveredSystemP5S1
-		mustUnmarshal(t, `{"telemetry":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","ObservedAt":"2026-10-03T12:00:00Z","RequestsPerSecond":3.5,"P95LatencyMs":0,"InflightRequests":2,"CurrentReplicas":0,"CPUUtilization":0,"MemoryUtilization":0,"Health":0,"SLOStatus":1,"TimeSinceLastRequest":0},"currentDesired":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","InfrastructureKind":1,"Replicas":0,"LastDecisionAt":"2026-10-03T10:00:00Z"},"policy":{"Kind":1,"Mode":0,"MinReplicas":0,"MaxReplicas":5,"BaselineReplicas":1,"MaxStepDelta":2,"IdleThreshold":600000000000,"ScaleUpCPU":0.8,"ScaleDownCPU":0.2,"ScaleDownGrace":300000000000,"SLATier":1,"Pinned":false,"MaxBurstCap":4},"infrastructureKind":1}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeDesiredState(callContext(t, h, "1"), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
+		var in1 inputOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"telemetry":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "ObservedAt": "2026-10-03T12:00:00Z",
+                          "RequestsPerSecond": 3.5,
+                          "P95LatencyMs": 0,
+                          "InflightRequests": 2,
+                          "CurrentReplicas": 0,
+                          "CPUUtilization": 0,
+                          "MemoryUtilization": 0,
+                          "Health": 0,
+                          "SLOStatus": 1,
+                          "TimeSinceLastRequest": 0
+                        },"currentDesired":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "InfrastructureKind": 1,
+                          "Replicas": 0,
+                          "LastDecisionAt": "2026-10-03T10:00:00Z"
+                        },"policy":{
+                          "Kind": 1,
+                          "Mode": 0,
+                          "MinReplicas": 0,
+                          "MaxReplicas": 5,
+                          "BaselineReplicas": 1,
+                          "MaxStepDelta": 2,
+                          "IdleThreshold": 600000000000,
+                          "ScaleUpCPU": 0.8,
+                          "ScaleDownCPU": 0.2,
+                          "ScaleDownGrace": 300000000000,
+                          "SLATier": 1,
+                          "Pinned": false,
+                          "MaxBurstCap": 4
+                        },"infrastructureKind":1}`, &in1)
+		out1, err1 = subject.ProposeDesiredState(h.EngineContext(t), in1.Telemetry, in1.CurrentDesired, in1.Policy, in1.InfrastructureKind)
 		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"{\"Kind\":4,\"Delta\":0,\"ToBaseline\":2,\"Reason\":{\"Code\":4}}","errorExpected":false}`)
 	})
-}
-
-// callContext is the fweng call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fweng.Context {
-	t.Helper()
-	_ = step
-	return fweng.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -125,34 +244,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

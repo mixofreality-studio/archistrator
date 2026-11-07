@@ -6,6 +6,7 @@ package designhealth_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,8 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "designHealthEngine") }
 
 // inputAddAUseCaseToAnInFlightProjectP3S1 is step 1's parameters of EvaluateDesignHealth, decoded from the binding's inputs.
 type inputAddAUseCaseToAnInFlightProjectP3S1 struct {
@@ -26,15 +26,15 @@ type inputAddAUseCaseToAnInFlightProjectP3S1 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "designHealthEngine", "add-a-use-case-to-an-in-flight-project-P3", func(t *testing.T) {
-		var subject designhealth.DesignHealthEngine = newSubject(t, h)
+		var subject designhealth.DesignHealthEngine = scenariocompose.NewDesignHealthEngine(t, h)
+		subject = nullSubjectDesignHealthEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: EvaluateDesignHealth (node revalidate; guards core-check=[core: rare], replan-check=[no])
-		var in1 inputAddAUseCaseToAnInFlightProjectP3S1
-		mustUnmarshal(t, `{"project":"{\"slots\":{\"coreUseCases\":{\"kind\":4,\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"export-a-report\",\"name\":\"Export a Report\",\"classification\":\"core\",\"trigger\":\"The architect asks for a report\",\"actors\":[{\"id\":\"architect-user\",\"name\":\"Architect\"}],\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"start\"},{\"id\":\"export\",\"kind\":\"action\",\"label\":\"Export the report\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"end\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export\",\"kind\":\"controlFlow\"},{\"from\":\"export\",\"to\":\"end\",\"kind\":\"controlFlow\"}]}},\"essenceRationale\":\"Reporting is how the business is accountable\"}]}}}}"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAddAUseCaseToAnInFlightProjectP3S1(t, h, subject, in1)
+		var in1 inputAddAUseCaseToAnInFlightProjectP3S1
+		mustUnmarshal(t, `{"project":"{\"slots\":{\"coreUseCases\":{\"kind\":4,\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"export-a-report\",\"name\":\"Export a Report\",\"classification\":\"core\",\"trigger\":\"The architect asks for a report\",\"actors\":[{\"id\":\"architect-user\",\"name\":\"Architect\"}],\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"start\"},{\"id\":\"export\",\"kind\":\"action\",\"label\":\"Export the report\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"end\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export\",\"kind\":\"controlFlow\"},{\"from\":\"export\",\"to\":\"end\",\"kind\":\"controlFlow\"}]}},\"essenceRationale\":\"Reporting is how the business is accountable\"}]}}}}"}`, &in1)
+		out1, err1 = subject.EvaluateDesignHealth(h.EngineContext(t), in1.Project)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 1, out1, err1, `{"result":"[{\"ruleId\":\"DH-COV-UC-DYNAMIC\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"useCase export-a-report\"}},{\"ruleId\":\"USECASE-DYNAMIC-MISSING\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"use case Export a Report\"}}]","errorExpected":false}`)
-		// unobservable: design-health-findings-signal
 	})
 }
 
@@ -47,15 +47,15 @@ type inputAddAUseCaseToAnInFlightProjectP4S1 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "designHealthEngine", "add-a-use-case-to-an-in-flight-project-P4", func(t *testing.T) {
-		var subject designhealth.DesignHealthEngine = newSubject(t, h)
+		var subject designhealth.DesignHealthEngine = scenariocompose.NewDesignHealthEngine(t, h)
+		subject = nullSubjectDesignHealthEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: EvaluateDesignHealth (node revalidate; guards core-check=[core: rare], replan-check=[yes])
-		var in1 inputAddAUseCaseToAnInFlightProjectP4S1
-		mustUnmarshal(t, `{"project":"{\"slots\":{\"coreUseCases\":{\"kind\":4,\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"export-a-report\",\"name\":\"Export a Report\",\"classification\":\"core\",\"trigger\":\"The architect asks for a report\",\"actors\":[{\"id\":\"architect-user\",\"name\":\"Architect\"}],\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"start\"},{\"id\":\"export\",\"kind\":\"action\",\"label\":\"Export the report\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"end\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export\",\"kind\":\"controlFlow\"},{\"from\":\"export\",\"to\":\"end\",\"kind\":\"controlFlow\"}]}},\"essenceRationale\":null}]}}}}"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAddAUseCaseToAnInFlightProjectP4S1(t, h, subject, in1)
+		var in1 inputAddAUseCaseToAnInFlightProjectP4S1
+		mustUnmarshal(t, `{"project":"{\"slots\":{\"coreUseCases\":{\"kind\":4,\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"export-a-report\",\"name\":\"Export a Report\",\"classification\":\"core\",\"trigger\":\"The architect asks for a report\",\"actors\":[{\"id\":\"architect-user\",\"name\":\"Architect\"}],\"activity\":{\"nodes\":[{\"id\":\"start\",\"kind\":\"start\",\"label\":\"start\"},{\"id\":\"export\",\"kind\":\"action\",\"label\":\"Export the report\",\"linkedActorId\":\"architect-user\"},{\"id\":\"end\",\"kind\":\"end\",\"label\":\"end\"}],\"edges\":[{\"from\":\"start\",\"to\":\"export\",\"kind\":\"controlFlow\"},{\"from\":\"export\",\"to\":\"end\",\"kind\":\"controlFlow\"}]}},\"essenceRationale\":null}]}}}}"}`, &in1)
+		out1, err1 = subject.EvaluateDesignHealth(h.EngineContext(t), in1.Project)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 1, out1, err1, `{"result":"[{\"ruleId\":\"DH-COV-UC-DYNAMIC\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"useCase export-a-report\"}},{\"ruleId\":\"DH-UC-ESSENCE-MISSING\",\"severity\":\"warning\",\"location\":{\"ordinal\":0,\"section\":\"useCase export-a-report\"}},{\"ruleId\":\"USECASE-DYNAMIC-MISSING\",\"severity\":\"error\",\"location\":{\"ordinal\":0,\"section\":\"use case Export a Report\"}}]","errorExpected":false}`)
-		// unobservable: design-health-findings-signal
 	})
 }
 
@@ -68,13 +68,14 @@ type inputExecuteAProjectActivityP3S1 struct {
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "designHealthEngine", "execute-a-project-activity-P3", func(t *testing.T) {
-		var subject designhealth.DesignHealthEngine = newSubject(t, h)
+		var subject designhealth.DesignHealthEngine = scenariocompose.NewDesignHealthEngine(t, h)
+		subject = nullSubjectDesignHealthEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: EvaluateDesignHealth (node commit-artifact; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in1 inputExecuteAProjectActivityP3S1
-		mustUnmarshal(t, `{"project":"{\"slots\":{\"glossary\":{\"kind\":1,\"model\":{\"items\":[{\"term\":\"Architect\",\"definition\":\"The user who designs the system\",\"category\":\"Who\"},{\"term\":\"Use Case\",\"definition\":\"A required behavior of the system\",\"category\":\"What\"},{\"term\":\"Review\",\"definition\":\"How an artifact is approved\",\"category\":\"How\"},{\"term\":\"Repository\",\"definition\":\"Where project state lives\",\"category\":\"Where\"}]}},\"requirements\":{\"kind\":2,\"model\":{\"items\":[{\"id\":\"R1\",\"statement\":\"The system shall commit a reviewed artifact.\"}]}}}}"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP3S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"project":"{\"slots\":{\"glossary\":{\"kind\":1,\"model\":{\"items\":[{\"term\":\"Architect\",\"definition\":\"The user who designs the system\",\"category\":\"Who\"},{\"term\":\"Use Case\",\"definition\":\"A required behavior of the system\",\"category\":\"What\"},{\"term\":\"Review\",\"definition\":\"How an artifact is approved\",\"category\":\"How\"},{\"term\":\"Repository\",\"definition\":\"Where project state lives\",\"category\":\"Where\"}]}},\"requirements\":{\"kind\":2,\"model\":{\"items\":[{\"id\":\"R1\",\"statement\":\"The system shall commit a reviewed artifact.\"}]}}}}"}`, &in1)
+		out1, err1 = subject.EvaluateDesignHealth(h.EngineContext(t), in1.Project)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"[]","errorExpected":false}`)
 	})
 }
@@ -88,24 +89,16 @@ type inputExecuteAProjectActivityP4S1 struct {
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "designHealthEngine", "execute-a-project-activity-P4", func(t *testing.T) {
-		var subject designhealth.DesignHealthEngine = newSubject(t, h)
+		var subject designhealth.DesignHealthEngine = scenariocompose.NewDesignHealthEngine(t, h)
+		subject = nullSubjectDesignHealthEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: EvaluateDesignHealth (node commit-artifact; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in1 inputExecuteAProjectActivityP4S1
-		mustUnmarshal(t, `{"project":"{\"slots\":{\"glossary\":{\"kind\":1,\"model\":{\"items\":[{\"term\":\"Architect\",\"definition\":\"The user who designs the system\",\"category\":\"Who\"},{\"term\":\"Use Case\",\"definition\":\"A required behavior of the system\",\"category\":\"What\"},{\"term\":\"Review\",\"definition\":\"How an artifact is approved\",\"category\":\"How\"}]}},\"requirements\":{\"kind\":2,\"model\":{\"items\":[{\"id\":\"R1\",\"statement\":\"The system shall commit a reviewed artifact.\"}]}}}}"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP4S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"project":"{\"slots\":{\"glossary\":{\"kind\":1,\"model\":{\"items\":[{\"term\":\"Architect\",\"definition\":\"The user who designs the system\",\"category\":\"Who\"},{\"term\":\"Use Case\",\"definition\":\"A required behavior of the system\",\"category\":\"What\"},{\"term\":\"Review\",\"definition\":\"How an artifact is approved\",\"category\":\"How\"}]}},\"requirements\":{\"kind\":2,\"model\":{\"items\":[{\"id\":\"R1\",\"statement\":\"The system shall commit a reviewed artifact.\"}]}}}}"}`, &in1)
+		out1, err1 = subject.EvaluateDesignHealth(h.EngineContext(t), in1.Project)
 		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"[{\"ruleId\":\"GLOSS-FOURQ\",\"severity\":\"warning\",\"location\":{\"ordinal\":0,\"section\":\"glossary\"}}]","errorExpected":false}`)
 	})
-}
-
-// callContext is the fweng call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fweng.Context {
-	t.Helper()
-	_ = step
-	return fweng.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -115,34 +108,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

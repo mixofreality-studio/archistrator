@@ -6,6 +6,7 @@ package episode_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,9 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "episodeAccess") }
 
 // inputExecuteAProjectActivityP1S1 is step 1's parameters of AppendEpisode, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP1S1 struct {
@@ -27,23 +28,73 @@ type inputExecuteAProjectActivityP1S1 struct {
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "execute-a-project-activity-P1", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AppendEpisode (node observe-validate; guards task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP1S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P1","record":{"EpisodeID":"ep-exec-P1-a1","Kind":1,"TargetRef":"C-dct-ep-alpha","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-01T09:00:00Z","EndedAt":"2026-10-01T09:42:10Z","Outcome":0,"Lineage":{"WorkflowID":"dct-ep-exec-P1:activity:C-dct-ep-alpha","RunID":"run-p1-0001","ActivityID":"C-dct-ep-alpha"},"WorkerClass":"senior-developer","Model":"claude-opus-5-5","StreamedUsage":{"In":41000,"Out":3850,"CacheRead":511000,"CacheCreate":17950},"CostUSD":3.75,"NumTurns":37,"ToolCallCounts":{"Read":21,"Edit":9,"Bash":14},"SubagentSpans":[{"ToolUseID":"toolu_p1_01","StartedAt":"2026-10-01T09:05:00Z","EndedAt":"2026-10-01T09:18:30Z"}],"TracePath":"episodes/traces/ep-exec-P1-a1.jsonl"}}`, &in1)
 		var out1 any
 		var err1 error
-		err1 = subject.AppendEpisode(callContext(t, h, "1"), in1.ProjectID, in1.Record)
-		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: episodeAccess.ListEpisodes for attempt-episode
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-exec-P1",
+                              "TargetRef": "C-dct-ep-alpha"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-exec-P1","TargetRef":"C-dct-ep-alpha"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ListEpisodes(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("execute-a-project-activity-P1 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P1-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-alpha\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P1:activity:C-dct-ep-alpha\",\"RunID\":\"run-p1-0001\",\"ActivityID\":\"C-dct-ep-alpha\"},\"WorkerClass\":\"senior-developer\",\"Model\":\"claude-opus-5-5\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StreamedUsage\":{\"In\":41000,\"Out\":3850,\"CacheRead\":511000,\"CacheCreate\":17950},\"CostUSD\":3.75,\"NumTurns\":37,\"ToolCallCounts\":{\"Read\":21,\"Edit\":9,\"Bash\":14},\"SubagentSpans\":[{\"ToolUseID\":\"toolu_p1_01\",\"StartedAt\":\"2026-10-01T09:05:00Z\",\"EndedAt\":\"2026-10-01T09:18:30Z\"}],\"StartedAt\":\"2026-10-01T09:00:00Z\",\"EndedAt\":\"2026-10-01T09:42:10Z\",\"TracePath\":\"episodes/traces/ep-exec-P1-a1.jsonl\"}]","errorExpected":false}`)
+		var in1 inputExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P1","record":{
+                          "EpisodeID": "ep-exec-P1-a1",
+                          "Kind": 1,
+                          "TargetRef": "C-dct-ep-alpha",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-01T09:00:00Z",
+                          "EndedAt": "2026-10-01T09:42:10Z",
+                          "Outcome": 0,
+                          "Lineage": {
+                            "WorkflowID": "dct-ep-exec-P1:activity:C-dct-ep-alpha",
+                            "RunID": "run-p1-0001",
+                            "ActivityID": "C-dct-ep-alpha"
+                          },
+                          "WorkerClass": "senior-developer",
+                          "Model": "claude-opus-5-5",
+                          "StreamedUsage": {
+                            "In": 41000,
+                            "Out": 3850,
+                            "CacheRead": 511000,
+                            "CacheCreate": 17950
+                          },
+                          "CostUSD": 3.75,
+                          "NumTurns": 37,
+                          "ToolCallCounts": {
+                            "Read": 21,
+                            "Edit": 9,
+                            "Bash": 14
+                          },
+                          "SubagentSpans": [
+                            {
+                              "ToolUseID": "toolu_p1_01",
+                              "StartedAt": "2026-10-01T09:05:00Z",
+                              "EndedAt": "2026-10-01T09:18:30Z"
+                            }
+                          ],
+                          "TracePath": "episodes/traces/ep-exec-P1-a1.jsonl"
+                        }}`, &in1)
+		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "execute-a-project-activity-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P1-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-alpha\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P1:activity:C-dct-ep-alpha\",\"RunID\":\"run-p1-0001\",\"ActivityID\":\"C-dct-ep-alpha\"},\"WorkerClass\":\"senior-developer\",\"Model\":\"claude-opus-5-5\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StreamedUsage\":{\"In\":41000,\"Out\":3850,\"CacheRead\":511000,\"CacheCreate\":17950},\"CostUSD\":3.75,\"NumTurns\":37,\"ToolCallCounts\":{\"Read\":21,\"Edit\":9,\"Bash\":14},\"SubagentSpans\":[{\"ToolUseID\":\"toolu_p1_01\",\"StartedAt\":\"2026-10-01T09:05:00Z\",\"EndedAt\":\"2026-10-01T09:18:30Z\"}],\"StartedAt\":\"2026-10-01T09:00:00Z\",\"EndedAt\":\"2026-10-01T09:42:10Z\",\"TracePath\":\"episodes/traces/ep-exec-P1-a1.jsonl\"}]","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P1", 1, pre1_1)
 	})
 }
 
@@ -57,23 +108,45 @@ type inputExecuteAProjectActivityP2S1 struct {
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "execute-a-project-activity-P2", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AppendEpisode (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP2S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P2","record":{"EpisodeID":"ep-exec-P2-a3","Kind":1,"TargetRef":"C-dct-ep-bravo","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-01T10:00:00Z","EndedAt":"2026-10-01T10:31:00Z","Outcome":1}}`, &in1)
 		var out1 any
 		var err1 error
-		err1 = subject.AppendEpisode(callContext(t, h, "1"), in1.ProjectID, in1.Record)
-		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: episodeAccess.ListEpisodes for attempt-episode
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-exec-P2",
+                              "TargetRef": "C-dct-ep-bravo"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-exec-P2","TargetRef":"C-dct-ep-bravo"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ListEpisodes(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("execute-a-project-activity-P2 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P2-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-bravo\",\"Outcome\":1,\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T10:00:00Z\",\"EndedAt\":\"2026-10-01T10:31:00Z\"}]","errorExpected":false}`)
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P2","record":{
+                          "EpisodeID": "ep-exec-P2-a3",
+                          "Kind": 1,
+                          "TargetRef": "C-dct-ep-bravo",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-01T10:00:00Z",
+                          "EndedAt": "2026-10-01T10:31:00Z",
+                          "Outcome": 1
+                        }}`, &in1)
+		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "execute-a-project-activity-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P2-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-bravo\",\"Outcome\":1,\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T10:00:00Z\",\"EndedAt\":\"2026-10-01T10:31:00Z\"}]","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P2", 1, pre1_1)
 	})
 }
 
@@ -93,39 +166,96 @@ type inputExecuteAProjectActivityP5S2 struct {
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "execute-a-project-activity-P5", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AppendEpisode (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP5S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P5","record":{"EpisodeID":"ep-exec-P5-a1","Kind":1,"TargetRef":"C-dct-ep-charlie","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-01T11:00:00Z","EndedAt":"2026-10-01T11:20:00Z","Outcome":1,"Lineage":{"WorkflowID":"dct-ep-exec-P5:activity:C-dct-ep-charlie","RunID":"run-p5-0001","ActivityID":"C-dct-ep-charlie"},"NumTurns":22,"CostUSD":1.9}}`, &in1)
 		var out1 any
 		var err1 error
-		err1 = subject.AppendEpisode(callContext(t, h, "1"), in1.ProjectID, in1.Record)
-		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: episodeAccess.ListEpisodes for attempt-episode
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-exec-P5",
+                              "TargetRef": "C-dct-ep-charlie"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-exec-P5","TargetRef":"C-dct-ep-charlie"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ListEpisodes(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("execute-a-project-activity-P5 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1}]","errorExpected":false}`)
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P5","record":{
+                          "EpisodeID": "ep-exec-P5-a1",
+                          "Kind": 1,
+                          "TargetRef": "C-dct-ep-charlie",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-01T11:00:00Z",
+                          "EndedAt": "2026-10-01T11:20:00Z",
+                          "Outcome": 1,
+                          "Lineage": {
+                            "WorkflowID": "dct-ep-exec-P5:activity:C-dct-ep-charlie",
+                            "RunID": "run-p5-0001",
+                            "ActivityID": "C-dct-ep-charlie"
+                          },
+                          "NumTurns": 22,
+                          "CostUSD": 1.9
+                        }}`, &in1)
+		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "execute-a-project-activity-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1}]","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P5", 1, pre1_1)
 		// step 2: AppendEpisode (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP5S2
-		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P5","record":{"EpisodeID":"ep-exec-P5-a2","Kind":1,"TargetRef":"C-dct-ep-charlie","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-01T11:25:00Z","EndedAt":"2026-10-01T11:51:00Z","Outcome":0,"Lineage":{"WorkflowID":"dct-ep-exec-P5:activity:C-dct-ep-charlie","RunID":"run-p5-0002","ActivityID":"C-dct-ep-charlie"},"NumTurns":30,"CostUSD":2.6}}`, &in2)
 		var out2 any
 		var err2 error
-		err2 = subject.AppendEpisode(callContext(t, h, "2"), in2.ProjectID, in2.Record)
-		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: episodeAccess.ListEpisodes for attempt-episode
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-exec-P5",
+                              "TargetRef": "C-dct-ep-charlie"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "2.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-exec-P5","TargetRef":"C-dct-ep-charlie"}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.ListEpisodes(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("execute-a-project-activity-P5 probe 2.1 before", 2, run2_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1},{\"EpisodeID\":\"ep-exec-P5-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":0}]","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P5","record":{
+                          "EpisodeID": "ep-exec-P5-a2",
+                          "Kind": 1,
+                          "TargetRef": "C-dct-ep-charlie",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-01T11:25:00Z",
+                          "EndedAt": "2026-10-01T11:51:00Z",
+                          "Outcome": 0,
+                          "Lineage": {
+                            "WorkflowID": "dct-ep-exec-P5:activity:C-dct-ep-charlie",
+                            "RunID": "run-p5-0002",
+                            "ActivityID": "C-dct-ep-charlie"
+                          },
+                          "NumTurns": 30,
+                          "CostUSD": 2.6
+                        }}`, &in2)
+		err2 = subject.AppendEpisode(h.ResourceAccessContext(t, "2"), in2.ProjectID, in2.Record)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P5 probe 2.1", 2, pout2_1, perr2_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1},{\"EpisodeID\":\"ep-exec-P5-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":0}]","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P5", 2, pre2_1)
 	})
 }
 
@@ -139,23 +269,53 @@ type inputExecuteAProjectActivityP6S1 struct {
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "execute-a-project-activity-P6", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AppendEpisode (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP6S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P6","record":{"EpisodeID":"ep-exec-P6-a3","Kind":1,"TargetRef":"C-dct-ep-delta","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-01T12:00:00Z","EndedAt":"2026-10-01T12:44:00Z","Outcome":1,"Lineage":{"WorkflowID":"dct-ep-exec-P6:activity:C-dct-ep-delta","RunID":"run-p6-0003"},"WorkerClass":"senior-developer","ToolCallCounts":{"Bash":40}}}`, &in1)
 		var out1 any
 		var err1 error
-		err1 = subject.AppendEpisode(callContext(t, h, "1"), in1.ProjectID, in1.Record)
-		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: episodeAccess.ListEpisodes for attempt-episode
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-exec-P6",
+                              "TargetRef": "C-dct-ep-delta"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-exec-P6","TargetRef":"C-dct-ep-delta"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ListEpisodes(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("execute-a-project-activity-P6 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P6-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-delta\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P6:activity:C-dct-ep-delta\",\"RunID\":\"run-p6-0003\"},\"ToolCallCounts\":{\"Bash\":40}}]","errorExpected":false}`)
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P6","record":{
+                          "EpisodeID": "ep-exec-P6-a3",
+                          "Kind": 1,
+                          "TargetRef": "C-dct-ep-delta",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-01T12:00:00Z",
+                          "EndedAt": "2026-10-01T12:44:00Z",
+                          "Outcome": 1,
+                          "Lineage": {
+                            "WorkflowID": "dct-ep-exec-P6:activity:C-dct-ep-delta",
+                            "RunID": "run-p6-0003"
+                          },
+                          "WorkerClass": "senior-developer",
+                          "ToolCallCounts": {
+                            "Bash": 40
+                          }
+                        }}`, &in1)
+		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "execute-a-project-activity-P6 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P6-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-delta\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P6:activity:C-dct-ep-delta\",\"RunID\":\"run-p6-0003\"},\"ToolCallCounts\":{\"Bash\":40}}]","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P6", 1, pre1_1)
 	})
 }
 
@@ -169,23 +329,51 @@ type inputExecuteAProjectActivityP7S1 struct {
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "execute-a-project-activity-P7", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AppendEpisode (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP7S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P7","record":{"EpisodeID":"ep-exec-P7-r2","Kind":3,"TargetRef":"C-dct-ep-echo","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-01T13:00:00Z","EndedAt":"2026-10-01T13:22:00Z","Outcome":0,"Lineage":{"WorkflowID":"dct-ep-exec-P7:activity:C-dct-ep-echo","RunID":"run-p7-0002","ActivityID":"C-dct-ep-echo"},"WorkerClass":"senior-developer"}}`, &in1)
 		var out1 any
 		var err1 error
-		err1 = subject.AppendEpisode(callContext(t, h, "1"), in1.ProjectID, in1.Record)
-		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: episodeAccess.ListEpisodes for attempt-episode
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-exec-P7",
+                              "TargetRef": "C-dct-ep-echo"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-exec-P7","TargetRef":"C-dct-ep-echo"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ListEpisodes(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("execute-a-project-activity-P7 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P7-r2\",\"Kind\":3,\"TargetRef\":\"C-dct-ep-echo\",\"Outcome\":0,\"WorkerClass\":\"senior-developer\"}]","errorExpected":false}`)
+		var in1 inputExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"projectID":"dct-ep-exec-P7","record":{
+                          "EpisodeID": "ep-exec-P7-r2",
+                          "Kind": 3,
+                          "TargetRef": "C-dct-ep-echo",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-01T13:00:00Z",
+                          "EndedAt": "2026-10-01T13:22:00Z",
+                          "Outcome": 0,
+                          "Lineage": {
+                            "WorkflowID": "dct-ep-exec-P7:activity:C-dct-ep-echo",
+                            "RunID": "run-p7-0002",
+                            "ActivityID": "C-dct-ep-echo"
+                          },
+                          "WorkerClass": "senior-developer"
+                        }}`, &in1)
+		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
+		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "execute-a-project-activity-P7 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P7-r2\",\"Kind\":3,\"TargetRef\":\"C-dct-ep-echo\",\"Outcome\":0,\"WorkerClass\":\"senior-developer\"}]","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P7", 1, pre1_1)
 	})
 }
 
@@ -199,28 +387,64 @@ type inputReplanUnderScopeChangeP2S1 struct {
 func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "replan-under-scope-change-P2", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AppendEpisode (node reenter; guards classify=[no: scope change], mgmt=[accept])
-		var in1 inputReplanUnderScopeChangeP2S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-replan-P2","record":{"EpisodeID":"ep-replan-under-scope-change-P2","Kind":0,"TargetRef":"projectDesign/network","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-02T09:00:00Z","EndedAt":"2026-10-02T09:12:00Z","Outcome":0,"Lineage":{"WorkflowID":"dct-ep-replan-P2:activity:projectDesign","RunID":"run-replan-under-scope-change-P2"},"WorkerClass":"project-designer"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepReplanUnderScopeChangeP2S1(t, h, subject, in1)
-		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: episodeAccess.ListEpisodes for reenter
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-replan-P2",
+                              "TargetRef": "projectDesign/network"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-replan-P2","TargetRef":"projectDesign/network"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ListEpisodes(callContext(t, h, "1.1"), probe1_1.Query)
-		expect(t, "replan-under-scope-change-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P2\",\"Kind\":0,\"TargetRef\":\"projectDesign/network\",\"Outcome\":0}]","errorExpected":false}`)
 		// probe 1.2: designSessionAccess.ReadProjectOnBranch for amendment-session-open
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeReplanUnderScopeChangeP2S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+				Branch    string                 `json:"branch"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-ep-replan-P2","branch":"aiarch/amend/dct-ep-replan-P2/network"}`, &in)
+			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "1.2"), in.ProjectID, in.Branch)
+		}
+		pre1_1 := held("replan-under-scope-change-P2 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P2\",\"Kind\":0,\"TargetRef\":\"projectDesign/network\",\"Outcome\":0}]","errorExpected":false}`)
+		pre1_2 := held("replan-under-scope-change-P2 probe 1.2 before", 1, run1_2, `{"result":"{\"id\":\"dct-ep-replan-P2\"}","errorExpected":false}`)
+		var in1 inputReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"projectID":"dct-ep-replan-P2","record":{
+                          "EpisodeID": "ep-replan-under-scope-change-P2",
+                          "Kind": 0,
+                          "TargetRef": "projectDesign/network",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-02T09:00:00Z",
+                          "EndedAt": "2026-10-02T09:12:00Z",
+                          "Outcome": 0,
+                          "Lineage": {
+                            "WorkflowID": "dct-ep-replan-P2:activity:projectDesign",
+                            "RunID": "run-replan-under-scope-change-P2"
+                          },
+                          "WorkerClass": "project-designer"
+                        }}`, &in1)
+		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
+		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "replan-under-scope-change-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P2\",\"Kind\":0,\"TargetRef\":\"projectDesign/network\",\"Outcome\":0}]","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "replan-under-scope-change-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"id\":\"dct-ep-replan-P2\"}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P2", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -234,28 +458,64 @@ type inputReplanUnderScopeChangeP3S1 struct {
 func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "replan-under-scope-change-P3", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AppendEpisode (node reenter; guards classify=[no: scope change], mgmt=[reject])
-		var in1 inputReplanUnderScopeChangeP3S1
-		mustUnmarshal(t, `{"projectID":"dct-ep-replan-P3","record":{"EpisodeID":"ep-replan-under-scope-change-P3","Kind":0,"TargetRef":"projectDesign/activityList","Usage":{"In":41200,"Out":3900,"CacheRead":512000,"CacheCreate":18000},"StartedAt":"2026-10-02T09:00:00Z","EndedAt":"2026-10-02T09:12:00Z","Outcome":0,"Lineage":{"WorkflowID":"dct-ep-replan-P3:activity:projectDesign","RunID":"run-replan-under-scope-change-P3"},"WorkerClass":"project-designer"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepReplanUnderScopeChangeP3S1(t, h, subject, in1)
-		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: episodeAccess.ListEpisodes for reenter
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query episode.EpisodeQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query episode.EpisodeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "ProjectID": "dct-ep-replan-P3",
+                              "TargetRef": "projectDesign/activityList"
+                            }}`, &in)
+			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-replan-P3","TargetRef":"projectDesign/activityList"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.ListEpisodes(callContext(t, h, "1.1"), probe1_1.Query)
-		expect(t, "replan-under-scope-change-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P3\",\"Kind\":0,\"TargetRef\":\"projectDesign/activityList\",\"Outcome\":0}]","errorExpected":false}`)
 		// probe 1.2: designSessionAccess.ReadProjectOnBranch for amendment-session-open
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeReplanUnderScopeChangeP3S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+				Branch    string                 `json:"branch"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-ep-replan-P3","branch":"aiarch/amend/dct-ep-replan-P3/activityList"}`, &in)
+			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "1.2"), in.ProjectID, in.Branch)
+		}
+		pre1_1 := held("replan-under-scope-change-P3 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P3\",\"Kind\":0,\"TargetRef\":\"projectDesign/activityList\",\"Outcome\":0}]","errorExpected":false}`)
+		pre1_2 := held("replan-under-scope-change-P3 probe 1.2 before", 1, run1_2, `{"result":"{\"id\":\"dct-ep-replan-P3\"}","errorExpected":false}`)
+		var in1 inputReplanUnderScopeChangeP3S1
+		mustUnmarshal(t, `{"projectID":"dct-ep-replan-P3","record":{
+                          "EpisodeID": "ep-replan-under-scope-change-P3",
+                          "Kind": 0,
+                          "TargetRef": "projectDesign/activityList",
+                          "Usage": {
+                            "In": 41200,
+                            "Out": 3900,
+                            "CacheRead": 512000,
+                            "CacheCreate": 18000
+                          },
+                          "StartedAt": "2026-10-02T09:00:00Z",
+                          "EndedAt": "2026-10-02T09:12:00Z",
+                          "Outcome": 0,
+                          "Lineage": {
+                            "WorkflowID": "dct-ep-replan-P3:activity:projectDesign",
+                            "RunID": "run-replan-under-scope-change-P3"
+                          },
+                          "WorkerClass": "project-designer"
+                        }}`, &in1)
+		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
+		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "replan-under-scope-change-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-replan-under-scope-change-P3\",\"Kind\":0,\"TargetRef\":\"projectDesign/activityList\",\"Outcome\":0}]","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "replan-under-scope-change-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"id\":\"dct-ep-replan-P3\"}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P3", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -274,32 +534,26 @@ type inputRequeueAFailedConstructionActivityP1S2 struct {
 func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "episodeAccess", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {
-		var subject episode.EpisodeAccess = newSubject(t, h)
+		var subject episode.EpisodeAccess = scenariocompose.NewEpisodeAccess(t, h)
+		subject = nullSubjectEpisodeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ListEpisodes (node read-attempts)
-		var in1 inputRequeueAFailedConstructionActivityP1S1
-		mustUnmarshal(t, `{"query":{"ProjectID":"dct-ep-requeue-P1","TargetRef":"C-dct-ep-foxtrot"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRequeueAFailedConstructionActivityP1S1(t, h, subject, in1)
+		var in1 inputRequeueAFailedConstructionActivityP1S1
+		mustUnmarshal(t, `{"query":{
+                          "ProjectID": "dct-ep-requeue-P1",
+                          "TargetRef": "C-dct-ep-foxtrot"
+                        }}`, &in1)
+		out1, err1 = subject.ListEpisodes(h.ResourceAccessContext(t, "1"), in1.Query)
 		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"result":"[{\"EpisodeID\":\"ep-rq-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":1,\"NumTurns\":18,\"CostUSD\":1.2,\"TracePath\":\"episodes/traces/ep-rq-a1.jsonl\"},{\"EpisodeID\":\"ep-rq-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-foxtrot\",\"Outcome\":3,\"GapReason\":\"trace stream lost: runner terminated before result event\"}]","errorExpected":false}`)
 		// step 2: ReadTraceEvents (node read-failed-trace)
-		var in2 inputRequeueAFailedConstructionActivityP1S2
-		mustUnmarshal(t, `{"projectID":"dct-ep-requeue-P1","episodeID":"ep-rq-a1"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.ReadTraceEvents(callContext(t, h, "2"), in2.ProjectID, in2.EpisodeID)
+		var in2 inputRequeueAFailedConstructionActivityP1S2
+		mustUnmarshal(t, `{"projectID":"dct-ep-requeue-P1","episodeID":"ep-rq-a1"}`, &in2)
+		out2, err2 = subject.ReadTraceEvents(h.ResourceAccessContext(t, "2"), in2.ProjectID, in2.EpisodeID)
 		expect(t, "requeue-a-failed-construction-activity-P1", 2, out2, err2, `{"result":"[{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"ep-rq-a1\"},{\"type\":\"assistant\",\"message\":{\"stop_reason\":\"tool_use\"}},{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true,\"num_turns\":18}]","errorExpected":false}`)
-		// unobservable: show-failure-evidence
 	})
-}
-
-// callContext is the fwra call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
-	t.Helper()
-	_ = step
-	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -309,34 +563,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

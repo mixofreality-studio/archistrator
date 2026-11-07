@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/testgen"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -46,71 +47,72 @@ func validates(t *testing.T, r *jsonschema.Resolved, raw string) bool {
 	return r.Validate(v) == nil
 }
 
-// FIX-062: the browser dialect states what a user does and sees. The derived contract's action
-// kind enum is closed (check, uncheck, dblclick, hover and press join click, fill and navigate),
-// press needs a target, and each observable states exactly one thing, checked and unchecked
-// among them. The kinds are the platform's one list (methodcheck.UIActionKinds /
-// UIObservableKinds, exported by testgen as what it emits).
-//
-// EARMARK (FIX-062 condition 3): this test spells the kinds because the pinned platform
-// (framework-go v0.20.0, app-generator v0.20.2) predates the exported set. With the release
-// that carries it, compare against testgen.UIActionKinds()/UIObservableKinds() instead.
+// FPC plan 2: the browser dialect is the platform's sum-typed UIAction / UIObservable
+// ({"kind","model"} envelopes over a design element target), and the contract's $defs speak
+// exactly the kinds the platform decodes and testgen emits (methodcheck.UIActionKinds /
+// UIObservableKinds, exported by testgen). A step observes an ARRAY of observables with at least
+// one: an empty array would assert nothing.
 func TestBrowserContractDialect(t *testing.T) {
 	var anyProject projectstate.ProjectID
 	proj, _, err := projectstate.DecodeProjectJSON(composedState(t), anyProject)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var action struct {
-		Properties struct {
-			Kind struct {
-				Enum []string `json:"enum"`
-			} `json:"kind"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal(proj.ServiceContracts["webApp"].Defs["UIAction"], &action); err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"check", "click", "dblclick", "fill", "hover", "navigate", "press", "uncheck"}; !slices.Equal(action.Properties.Kind.Enum, want) {
-		t.Errorf("UIAction kinds %v, the dialect is %v", action.Properties.Kind.Enum, want)
-	}
-	var observable struct {
-		Properties map[string]any `json:"properties"`
-	}
-	if err := json.Unmarshal(proj.ServiceContracts["webApp"].Defs["UIObservable"], &observable); err != nil {
-		t.Fatal(err)
-	}
-	for _, kind := range []string{"checked", "text", "unchecked", "url", "visible"} {
-		if _, ok := observable.Properties[kind]; !ok {
-			t.Errorf("UIObservable has no %q", kind)
+	kindsOf := func(def string) []string {
+		var d struct {
+			OneOf []struct {
+				Properties struct {
+					Kind struct {
+						Const string `json:"const"`
+					} `json:"kind"`
+				} `json:"properties"`
+			} `json:"oneOf"`
 		}
+		if err := json.Unmarshal(proj.ServiceContracts["webApp"].Defs[def], &d); err != nil {
+			t.Fatal(err)
+		}
+		var kinds []string
+		for _, v := range d.OneOf {
+			kinds = append(kinds, v.Properties.Kind.Const)
+		}
+		slices.Sort(kinds)
+		return kinds
+	}
+	if got, want := kindsOf("UIAction"), testgen.UIActionKinds(); !slices.Equal(got, want) {
+		t.Errorf("UIAction kinds %v, the platform emits %v", got, want)
+	}
+	if got, want := kindsOf("UIObservable"), testgen.UIObservableKinds(); !slices.Equal(got, want) {
+		t.Errorf("UIObservable kinds %v, the platform emits %v", got, want)
 	}
 
 	actions := browserDialectSchema(t, "UIAction")
 	for _, ok := range []string{
-		`{"kind":"click","target":"add"}`,
-		`{"kind":"fill","target":"new","value":"milk"}`,
-		`{"kind":"fill","target":"edit"}`,
-		`{"kind":"navigate","value":"/active"}`,
-		`{"kind":"check","target":"toggle"}`,
-		`{"kind":"uncheck","target":"toggle"}`,
-		`{"kind":"dblclick","target":"title"}`,
-		`{"kind":"hover","target":"row"}`,
-		`{"kind":"press","target":"edit","value":"Enter"}`,
+		`{"kind":"click","model":{"target":{"element":"add"}}}`,
+		`{"kind":"fill","model":{"target":{"element":"new"},"value":"milk"}}`,
+		`{"kind":"fill","model":{"target":{"element":"edit"},"value":""}}`,
+		`{"kind":"navigate","model":{"route":"#/active"}}`,
+		`{"kind":"check","model":{"target":{"element":"toggle","nth":1}}}`,
+		`{"kind":"uncheck","model":{"target":{"element":"toggle"}}}`,
+		`{"kind":"dblclick","model":{"target":{"element":"title"}}}`,
+		`{"kind":"hover","model":{"target":{"element":"row"}}}`,
+		`{"kind":"press","model":{"target":{"element":"edit"},"key":"Enter"}}`,
+		`{"kind":"select","model":{"target":{"element":"filter"},"option":"Active"}}`,
 	} {
 		if !validates(t, actions, ok) {
 			t.Errorf("the dialect refuses %s", ok)
 		}
 	}
 	for _, bad := range []string{
-		`{"kind":"tap","target":"x"}`,                  // outside the closed enum
-		`{"kind":"press","value":"Enter"}`,             // a key press needs its element
-		`{"kind":"press","target":"edit"}`,             // and its key
-		`{"kind":"check"}`,                             // a check needs its box
-		`{"kind":"navigate"}`,                          // a route
-		`{"kind":"navigate","target":"x","value":"/"}`, // navigate acts on no element
-		`{"kind":"click","target":"x","value":"y"}`,    // a click carries no value
-		`{"kind":"click","target":"x","key":"y"}`,      // no other field
+		`{"kind":"tap","model":{"target":{"element":"x"}}}`,                  // outside the closed set
+		`{"kind":"click","target":"x"}`,                                      // the v1 flat form
+		`{"kind":"click","model":{"target":"x"}}`,                            // a target is an element reference
+		`{"kind":"click","model":{"target":{"element":"x","nth":-1}}}`,       // nth is an index
+		`{"kind":"press","model":{"target":{"element":"edit"}}}`,             // a key press needs its key
+		`{"kind":"check","model":{}}`,                                        // a check needs its box
+		`{"kind":"navigate","model":{}}`,                                     // a route
+		`{"kind":"navigate","model":{"route":"/","target":{"element":"x"}}}`, // navigate acts on no element
+		`{"kind":"click","model":{"target":{"element":"x"},"value":"y"}}`,    // a click carries no value
+		`{"kind":"fill","model":{"target":{"element":"x"}}}`,                 // a fill states its text, even ""
 	} {
 		if validates(t, actions, bad) {
 			t.Errorf("the dialect accepts %s", bad)
@@ -119,25 +121,30 @@ func TestBrowserContractDialect(t *testing.T) {
 
 	observables := browserDialectSchema(t, "UIObservation")
 	for _, ok := range []string{
-		`{"visible":"list"}`,
-		`{"checked":"toggle"}`,
-		`{"unchecked":"toggle"}`,
-		`{"text":"1 item left","target":"count"}`,
-		`{"text":"","target":"new-todo"}`, // a cleared field: presence states the kind, as methodcheck reads it
-		`{"url":"/active"}`,
-		`[{"checked":"toggle"},{"text":"0 items left","target":"count"}]`,
+		`[{"kind":"visible","model":{"target":{"element":"list"}}}]`,
+		`[{"kind":"checked","model":{"target":{"element":"toggle","nth":0}}}]`,
+		`[{"kind":"unchecked","model":{"target":{"element":"toggle"}}}]`,
+		`[{"kind":"text","model":{"target":{"element":"count"},"text":"1 item left"}}]`,
+		`[{"kind":"text","model":{"target":{"element":"new-todo"},"text":""}}]`, // a cleared field
+		`[{"kind":"value","model":{"target":{"element":"new-todo"},"value":""}}]`,
+		`[{"kind":"count","model":{"target":{"element":"todo-item"},"n":0}}]`,
+		`[{"kind":"url","model":{"route":"#/active"}}]`,
+		`[{"kind":"checked","model":{"target":{"element":"toggle"}}},{"kind":"absent","model":{"target":{"element":"banner"}}}]`,
 	} {
 		if !validates(t, observables, ok) {
 			t.Errorf("the dialect refuses %s", ok)
 		}
 	}
 	for _, bad := range []string{
-		`{}`,
-		`{"visible":"a","checked":"a"}`,
-		`{"visible":"a","target":"b"}`,
-		`{"text":"x"}`,
-		`{"enabled":"a"}`,
-		`[{"visible":"a"},{"url":"/","checked":"b"}]`,
+		`[]`, // asserts nothing
+		`{"kind":"visible","model":{"target":{"element":"list"}}}`, // one observable is a one-element array
+		`[{"kind":"enabled","model":{"target":{"element":"a"}},"extra":1}]`,
+		`[{"kind":"visible","model":{"target":{"element":"a"},"text":"b"}}]`,
+		`[{"kind":"text","model":{"target":{"element":"a"}}}]`,  // text states its text
+		`[{"kind":"count","model":{"target":{"element":"a"}}}]`, // a count states n
+		`[{"kind":"count","model":{"target":{"element":"a"},"n":-1}}]`,
+		`[{"kind":"blinking","model":{"target":{"element":"a"}}}]`,
+		`[{"visible":"a"}]`, // the v1 form
 	} {
 		if validates(t, observables, bad) {
 			t.Errorf("the dialect accepts %s", bad)

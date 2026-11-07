@@ -45,10 +45,6 @@ const projectFile = "../.aiarch/state/project.json"
 // outPath is the generated catalog's destination, relative to the server module root.
 const outPath = "internal/resourceaccess/projectstate/toolcatalog.gen.go"
 
-// readVerbs are the Method operation-name prefixes that mark a side-effect-free
-// ResourceAccess read (the honest read/write signal the contracts already carry).
-var readVerbs = []string{"Get", "Read", "List", "Query", "Observe", "Retrieve", "Fetch"}
-
 // refPattern matches a JSON-Schema local $ref into the contract's $defs.
 var refPattern = regexp.MustCompile(`#/\$defs/([A-Za-z0-9_]+)`)
 
@@ -148,20 +144,10 @@ func paramNames(op projectstate.ContractOperation) []string {
 	return out
 }
 
-// readOnly derives the MCP readOnlyHint. Every Engine op is read-only (Engines
-// are pure computation); a ResourceAccess op is read-only iff its name carries a
-// read verb.
-func readOnly(layer, op string) bool {
-	if layer == "Engine" {
-		return true
-	}
-	for _, v := range readVerbs {
-		if strings.HasPrefix(op, v) {
-			return true
-		}
-	}
-	return false
-}
+// readOnly derives the MCP readOnlyHint from the classifier a recorded contract's readOnly flag
+// uses too (projectstate.OperationReadOnly): every Engine op is read-only (Engines are pure
+// computation); any other op is read-only iff its name carries a read verb.
+func readOnly(layer, op string) bool { return projectstate.OperationReadOnly(layer, op) }
 
 // agentHidden marks the raw ops kept OFF the agent surface even though generated.
 // projectStateAccess is the merge-authority / rail ResourceAccess: its WRITES

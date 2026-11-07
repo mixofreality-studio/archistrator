@@ -183,6 +183,7 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		if err := canonicalizeContract(key, &sc); err != nil {
 			return err
 		}
+		markReadOnlyOperations(&sc)
 		if p.ServiceContracts == nil {
 			p.ServiceContracts = make(map[string]projectstate.ServiceContract)
 		}
@@ -192,6 +193,20 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 		}
 		return nil
 	})
+}
+
+// markReadOnlyOperations sets each operation's readOnly flag from its name and layer, the one
+// classifier the internal tool catalog's readOnlyHint uses. Nobody authors it: methodcheck holds a
+// test probe to a read-only operation (TP-PROBE), so a flag an author could set would be a way to
+// probe a write.
+func markReadOnlyOperations(sc *projectstate.ServiceContract) {
+	layer := sc.Layer
+	if layer == "" {
+		layer = sc.Interface.Layer
+	}
+	for i := range sc.Interface.Operations {
+		sc.Interface.Operations[i].ReadOnly = projectstate.OperationReadOnly(layer, sc.Interface.Operations[i].Name)
+	}
 }
 
 // contractShape is the input recordServiceContract takes, named in its refusals and its tool
@@ -633,8 +648,10 @@ func decodePhaseArtifactPayload(payload map[string]any) (projectstate.PhaseArtif
 
 // testPlanShape is a testPlan record's shape, named when one is refused: a strict decode names
 // only the stray key, and agents have put hook on the binding and expected values beside result.
-const testPlanShape = "{component, bindings:[{scenario, steps:[{seq, operation, inputs:[{name, value}], " +
-	"expect:{result, errorExpected, errorCode}, probes:[{for, component, operation, inputs, expect}], unobservable:[nodeId], hook}], skip:{reason, until}}]}"
+// There is no hook and no unobservable list (TP-HOOK): a record is data, and the platform writes the test.
+const testPlanShape = "{component, principals:{<name>:{subject, roles}}, bindings:[{scenario, arrange:[{kind, model}], " +
+	"steps:[{seq, operation, inputs:[{name, value:{kind:literal|ref, model}}], expect:{result, errorExpected, errorCode}, " +
+	"probes:[{for, component, operation, inputs, expect}], before}], skip:{reason, until}}]}"
 
 // refuseBlankContent: a content-bearing record is its markdown text, which the phases after it
 // read. One recorded with no content records nothing but a passing write.
@@ -652,6 +669,9 @@ func refuseBlankContent(pl projectstate.PhaseArtifactPayload) error {
 	}
 	if pl.UIDesign != nil {
 		records = append(records, record{"UIDesign", pl.UIDesign.Content})
+		if len(pl.UIDesign.Screens) == 0 {
+			return fmt.Errorf("the UIDesign record has no screens: a UI design is the typed screens and elements a user sees (screens:[{id, route, elements:[{id, role, name, within, repeats}]}]), which the UI test steps target by element id; prose alone in \"content\" gives them nothing to target")
+		}
 	}
 	if pl.ProvisioningSpec != nil {
 		records = append(records, record{"ProvisioningSpec", pl.ProvisioningSpec.Content})

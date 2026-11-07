@@ -6,6 +6,7 @@ package merchantgateway_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,9 +15,8 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/merchantgateway"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "merchantGatewayAccess") }
 
 // inputBillTheUserForUsageP1S1 is step 1's parameters of ChargeCustomer, decoded from the binding's inputs.
 type inputBillTheUserForUsageP1S1 struct {
@@ -29,15 +29,18 @@ type inputBillTheUserForUsageP1S1 struct {
 func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "bill-the-user-for-usage-P1", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
+		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ChargeCustomer (node charge-user; guards charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP1S1
-		mustUnmarshal(t, `{"customerID":"d1110000-0000-4000-8000-000000000001","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d1110000-0000-4000-8000-000000000001:2026-09:1"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepBillTheUserForUsageP1S1(t, h, subject, in1)
+		var in1 inputBillTheUserForUsageP1S1
+		mustUnmarshal(t, `{"customerID":"d1110000-0000-4000-8000-000000000001","amount":{
+                          "MinorUnits": 4200,
+                          "Currency": "USD"
+                        },"idempotencyKey":"settle:d1110000-0000-4000-8000-000000000001:2026-09:1"}`, &in1)
+		err1 = subject.ChargeCustomer(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
 		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: charge-user
 	})
 }
 
@@ -52,15 +55,18 @@ type inputBillTheUserForUsageP2S1 struct {
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "bill-the-user-for-usage-P2", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
+		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ChargeCustomer (node charge-user; guards charge-succeeded=[no])
-		var in1 inputBillTheUserForUsageP2S1
-		mustUnmarshal(t, `{"customerID":"d1120000-0000-4000-8000-000000000002","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d1120000-0000-4000-8000-000000000002:2026-09:1"}`, &in1)
 		var out1 any
 		var err1 error
-		err1 = subject.ChargeCustomer(callContext(t, h, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
+		var in1 inputBillTheUserForUsageP2S1
+		mustUnmarshal(t, `{"customerID":"d1120000-0000-4000-8000-000000000002","amount":{
+                          "MinorUnits": 4200,
+                          "Currency": "USD"
+                        },"idempotencyKey":"settle:d1120000-0000-4000-8000-000000000002:2026-09:1"}`, &in1)
+		err1 = subject.ChargeCustomer(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
 		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"Auth"}`)
-		// unobservable: charge-user
 	})
 }
 
@@ -79,39 +85,49 @@ type inputOnboardANewCustomerP2S2 struct {
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "onboard-a-new-customer-P2", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
+		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[yes])
-		var in1 inputOnboardANewCustomerP2S1
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOnboardANewCustomerP2S1(t, h, subject, in1)
+		var in1 inputOnboardANewCustomerP2S1
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000001"}`, &in1)
+		err1 = subject.ValidateStoredInstrument(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.IdempotencyKey)
 		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[yes])
-		var in2 inputOnboardANewCustomerP2S2
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.ReadStoredInstrument(callContext(t, h, "2"), in2.CustomerID)
-		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
 		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			CustomerID uuid.UUID `json:"customerID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in)
+			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
 		}
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.ReadStoredInstrument(callContext(t, h, "2.1"), probe2_1.CustomerID)
-		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
 		// probe 2.2: merchantGatewayAccess.ReadStoredInstrument for validate-instrument
 		var pout2_2 any
 		var perr2_2 error
-		var probe2_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
+		run2_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in)
+			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.2"), in.CustomerID)
 		}
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &probe2_2)
-		pout2_2, perr2_2 = subject.ReadStoredInstrument(callContext(t, h, "2.2"), probe2_2.CustomerID)
+		pre2_1 := held("onboard-a-new-customer-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pre2_2 := held("onboard-a-new-customer-P2 probe 2.2 before", 2, run2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		var in2 inputOnboardANewCustomerP2S2
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000001"}`, &in2)
+		out2, err2 = subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2"), in2.CustomerID)
+		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
+		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pout2_2, perr2_2 = run2_2()
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P2", 2, pre2_1, pre2_2)
 	})
 }
 
@@ -130,39 +146,49 @@ type inputOnboardANewCustomerP3S2 struct {
 func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "onboard-a-new-customer-P3", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
+		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ValidateStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
-		var in1 inputOnboardANewCustomerP3S1
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000003"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOnboardANewCustomerP3S1(t, h, subject, in1)
+		var in1 inputOnboardANewCustomerP3S1
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003","idempotencyKey":"validate:d2210000-0000-4000-8000-000000000003"}`, &in1)
+		err1 = subject.ValidateStoredInstrument(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.IdempotencyKey)
 		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// step 2: ReadStoredInstrument (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
-		var in2 inputOnboardANewCustomerP3S2
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.ReadStoredInstrument(callContext(t, h, "2"), in2.CustomerID)
-		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
 		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			CustomerID uuid.UUID `json:"customerID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in)
+			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
 		}
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.ReadStoredInstrument(callContext(t, h, "2.1"), probe2_1.CustomerID)
-		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
 		// probe 2.2: merchantGatewayAccess.ReadStoredInstrument for validate-instrument
 		var pout2_2 any
 		var perr2_2 error
-		var probe2_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
+		run2_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in)
+			return subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2.2"), in.CustomerID)
 		}
-		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &probe2_2)
-		pout2_2, perr2_2 = subject.ReadStoredInstrument(callContext(t, h, "2.2"), probe2_2.CustomerID)
+		pre2_1 := held("onboard-a-new-customer-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pre2_2 := held("onboard-a-new-customer-P3 probe 2.2 before", 2, run2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		var in2 inputOnboardANewCustomerP3S2
+		mustUnmarshal(t, `{"customerID":"d2210000-0000-4000-8000-000000000003"}`, &in2)
+		out2, err2 = subject.ReadStoredInstrument(h.ResourceAccessContext(t, "2"), in2.CustomerID)
+		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
+		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pout2_2, perr2_2 = run2_2()
 		expect(t, "onboard-a-new-customer-P3 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P3", 2, pre2_1, pre2_2)
 	})
 }
 
@@ -177,15 +203,18 @@ type inputRetryADeclinedServiceInvoiceP1S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
+		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
-		var in1 inputRetryADeclinedServiceInvoiceP1S1
-		mustUnmarshal(t, `{"customerID":"d3340000-0000-4000-8000-000000000004","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d3340000-0000-4000-8000-000000000004:2026-09:2"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP1S1(t, h, subject, in1)
+		var in1 inputRetryADeclinedServiceInvoiceP1S1
+		mustUnmarshal(t, `{"customerID":"d3340000-0000-4000-8000-000000000004","amount":{
+                          "MinorUnits": 4200,
+                          "Currency": "USD"
+                        },"idempotencyKey":"settle:d3340000-0000-4000-8000-000000000004:2026-09:2"}`, &in1)
+		err1 = subject.ChargeCustomer(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
 		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"errorExpected":true,"errorCode":"Auth"}`)
-		// unobservable: recharge
 	})
 }
 
@@ -200,25 +229,19 @@ type inputRetryADeclinedServiceInvoiceP2S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
-		var subject merchantgateway.MerchantGatewayAccess = newSubject(t, h)
+		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
+		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[yes])
-		var in1 inputRetryADeclinedServiceInvoiceP2S1
-		mustUnmarshal(t, `{"customerID":"d3310000-0000-4000-8000-000000000001","amount":{"MinorUnits":4200,"Currency":"USD"},"idempotencyKey":"settle:d3310000-0000-4000-8000-000000000001:2026-09:2"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP2S1(t, h, subject, in1)
+		var in1 inputRetryADeclinedServiceInvoiceP2S1
+		mustUnmarshal(t, `{"customerID":"d3310000-0000-4000-8000-000000000001","amount":{
+                          "MinorUnits": 4200,
+                          "Currency": "USD"
+                        },"idempotencyKey":"settle:d3310000-0000-4000-8000-000000000001:2026-09:2"}`, &in1)
+		err1 = subject.ChargeCustomer(h.ResourceAccessContext(t, "1"), in1.CustomerID, in1.Amount, in1.IdempotencyKey)
 		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: recharge
 	})
-}
-
-// callContext is the fwra call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
-	t.Helper()
-	_ = step
-	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -228,34 +251,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

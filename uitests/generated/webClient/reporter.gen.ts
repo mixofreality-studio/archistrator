@@ -22,6 +22,7 @@ class ScenarioReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
+    if (test.annotations.some((a) => a.type === 'surface')) return;
     const scenario = test.annotations.find((a) => a.type === 'scenario')?.description ?? test.title;
     const status = result.status === 'passed' ? 'pass' : result.status === 'skipped' ? 'skip' : result.status === 'timedOut' ? 'timeout' : 'fail';
     const r: ScenarioResult = { scenario, status, durationMs: result.duration };

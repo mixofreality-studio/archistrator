@@ -6,16 +6,18 @@ package intervention_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "interventionEngine") }
 
 // inputExecuteAProjectActivityP2S1 is step 1's parameters of DecideOnVariance, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP2S1 struct {
@@ -26,15 +28,27 @@ type inputExecuteAProjectActivityP2S1 struct {
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "execute-a-project-activity-P2", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnVariance (node retry-remain; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP2S1
-		mustUnmarshal(t, `{"variance":{"ProjectID":"stp-ie-project-0001","ActivityID":"stp-ie-act-P2","Kind":1,"AttemptCount":3,"Severity":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":0}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.DecideOnVariance(callContext(t, h, "1"), in1.Variance)
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"variance":{
+                          "ProjectID": "stp-ie-project-0001",
+                          "ActivityID": "stp-ie-act-P2",
+                          "Kind": 1,
+                          "AttemptCount": 3,
+                          "Severity": 0,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 3,
+                            "ShortfallToleranceSweeps": 0
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnVariance(h.EngineContext(t), in1.Variance)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"1","errorExpected":false}`)
-		// unobservable: escalate-operator
 	})
 }
 
@@ -47,13 +61,26 @@ type inputExecuteAProjectActivityP5S1 struct {
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "execute-a-project-activity-P5", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnVariance (node retry-remain; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP5S1
-		mustUnmarshal(t, `{"variance":{"ProjectID":"stp-ie-project-0001","ActivityID":"stp-ie-act-P5","Kind":2,"AttemptCount":1,"Severity":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":0}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.DecideOnVariance(callContext(t, h, "1"), in1.Variance)
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"variance":{
+                          "ProjectID": "stp-ie-project-0001",
+                          "ActivityID": "stp-ie-act-P5",
+                          "Kind": 2,
+                          "AttemptCount": 1,
+                          "Severity": 0,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 3,
+                            "ShortfallToleranceSweeps": 0
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnVariance(h.EngineContext(t), in1.Variance)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"0","errorExpected":false}`)
 	})
 }
@@ -67,15 +94,27 @@ type inputExecuteAProjectActivityP6S1 struct {
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "execute-a-project-activity-P6", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnVariance (node retry-remain; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP6S1
-		mustUnmarshal(t, `{"variance":{"ProjectID":"stp-ie-project-0001","ActivityID":"stp-ie-act-P6","Kind":3,"AttemptCount":0,"Severity":0,"Policy":{"Mode":1,"SLATier":0,"RetryBudget":0,"ShortfallToleranceSweeps":0}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.DecideOnVariance(callContext(t, h, "1"), in1.Variance)
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"variance":{
+                          "ProjectID": "stp-ie-project-0001",
+                          "ActivityID": "stp-ie-act-P6",
+                          "Kind": 3,
+                          "AttemptCount": 0,
+                          "Severity": 0,
+                          "Policy": {
+                            "Mode": 1,
+                            "SLATier": 0,
+                            "RetryBudget": 0,
+                            "ShortfallToleranceSweeps": 0
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnVariance(h.EngineContext(t), in1.Variance)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"1","errorExpected":false}`)
-		// unobservable: escalate-operator
 	})
 }
 
@@ -88,25 +127,58 @@ type inputOperateADeliveredSystemP4S1 struct {
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "operate-a-delivered-system-P4", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnHealth (node record-status; guards state-transition=[yes], decision-nochange=[yes])
-		var in1 inputOperateADeliveredSystemP4S1
-		mustUnmarshal(t, `{"healthChange":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","FromHealth":1,"ToHealth":2,"SLOStatus":3,"Severity":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":2,"ShortfallToleranceSweeps":0}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP4S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"1","errorExpected":false}`)
-		// unobservable: record-status
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-status-changed
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeOperateADeliveredSystemP4S1N1(t, h, subject)
-		expect(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
 		// probe 1.2: usageAccess.ReadRange for compute-usage-recorded
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeOperateADeliveredSystemP4S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				Query usage.UsageRangeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                              "CycleID": "2026-10",
+                              "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                            }}`, &in)
+			return scenariocompose.NewUsageAccess(t, h).ReadRange(h.ResourceAccessContext(t, "1.2"), in.Query)
+		}
+		pre1_1 := held("operate-a-delivered-system-P4 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}","errorExpected":false}`)
+		pre1_2 := held("operate-a-delivered-system-P4 probe 1.2 before", 1, run1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\"}]","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP4S1
+		mustUnmarshal(t, `{"healthChange":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "FromHealth": 1,
+                          "ToHealth": 2,
+                          "SLOStatus": 3,
+                          "Severity": 0,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 2,
+                            "ShortfallToleranceSweeps": 0
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnHealth(h.EngineContext(t), in1.HealthChange)
+		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "operate-a-delivered-system-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\"}]","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P4", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -119,25 +191,58 @@ type inputOperateADeliveredSystemP5S1 struct {
 func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "operate-a-delivered-system-P5", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnHealth (node record-status; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in1 inputOperateADeliveredSystemP5S1
-		mustUnmarshal(t, `{"healthChange":{"OperatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","FromHealth":1,"ToHealth":2,"SLOStatus":1,"Severity":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":2,"ShortfallToleranceSweeps":0}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP5S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"0","errorExpected":false}`)
-		// unobservable: record-status
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-status-changed
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeOperateADeliveredSystemP5S1N1(t, h, subject)
-		expect(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
 		// probe 1.2: usageAccess.ReadRange for compute-usage-recorded
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeOperateADeliveredSystemP5S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				Query usage.UsageRangeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                              "CycleID": "2026-10",
+                              "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                            }}`, &in)
+			return scenariocompose.NewUsageAccess(t, h).ReadRange(h.ResourceAccessContext(t, "1.2"), in.Query)
+		}
+		pre1_1 := held("operate-a-delivered-system-P5 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}","errorExpected":false}`)
+		pre1_2 := held("operate-a-delivered-system-P5 probe 1.2 before", 1, run1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\"}]","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"healthChange":{
+                          "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1",
+                          "FromHealth": 1,
+                          "ToHealth": 2,
+                          "SLOStatus": 1,
+                          "Severity": 0,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 2,
+                            "ShortfallToleranceSweeps": 0
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnHealth(h.EngineContext(t), in1.HealthChange)
+		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"0","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "operate-a-delivered-system-P5 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\"}]","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P5", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -150,13 +255,23 @@ type inputPauseConstructionP1S1 struct {
 func TestScenario_pause_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "pause-construction-P1", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ApplyPausePolicy (node decide-pause-plan)
-		var in1 inputPauseConstructionP1S1
-		mustUnmarshal(t, `{"ctx":{"ProjectID":"stp-ie-project-0001","Reason":"operator pause: stp-ie P1","Policy":{"Mode":2,"SLATier":2,"RetryBudget":2,"ShortfallToleranceSweeps":0}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ApplyPausePolicy(callContext(t, h, "1"), in1.Ctx)
+		var in1 inputPauseConstructionP1S1
+		mustUnmarshal(t, `{"ctx":{
+                          "ProjectID": "stp-ie-project-0001",
+                          "Reason": "operator pause: stp-ie P1",
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 2,
+                            "RetryBudget": 2,
+                            "ShortfallToleranceSweeps": 0
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ApplyPausePolicy(h.EngineContext(t), in1.Ctx)
 		expect(t, "pause-construction-P1", 1, out1, err1, `{"result":"{\"RecordPaused\":true,\"NotifyTargets\":[\"operator\",\"architect\"]}","errorExpected":false}`)
 	})
 }
@@ -170,13 +285,26 @@ type inputRetryADeclinedServiceInvoiceP1S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
-		var in1 inputRetryADeclinedServiceInvoiceP1S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":0,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
+		var in1 inputRetryADeclinedServiceInvoiceP1S1
+		mustUnmarshal(t, `{"failure":{
+                          "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                          "CycleID": "2026-08",
+                          "Kind": 1,
+                          "AttemptCount": 0,
+                          "ShortfallAge": 0,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 3,
+                            "ShortfallToleranceSweeps": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
 		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"result":"0","errorExpected":false}`)
 	})
 }
@@ -190,13 +318,26 @@ type inputRetryADeclinedServiceInvoiceP2S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[yes])
-		var in1 inputRetryADeclinedServiceInvoiceP2S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":0,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
+		var in1 inputRetryADeclinedServiceInvoiceP2S1
+		mustUnmarshal(t, `{"failure":{
+                          "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                          "CycleID": "2026-08",
+                          "Kind": 1,
+                          "AttemptCount": 0,
+                          "ShortfallAge": 0,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 3,
+                            "ShortfallToleranceSweeps": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
 		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"0","errorExpected":false}`)
 	})
 }
@@ -210,13 +351,26 @@ type inputRetryADeclinedServiceInvoiceP3S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
-		var in1 inputRetryADeclinedServiceInvoiceP3S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":3,"ShortfallAge":0,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
+		var in1 inputRetryADeclinedServiceInvoiceP3S1
+		mustUnmarshal(t, `{"failure":{
+                          "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                          "CycleID": "2026-08",
+                          "Kind": 1,
+                          "AttemptCount": 3,
+                          "ShortfallAge": 0,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 3,
+                            "ShortfallToleranceSweeps": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
 		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 	})
 }
@@ -230,24 +384,28 @@ type inputRetryADeclinedServiceInvoiceP4S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
-		var subject intervention.InterventionEngine = newSubject(t, h)
+		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
+		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in1 inputRetryADeclinedServiceInvoiceP4S1
-		mustUnmarshal(t, `{"failure":{"CustomerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","CycleID":"2026-08","Kind":1,"AttemptCount":3,"ShortfallAge":2,"Policy":{"Mode":2,"SLATier":0,"RetryBudget":3,"ShortfallToleranceSweeps":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.DecideOnSettlementFailure(callContext(t, h, "1"), in1.Failure)
+		var in1 inputRetryADeclinedServiceInvoiceP4S1
+		mustUnmarshal(t, `{"failure":{
+                          "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                          "CycleID": "2026-08",
+                          "Kind": 1,
+                          "AttemptCount": 3,
+                          "ShortfallAge": 2,
+                          "Policy": {
+                            "Mode": 2,
+                            "SLATier": 0,
+                            "RetryBudget": 3,
+                            "ShortfallToleranceSweeps": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
 		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"2","errorExpected":false}`)
 	})
-}
-
-// callContext is the fweng call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fweng.Context {
-	t.Helper()
-	_ = step
-	return fweng.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -257,34 +415,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

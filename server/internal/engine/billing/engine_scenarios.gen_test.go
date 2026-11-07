@@ -6,6 +6,7 @@ package billing_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,8 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "billingEngine") }
 
 // inputBillTheUserForUsageP1S1 is step 1's parameters of ComputeNet, decoded from the binding's inputs.
 type inputBillTheUserForUsageP1S1 struct {
@@ -28,13 +28,28 @@ type inputBillTheUserForUsageP1S1 struct {
 func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "bill-the-user-for-usage-P1", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ComputeNet (node price-invoice; guards charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP1S1
-		mustUnmarshal(t, `{"revenue":{"GrossInbound":{"minorUnits":15000,"currency":"USD"},"EventCount":42},"usage":{"ComputeUnitSeconds":50000,"StorageBytesMonths":3.5,"EgressBytes":1048576},"terms":{"computeCost":1,"computeMarkupPercent":20,"schedule":1}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ComputeNet(callContext(t, h, "1"), in1.Revenue, in1.Usage, in1.Terms)
+		var in1 inputBillTheUserForUsageP1S1
+		mustUnmarshal(t, `{"revenue":{
+                          "GrossInbound": {
+                            "minorUnits": 15000,
+                            "currency": "USD"
+                          },
+                          "EventCount": 42
+                        },"usage":{
+                          "ComputeUnitSeconds": 50000,
+                          "StorageBytesMonths": 3.5,
+                          "EgressBytes": 1048576
+                        },"terms":{
+                          "computeCost": 1,
+                          "computeMarkupPercent": 20,
+                          "schedule": 1
+                        }}`, &in1)
+		out1, err1 = subject.ComputeNet(h.EngineContext(t), in1.Revenue, in1.Usage, in1.Terms)
 		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"{\"SignedNet\":{\"minorUnits\":-45000,\"currency\":\"USD\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":60000,\"currency\":\"USD\"}}","errorExpected":false}`)
 	})
 }
@@ -50,13 +65,28 @@ type inputBillTheUserForUsageP2S1 struct {
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "bill-the-user-for-usage-P2", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ComputeNet (node price-invoice; guards charge-succeeded=[no])
-		var in1 inputBillTheUserForUsageP2S1
-		mustUnmarshal(t, `{"revenue":{"GrossInbound":{"minorUnits":346,"currency":"USD"},"EventCount":7},"usage":{"ComputeUnitSeconds":12345.5,"StorageBytesMonths":0,"EgressBytes":0},"terms":{"computeCost":1,"computeMarkupPercent":0,"schedule":2}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ComputeNet(callContext(t, h, "1"), in1.Revenue, in1.Usage, in1.Terms)
+		var in1 inputBillTheUserForUsageP2S1
+		mustUnmarshal(t, `{"revenue":{
+                          "GrossInbound": {
+                            "minorUnits": 346,
+                            "currency": "USD"
+                          },
+                          "EventCount": 7
+                        },"usage":{
+                          "ComputeUnitSeconds": 12345.5,
+                          "StorageBytesMonths": 0,
+                          "EgressBytes": 0
+                        },"terms":{
+                          "computeCost": 1,
+                          "computeMarkupPercent": 0,
+                          "schedule": 2
+                        }}`, &in1)
+		out1, err1 = subject.ComputeNet(h.EngineContext(t), in1.Revenue, in1.Usage, in1.Terms)
 		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"SignedNet\":{\"minorUnits\":-12000,\"currency\":\"USD\"},\"RoutingDirective\":2,\"ComputeCostApplied\":{\"minorUnits\":12346,\"currency\":\"USD\"}}","errorExpected":false}`)
 	})
 }
@@ -70,15 +100,22 @@ type inputCommitToAProjectOptionP1S1 struct {
 func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "commit-to-a-project-option-P1", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node await-decision; guards decision=[commit], revoke-window=[no])
-		var in1 inputCommitToAProjectOptionP1S1
-		mustUnmarshal(t, `{"option":{"OptionID":"normal","Terms":{"computeCost":1,"computeMarkupPercent":20,"schedule":1}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputCommitToAProjectOptionP1S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "normal",
+                          "Terms": {
+                            "computeCost": 1,
+                            "computeMarkupPercent": 20,
+                            "schedule": 1
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"result":"{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":20}","errorExpected":false}`)
-		// unobservable: present-sdp-review
 	})
 }
 
@@ -91,15 +128,22 @@ type inputCommitToAProjectOptionP2S1 struct {
 func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "commit-to-a-project-option-P2", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node await-decision; guards decision=[commit], revoke-window=[yes])
-		var in1 inputCommitToAProjectOptionP2S1
-		mustUnmarshal(t, `{"option":{"OptionID":"decompressed-normal","Terms":{"computeCost":2,"computeMarkupPercent":15.5,"schedule":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputCommitToAProjectOptionP2S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "decompressed-normal",
+                          "Terms": {
+                            "computeCost": 2,
+                            "computeMarkupPercent": 15.5,
+                            "schedule": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"result":"{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":15.5}","errorExpected":false}`)
-		// unobservable: present-sdp-review
 	})
 }
 
@@ -112,15 +156,22 @@ type inputCommitToAProjectOptionP3S1 struct {
 func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "commit-to-a-project-option-P3", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node await-decision; guards decision=[reject-all + feedback])
-		var in1 inputCommitToAProjectOptionP3S1
-		mustUnmarshal(t, `{"option":{"OptionID":"compressed","Terms":{"computeCost":1,"computeMarkupPercent":0,"schedule":3}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputCommitToAProjectOptionP3S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "compressed",
+                          "Terms": {
+                            "computeCost": 1,
+                            "computeMarkupPercent": 0,
+                            "schedule": 3
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "commit-to-a-project-option-P3", 1, out1, err1, `{"result":"{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":0}","errorExpected":false}`)
-		// unobservable: present-sdp-review
 	})
 }
 
@@ -133,13 +184,21 @@ type inputExecuteAProjectActivityP1S1 struct {
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "execute-a-project-activity-P1", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node record-exit; guards task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP1S1
-		mustUnmarshal(t, `{"option":{"OptionID":"normal","Terms":{"computeCost":1,"computeMarkupPercent":20,"schedule":1}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "normal",
+                          "Terms": {
+                            "computeCost": 1,
+                            "computeMarkupPercent": 20,
+                            "schedule": 1
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":20}","errorExpected":false}`)
 	})
 }
@@ -153,13 +212,21 @@ type inputExecuteAProjectActivityP2S1 struct {
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "execute-a-project-activity-P2", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP2S1
-		mustUnmarshal(t, `{"option":{"OptionID":"normal","Terms":{"computeCost":2,"computeMarkupPercent":7.25,"schedule":1}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "normal",
+                          "Terms": {
+                            "computeCost": 2,
+                            "computeMarkupPercent": 7.25,
+                            "schedule": 1
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":7.25}","errorExpected":false}`)
 	})
 }
@@ -173,13 +240,21 @@ type inputExecuteAProjectActivityP3S1 struct {
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "execute-a-project-activity-P3", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node record-exit; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in1 inputExecuteAProjectActivityP3S1
-		mustUnmarshal(t, `{"option":{"OptionID":"decompressed-normal","Terms":{"computeCost":1,"computeMarkupPercent":0,"schedule":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "decompressed-normal",
+                          "Terms": {
+                            "computeCost": 1,
+                            "computeMarkupPercent": 0,
+                            "schedule": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":0}","errorExpected":false}`)
 	})
 }
@@ -193,13 +268,21 @@ type inputExecuteAProjectActivityP4S1 struct {
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "execute-a-project-activity-P4", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node record-exit; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in1 inputExecuteAProjectActivityP4S1
-		mustUnmarshal(t, `{"option":{"OptionID":"compressed","Terms":{"computeCost":2,"computeMarkupPercent":100,"schedule":3}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "compressed",
+                          "Terms": {
+                            "computeCost": 2,
+                            "computeMarkupPercent": 100,
+                            "schedule": 3
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":100}","errorExpected":false}`)
 	})
 }
@@ -213,13 +296,21 @@ type inputExecuteAProjectActivityP5S1 struct {
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "execute-a-project-activity-P5", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP5S1
-		mustUnmarshal(t, `{"option":{"OptionID":"normal","Terms":{"computeCost":1,"computeMarkupPercent":33.5,"schedule":1}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "normal",
+                          "Terms": {
+                            "computeCost": 1,
+                            "computeMarkupPercent": 33.5,
+                            "schedule": 1
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":33.5}","errorExpected":false}`)
 	})
 }
@@ -233,13 +324,21 @@ type inputExecuteAProjectActivityP6S1 struct {
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "execute-a-project-activity-P6", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node record-exit; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP6S1
-		mustUnmarshal(t, `{"option":{"OptionID":"decompressed-normal","Terms":{"computeCost":2,"computeMarkupPercent":250,"schedule":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "decompressed-normal",
+                          "Terms": {
+                            "computeCost": 2,
+                            "computeMarkupPercent": 250,
+                            "schedule": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":250}","errorExpected":false}`)
 	})
 }
@@ -253,13 +352,21 @@ type inputExecuteAProjectActivityP7S1 struct {
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "execute-a-project-activity-P7", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node record-exit; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP7S1
-		mustUnmarshal(t, `{"option":{"OptionID":"compressed","Terms":{"computeCost":1,"computeMarkupPercent":5,"schedule":3}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "compressed",
+                          "Terms": {
+                            "computeCost": 1,
+                            "computeMarkupPercent": 5,
+                            "schedule": 3
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":5}","errorExpected":false}`)
 	})
 }
@@ -273,13 +380,21 @@ type inputOnboardANewCustomerP2S1 struct {
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "onboard-a-new-customer-P2", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node register-customer; guards registered=[no], project-committed=[yes])
-		var in1 inputOnboardANewCustomerP2S1
-		mustUnmarshal(t, `{"option":{"OptionID":"opt-normal","Terms":{"computeCost":2,"computeMarkupPercent":0,"schedule":1}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputOnboardANewCustomerP2S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "opt-normal",
+                          "Terms": {
+                            "computeCost": 2,
+                            "computeMarkupPercent": 0,
+                            "schedule": 1
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":0}","errorExpected":false}`)
 	})
 }
@@ -293,13 +408,21 @@ type inputReplanUnderScopeChangeP2S1 struct {
 func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "replan-under-scope-change-P2", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node rebuild-options; guards classify=[no: scope change], mgmt=[accept])
-		var in1 inputReplanUnderScopeChangeP2S1
-		mustUnmarshal(t, `{"option":{"OptionID":"normal-rev2","Terms":{"computeCost":2,"computeMarkupPercent":10,"schedule":1}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "normal-rev2",
+                          "Terms": {
+                            "computeCost": 2,
+                            "computeMarkupPercent": 10,
+                            "schedule": 1
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"result":"{\"ComputeCostKind\":2,\"ComputeMarkupPercent\":10}","errorExpected":false}`)
 	})
 }
@@ -313,24 +436,23 @@ type inputReplanUnderScopeChangeP3S1 struct {
 func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingEngine", "replan-under-scope-change-P3", func(t *testing.T) {
-		var subject billing.BillingEngine = newSubject(t, h)
+		var subject billing.BillingEngine = scenariocompose.NewBillingEngine(t, h)
+		subject = nullSubjectBillingEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProjectCommitTimeComputeCost (node rebuild-options; guards classify=[no: scope change], mgmt=[reject])
-		var in1 inputReplanUnderScopeChangeP3S1
-		mustUnmarshal(t, `{"option":{"OptionID":"normal-rev2","Terms":{"computeCost":1,"computeMarkupPercent":25,"schedule":2}}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProjectCommitTimeComputeCost(callContext(t, h, "1"), in1.Option)
+		var in1 inputReplanUnderScopeChangeP3S1
+		mustUnmarshal(t, `{"option":{
+                          "OptionID": "normal-rev2",
+                          "Terms": {
+                            "computeCost": 1,
+                            "computeMarkupPercent": 25,
+                            "schedule": 2
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.ProjectCommitTimeComputeCost(h.EngineContext(t), in1.Option)
 		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"result":"{\"ComputeCostKind\":1,\"ComputeMarkupPercent\":25}","errorExpected":false}`)
 	})
-}
-
-// callContext is the fweng call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fweng.Context {
-	t.Helper()
-	_ = step
-	return fweng.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -340,34 +462,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

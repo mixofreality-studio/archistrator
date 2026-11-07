@@ -6,6 +6,7 @@ package delivery_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,11 +14,9 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) {
-	scenariohost.MainWithWorkflows(m, replayWorkflows(), "deliveryManager")
-}
 
 // inputAddAUseCaseToAnInFlightProjectP1S1 is step 1's parameters of DispatchActivityTask, decoded from the binding's inputs.
 type inputAddAUseCaseToAnInFlightProjectP1S1 struct {
@@ -48,55 +47,88 @@ type inputAddAUseCaseToAnInFlightProjectP1S3 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "add-a-use-case-to-an-in-flight-project-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DispatchActivityTask (node reopen-slot; guards core-check=[variation], replan-check=[no])
-		var in1 inputAddAUseCaseToAnInFlightProjectP1S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAddAUseCaseToAnInFlightProjectP1S1(t, h, subject, in1)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryProjectView for use-case-model-amendment-open
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		var in1 inputAddAUseCaseToAnInFlightProjectP1S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`, &in1)
+		out1, err1 = subject.DispatchActivityTask(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 1, pre1_1)
 		// step 2: SubmitReviewDecision (node redraft-review; guards core-check=[variation], replan-check=[no])
-		var in2 inputAddAUseCaseToAnInFlightProjectP1S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP1S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for amended-use-case-draft-approved
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP1S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`, &in2)
+		err2 = subject.SubmitReviewDecision(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Decision, in2.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 2, pre2_1)
 		// step 3: AcknowledgeStaleBasis (node reconcile; guards core-check=[variation], replan-check=[no])
-		var in3 inputAddAUseCaseToAnInFlightProjectP1S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepAddAUseCaseToAnInFlightProjectP1S3(t, h, subject, in3)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for stale-artifacts-reconciled
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		var in3 inputAddAUseCaseToAnInFlightProjectP1S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in3)
+		err3 = subject.AcknowledgeStaleBasis(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Note)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 3, pre3_1)
 	})
 }
 
@@ -129,55 +161,88 @@ type inputAddAUseCaseToAnInFlightProjectP2S3 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "add-a-use-case-to-an-in-flight-project-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DispatchActivityTask (node reopen-slot; guards core-check=[variation], replan-check=[yes])
-		var in1 inputAddAUseCaseToAnInFlightProjectP2S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAddAUseCaseToAnInFlightProjectP2S1(t, h, subject, in1)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryProjectView for use-case-model-amendment-open
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("add-a-use-case-to-an-in-flight-project-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		var in1 inputAddAUseCaseToAnInFlightProjectP2S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`, &in1)
+		out1, err1 = subject.DispatchActivityTask(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P2", 1, pre1_1)
 		// step 2: SubmitReviewDecision (node redraft-review; guards core-check=[variation], replan-check=[yes])
-		var in2 inputAddAUseCaseToAnInFlightProjectP2S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP2S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for amended-use-case-draft-approved
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP2S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`, &in2)
+		err2 = subject.SubmitReviewDecision(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Decision, in2.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P2", 2, pre2_1)
 		// step 3: AcknowledgeStaleBasis (node reconcile; guards core-check=[variation], replan-check=[yes])
-		var in3 inputAddAUseCaseToAnInFlightProjectP2S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepAddAUseCaseToAnInFlightProjectP2S3(t, h, subject, in3)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for stale-artifacts-reconciled
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		var in3 inputAddAUseCaseToAnInFlightProjectP2S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in3)
+		err3 = subject.AcknowledgeStaleBasis(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Note)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P2", 3, pre3_1)
 	})
 }
 
@@ -215,62 +280,98 @@ type inputAddAUseCaseToAnInFlightProjectP3S4 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "add-a-use-case-to-an-in-flight-project-P3", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node revalidate; guards core-check=[core: rare], replan-check=[no])
-		var in1 inputAddAUseCaseToAnInFlightProjectP3S1
-		mustUnmarshal(t, `{"query":{"kind":"designHealth","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAddAUseCaseToAnInFlightProjectP3S1(t, h, subject, in1)
+		var in1 inputAddAUseCaseToAnInFlightProjectP3S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "designHealth",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 1, out1, err1, `{"result":"{\"kind\":\"designHealth\"}","errorExpected":false}`)
 		// step 2: DispatchActivityTask (node reopen-slot; guards core-check=[core: rare], replan-check=[no])
-		var in2 inputAddAUseCaseToAnInFlightProjectP3S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP3S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for use-case-model-amendment-open
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP3S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`, &in2)
+		out2, err2 = subject.DispatchActivityTask(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P3", 2, pre2_1)
 		// step 3: SubmitReviewDecision (node redraft-review; guards core-check=[core: rare], replan-check=[no])
-		var in3 inputAddAUseCaseToAnInFlightProjectP3S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepAddAUseCaseToAnInFlightProjectP3S3(t, h, subject, in3)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for amended-use-case-draft-approved
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P3 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		var in3 inputAddAUseCaseToAnInFlightProjectP3S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`, &in3)
+		err3 = subject.SubmitReviewDecision(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Decision, in3.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P3", 3, pre3_1)
 		// step 4: AcknowledgeStaleBasis (node reconcile; guards core-check=[core: rare], replan-check=[no])
-		var in4 inputAddAUseCaseToAnInFlightProjectP3S4
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepAddAUseCaseToAnInFlightProjectP3S4(t, h, subject, in4)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: deliveryManager.QueryProjectView for stale-artifacts-reconciled
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.QueryProjectView(callContext(t, h, "4.1"), probe4_1.Query)
+		pre4_1 := held("add-a-use-case-to-an-in-flight-project-P3 probe 4.1 before", 4, run4_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		var in4 inputAddAUseCaseToAnInFlightProjectP3S4
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in4)
+		err4 = subject.AcknowledgeStaleBasis(h.ManagerContext(t), in4.ProjectID, in4.ActivityID, in4.TaskID, in4.Note)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P3", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P3", 4, pre4_1)
 	})
 }
 
@@ -308,62 +409,98 @@ type inputAddAUseCaseToAnInFlightProjectP4S4 struct {
 func TestScenario_add_a_use_case_to_an_in_flight_project_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "add-a-use-case-to-an-in-flight-project-P4", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node revalidate; guards core-check=[core: rare], replan-check=[yes])
-		var in1 inputAddAUseCaseToAnInFlightProjectP4S1
-		mustUnmarshal(t, `{"query":{"kind":"designHealth","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAddAUseCaseToAnInFlightProjectP4S1(t, h, subject, in1)
+		var in1 inputAddAUseCaseToAnInFlightProjectP4S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "designHealth",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 1, out1, err1, `{"result":"{\"kind\":\"designHealth\"}","errorExpected":false}`)
 		// step 2: DispatchActivityTask (node reopen-slot; guards core-check=[core: rare], replan-check=[yes])
-		var in2 inputAddAUseCaseToAnInFlightProjectP4S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{"notes":"Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.","comments":null}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepAddAUseCaseToAnInFlightProjectP4S2(t, h, subject, in2)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for use-case-model-amendment-open
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("add-a-use-case-to-an-in-flight-project-P4 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		var in2 inputAddAUseCaseToAnInFlightProjectP4S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesDraft","feedback":{
+                          "notes": "Amendment: add the use case 'Export the project audit trail' (variation of view-the-project-state-log): the owner downloads every state commit with its operation name as one archive.",
+                          "comments": null
+                        }}`, &in2)
+		out2, err2 = subject.DispatchActivityTask(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P4", 2, pre2_1)
 		// step 3: SubmitReviewDecision (node redraft-review; guards core-check=[core: rare], replan-check=[yes])
-		var in3 inputAddAUseCaseToAnInFlightProjectP4S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{"decision":1}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepAddAUseCaseToAnInFlightProjectP4S3(t, h, subject, in3)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for amended-use-case-draft-approved
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 4
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":4}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("add-a-use-case-to-an-in-flight-project-P4 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		var in3 inputAddAUseCaseToAnInFlightProjectP4S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"requirements","taskID":"coreUseCasesReview","decision":{
+                          "decision": 1
+                        }}`, &in3)
+		err3 = subject.SubmitReviewDecision(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Decision, in3.Feedback)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":4,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P4", 3, pre3_1)
 		// step 4: AcknowledgeStaleBasis (node reconcile; guards core-check=[core: rare], replan-check=[yes])
-		var in4 inputAddAUseCaseToAnInFlightProjectP4S4
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepAddAUseCaseToAnInFlightProjectP4S4(t, h, subject, in4)
-		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: deliveryManager.QueryProjectView for stale-artifacts-reconciled
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.QueryProjectView(callContext(t, h, "4.1"), probe4_1.Query)
+		pre4_1 := held("add-a-use-case-to-an-in-flight-project-P4 probe 4.1 before", 4, run4_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		var in4 inputAddAUseCaseToAnInFlightProjectP4S4
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","note":"reviewed — unaffected"}`, &in4)
+		err4 = subject.AcknowledgeStaleBasis(h.ManagerContext(t), in4.ProjectID, in4.ActivityID, in4.TaskID, in4.Note)
+		expect(t, "add-a-use-case-to-an-in-flight-project-P4", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "add-a-use-case-to-an-in-flight-project-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"stage\":1}}","errorExpected":false}`)
+		differential(t, "add-a-use-case-to-an-in-flight-project-P4", 4, pre4_1)
 	})
 }
 
@@ -380,24 +517,37 @@ type inputAskAClarifyingQuestionDuringReviewP1S1 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "ask-a-clarifying-question-during-review-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AskQuestions (node write-questions; guards artifact-state=[yes: session branch], answer-ran=[yes])
-		var in1 inputAskAClarifyingQuestionDuringReviewP1S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAskAClarifyingQuestionDuringReviewP1S1(t, h, subject, in1)
-		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryActivityView for thread-open-on-session-branch
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryActivityView(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		pre1_1 := held("ask-a-clarifying-question-during-review-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in1 inputAskAClarifyingQuestionDuringReviewP1S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`, &in1)
+		err1 = subject.AskQuestions(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Addressee, in1.Questions)
+		expect(t, "ask-a-clarifying-question-during-review-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "ask-a-clarifying-question-during-review-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P1", 1, pre1_1)
 	})
 }
 
@@ -414,24 +564,37 @@ type inputAskAClarifyingQuestionDuringReviewP2S1 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AskQuestions (node write-questions; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
-		var in1 inputAskAClarifyingQuestionDuringReviewP2S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAskAClarifyingQuestionDuringReviewP2S1(t, h, subject, in1)
-		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryActivityView for thread-open-on-session-branch
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryActivityView(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		pre1_1 := held("ask-a-clarifying-question-during-review-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in1 inputAskAClarifyingQuestionDuringReviewP2S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`, &in1)
+		err1 = subject.AskQuestions(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Addressee, in1.Questions)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "ask-a-clarifying-question-during-review-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P2", 1, pre1_1)
 	})
 }
 
@@ -448,33 +611,54 @@ type inputAskAClarifyingQuestionDuringReviewP3S1 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "ask-a-clarifying-question-during-review-P3", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AskQuestions (node write-questions; guards artifact-state=[no: committed], answer-ran=[yes])
-		var in1 inputAskAClarifyingQuestionDuringReviewP3S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAskAClarifyingQuestionDuringReviewP3S1(t, h, subject, in1)
-		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryActivityView for thread-seeded-on-main
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryActivityView(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
-		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"done\"}","errorExpected":false}`)
 		// probe 1.2: deliveryManager.QueryProjectView for question-answered
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe1_2)
-		pout1_2, perr1_2 = subject.QueryProjectView(callContext(t, h, "1.2"), probe1_2.Query)
+		pre1_1 := held("ask-a-clarifying-question-during-review-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"done\"}","errorExpected":false}`)
+		pre1_2 := held("ask-a-clarifying-question-during-review-P3 probe 1.2 before", 1, run1_2, `{"result":"{\"kind\":\"session\",\"session\":{\"reviewThread\":[{\"type\":\"question\",\"status\":\"answered\",\"addressee\":\"architect\",\"replies\":[{}]}]}}","errorExpected":false}`)
+		var in1 inputAskAClarifyingQuestionDuringReviewP3S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`, &in1)
+		err1 = subject.AskQuestions(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Addressee, in1.Questions)
+		expect(t, "ask-a-clarifying-question-during-review-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"done\"}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "ask-a-clarifying-question-during-review-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"kind\":\"session\",\"session\":{\"reviewThread\":[{\"type\":\"question\",\"status\":\"answered\",\"addressee\":\"architect\",\"replies\":[{}]}]}}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P3", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -491,33 +675,54 @@ type inputAskAClarifyingQuestionDuringReviewP4S1 struct {
 func TestScenario_ask_a_clarifying_question_during_review_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "ask-a-clarifying-question-during-review-P4", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: AskQuestions (node write-questions; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
-		var in1 inputAskAClarifyingQuestionDuringReviewP4S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[{"jsonPath":"$.containers[2].responsibilities","text":"Why does delivery-manager own the review roster rather than review-engine?","anchorText":"review roster","replyTo":""}]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepAskAClarifyingQuestionDuringReviewP4S1(t, h, subject, in1)
-		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryActivityView for thread-seeded-on-main
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryActivityView(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
-		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"done\"}","errorExpected":false}`)
 		// probe 1.2: deliveryManager.QueryProjectView for question-still-open
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe1_2)
-		pout1_2, perr1_2 = subject.QueryProjectView(callContext(t, h, "1.2"), probe1_2.Query)
+		pre1_1 := held("ask-a-clarifying-question-during-review-P4 probe 1.1 before", 1, run1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"done\"}","errorExpected":false}`)
+		pre1_2 := held("ask-a-clarifying-question-during-review-P4 probe 1.2 before", 1, run1_2, `{"result":"{\"kind\":\"session\",\"session\":{\"reviewThread\":[{\"type\":\"question\",\"status\":\"open\",\"addressee\":\"architect\"}]}}","errorExpected":false}`)
+		var in1 inputAskAClarifyingQuestionDuringReviewP4S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","addressee":"system-architect","questions":[
+                          {
+                            "jsonPath": "$.containers[2].responsibilities",
+                            "text": "Why does delivery-manager own the review roster rather than review-engine?",
+                            "anchorText": "review roster",
+                            "replyTo": ""
+                          }
+                        ]}`, &in1)
+		err1 = subject.AskQuestions(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Addressee, in1.Questions)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"architecture\",\"state\":\"done\"}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "ask-a-clarifying-question-during-review-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"kind\":\"session\",\"session\":{\"reviewThread\":[{\"type\":\"question\",\"status\":\"open\",\"addressee\":\"architect\"}]}}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P4", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -542,40 +747,57 @@ type inputCommitToAProjectOptionP1S2 struct {
 func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "commit-to-a-project-option-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DispatchActivityTask (node await-decision; guards decision=[commit], revoke-window=[no])
-		var in1 inputCommitToAProjectOptionP1S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepCommitToAProjectOptionP1S1(t, h, subject, in1)
-		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryActivityView for present-sdp-review
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryActivityView(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		pre1_1 := held("commit-to-a-project-option-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in1 inputCommitToAProjectOptionP1S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in1)
+		out1, err1 = subject.DispatchActivityTask(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Feedback)
+		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "commit-to-a-project-option-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P1", 1, pre1_1)
 		// step 2: SubmitReviewDecision (node review-options; guards decision=[commit], revoke-window=[no])
-		var in2 inputCommitToAProjectOptionP1S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":1,"optionId":"NormalSolution"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepCommitToAProjectOptionP1S2(t, h, subject, in2)
-		expect(t, "commit-to-a-project-option-P1", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for sdp-review-committed
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("commit-to-a-project-option-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		var in2 inputCommitToAProjectOptionP1S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 1,
+                          "optionId": "NormalSolution"
+                        }}`, &in2)
+		err2 = subject.SubmitReviewDecision(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Decision, in2.Feedback)
+		expect(t, "commit-to-a-project-option-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "commit-to-a-project-option-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P1", 2, pre2_1)
 	})
 }
 
@@ -609,56 +831,83 @@ type inputCommitToAProjectOptionP2S3 struct {
 func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "commit-to-a-project-option-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DispatchActivityTask (node await-decision; guards decision=[commit], revoke-window=[yes])
-		var in1 inputCommitToAProjectOptionP2S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepCommitToAProjectOptionP2S1(t, h, subject, in1)
-		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryActivityView for present-sdp-review
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryActivityView(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		pre1_1 := held("commit-to-a-project-option-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in1 inputCommitToAProjectOptionP2S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in1)
+		out1, err1 = subject.DispatchActivityTask(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Feedback)
+		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "commit-to-a-project-option-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P2", 1, pre1_1)
 		// step 2: SubmitReviewDecision (node review-options; guards decision=[commit], revoke-window=[yes])
-		var in2 inputCommitToAProjectOptionP2S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":1,"optionId":"NormalSolution"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepCommitToAProjectOptionP2S2(t, h, subject, in2)
-		expect(t, "commit-to-a-project-option-P2", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for sdp-review-committed
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("commit-to-a-project-option-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		var in2 inputCommitToAProjectOptionP2S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 1,
+                          "optionId": "NormalSolution"
+                        }}`, &in2)
+		err2 = subject.SubmitReviewDecision(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Decision, in2.Feedback)
+		expect(t, "commit-to-a-project-option-P2", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "commit-to-a-project-option-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P2", 2, pre2_1)
 		// step 3: SubmitReviewDecision (node revoke; guards decision=[commit], revoke-window=[yes])
-		var in3 inputCommitToAProjectOptionP2S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":3}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepCommitToAProjectOptionP2S3(t, h, subject, in3)
-		expect(t, "commit-to-a-project-option-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for sdp-review-revoked
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("commit-to-a-project-option-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":1,\"PhaseName\":\"project-design\"}}","errorExpected":false}`)
+		var in3 inputCommitToAProjectOptionP2S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 3
+                        }}`, &in3)
+		err3 = subject.SubmitReviewDecision(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Decision, in3.Feedback)
+		expect(t, "commit-to-a-project-option-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "commit-to-a-project-option-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":1,\"PhaseName\":\"project-design\"}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P2", 3, pre3_1)
 	})
 }
 
@@ -683,40 +932,59 @@ type inputCommitToAProjectOptionP3S2 struct {
 func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "commit-to-a-project-option-P3", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DispatchActivityTask (node await-decision; guards decision=[reject-all + feedback])
-		var in1 inputCommitToAProjectOptionP3S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepCommitToAProjectOptionP3S1(t, h, subject, in1)
-		expect(t, "commit-to-a-project-option-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryActivityView for present-sdp-review
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryActivityView(callContext(t, h, "1.1"), probe1_1.ProjectID, probe1_1.ActivityID)
+		pre1_1 := held("commit-to-a-project-option-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in1 inputCommitToAProjectOptionP3S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in1)
+		out1, err1 = subject.DispatchActivityTask(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Feedback)
+		expect(t, "commit-to-a-project-option-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "commit-to-a-project-option-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P3", 1, pre1_1)
 		// step 2: SubmitReviewDecision (node review-options; guards decision=[reject-all + feedback])
-		var in2 inputCommitToAProjectOptionP3S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":2},"feedback":{"notes":"Reject all options: each overruns the 9-month window; re-plan with a 3-developer cap and the billing integration deferred.","comments":null}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepCommitToAProjectOptionP3S2(t, h, subject, in2)
-		expect(t, "commit-to-a-project-option-P3", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for sdp-review-rejected
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("commit-to-a-project-option-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":1,\"PhaseName\":\"project-design\"}}","errorExpected":false}`)
+		var in2 inputCommitToAProjectOptionP3S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Reject all options: each overruns the 9-month window; re-plan with a 3-developer cap and the billing integration deferred.",
+                          "comments": null
+                        }}`, &in2)
+		err2 = subject.SubmitReviewDecision(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Decision, in2.Feedback)
+		expect(t, "commit-to-a-project-option-P3", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "commit-to-a-project-option-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":1,\"PhaseName\":\"project-design\"}}","errorExpected":false}`)
+		differential(t, "commit-to-a-project-option-P3", 2, pre2_1)
 	})
 }
 
@@ -729,13 +997,18 @@ type inputDownloadGeneratedSourceCodeP1S1 struct {
 func TestScenario_download_generated_source_code_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "download-generated-source-code-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node open-repo; guards fetch-how=[clone or pull])
-		var in1 inputDownloadGeneratedSourceCodeP1S1
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","activityId":"C-review-engine"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepDownloadGeneratedSourceCodeP1S1(t, h, subject, in1)
+		var in1 inputDownloadGeneratedSourceCodeP1S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-delivery",
+                          "activityId": "C-review-engine"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "download-generated-source-code-P1", 1, out1, err1, `{"result":"{\"kind\":\"session\"}","errorExpected":false}`)
 	})
 }
@@ -749,13 +1022,18 @@ type inputDownloadGeneratedSourceCodeP2S1 struct {
 func TestScenario_download_generated_source_code_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "download-generated-source-code-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node open-repo; guards fetch-how=[archive])
-		var in1 inputDownloadGeneratedSourceCodeP2S1
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","activityId":"C-review-engine"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepDownloadGeneratedSourceCodeP2S1(t, h, subject, in1)
+		var in1 inputDownloadGeneratedSourceCodeP2S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-delivery",
+                          "activityId": "C-review-engine"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "download-generated-source-code-P2", 1, out1, err1, `{"result":"{\"kind\":\"session\"}","errorExpected":false}`)
 	})
 }
@@ -776,31 +1054,37 @@ type inputExecuteAProjectActivityP1S2 struct {
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "execute-a-project-activity-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP1S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P1-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP1S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P1-tick-0001"}`, &in1)
+		out1, err1 = subject.ExecuteNextActivity(h.ManagerContext(t), in1.ProjectID, in1.TickID)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"dispatched\":true}","errorExpected":false}`)
 		// step 2: QueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP1S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP1S2(t, h, subject, in2)
-		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryActivityView for activity-exit-recorded
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryActivityView(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		pre2_1 := held("execute-a-project-activity-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP1S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
+		out2, err2 = subject.QueryActivityView(h.ManagerContext(t), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P1", 2, pre2_1)
 	})
 }
 
@@ -827,48 +1111,63 @@ type inputExecuteAProjectActivityP2S3 struct {
 func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "execute-a-project-activity-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP2S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P2-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP2S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P2-tick-0001"}`, &in1)
+		out1, err1 = subject.ExecuteNextActivity(h.ManagerContext(t), in1.ProjectID, in1.TickID)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"dispatched\":true}","errorExpected":false}`)
 		// step 2: QueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in2 inputExecuteAProjectActivityP2S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP2S2(t, h, subject, in2)
-		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryActivityView for escalate-operator
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryActivityView(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		pre2_1 := held("execute-a-project-activity-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
+		out2, err2 = subject.QueryActivityView(h.ManagerContext(t), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P2", 2, pre2_1)
 		// step 3: OverrideActivity (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
-		var in3 inputExecuteAProjectActivityP2S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{"kind":2,"notes":"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.","comments":null}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepExecuteAProjectActivityP2S3(t, h, subject, in3)
-		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryActivityView for activity-exit-recorded
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryActivityView(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		pre3_1 := held("execute-a-project-activity-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		var in3 inputExecuteAProjectActivityP2S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.",
+                          "comments": null
+                        }}`, &in3)
+		err3 = subject.OverrideActivity(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.Override)
+		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "execute-a-project-activity-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P2", 3, pre3_1)
 	})
 }
 
@@ -888,31 +1187,37 @@ type inputExecuteAProjectActivityP3S2 struct {
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "execute-a-project-activity-P3", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ExecuteNextActivity (node pump-fires; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in1 inputExecuteAProjectActivityP3S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P3-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP3S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P3-tick-0001"}`, &in1)
+		out1, err1 = subject.ExecuteNextActivity(h.ManagerContext(t), in1.ProjectID, in1.TickID)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"dispatched\":true}","errorExpected":false}`)
 		// step 2: QueryActivityView (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in2 inputExecuteAProjectActivityP3S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP3S2(t, h, subject, in2)
-		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryActivityView for activity-exit-recorded
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryActivityView(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		pre2_1 := held("execute-a-project-activity-P3 probe 2.1 before", 2, run2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP3S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
+		out2, err2 = subject.QueryActivityView(h.ManagerContext(t), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P3", 2, pre2_1)
 	})
 }
 
@@ -941,48 +1246,61 @@ type inputExecuteAProjectActivityP4S3 struct {
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "execute-a-project-activity-P4", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ExecuteNextActivity (node pump-fires; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in1 inputExecuteAProjectActivityP4S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P4-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP4S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P4-tick-0001"}`, &in1)
+		out1, err1 = subject.ExecuteNextActivity(h.ManagerContext(t), in1.ProjectID, in1.TickID)
 		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"dispatched\":true}","errorExpected":false}`)
 		// step 2: QueryActivityView (node activity-eligible; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in2 inputExecuteAProjectActivityP4S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP4S2(t, h, subject, in2)
-		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryActivityView for requires-human
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryActivityView(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		pre2_1 := held("execute-a-project-activity-P4 probe 2.1 before", 2, run2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP4S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
+		out2, err2 = subject.QueryActivityView(h.ManagerContext(t), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P4 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P4", 2, pre2_1)
 		// step 3: SubmitReviewDecision (node human-decision; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in3 inputExecuteAProjectActivityP4S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","taskID":"codeReview","decision":{"decision":1}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepExecuteAProjectActivityP4S3(t, h, subject, in3)
-		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryActivityView for activity-exit-recorded
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryActivityView(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		pre3_1 := held("execute-a-project-activity-P4 probe 3.1 before", 3, run3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		var in3 inputExecuteAProjectActivityP4S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","taskID":"codeReview","decision":{
+                          "decision": 1
+                        }}`, &in3)
+		err3 = subject.SubmitReviewDecision(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Decision, in3.Feedback)
+		expect(t, "execute-a-project-activity-P4", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "execute-a-project-activity-P4 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P4", 3, pre3_1)
 	})
 }
 
@@ -1002,31 +1320,37 @@ type inputExecuteAProjectActivityP5S2 struct {
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "execute-a-project-activity-P5", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP5S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P5-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP5S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P5-tick-0001"}`, &in1)
+		out1, err1 = subject.ExecuteNextActivity(h.ManagerContext(t), in1.ProjectID, in1.TickID)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"dispatched\":true}","errorExpected":false}`)
 		// step 2: QueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP5S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP5S2(t, h, subject, in2)
-		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryActivityView for activity-exit-recorded
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryActivityView(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		pre2_1 := held("execute-a-project-activity-P5 probe 2.1 before", 2, run2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
+		out2, err2 = subject.QueryActivityView(h.ManagerContext(t), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P5 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P5", 2, pre2_1)
 	})
 }
 
@@ -1060,65 +1384,89 @@ type inputExecuteAProjectActivityP6S4 struct {
 func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "execute-a-project-activity-P6", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ExecuteNextActivity (node pump-fires; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in1 inputExecuteAProjectActivityP6S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P6-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP6S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P6-tick-0001"}`, &in1)
+		out1, err1 = subject.ExecuteNextActivity(h.ManagerContext(t), in1.ProjectID, in1.TickID)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"dispatched\":true}","errorExpected":false}`)
 		// step 2: QueryActivityView (node activity-eligible; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in2 inputExecuteAProjectActivityP6S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP6S2(t, h, subject, in2)
-		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryActivityView for escalate-operator
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryActivityView(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		pre2_1 := held("execute-a-project-activity-P6 probe 2.1 before", 2, run2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
+		out2, err2 = subject.QueryActivityView(h.ManagerContext(t), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P6 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P6", 2, pre2_1)
 		// step 3: OverrideActivity (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in3 inputExecuteAProjectActivityP6S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{"kind":2,"notes":"Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.","comments":null}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepExecuteAProjectActivityP6S3(t, h, subject, in3)
-		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryActivityView for escalate-operator
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryActivityView(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		pre3_1 := held("execute-a-project-activity-P6 probe 3.1 before", 3, run3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}","errorExpected":false}`)
+		var in3 inputExecuteAProjectActivityP6S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Retry: the last attempt failed on a flaky CI runner, not on the code; rerun with the change unchanged.",
+                          "comments": null
+                        }}`, &in3)
+		err3 = subject.OverrideActivity(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.Override)
+		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "execute-a-project-activity-P6 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"failed\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P6", 3, pre3_1)
 		// step 4: OverrideActivity (node operator-steers; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
-		var in4 inputExecuteAProjectActivityP6S4
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{"kind":2,"notes":"Retry again: pin the integration test's Temporal namespace; the earlier failure was a namespace collision.","comments":null}}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepExecuteAProjectActivityP6S4(t, h, subject, in4)
-		expect(t, "execute-a-project-activity-P6", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: deliveryManager.QueryActivityView for activity-exit-recorded
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.QueryActivityView(callContext(t, h, "4.1"), probe4_1.ProjectID, probe4_1.ActivityID)
+		pre4_1 := held("execute-a-project-activity-P6 probe 4.1 before", 4, run4_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		var in4 inputExecuteAProjectActivityP6S4
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Retry again: pin the integration test's Temporal namespace; the earlier failure was a namespace collision.",
+                          "comments": null
+                        }}`, &in4)
+		err4 = subject.OverrideActivity(h.ManagerContext(t), in4.ProjectID, in4.ActivityID, in4.Override)
+		expect(t, "execute-a-project-activity-P6", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "execute-a-project-activity-P6 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P6", 4, pre4_1)
 	})
 }
 
@@ -1138,31 +1486,37 @@ type inputExecuteAProjectActivityP7S2 struct {
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "execute-a-project-activity-P7", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ExecuteNextActivity (node pump-fires; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP7S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P7-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepExecuteAProjectActivityP7S1(t, h, subject, in1)
+		var in1 inputExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","tickID":"dct-dm-exec-P7-tick-0001"}`, &in1)
+		out1, err1 = subject.ExecuteNextActivity(h.ManagerContext(t), in1.ProjectID, in1.TickID)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"dispatched\":true}","errorExpected":false}`)
 		// step 2: QueryActivityView (node activity-eligible; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP7S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepExecuteAProjectActivityP7S2(t, h, subject, in2)
-		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryActivityView for activity-exit-recorded
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryActivityView(callContext(t, h, "2.1"), probe2_1.ProjectID, probe2_1.ActivityID)
+		pre2_1 := held("execute-a-project-activity-P7 probe 2.1 before", 2, run2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		var in2 inputExecuteAProjectActivityP7S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in2)
+		out2, err2 = subject.QueryActivityView(h.ManagerContext(t), in2.ProjectID, in2.ActivityID)
+		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"activityId\":\"C-review-engine\",\"type\":\"service\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "execute-a-project-activity-P7 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"done\"}","errorExpected":false}`)
+		differential(t, "execute-a-project-activity-P7", 2, pre2_1)
 	})
 }
 
@@ -1201,62 +1555,99 @@ type inputManageProjectsP1S4 struct {
 func TestScenario_manage_projects_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "manage-projects-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: StartProject (node submit-create; guards operating-model=[no: self-operated])
-		var in1 inputManageProjectsP1S1
-		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","model":"selfOperated","start":false}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepManageProjectsP1S1(t, h, subject, in1)
+		var in1 inputManageProjectsP1S1
+		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","model":"selfOperated","start":false}`, &in1)
+		out1, err1 = subject.StartProject(h.ManagerContext(t), in1.Owner, in1.Name, in1.ProjectID, in1.Model, in1.Research, in1.Start)
 		expect(t, "manage-projects-P1", 1, out1, err1, `{"result":"{\"projectId\":\"dct-gtd-app\"}","errorExpected":false}`)
 		// step 2: QueryProjectView (node catalog-open; guards operating-model=[no: self-operated])
-		var in2 inputManageProjectsP1S2
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepManageProjectsP1S2(t, h, subject, in2)
-		expect(t, "manage-projects-P1", 2, out2, err2, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for obj-project-head-state-created
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "projects",
+                              "owner": "dct-owner"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"projects","owner":"dct-owner"}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("manage-projects-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}","errorExpected":false}`)
+		var in2 inputManageProjectsP1S2
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-gtd-app"
+                        }}`, &in2)
+		out2, err2 = subject.QueryProjectView(h.ManagerContext(t), in2.Query)
+		expect(t, "manage-projects-P1", 2, out2, err2, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"selfOperated\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "manage-projects-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}","errorExpected":false}`)
+		differential(t, "manage-projects-P1", 2, pre2_1)
 		// step 3: SetProjectExecutionPolicy (node set-review-policy; guards operating-model=[no: self-operated])
-		var in3 inputManageProjectsP1S3
-		mustUnmarshal(t, `{"projectID":"dct-gtd-app","policy":{"preset":"checkpoints"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepManageProjectsP1S3(t, h, subject, in3)
-		expect(t, "manage-projects-P1", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for obj-review-policy-set
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("manage-projects-P1 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"reviewPolicy\":{\"preset\":\"checkpoints\"}}}","errorExpected":false}`)
+		var in3 inputManageProjectsP1S3
+		mustUnmarshal(t, `{"projectID":"dct-gtd-app","policy":{
+                          "preset": "checkpoints"
+                        }}`, &in3)
+		err3 = subject.SetProjectExecutionPolicy(h.ManagerContext(t), in3.ProjectID, in3.Policy)
+		expect(t, "manage-projects-P1", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "manage-projects-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"reviewPolicy\":{\"preset\":\"checkpoints\"}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P1", 3, pre3_1)
 		// step 4: StartProject (node capture-research; guards operating-model=[no: self-operated])
-		var in4 inputManageProjectsP1S4
-		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{"sources":[{"title":"GTD method notes","content":"Capture, clarify, organize, reflect, engage. Weekly review is mandatory."}]},"start":true}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepManageProjectsP1S4(t, h, subject, in4)
-		expect(t, "manage-projects-P1", 4, out4, err4, `{"result":"{\"projectId\":\"dct-gtd-app\"}","errorExpected":false}`)
 		// probe 4.1: deliveryManager.QueryProjectView for obj-research-input-captured
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.QueryProjectView(callContext(t, h, "4.1"), probe4_1.Query)
+		pre4_1 := held("manage-projects-P1 probe 4.1 before", 4, run4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}","errorExpected":false}`)
+		var in4 inputManageProjectsP1S4
+		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{
+                          "sources": [
+                            {
+                              "title": "GTD method notes",
+                              "content": "Capture, clarify, organize, reflect, engage. Weekly review is mandatory."
+                            }
+                          ]
+                        },"start":true}`, &in4)
+		out4, err4 = subject.StartProject(h.ManagerContext(t), in4.Owner, in4.Name, in4.ProjectID, in4.Model, in4.Research, in4.Start)
+		expect(t, "manage-projects-P1", 4, out4, err4, `{"result":"{\"projectId\":\"dct-gtd-app\"}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "manage-projects-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P1", 4, pre4_1)
 	})
 }
 
@@ -1295,62 +1686,99 @@ type inputManageProjectsP2S4 struct {
 func TestScenario_manage_projects_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "manage-projects-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: StartProject (node submit-create; guards operating-model=[yes])
-		var in1 inputManageProjectsP2S1
-		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","model":"archistratorOperated","start":false}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepManageProjectsP2S1(t, h, subject, in1)
+		var in1 inputManageProjectsP2S1
+		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","model":"archistratorOperated","start":false}`, &in1)
+		out1, err1 = subject.StartProject(h.ManagerContext(t), in1.Owner, in1.Name, in1.ProjectID, in1.Model, in1.Research, in1.Start)
 		expect(t, "manage-projects-P2", 1, out1, err1, `{"result":"{\"projectId\":\"dct-gtd-app\"}","errorExpected":false}`)
 		// step 2: QueryProjectView (node catalog-open; guards operating-model=[yes])
-		var in2 inputManageProjectsP2S2
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepManageProjectsP2S2(t, h, subject, in2)
-		expect(t, "manage-projects-P2", 2, out2, err2, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}","errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for obj-project-head-state-created
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "projects",
+                              "owner": "dct-owner"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"projects","owner":"dct-owner"}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("manage-projects-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}","errorExpected":false}`)
+		var in2 inputManageProjectsP2S2
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-gtd-app"
+                        }}`, &in2)
+		out2, err2 = subject.QueryProjectView(h.ManagerContext(t), in2.Query)
+		expect(t, "manage-projects-P2", 2, out2, err2, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\",\"Phase\":0,\"operatingModel\":\"archistratorOperated\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "manage-projects-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"projects\",\"projects\":[{\"ProjectID\":\"dct-gtd-app\",\"Name\":\"dct-gtd-app\",\"Owner\":\"dct-owner\"}]}","errorExpected":false}`)
+		differential(t, "manage-projects-P2", 2, pre2_1)
 		// step 3: SetProjectExecutionPolicy (node set-review-policy; guards operating-model=[yes])
-		var in3 inputManageProjectsP2S3
-		mustUnmarshal(t, `{"projectID":"dct-gtd-app","policy":{"preset":"full"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepManageProjectsP2S3(t, h, subject, in3)
-		expect(t, "manage-projects-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for obj-review-policy-set
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("manage-projects-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"reviewPolicy\":{\"preset\":\"full\"}}}","errorExpected":false}`)
+		var in3 inputManageProjectsP2S3
+		mustUnmarshal(t, `{"projectID":"dct-gtd-app","policy":{
+                          "preset": "full"
+                        }}`, &in3)
+		err3 = subject.SetProjectExecutionPolicy(h.ManagerContext(t), in3.ProjectID, in3.Policy)
+		expect(t, "manage-projects-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "manage-projects-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"reviewPolicy\":{\"preset\":\"full\"}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P2", 3, pre3_1)
 		// step 4: StartProject (node capture-research; guards operating-model=[yes])
-		var in4 inputManageProjectsP2S4
-		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{"sources":[{"title":"GTD method notes","content":"Capture, clarify, organize, reflect, engage. Weekly review is mandatory."}]},"start":true}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepManageProjectsP2S4(t, h, subject, in4)
-		expect(t, "manage-projects-P2", 4, out4, err4, `{"result":"{\"projectId\":\"dct-gtd-app\"}","errorExpected":false}`)
 		// probe 4.1: deliveryManager.QueryProjectView for obj-research-input-captured
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-gtd-app"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-gtd-app"}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.QueryProjectView(callContext(t, h, "4.1"), probe4_1.Query)
+		pre4_1 := held("manage-projects-P2 probe 4.1 before", 4, run4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}","errorExpected":false}`)
+		var in4 inputManageProjectsP2S4
+		mustUnmarshal(t, `{"owner":"dct-owner","name":"dct-gtd-app","projectID":"dct-gtd-app","research":{
+                          "sources": [
+                            {
+                              "title": "GTD method notes",
+                              "content": "Capture, clarify, organize, reflect, engage. Weekly review is mandatory."
+                            }
+                          ]
+                        },"start":true}`, &in4)
+		out4, err4 = subject.StartProject(h.ManagerContext(t), in4.Owner, in4.Name, in4.ProjectID, in4.Model, in4.Research, in4.Start)
+		expect(t, "manage-projects-P2", 4, out4, err4, `{"result":"{\"projectId\":\"dct-gtd-app\"}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "manage-projects-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-gtd-app\",\"Research\":{\"sources\":[{\"title\":\"GTD method notes\",\"contentBytes\":72}]}}}","errorExpected":false}`)
+		differential(t, "manage-projects-P2", 4, pre4_1)
 	})
 }
 
@@ -1365,23 +1793,32 @@ type inputPauseConstructionP1S1 struct {
 func TestScenario_pause_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "pause-construction-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SetProjectRunState (node choose-pause)
-		var in1 inputPauseConstructionP1S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"paused","reason":"Holding construction while the billing vendor contract is renegotiated."}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepPauseConstructionP1S1(t, h, subject, in1)
-		expect(t, "pause-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryProjectView for run-state-paused
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("pause-construction-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":true,\"pauseReason\":\"Holding construction while the billing vendor contract is renegotiated.\"}}","errorExpected":false}`)
+		var in1 inputPauseConstructionP1S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"paused","reason":"Holding construction while the billing vendor contract is renegotiated."}`, &in1)
+		err1 = subject.SetProjectRunState(h.ManagerContext(t), in1.ProjectID, in1.RunState, in1.Reason)
+		expect(t, "pause-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "pause-construction-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":true,\"pauseReason\":\"Holding construction while the billing vendor contract is renegotiated.\"}}","errorExpected":false}`)
+		differential(t, "pause-construction-P1", 1, pre1_1)
 	})
 }
 
@@ -1402,30 +1839,46 @@ type inputReplanUnderScopeChangeP1S2 struct {
 func TestScenario_replan_under_scope_change_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "replan-under-scope-change-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node snapshot; guards classify=[yes])
-		var in1 inputReplanUnderScopeChangeP1S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepReplanUnderScopeChangeP1S1(t, h, subject, in1)
+		var in1 inputReplanUnderScopeChangeP1S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "replan-under-scope-change-P1", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
 		// step 2: DispatchActivityTask (node back-to-design; guards classify=[yes])
-		var in2 inputReplanUnderScopeChangeP1S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","feedback":{"notes":"Architecture change: split billing into metering and invoicing components; this is not a scope change.","comments":null}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepReplanUnderScopeChangeP1S2(t, h, subject, in2)
-		expect(t, "replan-under-scope-change-P1", 2, out2, err2, `{"errorExpected":false}`)
 		// probe 2.1: deliveryManager.QueryProjectView for system-amendment-open
 		var pout2_1 any
 		var perr2_1 error
-		var probe2_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe2_1)
-		pout2_1, perr2_1 = subject.QueryProjectView(callContext(t, h, "2.1"), probe2_1.Query)
+		pre2_1 := held("replan-under-scope-change-P1 probe 2.1 before", 2, run2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}","errorExpected":false}`)
+		var in2 inputReplanUnderScopeChangeP1S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureDraft","feedback":{
+                          "notes": "Architecture change: split billing into metering and invoicing components; this is not a scope change.",
+                          "comments": null
+                        }}`, &in2)
+		out2, err2 = subject.DispatchActivityTask(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Feedback)
+		expect(t, "replan-under-scope-change-P1", 2, out2, err2, `{"errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "replan-under-scope-change-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P1", 2, pre2_1)
 	})
 }
 
@@ -1463,54 +1916,77 @@ type inputReplanUnderScopeChangeP2S4 struct {
 func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "replan-under-scope-change-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node snapshot; guards classify=[no: scope change], mgmt=[accept])
-		var in1 inputReplanUnderScopeChangeP2S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepReplanUnderScopeChangeP2S1(t, h, subject, in1)
+		var in1 inputReplanUnderScopeChangeP2S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "replan-under-scope-change-P2", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
 		// step 2: DispatchActivityTask (node reenter; guards classify=[no: scope change], mgmt=[accept])
-		var in2 inputReplanUnderScopeChangeP2S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","feedback":{"notes":"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.","comments":null}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepReplanUnderScopeChangeP2S2(t, h, subject, in2)
+		var in2 inputReplanUnderScopeChangeP2S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","feedback":{
+                          "notes": "Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.",
+                          "comments": null
+                        }}`, &in2)
+		out2, err2 = subject.DispatchActivityTask(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Feedback)
 		expect(t, "replan-under-scope-change-P2", 2, out2, err2, `{"errorExpected":false}`)
 		// step 3: DispatchActivityTask (node present; guards classify=[no: scope change], mgmt=[accept])
-		var in3 inputReplanUnderScopeChangeP2S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepReplanUnderScopeChangeP2S3(t, h, subject, in3)
-		expect(t, "replan-under-scope-change-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryActivityView for sdp-revision-staged
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryActivityView(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		pre3_1 := held("replan-under-scope-change-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in3 inputReplanUnderScopeChangeP2S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in3)
+		out3, err3 = subject.DispatchActivityTask(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Feedback)
+		expect(t, "replan-under-scope-change-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "replan-under-scope-change-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P2", 3, pre3_1)
 		// step 4: SubmitReviewDecision (node mgmt; guards classify=[no: scope change], mgmt=[accept])
-		var in4 inputReplanUnderScopeChangeP2S4
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":1,"optionId":"NormalSolution"}}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepReplanUnderScopeChangeP2S4(t, h, subject, in4)
-		expect(t, "replan-under-scope-change-P2", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: deliveryManager.QueryProjectView for sdp-revision-adopted
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.QueryProjectView(callContext(t, h, "4.1"), probe4_1.Query)
+		pre4_1 := held("replan-under-scope-change-P2 probe 4.1 before", 4, run4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		var in4 inputReplanUnderScopeChangeP2S4
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 1,
+                          "optionId": "NormalSolution"
+                        }}`, &in4)
+		err4 = subject.SubmitReviewDecision(h.ManagerContext(t), in4.ProjectID, in4.ActivityID, in4.TaskID, in4.Decision, in4.Feedback)
+		expect(t, "replan-under-scope-change-P2", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "replan-under-scope-change-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P2", 4, pre4_1)
 	})
 }
 
@@ -1548,54 +2024,79 @@ type inputReplanUnderScopeChangeP3S4 struct {
 func TestScenario_replan_under_scope_change_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "replan-under-scope-change-P3", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node snapshot; guards classify=[no: scope change], mgmt=[reject])
-		var in1 inputReplanUnderScopeChangeP3S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepReplanUnderScopeChangeP3S1(t, h, subject, in1)
+		var in1 inputReplanUnderScopeChangeP3S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "replan-under-scope-change-P3", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
 		// step 2: DispatchActivityTask (node reenter; guards classify=[no: scope change], mgmt=[reject])
-		var in2 inputReplanUnderScopeChangeP3S2
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","feedback":{"notes":"Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.","comments":null}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepReplanUnderScopeChangeP3S2(t, h, subject, in2)
+		var in2 inputReplanUnderScopeChangeP3S2
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","feedback":{
+                          "notes": "Scope change: add the audit-export use case; re-plan from the activity list against the current committed network.",
+                          "comments": null
+                        }}`, &in2)
+		out2, err2 = subject.DispatchActivityTask(h.ManagerContext(t), in2.ProjectID, in2.ActivityID, in2.TaskID, in2.Feedback)
 		expect(t, "replan-under-scope-change-P3", 2, out2, err2, `{"errorExpected":false}`)
 		// step 3: DispatchActivityTask (node present; guards classify=[no: scope change], mgmt=[reject])
-		var in3 inputReplanUnderScopeChangeP3S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepReplanUnderScopeChangeP3S3(t, h, subject, in3)
-		expect(t, "replan-under-scope-change-P3", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryActivityView for sdp-revision-staged
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryActivityView(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		pre3_1 := held("replan-under-scope-change-P3 probe 3.1 before", 3, run3_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		var in3 inputReplanUnderScopeChangeP3S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview"}`, &in3)
+		out3, err3 = subject.DispatchActivityTask(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Feedback)
+		expect(t, "replan-under-scope-change-P3", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "replan-under-scope-change-P3 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityId\":\"projectDesign\",\"state\":\"awaitingHuman\"}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P3", 3, pre3_1)
 		// step 4: SubmitReviewDecision (node mgmt; guards classify=[no: scope change], mgmt=[reject])
-		var in4 inputReplanUnderScopeChangeP3S4
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{"decision":2},"feedback":{"notes":"Reject the revision: the added cost exceeds the approved ceiling; the current commitment stands.","comments":null}}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepReplanUnderScopeChangeP3S4(t, h, subject, in4)
-		expect(t, "replan-under-scope-change-P3", 4, out4, err4, `{"errorExpected":false}`)
 		// probe 4.1: deliveryManager.QueryProjectView for sdp-revision-rejected
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe4_1)
-		pout4_1, perr4_1 = subject.QueryProjectView(callContext(t, h, "4.1"), probe4_1.Query)
+		pre4_1 := held("replan-under-scope-change-P3 probe 4.1 before", 4, run4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		var in4 inputReplanUnderScopeChangeP3S4
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"projectDesign","taskID":"sdpReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Reject the revision: the added cost exceeds the approved ceiling; the current commitment stands.",
+                          "comments": null
+                        }}`, &in4)
+		err4 = subject.SubmitReviewDecision(h.ManagerContext(t), in4.ProjectID, in4.ActivityID, in4.TaskID, in4.Decision, in4.Feedback)
+		expect(t, "replan-under-scope-change-P3", 4, out4, err4, `{"errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "replan-under-scope-change-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"Phase\":2,\"PhaseName\":\"construction\"}}","errorExpected":false}`)
+		differential(t, "replan-under-scope-change-P3", 4, pre4_1)
 	})
 }
 
@@ -1620,38 +2121,56 @@ type inputRequeueAFailedConstructionActivityP1S3 struct {
 func TestScenario_requeue_a_failed_construction_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "requeue-a-failed-construction-activity-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node read-attempts)
-		var in1 inputRequeueAFailedConstructionActivityP1S1
-		mustUnmarshal(t, `{"query":{"kind":"episodes","projectId":"dct-owner/dct-delivery","activityId":"C-review-engine"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRequeueAFailedConstructionActivityP1S1(t, h, subject, in1)
+		var in1 inputRequeueAFailedConstructionActivityP1S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "episodes",
+                          "projectId": "dct-owner/dct-delivery",
+                          "activityId": "C-review-engine"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "requeue-a-failed-construction-activity-P1", 1, out1, err1, `{"result":"{\"kind\":\"episodes\"}","errorExpected":false}`)
 		// step 2: QueryProjectView (node read-failed-trace)
-		var in2 inputRequeueAFailedConstructionActivityP1S2
-		mustUnmarshal(t, `{"query":{"kind":"timeline","projectId":"dct-owner/dct-delivery","episodeId":"dct-ep-review-engine-0003"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepRequeueAFailedConstructionActivityP1S2(t, h, subject, in2)
+		var in2 inputRequeueAFailedConstructionActivityP1S2
+		mustUnmarshal(t, `{"query":{
+                          "kind": "timeline",
+                          "projectId": "dct-owner/dct-delivery",
+                          "episodeId": "dct-ep-review-engine-0003"
+                        }}`, &in2)
+		out2, err2 = subject.QueryProjectView(h.ManagerContext(t), in2.Query)
 		expect(t, "requeue-a-failed-construction-activity-P1", 2, out2, err2, `{"result":"{\"kind\":\"timeline\",\"timeline\":{\"record\":{\"outcome\":1}}}","errorExpected":false}`)
 		// step 3: OverrideActivity (node write-change)
-		var in3 inputRequeueAFailedConstructionActivityP1S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{"kind":2,"notes":"Re-queue: the construction attempt failed because the contract's ReviewSet result changed; regenerate the fake and rerun from the first incomplete phase.","comments":null}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepRequeueAFailedConstructionActivityP1S3(t, h, subject, in3)
-		expect(t, "requeue-a-failed-construction-activity-P1", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryActivityView for activity-resumed-state
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			ProjectID  delivery.ProjectID  `json:"projectID"`
-			ActivityID delivery.ActivityID `json:"activityID"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				ProjectID  delivery.ProjectID  `json:"projectID"`
+				ActivityID delivery.ActivityID `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &in)
+			return subject.QueryActivityView(h.ManagerContext(t), in.ProjectID, in.ActivityID)
 		}
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine"}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryActivityView(callContext(t, h, "3.1"), probe3_1.ProjectID, probe3_1.ActivityID)
+		pre3_1 := held("requeue-a-failed-construction-activity-P1 probe 3.1 before", 3, run3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"running\"}","errorExpected":false}`)
+		var in3 inputRequeueAFailedConstructionActivityP1S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"C-review-engine","override":{
+                          "kind": 2,
+                          "notes": "Re-queue: the construction attempt failed because the contract's ReviewSet result changed; regenerate the fake and rerun from the first incomplete phase.",
+                          "comments": null
+                        }}`, &in3)
+		err3 = subject.OverrideActivity(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.Override)
+		expect(t, "requeue-a-failed-construction-activity-P1", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "requeue-a-failed-construction-activity-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"activityId\":\"C-review-engine\",\"state\":\"running\"}","errorExpected":false}`)
+		differential(t, "requeue-a-failed-construction-activity-P1", 3, pre3_1)
 	})
 }
 
@@ -1666,23 +2185,32 @@ type inputResumePausedConstructionP1S1 struct {
 func TestScenario_resume_paused_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "resume-paused-construction-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[yes])
-		var in1 inputResumePausedConstructionP1S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"Vendor contract signed; resume construction."}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepResumePausedConstructionP1S1(t, h, subject, in1)
-		expect(t, "resume-paused-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryProjectView for run-state-running
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("resume-paused-construction-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false}}","errorExpected":false}`)
+		var in1 inputResumePausedConstructionP1S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"Vendor contract signed; resume construction."}`, &in1)
+		err1 = subject.SetProjectRunState(h.ManagerContext(t), in1.ProjectID, in1.RunState, in1.Reason)
+		expect(t, "resume-paused-construction-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "resume-paused-construction-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false}}","errorExpected":false}`)
+		differential(t, "resume-paused-construction-P1", 1, pre1_1)
 	})
 }
 
@@ -1697,22 +2225,29 @@ type inputResumePausedConstructionP2S1 struct {
 func TestScenario_resume_paused_construction_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "resume-paused-construction-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SetProjectRunState (node choose-resume; guards halt-check=[no], pause-settled=[no])
-		var in1 inputResumePausedConstructionP2S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"Vendor contract signed; resume construction."}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepResumePausedConstructionP2S1(t, h, subject, in1)
-		expect(t, "resume-paused-construction-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
 		// probe 1.1: deliveryManager.QueryProjectView for run-state-still-paused
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		var in1 inputResumePausedConstructionP2S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"Vendor contract signed; resume construction."}`, &in1)
+		err1 = subject.SetProjectRunState(h.ManagerContext(t), in1.ProjectID, in1.RunState, in1.Reason)
+		expect(t, "resume-paused-construction-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "resume-paused-construction-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":true}}","errorExpected":false}`)
 	})
 }
@@ -1728,23 +2263,32 @@ type inputResumePausedConstructionP3S1 struct {
 func TestScenario_resume_paused_construction_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "resume-paused-construction-P3", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SetProjectRunState (node choose-resume; guards halt-check=[yes])
-		var in1 inputResumePausedConstructionP3S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"The project store accepts writes again; resume construction."}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepResumePausedConstructionP3S1(t, h, subject, in1)
-		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryProjectView for release-halt
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "summary",
+                              "projectId": "dct-owner/dct-delivery"
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("resume-paused-construction-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false,\"runState\":\"running\"}}","errorExpected":false}`)
+		var in1 inputResumePausedConstructionP3S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","runState":"running","reason":"The project store accepts writes again; resume construction."}`, &in1)
+		err1 = subject.SetProjectRunState(h.ManagerContext(t), in1.ProjectID, in1.RunState, in1.Reason)
+		expect(t, "resume-paused-construction-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "resume-paused-construction-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"operatorPaused\":false,\"runState\":\"running\"}}","errorExpected":false}`)
+		differential(t, "resume-paused-construction-P3", 1, pre1_1)
 	})
 }
 
@@ -1775,46 +2319,85 @@ type inputSendBackChangeRequestsForARedraftP1S3 struct {
 func TestScenario_send_back_change_requests_for_a_redraft_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "send-back-change-requests-for-a-redraft-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitReviewDecision (node send-back; guards resolved=[yes])
-		var in1 inputSendBackChangeRequestsForARedraftP1S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{"decision":2},"feedback":{"notes":"Change requests before approval.","comments":[{"jsonPath":"$.containers[3].name","text":"Rename to the volatility it encapsulates.","anchorText":"BillingThing","replyTo":""}]}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepSendBackChangeRequestsForARedraftP1S1(t, h, subject, in1)
-		expect(t, "send-back-change-requests-for-a-redraft-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryProjectView for obj-draft-sent-back
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("send-back-change-requests-for-a-redraft-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}","errorExpected":false}`)
+		var in1 inputSendBackChangeRequestsForARedraftP1S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Change requests before approval.",
+                          "comments": [
+                            {
+                              "jsonPath": "$.containers[3].name",
+                              "text": "Rename to the volatility it encapsulates.",
+                              "anchorText": "BillingThing",
+                              "replyTo": ""
+                            }
+                          ]
+                        }}`, &in1)
+		err1 = subject.SubmitReviewDecision(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Decision, in1.Feedback)
+		expect(t, "send-back-change-requests-for-a-redraft-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P1", 1, pre1_1)
 		// step 2: QueryProjectView (node re-review; guards resolved=[yes])
-		var in2 inputSendBackChangeRequestsForARedraftP1S2
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepSendBackChangeRequestsForARedraftP1S2(t, h, subject, in2)
+		var in2 inputSendBackChangeRequestsForARedraftP1S2
+		mustUnmarshal(t, `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-delivery",
+                          "artifactKind": 5
+                        }}`, &in2)
+		out2, err2 = subject.QueryProjectView(h.ManagerContext(t), in2.Query)
 		expect(t, "send-back-change-requests-for-a-redraft-P1", 2, out2, err2, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}","errorExpected":false}`)
 		// step 3: SubmitReviewDecision (node close-comments; guards resolved=[yes])
-		var in3 inputSendBackChangeRequestsForARedraftP1S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{"decision":5,"commentId":"dct-cr-0001","commentStatus":"resolved"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepSendBackChangeRequestsForARedraftP1S3(t, h, subject, in3)
-		expect(t, "send-back-change-requests-for-a-redraft-P1", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for obj-thread-resolved
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("send-back-change-requests-for-a-redraft-P1 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"status\":\"resolved\"}]}}","errorExpected":false}`)
+		var in3 inputSendBackChangeRequestsForARedraftP1S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 5,
+                          "commentId": "dct-cr-0001",
+                          "commentStatus": "resolved"
+                        }}`, &in3)
+		err3 = subject.SubmitReviewDecision(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Decision, in3.Feedback)
+		expect(t, "send-back-change-requests-for-a-redraft-P1", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P1 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"status\":\"resolved\"}]}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P1", 3, pre3_1)
 	})
 }
 
@@ -1859,69 +2442,133 @@ type inputSendBackChangeRequestsForARedraftP2S5 struct {
 func TestScenario_send_back_change_requests_for_a_redraft_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "send-back-change-requests-for-a-redraft-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: SubmitReviewDecision (node send-back; guards resolved=[no: iterate], resolved=[yes])
-		var in1 inputSendBackChangeRequestsForARedraftP2S1
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{"decision":2},"feedback":{"notes":"Change requests before approval.","comments":[{"jsonPath":"$.containers[3].name","text":"Rename to the volatility it encapsulates.","anchorText":"BillingThing","replyTo":""}]}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepSendBackChangeRequestsForARedraftP2S1(t, h, subject, in1)
-		expect(t, "send-back-change-requests-for-a-redraft-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: deliveryManager.QueryProjectView for obj-draft-sent-back
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryProjectView(callContext(t, h, "1.1"), probe1_1.Query)
+		pre1_1 := held("send-back-change-requests-for-a-redraft-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}","errorExpected":false}`)
+		var in1 inputSendBackChangeRequestsForARedraftP2S1
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Change requests before approval.",
+                          "comments": [
+                            {
+                              "jsonPath": "$.containers[3].name",
+                              "text": "Rename to the volatility it encapsulates.",
+                              "anchorText": "BillingThing",
+                              "replyTo": ""
+                            }
+                          ]
+                        }}`, &in1)
+		err1 = subject.SubmitReviewDecision(h.ManagerContext(t), in1.ProjectID, in1.ActivityID, in1.TaskID, in1.Decision, in1.Feedback)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\",\"anchorText\":\"BillingThing\",\"status\":\"open\"}]}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P2", 1, pre1_1)
 		// step 2: QueryProjectView (node re-review; guards resolved=[no: iterate], resolved=[yes])
-		var in2 inputSendBackChangeRequestsForARedraftP2S2
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepSendBackChangeRequestsForARedraftP2S2(t, h, subject, in2)
+		var in2 inputSendBackChangeRequestsForARedraftP2S2
+		mustUnmarshal(t, `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-delivery",
+                          "artifactKind": 5
+                        }}`, &in2)
+		out2, err2 = subject.QueryProjectView(h.ManagerContext(t), in2.Query)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 2, out2, err2, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}","errorExpected":false}`)
 		// step 3: SubmitReviewDecision (node send-back; guards resolved=[no: iterate], resolved=[yes])
-		var in3 inputSendBackChangeRequestsForARedraftP2S3
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{"decision":2},"feedback":{"notes":"Second round: one request is not resolved.","comments":[{"jsonPath":"$.containers[3].responsibilities","text":"The response renamed it but still lists invoicing; move invoicing out.","anchorText":"invoicing","replyTo":""}]}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = stepSendBackChangeRequestsForARedraftP2S3(t, h, subject, in3)
-		expect(t, "send-back-change-requests-for-a-redraft-P2", 3, out3, err3, `{"errorExpected":false}`)
 		// probe 3.1: deliveryManager.QueryProjectView for obj-draft-sent-back
 		var pout3_1 any
 		var perr3_1 error
-		var probe3_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run3_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe3_1)
-		pout3_1, perr3_1 = subject.QueryProjectView(callContext(t, h, "3.1"), probe3_1.Query)
+		pre3_1 := held("send-back-change-requests-for-a-redraft-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"anchorText\":\"invoicing\",\"status\":\"open\"}]}}","errorExpected":false}`)
+		var in3 inputSendBackChangeRequestsForARedraftP2S3
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 2
+                        },"feedback":{
+                          "notes": "Second round: one request is not resolved.",
+                          "comments": [
+                            {
+                              "jsonPath": "$.containers[3].responsibilities",
+                              "text": "The response renamed it but still lists invoicing; move invoicing out.",
+                              "anchorText": "invoicing",
+                              "replyTo": ""
+                            }
+                          ]
+                        }}`, &in3)
+		err3 = subject.SubmitReviewDecision(h.ManagerContext(t), in3.ProjectID, in3.ActivityID, in3.TaskID, in3.Decision, in3.Feedback)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 3, out3, err3, `{"errorExpected":false}`)
+		pout3_1, perr3_1 = run3_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"anchorText\":\"invoicing\",\"status\":\"open\"}]}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P2", 3, pre3_1)
 		// step 4: QueryProjectView (node re-review; guards resolved=[no: iterate], resolved=[yes])
-		var in4 inputSendBackChangeRequestsForARedraftP2S4
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = stepSendBackChangeRequestsForARedraftP2S4(t, h, subject, in4)
+		var in4 inputSendBackChangeRequestsForARedraftP2S4
+		mustUnmarshal(t, `{"query":{
+                          "kind": "session",
+                          "projectId": "dct-owner/dct-delivery",
+                          "artifactKind": 5
+                        }}`, &in4)
+		out4, err4 = subject.QueryProjectView(h.ManagerContext(t), in4.Query)
 		expect(t, "send-back-change-requests-for-a-redraft-P2", 4, out4, err4, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5}}","errorExpected":false}`)
 		// step 5: SubmitReviewDecision (node close-comments; guards resolved=[no: iterate], resolved=[yes])
-		var in5 inputSendBackChangeRequestsForARedraftP2S5
-		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{"decision":5,"commentId":"dct-cr-0002","commentStatus":"resolved"}}`, &in5)
 		var out5 any
 		var err5 error
-		out5, err5 = stepSendBackChangeRequestsForARedraftP2S5(t, h, subject, in5)
-		expect(t, "send-back-change-requests-for-a-redraft-P2", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: deliveryManager.QueryProjectView for obj-thread-resolved
 		var pout5_1 any
 		var perr5_1 error
-		var probe5_1 struct {
-			Query delivery.ProjectViewQuery `json:"query"`
+		run5_1 := func() (any, error) {
+			var in struct {
+				Query delivery.ProjectViewQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "kind": "session",
+                              "projectId": "dct-owner/dct-delivery",
+                              "artifactKind": 5
+                            }}`, &in)
+			return subject.QueryProjectView(h.ManagerContext(t), in.Query)
 		}
-		mustUnmarshal(t, `{"query":{"kind":"session","projectId":"dct-owner/dct-delivery","artifactKind":5}}`, &probe5_1)
-		pout5_1, perr5_1 = subject.QueryProjectView(callContext(t, h, "5.1"), probe5_1.Query)
+		pre5_1 := held("send-back-change-requests-for-a-redraft-P2 probe 5.1 before", 5, run5_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"status\":\"resolved\"}]}}","errorExpected":false}`)
+		var in5 inputSendBackChangeRequestsForARedraftP2S5
+		mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery","activityID":"architecture","taskID":"architectureReview","decision":{
+                          "decision": 5,
+                          "commentId": "dct-cr-0002",
+                          "commentStatus": "resolved"
+                        }}`, &in5)
+		err5 = subject.SubmitReviewDecision(h.ManagerContext(t), in5.ProjectID, in5.ActivityID, in5.TaskID, in5.Decision, in5.Feedback)
+		expect(t, "send-back-change-requests-for-a-redraft-P2", 5, out5, err5, `{"errorExpected":false}`)
+		pout5_1, perr5_1 = run5_1()
 		expect(t, "send-back-change-requests-for-a-redraft-P2 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"kind\":\"session\",\"session\":{\"projectId\":\"dct-owner/dct-delivery\",\"artifactKind\":5,\"reviewThread\":[{\"anchor\":\"$.containers[3].name\"},{\"anchor\":\"$.containers[3].responsibilities\",\"status\":\"resolved\"}]}}","errorExpected":false}`)
+		differential(t, "send-back-change-requests-for-a-redraft-P2", 5, pre5_1)
 	})
 }
 
@@ -1934,13 +2581,17 @@ type inputTrackWeeklyProjectProgressP1S1 struct {
 func TestScenario_track_weekly_project_progress_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "track-weekly-project-progress-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node week-elapses; guards enough-points=[no], off-track=[yes])
-		var in1 inputTrackWeeklyProjectProgressP1S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepTrackWeeklyProjectProgressP1S1(t, h, subject, in1)
+		var in1 inputTrackWeeklyProjectProgressP1S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "track-weekly-project-progress-P1", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}","errorExpected":false}`)
 	})
 }
@@ -1954,13 +2605,17 @@ type inputTrackWeeklyProjectProgressP2S1 struct {
 func TestScenario_track_weekly_project_progress_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "track-weekly-project-progress-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node week-elapses; guards enough-points=[no], off-track=[no])
-		var in1 inputTrackWeeklyProjectProgressP2S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepTrackWeeklyProjectProgressP2S1(t, h, subject, in1)
+		var in1 inputTrackWeeklyProjectProgressP2S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "track-weekly-project-progress-P2", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}","errorExpected":false}`)
 	})
 }
@@ -1974,13 +2629,17 @@ type inputTrackWeeklyProjectProgressP3S1 struct {
 func TestScenario_track_weekly_project_progress_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "track-weekly-project-progress-P3", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node week-elapses; guards enough-points=[yes], off-track=[yes])
-		var in1 inputTrackWeeklyProjectProgressP3S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepTrackWeeklyProjectProgressP3S1(t, h, subject, in1)
+		var in1 inputTrackWeeklyProjectProgressP3S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "track-weekly-project-progress-P3", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}","errorExpected":false}`)
 	})
 }
@@ -1994,13 +2653,17 @@ type inputTrackWeeklyProjectProgressP4S1 struct {
 func TestScenario_track_weekly_project_progress_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "track-weekly-project-progress-P4", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node week-elapses; guards enough-points=[yes], off-track=[no])
-		var in1 inputTrackWeeklyProjectProgressP4S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepTrackWeeklyProjectProgressP4S1(t, h, subject, in1)
+		var in1 inputTrackWeeklyProjectProgressP4S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "track-weekly-project-progress-P4", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\",\"PhaseName\":\"construction\"}}","errorExpected":false}`)
 	})
 }
@@ -2014,13 +2677,17 @@ type inputViewTheProjectStateLogP1S1 struct {
 func TestScenario_view_the_project_state_log_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "view-the-project-state-log-P1", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node open-history; guards inspect=[yes])
-		var in1 inputViewTheProjectStateLogP1S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewTheProjectStateLogP1S1(t, h, subject, in1)
+		var in1 inputViewTheProjectStateLogP1S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
 		expect(t, "view-the-project-state-log-P1", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\"}}","errorExpected":false}`)
 	})
 }
@@ -2034,29 +2701,33 @@ type inputViewTheProjectStateLogP2S1 struct {
 func TestScenario_view_the_project_state_log_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "deliveryManager", "view-the-project-state-log-P2", func(t *testing.T) {
-		var subject delivery.DeliveryManager = newSubject(t, h)
+		var subject delivery.DeliveryManager = scenariocompose.NewDeliveryManager(t, h)
+		subject = nullSubjectDeliveryManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryProjectView (node open-history; guards inspect=[no])
-		var in1 inputViewTheProjectStateLogP2S1
-		mustUnmarshal(t, `{"query":{"kind":"summary","projectId":"dct-owner/dct-delivery"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewTheProjectStateLogP2S1(t, h, subject, in1)
-		expect(t, "view-the-project-state-log-P2", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\"}}","errorExpected":false}`)
 		// probe 1.1: projectStateAccess.ReadProjectVersion for project-state-unchanged
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeViewTheProjectStateLogP2S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				ProjectID projectstate.ProjectID `json:"projectID"`
+			}
+			mustUnmarshal(t, `{"projectID":"dct-owner/dct-delivery"}`, &in)
+			return scenariocompose.NewProjectStateAccess(t, h).ReadProjectVersion(h.ResourceAccessContext(t, "1.1"), in.ProjectID)
+		}
+		pre1_1 := held("view-the-project-state-log-P2 probe 1.1 before", 1, run1_1, `{"result":"7","errorExpected":false}`)
+		var in1 inputViewTheProjectStateLogP2S1
+		mustUnmarshal(t, `{"query":{
+                          "kind": "summary",
+                          "projectId": "dct-owner/dct-delivery"
+                        }}`, &in1)
+		out1, err1 = subject.QueryProjectView(h.ManagerContext(t), in1.Query)
+		expect(t, "view-the-project-state-log-P2", 1, out1, err1, `{"result":"{\"kind\":\"summary\",\"summary\":{\"ProjectID\":\"dct-owner/dct-delivery\"}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-the-project-state-log-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"7","errorExpected":false}`)
+		differential(t, "view-the-project-state-log-P2", 1, pre1_1)
 	})
-}
-
-// callContext is the fwm call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fwm.Context {
-	t.Helper()
-	_ = step
-	return fwm.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -2066,34 +2737,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

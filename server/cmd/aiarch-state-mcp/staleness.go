@@ -2,7 +2,9 @@ package main
 
 // staleness.go — the GATE SEVERITY POLICY seam: the two founder-ratified downgrades
 // (2026-07-06) that keep the single-writer-per-slot design rail from deadlocking on
-// whole-document validation. applyGateSeverityPolicies composes them:
+// whole-document validation. applyGateSeverityPolicies composes them, then applies the project's
+// own RULE WAIVERS (ruling 8: a conscious, dated exception to one named rule, Warning until it
+// expires):
 //
 //  1. STALENESS-AWARE severity for the CROSS-ARTIFACT System×OperationalConcepts join
 //     rules (applyStaleBasisDowngrades — the first half of the deadlock class; below).
@@ -55,6 +57,8 @@ package main
 // whole-document) — so the in-loop and CI verdicts can never disagree.
 
 import (
+	"time"
+
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -73,8 +77,11 @@ func applyGateSeverityPolicies(proj projectstate.Project, ambient projectstate.A
 	if hasAmbient {
 		findings = applySlotScopeDowngrades(ambient, findings)
 	}
-	return findings
+	return projectstate.ApplyRuleWaivers(proj.RuleWaivers, waiverToday(), findings)
 }
+
+// waiverToday is the clock a rule waiver's expiry is read against; a test replaces it.
+var waiverToday = func() time.Time { return time.Now().UTC() }
 
 // systemOpConceptsJoinRules is the closed set of methodcheck rules that JOIN
 // System × OperationalConcepts — the deployment-consistency predicates whose subject is

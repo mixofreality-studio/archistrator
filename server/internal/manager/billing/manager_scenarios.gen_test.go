@@ -6,6 +6,7 @@ package billing_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,11 +15,9 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) {
-	scenariohost.MainWithWorkflows(m, replayWorkflows(), "billingManager")
-}
 
 // inputBillTheUserForUsageP1S1 is step 1's parameters of CloseBillingCycle, decoded from the binding's inputs.
 type inputBillTheUserForUsageP1S1 struct {
@@ -30,30 +29,44 @@ type inputBillTheUserForUsageP1S1 struct {
 func TestScenario_bill_the_user_for_usage_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "bill-the-user-for-usage-P1", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: CloseBillingCycle (node period-elapses; guards charge-succeeded=[yes])
-		var in1 inputBillTheUserForUsageP1S1
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000101","cycleID":"2026-09"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepBillTheUserForUsageP1S1(t, h, subject, in1)
-		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":false}","errorExpected":false}`)
-		// unobservable: note-charge-idempotency
 		// probe 1.1: billingStateAccess.ReadCycle for period-closed-paid
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeBillTheUserForUsageP1S1N1(t, h, subject)
-		expect(t, "bill-the-user-for-usage-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000101","cycle":"2026-09"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
 		// probe 1.2: billingManager.GetBillingCycle for invoice-paid
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				CycleID    string    `json:"cycleID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000101","cycleID":"2026-09"}`, &in)
+			return subject.GetBillingCycle(h.ManagerContext(t), in.CustomerID, in.CycleID)
 		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000101","cycleID":"2026-09"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
+		pre1_1 := held("bill-the-user-for-usage-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		pre1_2 := held("bill-the-user-for-usage-P1 probe 1.2 before", 1, run1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		var in1 inputBillTheUserForUsageP1S1
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000101","cycleID":"2026-09"}`, &in1)
+		out1, err1 = subject.CloseBillingCycle(h.ManagerContext(t), in1.CustomerID, in1.CycleID)
+		expect(t, "bill-the-user-for-usage-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":false}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "bill-the-user-for-usage-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "bill-the-user-for-usage-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000101\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		differential(t, "bill-the-user-for-usage-P1", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -67,35 +80,59 @@ type inputBillTheUserForUsageP2S1 struct {
 func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "bill-the-user-for-usage-P2", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: CloseBillingCycle (node period-elapses; guards charge-succeeded=[no])
-		var in1 inputBillTheUserForUsageP2S1
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000102","cycleID":"2026-09"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepBillTheUserForUsageP2S1(t, h, subject, in1)
-		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":true}","errorExpected":false}`)
-		// unobservable: note-charge-idempotency
 		// probe 1.1: billingStateAccess.ReadCycle for period-closed-unpaid
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeBillTheUserForUsageP2S1N1(t, h, subject)
-		expect(t, "bill-the-user-for-usage-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000102","cycle":"2026-09"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
 		// probe 1.2: billingManager.GetBillingCycle for invoice-unpaid
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				CycleID    string    `json:"cycleID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000102","cycleID":"2026-09"}`, &in)
+			return subject.GetBillingCycle(h.ManagerContext(t), in.CustomerID, in.CycleID)
 		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000102","cycleID":"2026-09"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
-		expect(t, "bill-the-user-for-usage-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
 		// probe 1.3: billingStateAccess.ReadPersistentlyDelinquentCustomers for period-closed-unpaid
 		var pout1_3 any
 		var perr1_3 error
-		pout1_3, perr1_3 = probeBillTheUserForUsageP2S1N3(t, h, subject)
+		run1_3 := func() (any, error) {
+			var in struct {
+				Scope billingstate.DelinquencyScope `json:"scope"`
+			}
+			mustUnmarshal(t, `{"scope":{
+                              "ProjectID": "stp-billing-bill-P2-project"
+                            }}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadPersistentlyDelinquentCustomers(h.ResourceAccessContext(t, "1.3"), in.Scope)
+		}
+		pre1_1 := held("bill-the-user-for-usage-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}","errorExpected":false}`)
+		pre1_2 := held("bill-the-user-for-usage-P2 probe 1.2 before", 1, run1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		pre1_3 := held("bill-the-user-for-usage-P2 probe 1.3 before", 1, run1_3, `{"result":"[]","errorExpected":false}`)
+		var in1 inputBillTheUserForUsageP2S1
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000102","cycleID":"2026-09"}`, &in1)
+		out1, err1 = subject.CloseBillingCycle(h.ManagerContext(t), in1.CustomerID, in1.CycleID)
+		expect(t, "bill-the-user-for-usage-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"routed\":2,\"declined\":true}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "bill-the-user-for-usage-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":1,\"SweepsAged\":0}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
+		expect(t, "bill-the-user-for-usage-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000102\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		pout1_3, perr1_3 = run1_3()
 		expect(t, "bill-the-user-for-usage-P2 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[]","errorExpected":false}`)
+		differential(t, "bill-the-user-for-usage-P2", 1, pre1_1, pre1_2, pre1_3)
 	})
 }
 
@@ -108,20 +145,29 @@ type inputOnboardANewCustomerP1S1 struct {
 func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "onboard-a-new-customer-P1", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: OnboardPaymentIntegration (node resolve-app; guards registered=[yes])
-		var in1 inputOnboardANewCustomerP1S1
-		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000201"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOnboardANewCustomerP1S1(t, h, subject, in1)
-		expect(t, "onboard-a-new-customer-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000201\"}","errorExpected":false}`)
-		// unobservable: obj-schedule-registered
 		// probe 1.1: billingStateAccess.ReadBilling for obj-gateway-bound
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeOnboardANewCustomerP1S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000201"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "1.1"), in.CustomerID)
+		}
+		pre1_1 := held("onboard-a-new-customer-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000201\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		var in1 inputOnboardANewCustomerP1S1
+		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000201"}`, &in1)
+		out1, err1 = subject.OnboardPaymentIntegration(h.ManagerContext(t), in1.DeployedAppID)
+		expect(t, "onboard-a-new-customer-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000201\"}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "onboard-a-new-customer-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000201\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P1", 1, pre1_1)
 	})
 }
 
@@ -140,32 +186,49 @@ type inputOnboardANewCustomerP2S2 struct {
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "onboard-a-new-customer-P2", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: OnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[yes])
-		var in1 inputOnboardANewCustomerP2S1
-		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000202"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOnboardANewCustomerP2S1(t, h, subject, in1)
+		var in1 inputOnboardANewCustomerP2S1
+		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000202"}`, &in1)
+		out1, err1 = subject.OnboardPaymentIntegration(h.ManagerContext(t), in1.DeployedAppID)
 		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000202\"}","errorExpected":false}`)
 		// step 2: RegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[yes])
-		var in2 inputOnboardANewCustomerP2S2
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000202","projectID":"stp-billing-onboard-P2-project"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepOnboardANewCustomerP2S2(t, h, subject, in2)
-		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000202\"}","errorExpected":false}`)
-		// unobservable: obj-instrument-validated, obj-schedule-registered
 		// probe 2.1: billingStateAccess.ReadBilling for obj-customer-registered
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeOnboardANewCustomerP2S2N1(t, h, subject)
-		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000202\",\"Registered\":true}","errorExpected":false}`)
+		run2_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000202"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
+		}
 		// probe 2.2: billingStateAccess.ReadBilling for obj-gateway-bound
 		var pout2_2 any
 		var perr2_2 error
-		pout2_2, perr2_2 = probeOnboardANewCustomerP2S2N2(t, h, subject)
+		run2_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000202"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "2.2"), in.CustomerID)
+		}
+		pre2_1 := held("onboard-a-new-customer-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000202\",\"Registered\":true}","errorExpected":false}`)
+		pre2_2 := held("onboard-a-new-customer-P2 probe 2.2 before", 2, run2_2, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000202\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		var in2 inputOnboardANewCustomerP2S2
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000202","projectID":"stp-billing-onboard-P2-project"}`, &in2)
+		out2, err2 = subject.RegisterCustomer(h.ManagerContext(t), in2.CustomerID, in2.ProjectID)
+		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000202\"}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
+		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000202\",\"Registered\":true}","errorExpected":false}`)
+		pout2_2, perr2_2 = run2_2()
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000202\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P2", 2, pre2_1, pre2_2)
 	})
 }
 
@@ -184,26 +247,33 @@ type inputOnboardANewCustomerP3S2 struct {
 func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "onboard-a-new-customer-P3", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: OnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[no: no committed option])
-		var in1 inputOnboardANewCustomerP3S1
-		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000203"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOnboardANewCustomerP3S1(t, h, subject, in1)
+		var in1 inputOnboardANewCustomerP3S1
+		mustUnmarshal(t, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000203"}`, &in1)
+		out1, err1 = subject.OnboardPaymentIntegration(h.ManagerContext(t), in1.DeployedAppID)
 		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000203\"}","errorExpected":false}`)
 		// step 2: RegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
-		var in2 inputOnboardANewCustomerP3S2
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000203","projectID":"stp-billing-onboard-P3-project"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepOnboardANewCustomerP3S2(t, h, subject, in2)
-		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
-		// unobservable: obj-instrument-validated
 		// probe 2.1: billingStateAccess.ReadBilling for send-registration-refused
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeOnboardANewCustomerP3S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000203"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
+		}
+		var in2 inputOnboardANewCustomerP3S2
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000203","projectID":"stp-billing-onboard-P3-project"}`, &in2)
+		out2, err2 = subject.RegisterCustomer(h.ManagerContext(t), in2.CustomerID, in2.ProjectID)
+		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000203\",\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
 	})
 }
@@ -217,30 +287,44 @@ type inputRetryADeclinedServiceInvoiceP1S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
-		var in1 inputRetryADeclinedServiceInvoiceP1S1
-		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P1-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP1S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: note-idempotency-key
 		// probe 1.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP1S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":1}}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000304","cycle":"2026-08"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
 		// probe 1.2: billingManager.GetBillingCycle for cycle-awaiting-sweep
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				CycleID    string    `json:"cycleID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000304","cycleID":"2026-08"}`, &in)
+			return subject.GetBillingCycle(h.ManagerContext(t), in.CustomerID, in.CycleID)
 		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000304","cycleID":"2026-08"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
+		pre1_1 := held("retry-a-declined-service-invoice-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":1}}","errorExpected":false}`)
+		pre1_2 := held("retry-a-declined-service-invoice-P1 probe 1.2 before", 1, run1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000304\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
+		var in1 inputRetryADeclinedServiceInvoiceP1S1
+		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P1-tick-0001"}`, &in1)
+		out1, err1 = subject.RunShortfallSweep(h.ManagerContext(t), in1.TickID)
+		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "retry-a-declined-service-invoice-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false,\"Attempts\":2,\"SweepsAged\":1}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "retry-a-declined-service-invoice-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000304\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
+		differential(t, "retry-a-declined-service-invoice-P1", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -253,30 +337,44 @@ type inputRetryADeclinedServiceInvoiceP2S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[yes: retry], charge-ok=[yes])
-		var in1 inputRetryADeclinedServiceInvoiceP2S1
-		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P2-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP2S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: note-idempotency-key
 		// probe 1.1: billingStateAccess.ReadCycle for cycle-settled
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP2S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2}}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000301","cycle":"2026-08"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
 		// probe 1.2: billingManager.GetBillingCycle for cycle-settled
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				CycleID    string    `json:"cycleID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000301","cycleID":"2026-08"}`, &in)
+			return subject.GetBillingCycle(h.ManagerContext(t), in.CustomerID, in.CycleID)
 		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000301","cycleID":"2026-08"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
+		pre1_1 := held("retry-a-declined-service-invoice-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2}}","errorExpected":false}`)
+		pre1_2 := held("retry-a-declined-service-invoice-P2 probe 1.2 before", 1, run1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000301\",\"cycleId\":\"2026-08\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		var in1 inputRetryADeclinedServiceInvoiceP2S1
+		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P2-tick-0001"}`, &in1)
+		out1, err1 = subject.RunShortfallSweep(h.ManagerContext(t), in1.TickID)
+		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "retry-a-declined-service-invoice-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false,\"Attempts\":2}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "retry-a-declined-service-invoice-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000301\",\"cycleId\":\"2026-08\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		differential(t, "retry-a-declined-service-invoice-P2", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -289,29 +387,44 @@ type inputRetryADeclinedServiceInvoiceP3S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P3", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[yes: delay])
-		var in1 inputRetryADeclinedServiceInvoiceP3S1
-		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P3-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP3S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: billingStateAccess.ReadCycle for cycle-awaiting-sweep
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP3S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false}}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302","cycle":"2026-08"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
 		// probe 1.2: billingManager.GetBillingCycle for cycle-awaiting-sweep
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				CycleID    string    `json:"cycleID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302","cycleID":"2026-08"}`, &in)
+			return subject.GetBillingCycle(h.ManagerContext(t), in.CustomerID, in.CycleID)
 		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302","cycleID":"2026-08"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
+		pre1_1 := held("retry-a-declined-service-invoice-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false}}","errorExpected":false}`)
+		pre1_2 := held("retry-a-declined-service-invoice-P3 probe 1.2 before", 1, run1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
+		var in1 inputRetryADeclinedServiceInvoiceP3S1
+		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P3-tick-0001"}`, &in1)
+		out1, err1 = subject.RunShortfallSweep(h.ManagerContext(t), in1.TickID)
+		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "retry-a-declined-service-invoice-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-08\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":true,\"Escalated\":false}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "retry-a-declined-service-invoice-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":false}","errorExpected":false}`)
+		differential(t, "retry-a-declined-service-invoice-P3", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -324,30 +437,45 @@ type inputRetryADeclinedServiceInvoiceP4S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: RunShortfallSweep (node charge-declined; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in1 inputRetryADeclinedServiceInvoiceP4S1
-		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P4-tick-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"{\"signalledCustomers\":[\"0b1a0000-0000-4000-8000-000000000303\"]}","errorExpected":false}`)
-		// unobservable: signal-delinquency-escalation
 		// probe 1.1: billingStateAccess.ReadPersistentlyDelinquentCustomers for customer-delinquent
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP4S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\"}]","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				Scope billingstate.DelinquencyScope `json:"scope"`
+			}
+			mustUnmarshal(t, `{"scope":{
+                              "ProjectID": "stp-billing-retry-P4-project"
+                            }}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadPersistentlyDelinquentCustomers(h.ResourceAccessContext(t, "1.1"), in.Scope)
+		}
 		// probe 1.2: billingManager.GetBillingCycle for customer-delinquent
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			CustomerID uuid.UUID `json:"customerID"`
-			CycleID    string    `json:"cycleID"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				CycleID    string    `json:"cycleID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000303","cycleID":"2026-08"}`, &in)
+			return subject.GetBillingCycle(h.ManagerContext(t), in.CustomerID, in.CycleID)
 		}
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000303","cycleID":"2026-08"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetBillingCycle(callContext(t, h, "1.2"), probe1_2.CustomerID, probe1_2.CycleID)
+		pre1_1 := held("retry-a-declined-service-invoice-P4 probe 1.1 before", 1, run1_1, `{"result":"[{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\"}]","errorExpected":false}`)
+		pre1_2 := held("retry-a-declined-service-invoice-P4 probe 1.2 before", 1, run1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":true}","errorExpected":false}`)
+		var in1 inputRetryADeclinedServiceInvoiceP4S1
+		mustUnmarshal(t, `{"tickID":"stp-billing-retry-P4-tick-0001"}`, &in1)
+		out1, err1 = subject.RunShortfallSweep(h.ManagerContext(t), in1.TickID)
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"{\"signalledCustomers\":[\"0b1a0000-0000-4000-8000-000000000303\"]}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\"}]","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "retry-a-declined-service-invoice-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\",\"cycleId\":\"2026-08\",\"closed\":true,\"escalated\":true}","errorExpected":false}`)
+		differential(t, "retry-a-declined-service-invoice-P4", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -361,19 +489,30 @@ type inputViewABillingCycleP1S1 struct {
 func TestScenario_view_a_billing_cycle_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "view-a-billing-cycle-P1", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: GetBillingCycle (node read-billing-cycle; guards cycle-closed=[no: period open])
-		var in1 inputViewABillingCycleP1S1
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000401","cycleID":"2026-10"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewABillingCycleP1S1(t, h, subject, in1)
-		expect(t, "view-a-billing-cycle-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000401\",\"cycleId\":\"2026-10\",\"closed\":false,\"routed\":0,\"escalated\":false}","errorExpected":false}`)
 		// probe 1.1: billingStateAccess.ReadCycle for send-cycle-open
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeViewABillingCycleP1S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000401","cycle":"2026-10"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
+		pre1_1 := held("view-a-billing-cycle-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-10\",\"Settled\":false}","errorExpected":false}`)
+		var in1 inputViewABillingCycleP1S1
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000401","cycleID":"2026-10"}`, &in1)
+		out1, err1 = subject.GetBillingCycle(h.ManagerContext(t), in1.CustomerID, in1.CycleID)
+		expect(t, "view-a-billing-cycle-P1", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000401\",\"cycleId\":\"2026-10\",\"closed\":false,\"routed\":0,\"escalated\":false}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-a-billing-cycle-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-10\",\"Settled\":false}","errorExpected":false}`)
+		differential(t, "view-a-billing-cycle-P1", 1, pre1_1)
 	})
 }
 
@@ -387,29 +526,31 @@ type inputViewABillingCycleP2S1 struct {
 func TestScenario_view_a_billing_cycle_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "view-a-billing-cycle-P2", func(t *testing.T) {
-		var subject billing.BillingManager = newSubject(t, h)
+		var subject billing.BillingManager = scenariocompose.NewBillingManager(t, h)
+		subject = nullSubjectBillingManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: GetBillingCycle (node read-billing-cycle; guards cycle-closed=[yes])
-		var in1 inputViewABillingCycleP2S1
-		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000402","cycleID":"2026-09"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewABillingCycleP2S1(t, h, subject, in1)
-		expect(t, "view-a-billing-cycle-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000402\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
 		// probe 1.1: billingStateAccess.ReadCycle for send-cycle-settlement
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeViewABillingCycleP2S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000402","cycle":"2026-09"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
+		pre1_1 := held("view-a-billing-cycle-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		var in1 inputViewABillingCycleP2S1
+		mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000402","cycleID":"2026-09"}`, &in1)
+		out1, err1 = subject.GetBillingCycle(h.ManagerContext(t), in1.CustomerID, in1.CycleID)
+		expect(t, "view-a-billing-cycle-P2", 1, out1, err1, `{"result":"{\"customerId\":\"0b1a0000-0000-4000-8000-000000000402\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-a-billing-cycle-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		differential(t, "view-a-billing-cycle-P2", 1, pre1_1)
 	})
-}
-
-// callContext is the fwm call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fwm.Context {
-	t.Helper()
-	_ = step
-	return fwm.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -419,34 +560,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

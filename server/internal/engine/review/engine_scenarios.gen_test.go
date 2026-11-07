@@ -6,6 +6,7 @@ package review_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,8 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "reviewEngine") }
 
 // inputCommitToAProjectOptionP1S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
 type inputCommitToAProjectOptionP1S1 struct {
@@ -32,13 +32,27 @@ type inputCommitToAProjectOptionP1S1 struct {
 func TestScenario_commit_to_a_project_option_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "commit-to-a-project-option-P1", func(t *testing.T) {
-		var subject review.ReviewEngine = newSubject(t, h)
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeReviews (node await-decision; guards decision=[commit], revoke-window=[no])
-		var in1 inputCommitToAProjectOptionP1S1
-		mustUnmarshal(t, `{"change":{"ActivityID": "projectDesign", "ComponentID": "", "ContentAddress": ""},"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{"GatedPhasesByType": {}, "Preset": "vibes"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
+		var in1 inputCommitToAProjectOptionP1S1
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "projectDesign",
+                          "ComponentID": "",
+                          "ContentAddress": ""
+                        },"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{
+                          "GatedPhasesByType": {},
+                          "Preset": "vibes"
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in1)
+		out1, err1 = subject.ProposeReviews(h.EngineContext(t), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "commit-to-a-project-option-P1", 1, out1, err1, `{"result":"{\"RequiresHuman\": true}","errorExpected":false}`)
 	})
 }
@@ -58,13 +72,27 @@ type inputCommitToAProjectOptionP2S1 struct {
 func TestScenario_commit_to_a_project_option_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "commit-to-a-project-option-P2", func(t *testing.T) {
-		var subject review.ReviewEngine = newSubject(t, h)
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeReviews (node await-decision; guards decision=[commit], revoke-window=[yes])
-		var in1 inputCommitToAProjectOptionP2S1
-		mustUnmarshal(t, `{"change":{"ActivityID": "projectDesign", "ComponentID": "", "ContentAddress": ""},"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{"GatedPhasesByType": {}, "Preset": "full"},"floorTouched":true,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
+		var in1 inputCommitToAProjectOptionP2S1
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "projectDesign",
+                          "ComponentID": "",
+                          "ContentAddress": ""
+                        },"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{
+                          "GatedPhasesByType": {},
+                          "Preset": "full"
+                        },"floorTouched":true,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in1)
+		out1, err1 = subject.ProposeReviews(h.EngineContext(t), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "commit-to-a-project-option-P2", 1, out1, err1, `{"result":"{\"RequiresHuman\": true}","errorExpected":false}`)
 	})
 }
@@ -84,13 +112,27 @@ type inputCommitToAProjectOptionP3S1 struct {
 func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "commit-to-a-project-option-P3", func(t *testing.T) {
-		var subject review.ReviewEngine = newSubject(t, h)
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeReviews (node await-decision; guards decision=[reject-all + feedback])
-		var in1 inputCommitToAProjectOptionP3S1
-		mustUnmarshal(t, `{"change":{"ActivityID": "projectDesign", "ComponentID": "", "ContentAddress": ""},"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{"GatedPhasesByType": {}, "Preset": ""},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
+		var in1 inputCommitToAProjectOptionP3S1
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "projectDesign",
+                          "ComponentID": "",
+                          "ContentAddress": ""
+                        },"activityType":"projectDesign","lifecyclePhase":"sdp","componentID":"","policy":{
+                          "GatedPhasesByType": {},
+                          "Preset": ""
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in1)
+		out1, err1 = subject.ProposeReviews(h.EngineContext(t), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "commit-to-a-project-option-P3", 1, out1, err1, `{"result":"{\"RequiresHuman\": true}","errorExpected":false}`)
 	})
 }
@@ -121,20 +163,47 @@ type inputExecuteAProjectActivityP3S2 struct {
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P3", func(t *testing.T) {
-		var subject review.ReviewEngine = newSubject(t, h)
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeReviews (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in1 inputExecuteAProjectActivityP3S1
-		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "vibes"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
+		var in1 inputExecuteAProjectActivityP3S1
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "C-operations-manager",
+                          "ComponentID": "operationsManager",
+                          "ContentAddress": ""
+                        },"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{
+                          "GatedPhasesByType": {},
+                          "Preset": "vibes"
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in1)
+		out1, err1 = subject.ProposeReviews(h.EngineContext(t), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "execute-a-project-activity-P3", 1, out1, err1, `{"result":"{\"RequiresHuman\": false, \"ArtifactKind\": \"Construction\"}","errorExpected":false}`)
 		// step 2: ProposeReviews (node requires-human; guards task-kind=review, requires-human=agents only, verdict=approve)
-		var in2 inputExecuteAProjectActivityP3S2
-		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "vibes"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.ProposeReviews(callContext(t, h, "2"), in2.Change, in2.ActivityType, in2.LifecyclePhase, in2.ComponentID, in2.Policy, in2.FloorTouched, in2.Contracts)
+		var in2 inputExecuteAProjectActivityP3S2
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "C-operations-manager",
+                          "ComponentID": "operationsManager",
+                          "ContentAddress": ""
+                        },"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{
+                          "GatedPhasesByType": {},
+                          "Preset": "vibes"
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in2)
+		out2, err2 = subject.ProposeReviews(h.EngineContext(t), in2.Change, in2.ActivityType, in2.LifecyclePhase, in2.ComponentID, in2.Policy, in2.FloorTouched, in2.Contracts)
 		expect(t, "execute-a-project-activity-P3", 2, out2, err2, `{"result":"{\"RequiresHuman\": false, \"ArtifactKind\": \"Construction\"}","errorExpected":false}`)
 	})
 }
@@ -165,20 +234,47 @@ type inputExecuteAProjectActivityP4S2 struct {
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P4", func(t *testing.T) {
-		var subject review.ReviewEngine = newSubject(t, h)
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeReviews (node propose-reviews; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in1 inputExecuteAProjectActivityP4S1
-		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "full"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
+		var in1 inputExecuteAProjectActivityP4S1
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "C-operations-manager",
+                          "ComponentID": "operationsManager",
+                          "ContentAddress": ""
+                        },"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{
+                          "GatedPhasesByType": {},
+                          "Preset": "full"
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in1)
+		out1, err1 = subject.ProposeReviews(h.EngineContext(t), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "execute-a-project-activity-P4", 1, out1, err1, `{"result":"{\"RequiresHuman\": true, \"ArtifactKind\": \"Construction\"}","errorExpected":false}`)
 		// step 2: ProposeReviews (node requires-human; guards task-kind=review, requires-human=human required, verdict=approve)
-		var in2 inputExecuteAProjectActivityP4S2
-		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{"GatedPhasesByType": {}, "Preset": "full"},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.ProposeReviews(callContext(t, h, "2"), in2.Change, in2.ActivityType, in2.LifecyclePhase, in2.ComponentID, in2.Policy, in2.FloorTouched, in2.Contracts)
+		var in2 inputExecuteAProjectActivityP4S2
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "C-operations-manager",
+                          "ComponentID": "operationsManager",
+                          "ContentAddress": ""
+                        },"activityType":"service","lifecyclePhase":"construction","componentID":"operationsManager","policy":{
+                          "GatedPhasesByType": {},
+                          "Preset": "full"
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in2)
+		out2, err2 = subject.ProposeReviews(h.EngineContext(t), in2.Change, in2.ActivityType, in2.LifecyclePhase, in2.ComponentID, in2.Policy, in2.FloorTouched, in2.Contracts)
 		expect(t, "execute-a-project-activity-P4", 2, out2, err2, `{"result":"{\"RequiresHuman\": true, \"ArtifactKind\": \"Construction\"}","errorExpected":false}`)
 	})
 }
@@ -209,31 +305,57 @@ type inputExecuteAProjectActivityP7S2 struct {
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P7", func(t *testing.T) {
-		var subject review.ReviewEngine = newSubject(t, h)
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ProposeReviews (node propose-reviews; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in1 inputExecuteAProjectActivityP7S1
-		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"detailed_design","componentID":"operationsManager","policy":{"GatedPhasesByType": {"service": ["construction"]}, "Preset": ""},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.ProposeReviews(callContext(t, h, "1"), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
+		var in1 inputExecuteAProjectActivityP7S1
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "C-operations-manager",
+                          "ComponentID": "operationsManager",
+                          "ContentAddress": ""
+                        },"activityType":"service","lifecyclePhase":"detailed_design","componentID":"operationsManager","policy":{
+                          "GatedPhasesByType": {
+                            "service": [
+                              "construction"
+                            ]
+                          },
+                          "Preset": ""
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in1)
+		out1, err1 = subject.ProposeReviews(h.EngineContext(t), in1.Change, in1.ActivityType, in1.LifecyclePhase, in1.ComponentID, in1.Policy, in1.FloorTouched, in1.Contracts)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"result":"{\"RequiresHuman\": false, \"ArtifactKind\": \"DetailedDesign\"}","errorExpected":false}`)
 		// step 2: ProposeReviews (node requires-human; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
-		var in2 inputExecuteAProjectActivityP7S2
-		mustUnmarshal(t, `{"change":{"ActivityID": "C-operations-manager", "ComponentID": "operationsManager", "ContentAddress": ""},"activityType":"service","lifecyclePhase":"detailed_design","componentID":"operationsManager","policy":{"GatedPhasesByType": {"service": ["construction"]}, "Preset": ""},"floorTouched":false,"contracts":["deliveryManager","operatedRuntimeAccess","operatedSystemStateAccess","operationsManager","reviewEngine"]}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.ProposeReviews(callContext(t, h, "2"), in2.Change, in2.ActivityType, in2.LifecyclePhase, in2.ComponentID, in2.Policy, in2.FloorTouched, in2.Contracts)
+		var in2 inputExecuteAProjectActivityP7S2
+		mustUnmarshal(t, `{"change":{
+                          "ActivityID": "C-operations-manager",
+                          "ComponentID": "operationsManager",
+                          "ContentAddress": ""
+                        },"activityType":"service","lifecyclePhase":"detailed_design","componentID":"operationsManager","policy":{
+                          "GatedPhasesByType": {
+                            "service": [
+                              "construction"
+                            ]
+                          },
+                          "Preset": ""
+                        },"floorTouched":false,"contracts":[
+                          "deliveryManager",
+                          "operatedRuntimeAccess",
+                          "operatedSystemStateAccess",
+                          "operationsManager",
+                          "reviewEngine"
+                        ]}`, &in2)
+		out2, err2 = subject.ProposeReviews(h.EngineContext(t), in2.Change, in2.ActivityType, in2.LifecyclePhase, in2.ComponentID, in2.Policy, in2.FloorTouched, in2.Contracts)
 		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"RequiresHuman\": false, \"ArtifactKind\": \"DetailedDesign\"}","errorExpected":false}`)
 	})
-}
-
-// callContext is the fweng call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fweng.Context {
-	t.Helper()
-	_ = step
-	return fweng.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -243,34 +365,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

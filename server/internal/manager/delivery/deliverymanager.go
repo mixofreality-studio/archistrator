@@ -14892,8 +14892,12 @@ func bindingToContract(b projectstate.ScenarioBinding) ScenarioBindingView {
 			Inputs:       argsToContract(st.Inputs),
 			Expect:       expectToContract(st.Expect),
 			Probes:       make([]ProbeView, 0, len(st.Probes)),
-			Unobservable: nonNilStrings(st.Unobservable),
-			Hook:         st.Hook,
+			// EARMARK (FPC plan 2 Task 2.11): binding model v2 deleted the hook and unobservable
+			// members of a step, but this view contract and the webApp scenario browser still
+			// carry them. Dropping them is a view-contract change with a UI half, which needs its
+			// own reviewed UI pass; until then they read as the empty answer.
+			Unobservable: []string{},
+			Hook:         false,
 		}
 		for _, p := range st.Probes {
 			sv.Probes = append(sv.Probes, ProbeView{
@@ -14912,9 +14916,30 @@ func bindingToContract(b projectstate.ScenarioBinding) ScenarioBindingView {
 func argsToContract(args []projectstate.TestArg) []TestArgView {
 	out := make([]TestArgView, 0, len(args))
 	for _, a := range args {
-		out = append(out, TestArgView{Name: a.Name, Value: a.Value, SchemaRef: a.SchemaRef})
+		out = append(out, TestArgView{Name: a.Name, Value: argValueText(a.Value), SchemaRef: a.SchemaRef})
 	}
 	return out
+}
+
+// argValueText renders a binding value for the scenario view: a literal as its JSON text (a string
+// without its quotes), a reference as the result it reads.
+func argValueText(v projectstate.TestArgValue) string {
+	switch t := v.(type) {
+	case *projectstate.LiteralValue:
+		var s string
+		if json.Unmarshal(t.JSON, &s) == nil {
+			return s
+		}
+		return string(t.JSON)
+	case *projectstate.RefValue:
+		if t.Probe != nil {
+			return fmt.Sprintf("step%d.probe%d.%s", t.Step, *t.Probe, t.Path)
+		}
+		return fmt.Sprintf("step%d.result.%s", t.Step, t.Path)
+	case nil:
+		return ""
+	}
+	return ""
 }
 
 func expectToContract(e projectstate.TestExpect) TestExpectView {

@@ -3,7 +3,6 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /\.spec\.gen\.ts$/,
   workers: 1,
   fullyParallel: false,
   timeout: Number(process.env.AIARCH_SCENARIO_TIMEOUT_MS ?? 300000),
@@ -13,5 +12,9 @@ export default defineConfig({
     ['json', { outputFile: '../../test-results/webClientProjects/playwright.json' }],
     ['list'],
     ['./reporter.gen.ts'],
+  ],
+  projects: [
+    { name: 'surface', testMatch: /surface\.spec\.gen\.ts$/ },
+    { name: 'scenarios', testMatch: /\.spec\.gen\.ts$/, testIgnore: /surface\.spec\.gen\.ts$/, dependencies: ['surface'] },
   ],
 });

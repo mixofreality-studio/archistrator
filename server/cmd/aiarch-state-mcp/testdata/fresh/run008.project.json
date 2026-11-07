@@ -5473,9 +5473,11 @@
     "testPlan": {
       "change-notice-access": {
         "component": "change-notice-access",
+        "principals": {},
         "bindings": [
           {
             "scenario": "add-a-todo-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5483,12 +5485,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "alice",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "alice"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-add-a-todo-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-add-a-todo-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5497,16 +5509,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n8"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "drive-the-list-from-agent-tooling-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5514,12 +5523,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "agent-user-1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "agent-user-1"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-drive-the-list-from-agent-tooling-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-drive-the-list-from-agent-tooling-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5528,17 +5547,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n7",
-                  "n10"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "fix-a-todo-s-wording-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5546,12 +5561,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "bob",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "bob"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-fix-a-todo-s-wording-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-fix-a-todo-s-wording-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5560,16 +5585,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n10"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "fix-a-todo-s-wording-P2",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5577,12 +5599,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "carol",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "carol"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-fix-a-todo-s-wording-P2",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-fix-a-todo-s-wording-P2"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5591,16 +5623,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n10"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "mark-a-todo-done-or-not-done-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5608,12 +5637,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "dave",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "dave"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-mark-a-todo-done-or-not-done-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-mark-a-todo-done-or-not-done-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5622,16 +5661,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n6"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "mark-everything-done-or-undo-that-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5639,12 +5675,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "erin",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "erin"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-mark-everything-done-or-undo-that-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-mark-everything-done-or-undo-that-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5653,16 +5699,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n10"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "mark-everything-done-or-undo-that-P2",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5670,12 +5713,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "frank",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "frank"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-mark-everything-done-or-undo-that-P2",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-mark-everything-done-or-undo-that-P2"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5684,16 +5737,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n10"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "remove-a-todo-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5701,12 +5751,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "grace",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "grace"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-remove-a-todo-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-remove-a-todo-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5715,16 +5775,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n6"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "sweep-away-finished-todos-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5732,12 +5789,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "heidi",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "heidi"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-sweep-away-finished-todos-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-sweep-away-finished-todos-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5746,16 +5813,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n7"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "tend-the-list-P4",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5763,12 +5827,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "ivan",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "ivan"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-tend-the-list-P4",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-tend-the-list-P4"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5777,16 +5851,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n13"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "work-the-list-from-a-hosted-workspace-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5794,12 +5865,22 @@
                 "inputs": [
                   {
                     "name": "listOwner",
-                    "value": "judy",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "judy"
+                      }
+                    },
                     "schemaRef": ""
                   },
                   {
                     "name": "changeID",
-                    "value": "chg-work-the-list-from-a-hosted-workspace-P1",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "chg-work-the-list-from-a-hosted-workspace-P1"
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5808,11 +5889,7 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": [
-                  "n8"
-                ],
-                "hook": false
+                "probes": null
               }
             ]
           }
@@ -6097,5 +6174,72 @@
   "reviewPolicy": {
     "preset": "vibes"
   },
+  "ruleWaivers": [
+    {
+      "rule": "CC-DECIDED-BY-ACTOR-STEP",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "SCN-ACTOR-PATH-CLIENT",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "SCN-UNADDRESSED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-ACTOR-OBSERVED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-CLIENT-CONTRACTED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-DISCRIMINATE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-EXPECT-REQUIRED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-PRINCIPAL",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-PROBE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-STATE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-OUTCOME-AT-ASKING-SURFACE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-PATH-OUTCOME",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-START-NOT-ACTION",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    }
+  ],
   "updatedAt": "2026-11-02T09:18:31.197131Z"
 }

@@ -2,7 +2,7 @@
 # server/Makefile.
 #
 # This is archistrator's own copy of method-assets' scaffold
-# Makefile.scenarios.mk.tmpl (v0.10.0), with one difference: a seated app's module
+# Makefile.scenarios.mk.tmpl (binding model v2), with one difference: a seated app's module
 # lives at its repo root, but archistrator's Go module is server/, so the paths are
 # server-relative. testgen's defaults already assume that layout
 # (-project ../.aiarch/state/project.json, -root ., -uitests ../uitests/generated),
@@ -12,13 +12,14 @@
 #
 #   gen-tests        — (re)write every *_scenarios.gen_test.go and
 #                      uitests/generated/**/*.spec.gen.ts from the committed
-#                      per-component test plans; seed any missing hooks file
-#                      (never overwrites one); prune generated files the plan
-#                      no longer produces
-#   gen-tests-check  — drift gate: fails on a stale or orphan generated file, a
-#                      hook the plan references that is missing, or an orphan
-#                      hook (spec §5.3). testgen -check compares on its own, so
-#                      unlike the other gen-*-check gates there is no git diff.
+#                      per-component test plans; prune generated files the plan
+#                      no longer produces. Nothing it writes is agent-owned: the
+#                      subject of every scenario is built by the generated
+#                      internal/scenariocompose package, and there are no hooks.
+#   gen-tests-check  — drift gate: fails on a stale or orphan generated file, or on
+#                      a hooks file (retired: ARCH-TEST-COMPOSE). testgen -check
+#                      compares on its own, so unlike the other gen-*-check gates
+#                      there is no git diff.
 #   test-scenarios   — run every TestScenario_* as a `go test -json` stream into
 #                      test-results/go-test.jsonl (what the venue uploads); exits
 #                      with go test's status, which a bare `| tee` would mask
@@ -28,7 +29,12 @@
 #                      packages at once fail with SQLITE_BUSY (see `test` in
 #                      Makefile). -timeout $(GO_TEST_TIMEOUT) (Makefile): one
 #                      scenario package outlasts go test's 10m default
-.PHONY: gen-tests gen-tests-check test-scenarios
+#   test-discriminate — the null-subject run (TP-DISCRIMINATE): re-run every Go scenario once
+#                      per stimulus operation with that operation nulled; a scenario that still
+#                      passes would pass without the behavior it claims to test, and is printed
+#                      as `TP-DISCRIMINATE <component> <scenario> <op>` (exit 1). Run it on a
+#                      tree gen-tests-check has just passed.
+.PHONY: gen-tests gen-tests-check test-scenarios test-discriminate
 
 TESTGEN := github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen
 
@@ -37,6 +43,9 @@ gen-tests:
 
 gen-tests-check:
 	GOWORK=off go run $(TESTGEN) -check
+
+test-discriminate:
+	GOWORK=off go run $(TESTGEN) -discriminate
 
 test-scenarios:
 	mkdir -p test-results

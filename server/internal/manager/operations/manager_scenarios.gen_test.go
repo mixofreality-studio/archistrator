@@ -6,6 +6,7 @@ package operations_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,11 +15,11 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedsystemstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) {
-	scenariohost.MainWithWorkflows(m, replayWorkflows(), "operationsManager")
-}
 
 // inputEnforceCustomerDelinquencyOnOperatedSystemsP1S1 is step 1's parameters of ApplyDelinquencyPolicy, decoded from the binding's inputs.
 type inputEnforceCustomerDelinquencyOnOperatedSystemsP1S1 struct {
@@ -30,18 +31,28 @@ type inputEnforceCustomerDelinquencyOnOperatedSystemsP1S1 struct {
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "enforce-customer-delinquency-on-operated-systems-P1", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ApplyDelinquencyPolicy (node delinquency-arrives; guards directive-named=[no: unsaid])
-		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP1S1
-		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{"action":0}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP1S1(t, h, subject, in1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P1", 1, out1, err1, `{"errorExpected":true}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for directive-named
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeEnforceCustomerDelinquencyOnOperatedSystemsP1S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
+		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP1S1
+		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{
+                          "action": 0
+                        }}`, &in1)
+		err1 = subject.ApplyDelinquencyPolicy(h.ManagerContext(t), in1.CustomerID, in1.DelinquencyContext)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P1", 1, out1, err1, `{"errorExpected":true}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "enforce-customer-delinquency-on-operated-systems-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":3,\"Status\":2,\"InFlight\":true}","errorExpected":false}`)
 	})
 }
@@ -56,19 +67,31 @@ type inputEnforceCustomerDelinquencyOnOperatedSystemsP2S1 struct {
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "enforce-customer-delinquency-on-operated-systems-P2", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ApplyDelinquencyPolicy (node delinquency-arrives; guards directive-named=[yes], action-kind=[pause])
-		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP2S1
-		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{"action":1}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP2S1(t, h, subject, in1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeEnforceCustomerDelinquencyOnOperatedSystemsP2S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
+		pre1_1 := held("enforce-customer-delinquency-on-operated-systems-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP2S1
+		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{
+                          "action": 1
+                        }}`, &in1)
+		err1 = subject.ApplyDelinquencyPolicy(h.ManagerContext(t), in1.CustomerID, in1.DelinquencyContext)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "enforce-customer-delinquency-on-operated-systems-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		differential(t, "enforce-customer-delinquency-on-operated-systems-P2", 1, pre1_1)
 	})
 }
 
@@ -82,24 +105,49 @@ type inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1 struct {
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "enforce-customer-delinquency-on-operated-systems-P3", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ApplyDelinquencyPolicy (node delinquency-arrives; guards directive-named=[yes], action-kind=[withdraw])
-		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1
-		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{"action":2}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP3S1(t, h, subject, in1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for system-delinquency-recorded
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeEnforceCustomerDelinquencyOnOperatedSystemsP3S1N1(t, h, subject)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":false}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
 		// probe 1.2: operatedSystemStateAccess.ReadInFlightOperatedApps for remove-runtime
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeEnforceCustomerDelinquencyOnOperatedSystemsP3S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				Scope operatedsystemstate.InFlightScope `json:"scope"`
+			}
+			mustUnmarshal(t, `{"scope":{
+                              "AppIDs": [
+                                "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                              ],
+                              "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1"
+                            }}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadInFlightOperatedApps(h.ResourceAccessContext(t, "1.2"), in.Scope)
+		}
+		pre1_1 := held("enforce-customer-delinquency-on-operated-systems-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":false}","errorExpected":false}`)
+		pre1_2 := held("enforce-customer-delinquency-on-operated-systems-P3 probe 1.2 before", 1, run1_2, `{"result":"[]","errorExpected":false}`)
+		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1
+		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{
+                          "action": 2
+                        }}`, &in1)
+		err1 = subject.ApplyDelinquencyPolicy(h.ManagerContext(t), in1.CustomerID, in1.DelinquencyContext)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"InFlight\":false}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[]","errorExpected":false}`)
+		differential(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -113,19 +161,33 @@ type inputOperateADeliveredSystemP1S1 struct {
 func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "operate-a-delivered-system-P1", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: DeployAfterConstruction (node publish-trigger)
-		var in1 inputOperateADeliveredSystemP1S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","change":{"reason":1,"patchKind":1,"changeId":"stp-ops-P1-deploy-0001"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP1S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"published\":true}","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-a
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeOperateADeliveredSystemP1S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
+		pre1_1 := held("operate-a-delivered-system-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Version\":2,\"InFlight\":true}","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP1S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","change":{
+                          "reason": 1,
+                          "patchKind": 1,
+                          "changeId": "stp-ops-P1-deploy-0001"
+                        }}`, &in1)
+		out1, err1 = subject.DeployAfterConstruction(h.ManagerContext(t), in1.OperatedAppID, in1.Change)
+		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"published\":true}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "operate-a-delivered-system-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Version\":2,\"InFlight\":true}","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P1", 1, pre1_1)
 	})
 }
 
@@ -139,19 +201,33 @@ type inputOperateADeliveredSystemP2S1 struct {
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "operate-a-delivered-system-P2", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ReconcileOperatedState (node schedule-fires; guards state-transition=[no], decision-nochange=[yes])
-		var in1 inputOperateADeliveredSystemP2S1
-		mustUnmarshal(t, `{"tickID":"stp-ops-P2-tick-0001","scope":{"appIds":["6f1c2b9e-0a11-4c00-8000-0000000000a1"]}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP2S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":0,\"republished\":0}","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for state-transition
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeOperateADeliveredSystemP2S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
+		pre1_1 := held("operate-a-delivered-system-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP2S1
+		mustUnmarshal(t, `{"tickID":"stp-ops-P2-tick-0001","scope":{
+                          "appIds": [
+                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                          ]
+                        }}`, &in1)
+		out1, err1 = subject.ReconcileOperatedState(h.ManagerContext(t), in1.TickID, in1.Scope)
+		expect(t, "operate-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":0,\"republished\":0}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "operate-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":3,\"InFlight\":true}","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P2", 1, pre1_1)
 	})
 }
 
@@ -165,24 +241,46 @@ type inputOperateADeliveredSystemP3S1 struct {
 func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "operate-a-delivered-system-P3", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ReconcileOperatedState (node schedule-fires; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in1 inputOperateADeliveredSystemP3S1
-		mustUnmarshal(t, `{"tickID":"stp-ops-P3-tick-0001","scope":{"appIds":["6f1c2b9e-0a11-4c00-8000-0000000000a1"]}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP3S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":0,\"republished\":1}","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for desired-state-published-c
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeOperateADeliveredSystemP3S1N1(t, h, subject)
-		expect(t, "operate-a-delivered-system-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
 		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeOperateADeliveredSystemP3S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.2"), in.OperatedAppID)
+		}
+		pre1_1 := held("operate-a-delivered-system-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		pre1_2 := held("operate-a-delivered-system-P3 probe 1.2 before", 1, run1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP3S1
+		mustUnmarshal(t, `{"tickID":"stp-ops-P3-tick-0001","scope":{
+                          "appIds": [
+                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                          ]
+                        }}`, &in1)
+		out1, err1 = subject.ReconcileOperatedState(h.ManagerContext(t), in1.TickID, in1.Scope)
+		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":0,\"republished\":1}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "operate-a-delivered-system-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "operate-a-delivered-system-P3 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":2,\"Version\":4,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P3", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -196,34 +294,64 @@ type inputOperateADeliveredSystemP4S1 struct {
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "operate-a-delivered-system-P4", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ReconcileOperatedState (node schedule-fires; guards state-transition=[yes], decision-nochange=[yes])
-		var in1 inputOperateADeliveredSystemP4S1
-		mustUnmarshal(t, `{"tickID":"stp-ops-P4-tick-0001","scope":{"appIds":["6f1c2b9e-0a11-4c00-8000-0000000000a1"]}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP4S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":1,\"republished\":0}","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-status-changed
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeOperateADeliveredSystemP4S1N1(t, h, subject)
-		expect(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
 		// probe 1.2: operationsManager.QueryOperatedSystemView for record-status
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			OperatedAppID uuid.UUID `json:"operatedAppID"`
-			RequestID     string    `json:"requestID"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+				RequestID     string    `json:"requestID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-P4-probe-view"}`, &in)
+			return subject.QueryOperatedSystemView(h.ManagerContext(t), in.OperatedAppID, in.RequestID)
 		}
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-P4-probe-view"}`, &probe1_2)
-		pout1_2, perr1_2 = subject.QueryOperatedSystemView(callContext(t, h, "1.2"), probe1_2.OperatedAppID, probe1_2.RequestID)
-		expect(t, "operate-a-delivered-system-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}`)
 		// probe 1.3: usageAccess.ReadRange for compute-usage-recorded
 		var pout1_3 any
 		var perr1_3 error
-		pout1_3, perr1_3 = probeOperateADeliveredSystemP4S1N3(t, h, subject)
+		run1_3 := func() (any, error) {
+			var in struct {
+				Query usage.UsageRangeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                              "CycleID": "",
+                              "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                            }}`, &in)
+			return scenariocompose.NewUsageAccess(t, h).ReadRange(h.ResourceAccessContext(t, "1.3"), in.Query)
+		}
+		pre1_1 := held("operate-a-delivered-system-P4 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		pre1_2 := held("operate-a-delivered-system-P4 probe 1.2 before", 1, run1_2, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}`)
+		pre1_3 := held("operate-a-delivered-system-P4 probe 1.3 before", 1, run1_3, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP4S1
+		mustUnmarshal(t, `{"tickID":"stp-ops-P4-tick-0001","scope":{
+                          "appIds": [
+                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                          ]
+                        }}`, &in1)
+		out1, err1 = subject.ReconcileOperatedState(h.ManagerContext(t), in1.TickID, in1.Scope)
+		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":1,\"republished\":0}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
+		expect(t, "operate-a-delivered-system-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}`)
+		pout1_3, perr1_3 = run1_3()
 		expect(t, "operate-a-delivered-system-P4 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P4", 1, pre1_1, pre1_2, pre1_3)
 	})
 }
 
@@ -237,39 +365,77 @@ type inputOperateADeliveredSystemP5S1 struct {
 func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "operate-a-delivered-system-P5", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ReconcileOperatedState (node schedule-fires; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in1 inputOperateADeliveredSystemP5S1
-		mustUnmarshal(t, `{"tickID":"stp-ops-P5-tick-0001","scope":{"appIds":["6f1c2b9e-0a11-4c00-8000-0000000000a1"]}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP5S1(t, h, subject, in1)
-		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":1,\"republished\":1}","errorExpected":false}`)
 		// probe 1.1: operationsManager.QueryOperatedSystemView for operated-system-status-changed
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			OperatedAppID uuid.UUID `json:"operatedAppID"`
-			RequestID     string    `json:"requestID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+				RequestID     string    `json:"requestID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-P5-probe-view-status"}`, &in)
+			return subject.QueryOperatedSystemView(h.ManagerContext(t), in.OperatedAppID, in.RequestID)
 		}
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-P5-probe-view-status"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.QueryOperatedSystemView(callContext(t, h, "1.1"), probe1_1.OperatedAppID, probe1_1.RequestID)
-		expect(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}`)
 		// probe 1.2: usageAccess.ReadRange for compute-usage-recorded
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeOperateADeliveredSystemP5S1N2(t, h, subject)
-		expect(t, "operate-a-delivered-system-P5 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		run1_2 := func() (any, error) {
+			var in struct {
+				Query usage.UsageRangeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                              "CycleID": "",
+                              "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                            }}`, &in)
+			return scenariocompose.NewUsageAccess(t, h).ReadRange(h.ResourceAccessContext(t, "1.2"), in.Query)
+		}
 		// probe 1.3: operatedSystemStateAccess.ReadOperatedSystem for desired-state-published-c
 		var pout1_3 any
 		var perr1_3 error
-		pout1_3, perr1_3 = probeOperateADeliveredSystemP5S1N3(t, h, subject)
-		expect(t, "operate-a-delivered-system-P5 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		run1_3 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.3"), in.OperatedAppID)
+		}
 		// probe 1.4: operatedSystemStateAccess.ReadOperatedSystem for operated-system-recorded-c
 		var pout1_4 any
 		var perr1_4 error
-		pout1_4, perr1_4 = probeOperateADeliveredSystemP5S1N4(t, h, subject)
+		run1_4 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.4"), in.OperatedAppID)
+		}
+		pre1_1 := held("operate-a-delivered-system-P5 probe 1.1 before", 1, run1_1, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}`)
+		pre1_2 := held("operate-a-delivered-system-P5 probe 1.2 before", 1, run1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		pre1_3 := held("operate-a-delivered-system-P5 probe 1.3 before", 1, run1_3, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		pre1_4 := held("operate-a-delivered-system-P5 probe 1.4 before", 1, run1_4, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"tickID":"stp-ops-P5-tick-0001","scope":{
+                          "appIds": [
+                            "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                          ]
+                        }}`, &in1)
+		out1, err1 = subject.ReconcileOperatedState(h.ManagerContext(t), in1.TickID, in1.Scope)
+		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"{\"observed\":1,\"transitions\":1,\"republished\":1}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":3}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
+		expect(t, "operate-a-delivered-system-P5 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		pout1_3, perr1_3 = run1_3()
+		expect(t, "operate-a-delivered-system-P5 probe 1.3", 1, pout1_3, perr1_3, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		pout1_4, perr1_4 = run1_4()
 		expect(t, "operate-a-delivered-system-P5 probe 1.4", 1, pout1_4, perr1_4, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":3,\"Version\":5,\"InFlight\":true,\"Scale\":{\"Replicas\":3}}","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P5", 1, pre1_1, pre1_2, pre1_3, pre1_4)
 	})
 }
 
@@ -285,24 +451,46 @@ type inputRegisterADeliveredSystemForOperationP1S1 struct {
 func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "register-a-delivered-system-for-operation-P1", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: RegisterOperatedApp (node request-registration)
-		var in1 inputRegisterADeliveredSystemForOperationP1S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a2","customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","projectRef":"stp-ops-fixture-project","deployableBundleRef":"bundle:stp-ops-fixture-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.RegisterOperatedApp(callContext(t, h, "1"), in1.OperatedAppID, in1.CustomerID, in1.ProjectRef, in1.DeployableBundleRef)
-		expect(t, "register-a-delivered-system-for-operation-P1", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for system-registered
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRegisterADeliveredSystemForOperationP1S1N1(t, h, subject)
-		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"ProjectRef\":\"stp-ops-fixture-project\",\"DeployableBundleRef\":\"bundle:stp-ops-fixture-0001\"}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a2"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
 		// probe 1.2: operatedSystemStateAccess.ReadInFlightOperatedApps for system-registered
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeRegisterADeliveredSystemForOperationP1S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				Scope operatedsystemstate.InFlightScope `json:"scope"`
+			}
+			mustUnmarshal(t, `{"scope":{
+                              "AppIDs": [
+                                "6f1c2b9e-0a11-4c00-8000-0000000000a2"
+                              ]
+                            }}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadInFlightOperatedApps(h.ResourceAccessContext(t, "1.2"), in.Scope)
+		}
+		pre1_1 := held("register-a-delivered-system-for-operation-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"ProjectRef\":\"stp-ops-fixture-project\",\"DeployableBundleRef\":\"bundle:stp-ops-fixture-0001\"}","errorExpected":false}`)
+		pre1_2 := held("register-a-delivered-system-for-operation-P1 probe 1.2 before", 1, run1_2, `{"result":"[]","errorExpected":false}`)
+		var in1 inputRegisterADeliveredSystemForOperationP1S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a2","customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","projectRef":"stp-ops-fixture-project","deployableBundleRef":"bundle:stp-ops-fixture-0001"}`, &in1)
+		out1, err1 = subject.RegisterOperatedApp(h.ManagerContext(t), in1.OperatedAppID, in1.CustomerID, in1.ProjectRef, in1.DeployableBundleRef)
+		expect(t, "register-a-delivered-system-for-operation-P1", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"ProjectRef\":\"stp-ops-fixture-project\",\"DeployableBundleRef\":\"bundle:stp-ops-fixture-0001\"}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[]","errorExpected":false}`)
+		differential(t, "register-a-delivered-system-for-operation-P1", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -316,25 +504,46 @@ type inputRetryADeclinedServiceInvoiceP4S1 struct {
 func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "retry-a-declined-service-invoice-P4", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: ApplyDelinquencyPolicy (node escalate-delinquent; guards retry-budget=[no: exhausted], tolerance=[no: aged out])
-		var in1 inputRetryADeclinedServiceInvoiceP4S1
-		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{"action":1}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepRetryADeclinedServiceInvoiceP4S1(t, h, subject, in1)
-		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"errorExpected":false}`)
-		// unobservable: signal-delinquency-escalation
 		// probe 1.1: billingStateAccess.ReadPersistentlyDelinquentCustomers for customer-delinquent
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeRetryADeclinedServiceInvoiceP4S1N1(t, h, subject)
-		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"PauseNotWithdraw\":true}]","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				Scope billingstate.DelinquencyScope `json:"scope"`
+			}
+			mustUnmarshal(t, `{"scope":{
+                              "ProjectID": "stp-ops-fixture-project"
+                            }}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadPersistentlyDelinquentCustomers(h.ResourceAccessContext(t, "1.1"), in.Scope)
+		}
 		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for escalate-delinquent
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeRetryADeclinedServiceInvoiceP4S1N2(t, h, subject)
+		run1_2 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.2"), in.OperatedAppID)
+		}
+		pre1_1 := held("retry-a-declined-service-invoice-P4 probe 1.1 before", 1, run1_1, `{"result":"[{\"ID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"PauseNotWithdraw\":true}]","errorExpected":false}`)
+		pre1_2 := held("retry-a-declined-service-invoice-P4 probe 1.2 before", 1, run1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		var in1 inputRetryADeclinedServiceInvoiceP4S1
+		mustUnmarshal(t, `{"customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","delinquencyContext":{
+                          "action": 1
+                        }}`, &in1)
+		err1 = subject.ApplyDelinquencyPolicy(h.ManagerContext(t), in1.CustomerID, in1.DelinquencyContext)
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "retry-a-declined-service-invoice-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"ID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"PauseNotWithdraw\":true}]","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "retry-a-declined-service-invoice-P4 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":4,\"InFlight\":true}","errorExpected":false}`)
+		differential(t, "retry-a-declined-service-invoice-P4", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -347,13 +556,14 @@ type inputViewLiveDeploymentHealthP1S1 struct {
 func TestScenario_view_live_deployment_health_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "view-live-deployment-health-P1", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryDeploymentHealth (node request-health; guards anything-deployed=[yes])
-		var in1 inputViewLiveDeploymentHealthP1S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewLiveDeploymentHealthP1S1(t, h, subject, in1)
+		var in1 inputViewLiveDeploymentHealthP1S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in1)
+		out1, err1 = subject.QueryDeploymentHealth(h.ManagerContext(t), in1.OperatedAppID)
 		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"{\"Nodes\":[{\"ModelKey\":\"stp-ns-stp-ops-fixture-project\",\"Health\":0},{\"ModelKey\":\"stp-infra-gateway\",\"Health\":1},{\"ModelKey\":\"stp-infra-idp\",\"Health\":0},{\"ModelKey\":\"stp-infra-db\",\"Health\":1},{\"ModelKey\":\"stp-operated-app\",\"Health\":1},{\"ModelKey\":\"stp-architect-laptop\",\"Health\":0}]}","errorExpected":false}`)
 	})
 }
@@ -367,13 +577,14 @@ type inputViewLiveDeploymentHealthP2S1 struct {
 func TestScenario_view_live_deployment_health_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "view-live-deployment-health-P2", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryDeploymentHealth (node request-health; guards anything-deployed=[no: nothing deployed yet])
-		var in1 inputViewLiveDeploymentHealthP2S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000ff"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewLiveDeploymentHealthP2S1(t, h, subject, in1)
+		var in1 inputViewLiveDeploymentHealthP2S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000ff"}`, &in1)
+		out1, err1 = subject.QueryDeploymentHealth(h.ManagerContext(t), in1.OperatedAppID)
 		expect(t, "view-live-deployment-health-P2", 1, out1, err1, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
 	})
 }
@@ -395,26 +606,49 @@ type inputViewOperatingCostProjectionP1S2 struct {
 func TestScenario_view_operating_cost_projection_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "view-operating-cost-projection-P1", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryOperatedSystemView (node open-console; guards app-known=[yes])
-		var in1 inputViewOperatingCostProjectionP1S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-cost-P1-view"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewOperatingCostProjectionP1S1(t, h, subject, in1)
+		var in1 inputViewOperatingCostProjectionP1S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-cost-P1-view"}`, &in1)
+		out1, err1 = subject.QueryOperatedSystemView(h.ManagerContext(t), in1.OperatedAppID, in1.RequestID)
 		expect(t, "view-operating-cost-projection-P1", 1, out1, err1, `{"result":"{\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Phase\":2,\"InFlight\":true}","errorExpected":false}`)
 		// step 2: QueryCostProjection (node request-projection; guards app-known=[yes])
-		var in2 inputViewOperatingCostProjectionP1S2
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-cost-P1-projection","points":{"points":[{"replicas":1},{"replicas":3}]}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = stepViewOperatingCostProjectionP1S2(t, h, subject, in2)
-		expect(t, "view-operating-cost-projection-P1", 2, out2, err2, `{"result":"{\"CurrentRunRate\":{\"Currency\":\"USD\"},\"ProjectedMonthlyCost\":{\"Currency\":\"USD\"}}","errorExpected":false}`)
 		// probe 2.1: usageAccess.ReadRange for read-usage
 		var pout2_1 any
 		var perr2_1 error
-		pout2_1, perr2_1 = probeViewOperatingCostProjectionP1S2N1(t, h, subject)
+		run2_1 := func() (any, error) {
+			var in struct {
+				Query usage.UsageRangeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                              "CycleID": "",
+                              "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                            }}`, &in)
+			return scenariocompose.NewUsageAccess(t, h).ReadRange(h.ResourceAccessContext(t, "2.1"), in.Query)
+		}
+		pre2_1 := held("view-operating-cost-projection-P1 probe 2.1 before", 2, run2_1, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		var in2 inputViewOperatingCostProjectionP1S2
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","requestID":"stp-ops-cost-P1-projection","points":{
+                          "points": [
+                            {
+                              "replicas": 1
+                            },
+                            {
+                              "replicas": 3
+                            }
+                          ]
+                        }}`, &in2)
+		out2, err2 = subject.QueryCostProjection(h.ManagerContext(t), in2.OperatedAppID, in2.RequestID, in2.Points)
+		expect(t, "view-operating-cost-projection-P1", 2, out2, err2, `{"result":"{\"CurrentRunRate\":{\"Currency\":\"USD\"},\"ProjectedMonthlyCost\":{\"Currency\":\"USD\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "view-operating-cost-projection-P1 probe 2.1", 2, pout2_1, perr2_1, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		differential(t, "view-operating-cost-projection-P1", 2, pre2_1)
 	})
 }
 
@@ -435,20 +669,27 @@ type inputViewOperatingCostProjectionP2S2 struct {
 func TestScenario_view_operating_cost_projection_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "view-operating-cost-projection-P2", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: QueryOperatedSystemView (node open-console; guards app-known=[no])
-		var in1 inputViewOperatingCostProjectionP2S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000ff","requestID":"stp-ops-cost-P2-view"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = subject.QueryOperatedSystemView(callContext(t, h, "1"), in1.OperatedAppID, in1.RequestID)
+		var in1 inputViewOperatingCostProjectionP2S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000ff","requestID":"stp-ops-cost-P2-view"}`, &in1)
+		out1, err1 = subject.QueryOperatedSystemView(h.ManagerContext(t), in1.OperatedAppID, in1.RequestID)
 		expect(t, "view-operating-cost-projection-P2", 1, out1, err1, `{"errorExpected":true}`)
 		// step 2: QueryCostProjection (node request-projection; guards app-known=[no])
-		var in2 inputViewOperatingCostProjectionP2S2
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000ff","requestID":"stp-ops-cost-P2-projection","points":{"points":[{"replicas":2}]}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.QueryCostProjection(callContext(t, h, "2"), in2.OperatedAppID, in2.RequestID, in2.Points)
+		var in2 inputViewOperatingCostProjectionP2S2
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000ff","requestID":"stp-ops-cost-P2-projection","points":{
+                          "points": [
+                            {
+                              "replicas": 2
+                            }
+                          ]
+                        }}`, &in2)
+		out2, err2 = subject.QueryCostProjection(h.ManagerContext(t), in2.OperatedAppID, in2.RequestID, in2.Points)
 		expect(t, "view-operating-cost-projection-P2", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
 	})
 }
@@ -464,19 +705,31 @@ type inputWithdrawADeliveredSystemP1S1 struct {
 func TestScenario_withdraw_a_delivered_system_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "withdraw-a-delivered-system-P1", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: WithdrawSystem (node request-withdraw; guards already-withdrawn=[yes])
-		var in1 inputWithdrawADeliveredSystemP1S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","changeID":"stp-ops-wd-P1-0001","reason":{"notes":"stp: operator withdraws the fixture system"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepWithdrawADeliveredSystemP1S1(t, h, subject, in1)
-		expect(t, "withdraw-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"withdrawn\":true}","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for already-withdrawn
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeWithdrawADeliveredSystemP1S1N1(t, h, subject)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
+		pre1_1 := held("withdraw-a-delivered-system-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"Version\":2,\"InFlight\":false}","errorExpected":false}`)
+		var in1 inputWithdrawADeliveredSystemP1S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","changeID":"stp-ops-wd-P1-0001","reason":{
+                          "notes": "stp: operator withdraws the fixture system"
+                        }}`, &in1)
+		out1, err1 = subject.WithdrawSystem(h.ManagerContext(t), in1.OperatedAppID, in1.ChangeID, in1.Reason)
+		expect(t, "withdraw-a-delivered-system-P1", 1, out1, err1, `{"result":"{\"withdrawn\":true}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "withdraw-a-delivered-system-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"Version\":2,\"InFlight\":false}","errorExpected":false}`)
+		differential(t, "withdraw-a-delivered-system-P1", 1, pre1_1)
 	})
 }
 
@@ -491,39 +744,66 @@ type inputWithdrawADeliveredSystemP2S1 struct {
 func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operationsManager", "withdraw-a-delivered-system-P2", func(t *testing.T) {
-		var subject operations.OperationsManager = newSubject(t, h)
+		var subject operations.OperationsManager = scenariocompose.NewOperationsManager(t, h)
+		subject = nullSubjectOperationsManager(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: WithdrawSystem (node request-withdraw; guards already-withdrawn=[no: in flight])
-		var in1 inputWithdrawADeliveredSystemP2S1
-		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","changeID":"stp-ops-wd-P2-0001","reason":{"notes":"stp: operator withdraws the fixture system"}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepWithdrawADeliveredSystemP2S1(t, h, subject, in1)
-		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"withdrawn\":true}","errorExpected":false}`)
 		// probe 1.1: operatedSystemStateAccess.ReadOperatedSystem for operated-system-withdrawn
 		var pout1_1 any
 		var perr1_1 error
-		pout1_1, perr1_1 = probeWithdrawADeliveredSystemP2S1N1(t, h, subject)
-		expect(t, "withdraw-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
+		run1_1 := func() (any, error) {
+			var in struct {
+				OperatedAppID uuid.UUID `json:"operatedAppID"`
+			}
+			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1"}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+		}
 		// probe 1.2: usageAccess.ReadRange for compute-usage-final
 		var pout1_2 any
 		var perr1_2 error
-		pout1_2, perr1_2 = probeWithdrawADeliveredSystemP2S1N2(t, h, subject)
-		expect(t, "withdraw-a-delivered-system-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		run1_2 := func() (any, error) {
+			var in struct {
+				Query usage.UsageRangeQuery `json:"query"`
+			}
+			mustUnmarshal(t, `{"query":{
+                              "CustomerID": "6f1c2b9e-0c00-4c00-8000-0000000000c1",
+                              "CycleID": "",
+                              "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                            }}`, &in)
+			return scenariocompose.NewUsageAccess(t, h).ReadRange(h.ResourceAccessContext(t, "1.2"), in.Query)
+		}
 		// probe 1.3: operatedSystemStateAccess.ReadInFlightOperatedApps for tear-down-runtime
 		var pout1_3 any
 		var perr1_3 error
-		pout1_3, perr1_3 = probeWithdrawADeliveredSystemP2S1N3(t, h, subject)
+		run1_3 := func() (any, error) {
+			var in struct {
+				Scope operatedsystemstate.InFlightScope `json:"scope"`
+			}
+			mustUnmarshal(t, `{"scope":{
+                              "AppIDs": [
+                                "6f1c2b9e-0a11-4c00-8000-0000000000a1"
+                              ]
+                            }}`, &in)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadInFlightOperatedApps(h.ResourceAccessContext(t, "1.3"), in.Scope)
+		}
+		pre1_1 := held("withdraw-a-delivered-system-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
+		pre1_2 := held("withdraw-a-delivered-system-P2 probe 1.2 before", 1, run1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		pre1_3 := held("withdraw-a-delivered-system-P2 probe 1.3 before", 1, run1_3, `{"result":"[]","errorExpected":false}`)
+		var in1 inputWithdrawADeliveredSystemP2S1
+		mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a1","changeID":"stp-ops-wd-P2-0001","reason":{
+                          "notes": "stp: operator withdraws the fixture system"
+                        }}`, &in1)
+		out1, err1 = subject.WithdrawSystem(h.ManagerContext(t), in1.OperatedAppID, in1.ChangeID, in1.Reason)
+		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"result":"{\"withdrawn\":true}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "withdraw-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"Status\":4,\"InFlight\":false}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
+		expect(t, "withdraw-a-delivered-system-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\"}]","errorExpected":false}`)
+		pout1_3, perr1_3 = run1_3()
 		expect(t, "withdraw-a-delivered-system-P2 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[]","errorExpected":false}`)
+		differential(t, "withdraw-a-delivered-system-P2", 1, pre1_1, pre1_2, pre1_3)
 	})
-}
-
-// callContext is the fwm call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fwm.Context {
-	t.Helper()
-	_ = step
-	return fwm.Context{Context: h.Context(t)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -533,34 +813,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

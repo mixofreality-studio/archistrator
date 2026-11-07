@@ -6,6 +6,7 @@ package operatedruntime_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,9 +15,8 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/operatedruntime"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
 )
-
-func TestMain(m *testing.M) { scenariohost.Main(m, "operatedRuntimeAccess") }
 
 // inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1 is step 1's parameters of Withdraw, decoded from the binding's inputs.
 type inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1 struct {
@@ -28,23 +28,29 @@ type inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1 struct {
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "enforce-customer-delinquency-on-operated-systems-P3", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: Withdraw (node remove-runtime; guards directive-named=[yes], action-kind=[withdraw])
-		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000001","idempotencyKey":"stp-ort-delinq-P3-withdraw-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepEnforceCustomerDelinquencyOnOperatedSystemsP3S1(t, h, subject, in1)
-		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: operatedRuntimeAccess.GetApplicationHealth for remove-runtime
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000001"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "1.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000001"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.GetApplicationHealth(callContext(t, h, "1.1"), probe1_1.AppID)
+		pre1_1 := held("enforce-customer-delinquency-on-operated-systems-P3 probe 1.1 before", 1, run1_1, `{"result":"4","errorExpected":false}`)
+		var in1 inputEnforceCustomerDelinquencyOnOperatedSystemsP3S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000001","idempotencyKey":"stp-ort-delinq-P3-withdraw-0001"}`, &in1)
+		err1 = subject.Withdraw(h.ResourceAccessContext(t, "1"), in1.AppID, in1.IdempotencyKey)
+		expect(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "enforce-customer-delinquency-on-operated-systems-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"4","errorExpected":false}`)
+		differential(t, "enforce-customer-delinquency-on-operated-systems-P3", 1, pre1_1)
 	})
 }
 
@@ -59,33 +65,101 @@ type inputOperateADeliveredSystemP1S1 struct {
 func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P1", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: PublishDesiredState (node publish-a)
-		var in1 inputOperateADeliveredSystemP1S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000002","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":1},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false},"idempotencyKey":"stp-ort-op-P1-publish-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		err1 = subject.PublishDesiredState(callContext(t, h, "1"), in1.AppID, in1.Desired, in1.IdempotencyKey)
-		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: operatedRuntimeAccess.GetApplicationHealth for desired-state-published-a
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000002"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "1.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000002"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.GetApplicationHealth(callContext(t, h, "1.1"), probe1_1.AppID)
-		expect(t, "operate-a-delivered-system-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"1","errorExpected":false}`)
 		// probe 1.2: operatedRuntimeAccess.GetDeploymentResourceHealth for publish-a
 		var pout1_2 any
 		var perr1_2 error
-		var probe1_2 struct {
-			AppID   uuid.UUID                           `json:"appID"`
-			Desired operatedruntime.RuntimeDesiredState `json:"desired"`
+		run1_2 := func() (any, error) {
+			var in struct {
+				AppID   uuid.UUID                           `json:"appID"`
+				Desired operatedruntime.RuntimeDesiredState `json:"desired"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000002","desired":{
+                              "AppName": "gtd",
+                              "Namespace": "op-gtd",
+                              "Host": "gtd.apps.example.test",
+                              "ModelKey": "cloud-env",
+                              "GatewayModelKey": "gateway",
+                              "Server": {
+                                "ModelKey": "server",
+                                "Image": "ghcr.io/example/gtd-server:1.0.0",
+                                "Replicas": 1
+                              },
+                              "WebApp": {
+                                "ModelKey": "web-app",
+                                "Image": "ghcr.io/example/gtd-web:1.0.0",
+                                "Replicas": 1
+                              },
+                              "Postgres": {
+                                "ModelKeys": [],
+                                "Enabled": false,
+                                "Instances": 0,
+                                "StorageClass": ""
+                              },
+                              "OIDC": {
+                                "ModelKey": "keycloak",
+                                "Issuer": "https://auth.example.test/realms/gtd",
+                                "ClientID": "gtd",
+                                "ClientSecretRef": "gtd-oidc-client-secret"
+                              },
+                              "SelfManaged": false
+                            }}`, &in)
+			return subject.GetDeploymentResourceHealth(h.ResourceAccessContext(t, "1.2"), in.AppID, in.Desired)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000002","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":1},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &probe1_2)
-		pout1_2, perr1_2 = subject.GetDeploymentResourceHealth(callContext(t, h, "1.2"), probe1_2.AppID, probe1_2.Desired)
+		pre1_1 := held("operate-a-delivered-system-P1 probe 1.1 before", 1, run1_1, `{"result":"1","errorExpected":false}`)
+		pre1_2 := held("operate-a-delivered-system-P1 probe 1.2 before", 1, run1_2, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		var in1 inputOperateADeliveredSystemP1S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000002","desired":{
+                          "AppName": "gtd",
+                          "Namespace": "op-gtd",
+                          "Host": "gtd.apps.example.test",
+                          "ModelKey": "cloud-env",
+                          "GatewayModelKey": "gateway",
+                          "Server": {
+                            "ModelKey": "server",
+                            "Image": "ghcr.io/example/gtd-server:1.0.0",
+                            "Replicas": 1
+                          },
+                          "WebApp": {
+                            "ModelKey": "web-app",
+                            "Image": "ghcr.io/example/gtd-web:1.0.0",
+                            "Replicas": 1
+                          },
+                          "Postgres": {
+                            "ModelKeys": [],
+                            "Enabled": false,
+                            "Instances": 0,
+                            "StorageClass": ""
+                          },
+                          "OIDC": {
+                            "ModelKey": "keycloak",
+                            "Issuer": "https://auth.example.test/realms/gtd",
+                            "ClientID": "gtd",
+                            "ClientSecretRef": "gtd-oidc-client-secret"
+                          },
+                          "SelfManaged": false
+                        },"idempotencyKey":"stp-ort-op-P1-publish-0001"}`, &in1)
+		err1 = subject.PublishDesiredState(h.ResourceAccessContext(t, "1"), in1.AppID, in1.Desired, in1.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P1", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "operate-a-delivered-system-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"1","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "operate-a-delivered-system-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P1", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -114,44 +188,53 @@ type inputOperateADeliveredSystemP2S4 struct {
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P2", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: GetApplicationHealth (node pull-telemetry; guards state-transition=[no], decision-nochange=[yes])
-		var in1 inputOperateADeliveredSystemP2S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP2S1(t, h, subject, in1)
+		var in1 inputOperateADeliveredSystemP2S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in1)
+		out1, err1 = subject.GetApplicationHealth(h.ResourceAccessContext(t, "1"), in1.AppID)
 		expect(t, "operate-a-delivered-system-P2", 1, out1, err1, `{"result":"2","errorExpected":false}`)
 		// step 2: GetSloStatus (node pull-telemetry; guards state-transition=[no], decision-nochange=[yes])
-		var in2 inputOperateADeliveredSystemP2S2
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.GetSloStatus(callContext(t, h, "2"), in2.AppID)
+		var in2 inputOperateADeliveredSystemP2S2
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in2)
+		out2, err2 = subject.GetSloStatus(h.ResourceAccessContext(t, "2"), in2.AppID)
 		expect(t, "operate-a-delivered-system-P2", 2, out2, err2, `{"result":"{\"SloMet\":true}","errorExpected":false}`)
 		// step 3: ReadComputeAttribution (node pull-telemetry; guards state-transition=[no], decision-nochange=[yes])
-		var in3 inputOperateADeliveredSystemP2S3
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003","window":{"From":"2026-10-01T00:00:00Z","To":"2026-10-02T00:00:00Z"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
+		var in3 inputOperateADeliveredSystemP2S3
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003","window":{
+                          "From": "2026-10-01T00:00:00Z",
+                          "To": "2026-10-02T00:00:00Z"
+                        }}`, &in3)
+		out3, err3 = subject.ReadComputeAttribution(h.ResourceAccessContext(t, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P2", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":3600}}","errorExpected":false}`)
 		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[no], decision-nochange=[yes])
-		var in4 inputOperateADeliveredSystemP2S4
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
-		expect(t, "operate-a-delivered-system-P2", 4, out4, err4, `{"result":"{\"Measured\":false}","errorExpected":false}`)
 		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "4.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		pre4_1 := held("operate-a-delivered-system-P2 probe 4.1 before", 4, run4_1, `{"result":"2","errorExpected":false}`)
+		var in4 inputOperateADeliveredSystemP2S4
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000003"}`, &in4)
+		out4, err4 = subject.ReadWorkloadTelemetry(h.ResourceAccessContext(t, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P2", 4, out4, err4, `{"result":"{\"Measured\":false}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "operate-a-delivered-system-P2 probe 4.1", 4, pout4_1, perr4_1, `{"result":"2","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P2", 4, pre4_1)
 	})
 }
 
@@ -187,61 +270,133 @@ type inputOperateADeliveredSystemP3S5 struct {
 func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P3", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: GetApplicationHealth (node pull-telemetry; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in1 inputOperateADeliveredSystemP3S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP3S1(t, h, subject, in1)
+		var in1 inputOperateADeliveredSystemP3S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in1)
+		out1, err1 = subject.GetApplicationHealth(h.ResourceAccessContext(t, "1"), in1.AppID)
 		expect(t, "operate-a-delivered-system-P3", 1, out1, err1, `{"result":"2","errorExpected":false}`)
 		// step 2: GetSloStatus (node pull-telemetry; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in2 inputOperateADeliveredSystemP3S2
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.GetSloStatus(callContext(t, h, "2"), in2.AppID)
+		var in2 inputOperateADeliveredSystemP3S2
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in2)
+		out2, err2 = subject.GetSloStatus(h.ResourceAccessContext(t, "2"), in2.AppID)
 		expect(t, "operate-a-delivered-system-P3", 2, out2, err2, `{"result":"{\"SloMet\":true}","errorExpected":false}`)
 		// step 3: ReadComputeAttribution (node pull-telemetry; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in3 inputOperateADeliveredSystemP3S3
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","window":{"From":"2026-10-01T00:00:00Z","To":"2026-10-02T00:00:00Z"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
+		var in3 inputOperateADeliveredSystemP3S3
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","window":{
+                          "From": "2026-10-01T00:00:00Z",
+                          "To": "2026-10-02T00:00:00Z"
+                        }}`, &in3)
+		out3, err3 = subject.ReadComputeAttribution(h.ResourceAccessContext(t, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P3", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":86400}}","errorExpected":false}`)
 		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in4 inputOperateADeliveredSystemP3S4
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
-		expect(t, "operate-a-delivered-system-P3", 4, out4, err4, `{"result":"{\"Measured\":true,\"CPUUtilization\":0.9}","errorExpected":false}`)
 		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "4.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		pre4_1 := held("operate-a-delivered-system-P3 probe 4.1 before", 4, run4_1, `{"result":"2","errorExpected":false}`)
+		var in4 inputOperateADeliveredSystemP3S4
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004"}`, &in4)
+		out4, err4 = subject.ReadWorkloadTelemetry(h.ResourceAccessContext(t, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P3", 4, out4, err4, `{"result":"{\"Measured\":true,\"CPUUtilization\":0.9}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "operate-a-delivered-system-P3 probe 4.1", 4, pout4_1, perr4_1, `{"result":"2","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P3", 4, pre4_1)
 		// step 5: PublishDesiredState (node publish-c; guards state-transition=[no], decision-nochange=[no: scale/pause/resume])
-		var in5 inputOperateADeliveredSystemP3S5
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false},"idempotencyKey":"stp-ort-op-P3-republish-0001"}`, &in5)
 		var out5 any
 		var err5 error
-		err5 = subject.PublishDesiredState(callContext(t, h, "5"), in5.AppID, in5.Desired, in5.IdempotencyKey)
-		expect(t, "operate-a-delivered-system-P3", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: operatedRuntimeAccess.GetDeploymentResourceHealth for desired-state-published-c
 		var pout5_1 any
 		var perr5_1 error
-		var probe5_1 struct {
-			AppID   uuid.UUID                           `json:"appID"`
-			Desired operatedruntime.RuntimeDesiredState `json:"desired"`
+		run5_1 := func() (any, error) {
+			var in struct {
+				AppID   uuid.UUID                           `json:"appID"`
+				Desired operatedruntime.RuntimeDesiredState `json:"desired"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{
+                              "AppName": "gtd",
+                              "Namespace": "op-gtd",
+                              "Host": "gtd.apps.example.test",
+                              "ModelKey": "cloud-env",
+                              "GatewayModelKey": "gateway",
+                              "Server": {
+                                "ModelKey": "server",
+                                "Image": "ghcr.io/example/gtd-server:1.0.0",
+                                "Replicas": 2
+                              },
+                              "WebApp": {
+                                "ModelKey": "web-app",
+                                "Image": "ghcr.io/example/gtd-web:1.0.0",
+                                "Replicas": 1
+                              },
+                              "Postgres": {
+                                "ModelKeys": [],
+                                "Enabled": false,
+                                "Instances": 0,
+                                "StorageClass": ""
+                              },
+                              "OIDC": {
+                                "ModelKey": "keycloak",
+                                "Issuer": "https://auth.example.test/realms/gtd",
+                                "ClientID": "gtd",
+                                "ClientSecretRef": "gtd-oidc-client-secret"
+                              },
+                              "SelfManaged": false
+                            }}`, &in)
+			return subject.GetDeploymentResourceHealth(h.ResourceAccessContext(t, "5.1"), in.AppID, in.Desired)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &probe5_1)
-		pout5_1, perr5_1 = subject.GetDeploymentResourceHealth(callContext(t, h, "5.1"), probe5_1.AppID, probe5_1.Desired)
+		pre5_1 := held("operate-a-delivered-system-P3 probe 5.1 before", 5, run5_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		var in5 inputOperateADeliveredSystemP3S5
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000004","desired":{
+                          "AppName": "gtd",
+                          "Namespace": "op-gtd",
+                          "Host": "gtd.apps.example.test",
+                          "ModelKey": "cloud-env",
+                          "GatewayModelKey": "gateway",
+                          "Server": {
+                            "ModelKey": "server",
+                            "Image": "ghcr.io/example/gtd-server:1.0.0",
+                            "Replicas": 2
+                          },
+                          "WebApp": {
+                            "ModelKey": "web-app",
+                            "Image": "ghcr.io/example/gtd-web:1.0.0",
+                            "Replicas": 1
+                          },
+                          "Postgres": {
+                            "ModelKeys": [],
+                            "Enabled": false,
+                            "Instances": 0,
+                            "StorageClass": ""
+                          },
+                          "OIDC": {
+                            "ModelKey": "keycloak",
+                            "Issuer": "https://auth.example.test/realms/gtd",
+                            "ClientID": "gtd",
+                            "ClientSecretRef": "gtd-oidc-client-secret"
+                          },
+                          "SelfManaged": false
+                        },"idempotencyKey":"stp-ort-op-P3-republish-0001"}`, &in5)
+		err5 = subject.PublishDesiredState(h.ResourceAccessContext(t, "5"), in5.AppID, in5.Desired, in5.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P3", 5, out5, err5, `{"errorExpected":false}`)
+		pout5_1, perr5_1 = run5_1()
 		expect(t, "operate-a-delivered-system-P3 probe 5.1", 5, pout5_1, perr5_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P3", 5, pre5_1)
 	})
 }
 
@@ -270,44 +425,53 @@ type inputOperateADeliveredSystemP4S4 struct {
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P4", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: GetApplicationHealth (node pull-telemetry; guards state-transition=[yes], decision-nochange=[yes])
-		var in1 inputOperateADeliveredSystemP4S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP4S1(t, h, subject, in1)
+		var in1 inputOperateADeliveredSystemP4S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in1)
+		out1, err1 = subject.GetApplicationHealth(h.ResourceAccessContext(t, "1"), in1.AppID)
 		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"result":"3","errorExpected":false}`)
 		// step 2: GetSloStatus (node pull-telemetry; guards state-transition=[yes], decision-nochange=[yes])
-		var in2 inputOperateADeliveredSystemP4S2
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.GetSloStatus(callContext(t, h, "2"), in2.AppID)
+		var in2 inputOperateADeliveredSystemP4S2
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in2)
+		out2, err2 = subject.GetSloStatus(h.ResourceAccessContext(t, "2"), in2.AppID)
 		expect(t, "operate-a-delivered-system-P4", 2, out2, err2, `{"result":"{\"SloMet\":false}","errorExpected":false}`)
 		// step 3: ReadComputeAttribution (node pull-telemetry; guards state-transition=[yes], decision-nochange=[yes])
-		var in3 inputOperateADeliveredSystemP4S3
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005","window":{"From":"2026-10-01T00:00:00Z","To":"2026-10-02T00:00:00Z"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
+		var in3 inputOperateADeliveredSystemP4S3
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005","window":{
+                          "From": "2026-10-01T00:00:00Z",
+                          "To": "2026-10-02T00:00:00Z"
+                        }}`, &in3)
+		out3, err3 = subject.ReadComputeAttribution(h.ResourceAccessContext(t, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P4", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":3600}}","errorExpected":false}`)
 		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[yes], decision-nochange=[yes])
-		var in4 inputOperateADeliveredSystemP4S4
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
-		expect(t, "operate-a-delivered-system-P4", 4, out4, err4, `{"result":"{\"Measured\":false}","errorExpected":false}`)
 		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "4.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		pre4_1 := held("operate-a-delivered-system-P4 probe 4.1 before", 4, run4_1, `{"result":"3","errorExpected":false}`)
+		var in4 inputOperateADeliveredSystemP4S4
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000005"}`, &in4)
+		out4, err4 = subject.ReadWorkloadTelemetry(h.ResourceAccessContext(t, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P4", 4, out4, err4, `{"result":"{\"Measured\":false}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "operate-a-delivered-system-P4 probe 4.1", 4, pout4_1, perr4_1, `{"result":"3","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P4", 4, pre4_1)
 	})
 }
 
@@ -343,61 +507,133 @@ type inputOperateADeliveredSystemP5S5 struct {
 func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P5", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: GetApplicationHealth (node pull-telemetry; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in1 inputOperateADeliveredSystemP5S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepOperateADeliveredSystemP5S1(t, h, subject, in1)
+		var in1 inputOperateADeliveredSystemP5S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in1)
+		out1, err1 = subject.GetApplicationHealth(h.ResourceAccessContext(t, "1"), in1.AppID)
 		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"result":"3","errorExpected":false}`)
 		// step 2: GetSloStatus (node pull-telemetry; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in2 inputOperateADeliveredSystemP5S2
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.GetSloStatus(callContext(t, h, "2"), in2.AppID)
+		var in2 inputOperateADeliveredSystemP5S2
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in2)
+		out2, err2 = subject.GetSloStatus(h.ResourceAccessContext(t, "2"), in2.AppID)
 		expect(t, "operate-a-delivered-system-P5", 2, out2, err2, `{"result":"{\"SloMet\":false}","errorExpected":false}`)
 		// step 3: ReadComputeAttribution (node pull-telemetry; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in3 inputOperateADeliveredSystemP5S3
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","window":{"From":"2026-10-01T00:00:00Z","To":"2026-10-02T00:00:00Z"}}`, &in3)
 		var out3 any
 		var err3 error
-		out3, err3 = subject.ReadComputeAttribution(callContext(t, h, "3"), in3.AppID, in3.Window)
+		var in3 inputOperateADeliveredSystemP5S3
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","window":{
+                          "From": "2026-10-01T00:00:00Z",
+                          "To": "2026-10-02T00:00:00Z"
+                        }}`, &in3)
+		out3, err3 = subject.ReadComputeAttribution(h.ResourceAccessContext(t, "3"), in3.AppID, in3.Window)
 		expect(t, "operate-a-delivered-system-P5", 3, out3, err3, `{"result":"{\"Units\":{\"Amount\":86400}}","errorExpected":false}`)
 		// step 4: ReadWorkloadTelemetry (node pull-telemetry; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in4 inputOperateADeliveredSystemP5S4
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in4)
 		var out4 any
 		var err4 error
-		out4, err4 = subject.ReadWorkloadTelemetry(callContext(t, h, "4"), in4.AppID)
-		expect(t, "operate-a-delivered-system-P5", 4, out4, err4, `{"result":"{\"Measured\":true,\"CPUUtilization\":0.4}","errorExpected":false}`)
 		// probe 4.1: operatedRuntimeAccess.GetApplicationHealth for pull-telemetry
 		var pout4_1 any
 		var perr4_1 error
-		var probe4_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run4_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "4.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &probe4_1)
-		pout4_1, perr4_1 = subject.GetApplicationHealth(callContext(t, h, "4.1"), probe4_1.AppID)
+		pre4_1 := held("operate-a-delivered-system-P5 probe 4.1 before", 4, run4_1, `{"result":"3","errorExpected":false}`)
+		var in4 inputOperateADeliveredSystemP5S4
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006"}`, &in4)
+		out4, err4 = subject.ReadWorkloadTelemetry(h.ResourceAccessContext(t, "4"), in4.AppID)
+		expect(t, "operate-a-delivered-system-P5", 4, out4, err4, `{"result":"{\"Measured\":true,\"CPUUtilization\":0.4}","errorExpected":false}`)
+		pout4_1, perr4_1 = run4_1()
 		expect(t, "operate-a-delivered-system-P5 probe 4.1", 4, pout4_1, perr4_1, `{"result":"3","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P5", 4, pre4_1)
 		// step 5: PublishDesiredState (node publish-c; guards state-transition=[yes], decision-nochange=[no: scale/pause/resume])
-		var in5 inputOperateADeliveredSystemP5S5
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false},"idempotencyKey":"stp-ort-op-P5-republish-0001"}`, &in5)
 		var out5 any
 		var err5 error
-		err5 = subject.PublishDesiredState(callContext(t, h, "5"), in5.AppID, in5.Desired, in5.IdempotencyKey)
-		expect(t, "operate-a-delivered-system-P5", 5, out5, err5, `{"errorExpected":false}`)
 		// probe 5.1: operatedRuntimeAccess.GetDeploymentResourceHealth for desired-state-published-c
 		var pout5_1 any
 		var perr5_1 error
-		var probe5_1 struct {
-			AppID   uuid.UUID                           `json:"appID"`
-			Desired operatedruntime.RuntimeDesiredState `json:"desired"`
+		run5_1 := func() (any, error) {
+			var in struct {
+				AppID   uuid.UUID                           `json:"appID"`
+				Desired operatedruntime.RuntimeDesiredState `json:"desired"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{
+                              "AppName": "gtd",
+                              "Namespace": "op-gtd",
+                              "Host": "gtd.apps.example.test",
+                              "ModelKey": "cloud-env",
+                              "GatewayModelKey": "gateway",
+                              "Server": {
+                                "ModelKey": "server",
+                                "Image": "ghcr.io/example/gtd-server:1.0.0",
+                                "Replicas": 2
+                              },
+                              "WebApp": {
+                                "ModelKey": "web-app",
+                                "Image": "ghcr.io/example/gtd-web:1.0.0",
+                                "Replicas": 1
+                              },
+                              "Postgres": {
+                                "ModelKeys": [],
+                                "Enabled": false,
+                                "Instances": 0,
+                                "StorageClass": ""
+                              },
+                              "OIDC": {
+                                "ModelKey": "keycloak",
+                                "Issuer": "https://auth.example.test/realms/gtd",
+                                "ClientID": "gtd",
+                                "ClientSecretRef": "gtd-oidc-client-secret"
+                              },
+                              "SelfManaged": false
+                            }}`, &in)
+			return subject.GetDeploymentResourceHealth(h.ResourceAccessContext(t, "5.1"), in.AppID, in.Desired)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":2},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &probe5_1)
-		pout5_1, perr5_1 = subject.GetDeploymentResourceHealth(callContext(t, h, "5.1"), probe5_1.AppID, probe5_1.Desired)
+		pre5_1 := held("operate-a-delivered-system-P5 probe 5.1 before", 5, run5_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		var in5 inputOperateADeliveredSystemP5S5
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000006","desired":{
+                          "AppName": "gtd",
+                          "Namespace": "op-gtd",
+                          "Host": "gtd.apps.example.test",
+                          "ModelKey": "cloud-env",
+                          "GatewayModelKey": "gateway",
+                          "Server": {
+                            "ModelKey": "server",
+                            "Image": "ghcr.io/example/gtd-server:1.0.0",
+                            "Replicas": 2
+                          },
+                          "WebApp": {
+                            "ModelKey": "web-app",
+                            "Image": "ghcr.io/example/gtd-web:1.0.0",
+                            "Replicas": 1
+                          },
+                          "Postgres": {
+                            "ModelKeys": [],
+                            "Enabled": false,
+                            "Instances": 0,
+                            "StorageClass": ""
+                          },
+                          "OIDC": {
+                            "ModelKey": "keycloak",
+                            "Issuer": "https://auth.example.test/realms/gtd",
+                            "ClientID": "gtd",
+                            "ClientSecretRef": "gtd-oidc-client-secret"
+                          },
+                          "SelfManaged": false
+                        },"idempotencyKey":"stp-ort-op-P5-republish-0001"}`, &in5)
+		err5 = subject.PublishDesiredState(h.ResourceAccessContext(t, "5"), in5.AppID, in5.Desired, in5.IdempotencyKey)
+		expect(t, "operate-a-delivered-system-P5", 5, out5, err5, `{"errorExpected":false}`)
+		pout5_1, perr5_1 = run5_1()
 		expect(t, "operate-a-delivered-system-P5 probe 5.1", 5, pout5_1, perr5_1, `{"result":"[{\"ModelKey\":\"server\"},{\"ModelKey\":\"web-app\"}]","errorExpected":false}`)
+		differential(t, "operate-a-delivered-system-P5", 5, pre5_1)
 	})
 }
 
@@ -411,24 +647,58 @@ type inputViewLiveDeploymentHealthP1S1 struct {
 func TestScenario_view_live_deployment_health_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "view-live-deployment-health-P1", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: GetDeploymentResourceHealth (node read-live-health; guards anything-deployed=[yes])
-		var in1 inputViewLiveDeploymentHealthP1S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000007","desired":{"AppName":"gtd","Namespace":"op-gtd","Host":"gtd.apps.example.test","ModelKey":"cloud-env","GatewayModelKey":"gateway","Server":{"ModelKey":"server","Image":"ghcr.io/example/gtd-server:1.0.0","Replicas":1},"WebApp":{"ModelKey":"web-app","Image":"ghcr.io/example/gtd-web:1.0.0","Replicas":1},"Postgres":{"ModelKeys":[],"Enabled":false,"Instances":0,"StorageClass":""},"OIDC":{"ModelKey":"keycloak","Issuer":"https://auth.example.test/realms/gtd","ClientID":"gtd","ClientSecretRef":"gtd-oidc-client-secret"},"SelfManaged":false}}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepViewLiveDeploymentHealthP1S1(t, h, subject, in1)
-		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"[{\"ModelKey\":\"server\",\"Status\":2},{\"ModelKey\":\"web-app\",\"Status\":2}]","errorExpected":false}`)
-		// unobservable: send-deployment-health
 		// probe 1.1: operatedRuntimeAccess.GetApplicationHealth for read-live-health
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000007"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "1.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000007"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.GetApplicationHealth(callContext(t, h, "1.1"), probe1_1.AppID)
+		pre1_1 := held("view-live-deployment-health-P1 probe 1.1 before", 1, run1_1, `{"result":"2","errorExpected":false}`)
+		var in1 inputViewLiveDeploymentHealthP1S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000007","desired":{
+                          "AppName": "gtd",
+                          "Namespace": "op-gtd",
+                          "Host": "gtd.apps.example.test",
+                          "ModelKey": "cloud-env",
+                          "GatewayModelKey": "gateway",
+                          "Server": {
+                            "ModelKey": "server",
+                            "Image": "ghcr.io/example/gtd-server:1.0.0",
+                            "Replicas": 1
+                          },
+                          "WebApp": {
+                            "ModelKey": "web-app",
+                            "Image": "ghcr.io/example/gtd-web:1.0.0",
+                            "Replicas": 1
+                          },
+                          "Postgres": {
+                            "ModelKeys": [],
+                            "Enabled": false,
+                            "Instances": 0,
+                            "StorageClass": ""
+                          },
+                          "OIDC": {
+                            "ModelKey": "keycloak",
+                            "Issuer": "https://auth.example.test/realms/gtd",
+                            "ClientID": "gtd",
+                            "ClientSecretRef": "gtd-oidc-client-secret"
+                          },
+                          "SelfManaged": false
+                        }}`, &in1)
+		out1, err1 = subject.GetDeploymentResourceHealth(h.ResourceAccessContext(t, "1"), in1.AppID, in1.Desired)
+		expect(t, "view-live-deployment-health-P1", 1, out1, err1, `{"result":"[{\"ModelKey\":\"server\",\"Status\":2},{\"ModelKey\":\"web-app\",\"Status\":2}]","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-live-deployment-health-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"2","errorExpected":false}`)
+		differential(t, "view-live-deployment-health-P1", 1, pre1_1)
 	})
 }
 
@@ -448,40 +718,40 @@ type inputWithdrawADeliveredSystemP2S2 struct {
 func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "withdraw-a-delivered-system-P2", func(t *testing.T) {
-		var subject operatedruntime.OperatedRuntimeAccess = newSubject(t, h)
+		var subject operatedruntime.OperatedRuntimeAccess = scenariocompose.NewOperatedRuntimeAccess(t, h)
+		subject = nullSubjectOperatedRuntimeAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
 		// step 1: Withdraw (node tear-down-runtime; guards already-withdrawn=[no: in flight])
-		var in1 inputWithdrawADeliveredSystemP2S1
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000008","idempotencyKey":"stp-ort-wd-P2-withdraw-0001"}`, &in1)
 		var out1 any
 		var err1 error
-		out1, err1 = stepWithdrawADeliveredSystemP2S1(t, h, subject, in1)
-		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"errorExpected":false}`)
 		// probe 1.1: operatedRuntimeAccess.GetApplicationHealth for tear-down-runtime
 		var pout1_1 any
 		var perr1_1 error
-		var probe1_1 struct {
-			AppID uuid.UUID `json:"appID"`
+		run1_1 := func() (any, error) {
+			var in struct {
+				AppID uuid.UUID `json:"appID"`
+			}
+			mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000008"}`, &in)
+			return subject.GetApplicationHealth(h.ResourceAccessContext(t, "1.1"), in.AppID)
 		}
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000008"}`, &probe1_1)
-		pout1_1, perr1_1 = subject.GetApplicationHealth(callContext(t, h, "1.1"), probe1_1.AppID)
+		pre1_1 := held("withdraw-a-delivered-system-P2 probe 1.1 before", 1, run1_1, `{"result":"4","errorExpected":false}`)
+		var in1 inputWithdrawADeliveredSystemP2S1
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000008","idempotencyKey":"stp-ort-wd-P2-withdraw-0001"}`, &in1)
+		err1 = subject.Withdraw(h.ResourceAccessContext(t, "1"), in1.AppID, in1.IdempotencyKey)
+		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "withdraw-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"4","errorExpected":false}`)
+		differential(t, "withdraw-a-delivered-system-P2", 1, pre1_1)
 		// step 2: ReadComputeAttribution (node record-final-usage; guards already-withdrawn=[no: in flight])
-		var in2 inputWithdrawADeliveredSystemP2S2
-		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000008","window":{"From":"2026-10-01T00:00:00Z","To":"2026-10-02T00:00:00Z"}}`, &in2)
 		var out2 any
 		var err2 error
-		out2, err2 = subject.ReadComputeAttribution(callContext(t, h, "2"), in2.AppID, in2.Window)
+		var in2 inputWithdrawADeliveredSystemP2S2
+		mustUnmarshal(t, `{"appID":"7a0e5c11-0000-4000-8000-000000000008","window":{
+                          "From": "2026-10-01T00:00:00Z",
+                          "To": "2026-10-02T00:00:00Z"
+                        }}`, &in2)
+		out2, err2 = subject.ReadComputeAttribution(h.ResourceAccessContext(t, "2"), in2.AppID, in2.Window)
 		expect(t, "withdraw-a-delivered-system-P2", 2, out2, err2, `{"result":"{\"Units\":{\"Amount\":1800}}","errorExpected":false}`)
 	})
-}
-
-// callContext is the fwra call context a generated step calls the subject with:
-// the test's own context, a zero principal and, on an idempotent layer, a key
-// unique to the step. A step that needs an identity is a Hook:true step.
-func callContext(t *testing.T, h *scenariohost.Host, step string) fwra.Context {
-	t.Helper()
-	_ = step
-	return fwra.Context{Context: h.Context(t), IdempotencyKey: fwra.IdempotencyKey(t.Name() + "/" + step)}
 }
 
 func mustUnmarshal(t *testing.T, raw string, into any) {
@@ -491,34 +761,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the layer error's kind name, or the code as a substring

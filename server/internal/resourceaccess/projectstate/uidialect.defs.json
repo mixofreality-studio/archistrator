@@ -1,0 +1,831 @@
+{
+ "UITarget": {
+  "type": "object",
+  "description": "The design element an action acts on or an observable observes.",
+  "properties": {
+   "element": {
+    "type": "string",
+    "description": "The id of a UI-design element (uiDesign screens[].elements[].id)."
+   },
+   "nth": {
+    "type": "integer",
+    "minimum": 0,
+    "x-go-type": "int",
+    "description": "Which instance of a repeating element, zero-based; absent means the element is unique or the first."
+   }
+  },
+  "required": [
+   "element"
+  ],
+  "additionalProperties": false
+ },
+ "UIActionKind": {
+  "type": "string",
+  "enum": [
+   "navigate",
+   "click",
+   "dblclick",
+   "fill",
+   "press",
+   "check",
+   "uncheck",
+   "hover",
+   "select"
+  ],
+  "x-enum-varnames": [
+   "UIActionNavigate",
+   "UIActionClick",
+   "UIActionDblclick",
+   "UIActionFill",
+   "UIActionPress",
+   "UIActionCheck",
+   "UIActionUncheck",
+   "UIActionHover",
+   "UIActionSelect"
+  ]
+ },
+ "UIAction": {
+  "description": "One browser action a scenario step performs, as a {kind, model} envelope over a design element: click, dblclick or hover it; fill it with a value (empty clears); press a key on it; check or uncheck it; select an option; or navigate to a screen route of the design.",
+  "oneOf": [
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "navigate"
+     },
+     "model": {
+      "$ref": "#/$defs/UINavigate"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "click"
+     },
+     "model": {
+      "$ref": "#/$defs/UIClick"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "dblclick"
+     },
+     "model": {
+      "$ref": "#/$defs/UIDblclick"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "fill"
+     },
+     "model": {
+      "$ref": "#/$defs/UIFill"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "press"
+     },
+     "model": {
+      "$ref": "#/$defs/UIPress"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "check"
+     },
+     "model": {
+      "$ref": "#/$defs/UICheck"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "uncheck"
+     },
+     "model": {
+      "$ref": "#/$defs/UIUncheck"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "hover"
+     },
+     "model": {
+      "$ref": "#/$defs/UIHover"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "select"
+     },
+     "model": {
+      "$ref": "#/$defs/UISelect"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   }
+  ],
+  "x-go-sumtype": {
+   "iface": "UIAction",
+   "marker": "isUIAction",
+   "discriminatorKey": "kind",
+   "kindEnum": "UIActionKind",
+   "variants": [
+    {
+     "kind": "navigate",
+     "type": "UINavigate",
+     "kindConst": "UIActionNavigate"
+    },
+    {
+     "kind": "click",
+     "type": "UIClick",
+     "kindConst": "UIActionClick"
+    },
+    {
+     "kind": "dblclick",
+     "type": "UIDblclick",
+     "kindConst": "UIActionDblclick"
+    },
+    {
+     "kind": "fill",
+     "type": "UIFill",
+     "kindConst": "UIActionFill"
+    },
+    {
+     "kind": "press",
+     "type": "UIPress",
+     "kindConst": "UIActionPress"
+    },
+    {
+     "kind": "check",
+     "type": "UICheck",
+     "kindConst": "UIActionCheck"
+    },
+    {
+     "kind": "uncheck",
+     "type": "UIUncheck",
+     "kindConst": "UIActionUncheck"
+    },
+    {
+     "kind": "hover",
+     "type": "UIHover",
+     "kindConst": "UIActionHover"
+    },
+    {
+     "kind": "select",
+     "type": "UISelect",
+     "kindConst": "UIActionSelect"
+    }
+   ]
+  }
+ },
+ "UINavigate": {
+  "type": "object",
+  "properties": {
+   "route": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "route"
+  ],
+  "additionalProperties": false
+ },
+ "UIClick": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIDblclick": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIFill": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   },
+   "value": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "target",
+   "value"
+  ],
+  "additionalProperties": false
+ },
+ "UIPress": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   },
+   "key": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "target",
+   "key"
+  ],
+  "additionalProperties": false
+ },
+ "UICheck": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIUncheck": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIHover": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UISelect": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   },
+   "option": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "target",
+   "option"
+  ],
+  "additionalProperties": false
+ },
+ "UIObservableKind": {
+  "type": "string",
+  "enum": [
+   "visible",
+   "hidden",
+   "absent",
+   "text",
+   "value",
+   "checked",
+   "unchecked",
+   "enabled",
+   "disabled",
+   "focused",
+   "count",
+   "url"
+  ],
+  "x-enum-varnames": [
+   "UIObservableVisible",
+   "UIObservableHidden",
+   "UIObservableAbsent",
+   "UIObservableText",
+   "UIObservableValue",
+   "UIObservableChecked",
+   "UIObservableUnchecked",
+   "UIObservableEnabled",
+   "UIObservableDisabled",
+   "UIObservableFocused",
+   "UIObservableCount",
+   "UIObservableURL"
+  ]
+ },
+ "UIObservable": {
+  "description": "One thing a user sees after the action, as a {kind, model} envelope: an element visible, hidden, absent, enabled, disabled, focused, checked or unchecked; its text, its value, or how many of a repeating element are shown; or the screen route the page is at.",
+  "oneOf": [
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "visible"
+     },
+     "model": {
+      "$ref": "#/$defs/UIVisible"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "hidden"
+     },
+     "model": {
+      "$ref": "#/$defs/UIHidden"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "absent"
+     },
+     "model": {
+      "$ref": "#/$defs/UIAbsent"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "text"
+     },
+     "model": {
+      "$ref": "#/$defs/UIText"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "value"
+     },
+     "model": {
+      "$ref": "#/$defs/UIValue"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "checked"
+     },
+     "model": {
+      "$ref": "#/$defs/UIChecked"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "unchecked"
+     },
+     "model": {
+      "$ref": "#/$defs/UIUnchecked"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "enabled"
+     },
+     "model": {
+      "$ref": "#/$defs/UIEnabled"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "disabled"
+     },
+     "model": {
+      "$ref": "#/$defs/UIDisabled"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "focused"
+     },
+     "model": {
+      "$ref": "#/$defs/UIFocused"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "count"
+     },
+     "model": {
+      "$ref": "#/$defs/UICount"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   },
+   {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "const": "url"
+     },
+     "model": {
+      "$ref": "#/$defs/UIURL"
+     }
+    },
+    "required": [
+     "kind",
+     "model"
+    ],
+    "additionalProperties": false
+   }
+  ],
+  "x-go-sumtype": {
+   "iface": "UIObservable",
+   "marker": "isUIObservable",
+   "discriminatorKey": "kind",
+   "kindEnum": "UIObservableKind",
+   "variants": [
+    {
+     "kind": "visible",
+     "type": "UIVisible",
+     "kindConst": "UIObservableVisible"
+    },
+    {
+     "kind": "hidden",
+     "type": "UIHidden",
+     "kindConst": "UIObservableHidden"
+    },
+    {
+     "kind": "absent",
+     "type": "UIAbsent",
+     "kindConst": "UIObservableAbsent"
+    },
+    {
+     "kind": "text",
+     "type": "UIText",
+     "kindConst": "UIObservableText"
+    },
+    {
+     "kind": "value",
+     "type": "UIValue",
+     "kindConst": "UIObservableValue"
+    },
+    {
+     "kind": "checked",
+     "type": "UIChecked",
+     "kindConst": "UIObservableChecked"
+    },
+    {
+     "kind": "unchecked",
+     "type": "UIUnchecked",
+     "kindConst": "UIObservableUnchecked"
+    },
+    {
+     "kind": "enabled",
+     "type": "UIEnabled",
+     "kindConst": "UIObservableEnabled"
+    },
+    {
+     "kind": "disabled",
+     "type": "UIDisabled",
+     "kindConst": "UIObservableDisabled"
+    },
+    {
+     "kind": "focused",
+     "type": "UIFocused",
+     "kindConst": "UIObservableFocused"
+    },
+    {
+     "kind": "count",
+     "type": "UICount",
+     "kindConst": "UIObservableCount"
+    },
+    {
+     "kind": "url",
+     "type": "UIURL",
+     "kindConst": "UIObservableURL"
+    }
+   ]
+  }
+ },
+ "UIVisible": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIHidden": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIAbsent": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIText": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   },
+   "text": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "target",
+   "text"
+  ],
+  "additionalProperties": false
+ },
+ "UIValue": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   },
+   "value": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "target",
+   "value"
+  ],
+  "additionalProperties": false
+ },
+ "UIChecked": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIUnchecked": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIEnabled": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIDisabled": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UIFocused": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   }
+  },
+  "required": [
+   "target"
+  ],
+  "additionalProperties": false
+ },
+ "UICount": {
+  "type": "object",
+  "properties": {
+   "target": {
+    "$ref": "#/$defs/UITarget"
+   },
+   "n": {
+    "type": "integer",
+    "minimum": 0,
+    "x-go-type": "int"
+   }
+  },
+  "required": [
+   "target",
+   "n"
+  ],
+  "additionalProperties": false
+ },
+ "UIURL": {
+  "type": "object",
+  "properties": {
+   "route": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "route"
+  ],
+  "additionalProperties": false
+ },
+ "UIObservation": {
+  "type": "array",
+  "minItems": 1,
+  "items": {
+   "$ref": "#/$defs/UIObservable"
+  },
+  "description": "What the step observes: at least one observable. An empty list would assert nothing."
+ }
+}

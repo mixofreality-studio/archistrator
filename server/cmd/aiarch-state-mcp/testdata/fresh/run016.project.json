@@ -5907,9 +5907,11 @@
     "testPlan": {
       "messageBus": {
         "component": "messageBus",
+        "principals": {},
         "bindings": [
           {
             "scenario": "assistant-drives-the-list-through-agent-tooling-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5917,7 +5919,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-assistant-1\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-assistant-1"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5926,14 +5935,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "capture-a-todo-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5941,7 +5949,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-capture-1\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-capture-1"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5950,14 +5965,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "clear-finished-todos-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5965,7 +5979,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-clear-1\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-clear-1"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5974,14 +5995,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "mark-a-todo-done-or-remaining-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -5989,7 +6009,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-mark-1\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-mark-1"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -5998,14 +6025,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "mark-all-todos-done-or-all-remaining-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -6013,7 +6039,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-markall-1\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-markall-1"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -6022,14 +6055,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "remove-a-todo-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -6037,7 +6069,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-remove-1\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-remove-1"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -6046,14 +6085,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "reword-a-todo-P1",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -6061,7 +6099,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-reword-1\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-reword-1"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -6070,14 +6115,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "reword-a-todo-P2",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -6085,7 +6129,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-reword-2\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-reword-2"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -6094,14 +6145,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "work-the-kept-list-P2",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -6109,7 +6159,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-work-2\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-work-2"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -6118,14 +6175,13 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           },
           {
             "scenario": "work-the-kept-list-P5",
+            "arrange": [],
             "steps": [
               {
                 "seq": 1,
@@ -6133,7 +6189,14 @@
                 "inputs": [
                   {
                     "name": "change",
-                    "value": "{\"listRef\":\"list-work-5\"}",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": {
+                          "listRef": "list-work-5"
+                        }
+                      }
+                    },
                     "schemaRef": ""
                   }
                 ],
@@ -6142,9 +6205,7 @@
                   "errorExpected": false,
                   "errorCode": ""
                 },
-                "probes": null,
-                "unobservable": null,
-                "hook": false
+                "probes": null
               }
             ]
           }
@@ -6577,5 +6638,72 @@
   "reviewPolicy": {
     "preset": "vibes"
   },
+  "ruleWaivers": [
+    {
+      "rule": "CC-DECIDED-BY-ACTOR-STEP",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "SCN-ACTOR-PATH-CLIENT",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "SCN-UNADDRESSED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-ACTOR-OBSERVED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-CLIENT-CONTRACTED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-DISCRIMINATE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-EXPECT-REQUIRED",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-PRINCIPAL",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-PROBE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "TP-STATE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-OUTCOME-AT-ASKING-SURFACE",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-PATH-OUTCOME",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    },
+    {
+      "rule": "UC-START-NOT-ACTION",
+      "reason": "a replayed paid run: its design predates binding model v2 (FPC plan 2)",
+      "expires": "2099-12-31"
+    }
+  ],
   "updatedAt": "2026-11-05T01:09:26.407909Z"
 }

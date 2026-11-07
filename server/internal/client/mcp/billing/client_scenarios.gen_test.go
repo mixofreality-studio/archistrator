@@ -7,12 +7,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
+	"github.com/mixofreality-studio/archistrator/server/internal/scenariocompose"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -22,16 +26,41 @@ func TestMain(m *testing.M) { scenariohost.Main(m, "mcpClientBilling") }
 func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientBilling", "onboard-a-new-customer-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClientBilling(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: BillingOnboardPaymentIntegration → tool billingOnboardPaymentIntegration (node resolve-app; guards registered=[yes])
-		out1, err1 := stepOnboardANewCustomerP1S1(t, h, subject, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000301"}`)
-		expect(t, "onboard-a-new-customer-P1", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000301\"}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: billingStateAccess.ReadBilling for obj-gateway-bound
-		pout1_1, perr1_1 := probeOnboardANewCustomerP1S1N1(t, h, subject)
-		expect(t, "onboard-a-new-customer-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000301\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000301"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "1.1"), in.CustomerID)
+		}
 		// probe 1.2: messageBus.DescribeSchedule for obj-schedule-registered
-		pout1_2, perr1_2 := probeOnboardANewCustomerP1S1N2(t, h, subject)
+		var pout1_2 any
+		var perr1_2 error
+		run1_2 := func() (any, error) {
+			var in struct {
+				ScheduleID messagebus.ScheduleID `json:"scheduleID"`
+			}
+			mustUnmarshal(t, `{"scheduleID":"closeBillingCycle:0b1a0000-0000-4000-8000-000000000301"}`, &in)
+			return scenariocompose.NewMessageBus(t, h).DescribeSchedule(h.ResourceAccessContext(t, "1.2"), in.ScheduleID)
+		}
+		pre1_1 := held("onboard-a-new-customer-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000301\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		pre1_2 := held("onboard-a-new-customer-P1 probe 1.2 before", 1, run1_2, `{"result":"{\"Registered\":true}","errorExpected":false}`)
+		args1 := `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000301"}`
+		out1, err1 = subject.Call(h.Context(t), "billingOnboardPaymentIntegration", args1)
+		expect(t, "onboard-a-new-customer-P1", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000301\"}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expect(t, "onboard-a-new-customer-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000301\",\"Registered\":true,\"GatewayBound\":true}","errorExpected":false}`)
+		pout1_2, perr1_2 = run1_2()
 		expect(t, "onboard-a-new-customer-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"Registered\":true}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P1", 1, pre1_1, pre1_2)
 	})
 }
 
@@ -39,22 +68,61 @@ func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientBilling", "onboard-a-new-customer-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClientBilling(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: BillingOnboardPaymentIntegration → tool billingOnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[yes])
-		out1, err1 := stepOnboardANewCustomerP2S1(t, h, subject, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000302"}`)
-		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: billingStateAccess.ReadBilling for registered
-		pout1_1, perr1_1 := probeOnboardANewCustomerP2S1N1(t, h, subject)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "1.1"), in.CustomerID)
+		}
+		pre1_1 := held("onboard-a-new-customer-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
+		args1 := `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000302"}`
+		out1, err1 = subject.Call(h.Context(t), "billingOnboardPaymentIntegration", args1)
+		expect(t, "onboard-a-new-customer-P2", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "onboard-a-new-customer-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P2", 1, pre1_1)
 		// step 2: BillingRegisterCustomer → tool billingRegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[yes])
-		out2, err2 := stepOnboardANewCustomerP2S2(t, h, subject, `{"customerID":"0b1a0000-0000-4000-8000-000000000302","projectID":"stp-mcpbilling-onboard-P2-project"}`)
-		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}","errorExpected":false}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: merchantGatewayAccess.ReadStoredInstrument for obj-instrument-validated
-		pout2_1, perr2_1 := probeOnboardANewCustomerP2S2N1(t, h, subject)
-		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302"}`, &in)
+			return scenariocompose.NewMerchantGatewayAccess(t, h).ReadStoredInstrument(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
+		}
 		// probe 2.2: billingStateAccess.ReadBilling for obj-customer-registered
-		pout2_2, perr2_2 := probeOnboardANewCustomerP2S2N2(t, h, subject)
+		var pout2_2 any
+		var perr2_2 error
+		run2_2 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000302"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "2.2"), in.CustomerID)
+		}
+		pre2_1 := held("onboard-a-new-customer-P2 probe 2.1 before", 2, run2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pre2_2 := held("onboard-a-new-customer-P2 probe 2.2 before", 2, run2_2, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000302\",\"Registered\":true}","errorExpected":false}`)
+		args2 := `{"customerID":"0b1a0000-0000-4000-8000-000000000302","projectID":"stp-mcpbilling-onboard-P2-project"}`
+		out2, err2 = subject.Call(h.Context(t), "billingRegisterCustomer", args2)
+		expect(t, "onboard-a-new-customer-P2", 2, out2, err2, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000302\"}}","errorExpected":false}`)
+		pout2_1, perr2_1 = run2_1()
+		expect(t, "onboard-a-new-customer-P2 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"Validated\":true}","errorExpected":false}`)
+		pout2_2, perr2_2 = run2_2()
 		expect(t, "onboard-a-new-customer-P2 probe 2.2", 2, pout2_2, perr2_2, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000302\",\"Registered\":true}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P2", 2, pre2_1, pre2_2)
 	})
 }
 
@@ -62,18 +130,45 @@ func TestScenario_onboard_a_new_customer_P2(t *testing.T) {
 func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientBilling", "onboard-a-new-customer-P3", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClientBilling(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: BillingOnboardPaymentIntegration → tool billingOnboardPaymentIntegration (node resolve-app; guards registered=[no], project-committed=[no: no committed option])
-		out1, err1 := stepOnboardANewCustomerP3S1(t, h, subject, `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000303"}`)
-		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\"}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: billingStateAccess.ReadBilling for registered
-		pout1_1, perr1_1 := probeOnboardANewCustomerP3S1N1(t, h, subject)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000303"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "1.1"), in.CustomerID)
+		}
+		pre1_1 := held("onboard-a-new-customer-P3 probe 1.1 before", 1, run1_1, `{"result":"{\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
+		args1 := `{"deployedAppID":"0b1a0000-0000-4000-8000-000000000303"}`
+		out1, err1 = subject.Call(h.Context(t), "billingOnboardPaymentIntegration", args1)
+		expect(t, "onboard-a-new-customer-P3", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000303\"}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "onboard-a-new-customer-P3 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
+		differential(t, "onboard-a-new-customer-P3", 1, pre1_1)
 		// step 2: BillingRegisterCustomer → tool billingRegisterCustomer (node validate-instrument; guards registered=[no], project-committed=[no: no committed option])
-		out2, err2 := stepOnboardANewCustomerP3S2(t, h, subject, `{"customerID":"0b1a0000-0000-4000-8000-000000000303","projectID":"stp-mcpbilling-onboard-P3-project"}`)
-		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		var out2 any
+		var err2 error
 		// probe 2.1: billingStateAccess.ReadBilling for send-registration-refused
-		pout2_1, perr2_1 := probeOnboardANewCustomerP3S2N1(t, h, subject)
+		var pout2_1 any
+		var perr2_1 error
+		run2_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000303"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadBilling(h.ResourceAccessContext(t, "2.1"), in.CustomerID)
+		}
+		args2 := `{"customerID":"0b1a0000-0000-4000-8000-000000000303","projectID":"stp-mcpbilling-onboard-P3-project"}`
+		out2, err2 = subject.Call(h.Context(t), "billingRegisterCustomer", args2)
+		expect(t, "onboard-a-new-customer-P3", 2, out2, err2, `{"errorExpected":true,"errorCode":"FailedPrecondition"}`)
+		pout2_1, perr2_1 = run2_1()
 		expect(t, "onboard-a-new-customer-P3 probe 2.1", 2, pout2_1, perr2_1, `{"result":"{\"ID\":\"0b1a0000-0000-4000-8000-000000000303\",\"Registered\":false,\"GatewayBound\":false}","errorExpected":false}`)
 	})
 }
@@ -82,13 +177,29 @@ func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
 func TestScenario_view_a_billing_cycle_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientBilling", "view-a-billing-cycle-P1", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClientBilling(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: BillingGetBillingCycle → tool billingGetBillingCycle (node open-billing-cycle; guards cycle-closed=[no: period open])
-		out1, err1 := stepViewABillingCycleP1S1(t, h, subject, `{"customerID":"0b1a0000-0000-4000-8000-000000000501","cycleID":"2026-10"}`)
-		expect(t, "view-a-billing-cycle-P1", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000501\",\"cycleId\":\"2026-10\",\"closed\":false,\"routed\":0,\"escalated\":false}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: billingStateAccess.ReadCycle for send-cycle-open
-		pout1_1, perr1_1 := probeViewABillingCycleP1S1N1(t, h, subject)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000501","cycle":"2026-10"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
+		pre1_1 := held("view-a-billing-cycle-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-10\",\"Settled\":false}","errorExpected":false}`)
+		args1 := `{"customerID":"0b1a0000-0000-4000-8000-000000000501","cycleID":"2026-10"}`
+		out1, err1 = subject.Call(h.Context(t), "billingGetBillingCycle", args1)
+		expect(t, "view-a-billing-cycle-P1", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000501\",\"cycleId\":\"2026-10\",\"closed\":false,\"routed\":0,\"escalated\":false}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-a-billing-cycle-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-10\",\"Settled\":false}","errorExpected":false}`)
+		differential(t, "view-a-billing-cycle-P1", 1, pre1_1)
 	})
 }
 
@@ -96,13 +207,29 @@ func TestScenario_view_a_billing_cycle_P1(t *testing.T) {
 func TestScenario_view_a_billing_cycle_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientBilling", "view-a-billing-cycle-P2", func(t *testing.T) {
-		subject := serveTools(t, h, newSubject(t, h))
+		handlers := scenariocompose.NewMcpClientBilling(t, h)
+		subject := serveTools(h.Context(t), t, h, handlers)
 		// step 1: BillingGetBillingCycle → tool billingGetBillingCycle (node open-billing-cycle; guards cycle-closed=[yes])
-		out1, err1 := stepViewABillingCycleP2S1(t, h, subject, `{"customerID":"0b1a0000-0000-4000-8000-000000000502","cycleID":"2026-09"}`)
-		expect(t, "view-a-billing-cycle-P2", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000502\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}}","errorExpected":false}`)
+		var out1 any
+		var err1 error
 		// probe 1.1: billingStateAccess.ReadCycle for send-cycle-settlement
-		pout1_1, perr1_1 := probeViewABillingCycleP2S1N1(t, h, subject)
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			var in struct {
+				CustomerID uuid.UUID `json:"customerID"`
+				Cycle      string    `json:"cycle"`
+			}
+			mustUnmarshal(t, `{"customerID":"0b1a0000-0000-4000-8000-000000000502","cycle":"2026-09"}`, &in)
+			return scenariocompose.NewBillingStateAccess(t, h).ReadCycle(h.ResourceAccessContext(t, "1.1"), in.CustomerID, in.Cycle)
+		}
+		pre1_1 := held("view-a-billing-cycle-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		args1 := `{"customerID":"0b1a0000-0000-4000-8000-000000000502","cycleID":"2026-09"}`
+		out1, err1 = subject.Call(h.Context(t), "billingGetBillingCycle", args1)
+		expect(t, "view-a-billing-cycle-P2", 1, out1, err1, `{"result":"{\"result\":{\"customerId\":\"0b1a0000-0000-4000-8000-000000000502\",\"cycleId\":\"2026-09\",\"closed\":true,\"routed\":2,\"escalated\":false}}","errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
 		expect(t, "view-a-billing-cycle-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"Cycle\":\"2026-09\",\"Settled\":true,\"Outcome\":{\"Directive\":2,\"Declined\":false,\"Escalated\":false}}","errorExpected":false}`)
+		differential(t, "view-a-billing-cycle-P2", 1, pre1_1)
 	})
 }
 
@@ -112,25 +239,6 @@ type toolRegistrar interface {
 	Register(srv *mcp.Server)
 }
 
-// permitAll is the Security a newSubject hands the handler. These scenarios prove the transport
-// over the real Manager; the app's own authorization policy is its composition root's hooks.
-type permitAll struct{ security.Security }
-
-// Authorize permits every call.
-func (permitAll) Authorize(context.Context, security.Principal, security.Action, security.ResourceRef) (security.Decision, error) {
-	return security.Decision{Permit: true}, nil
-}
-
-// toolServer is what newSubject builds: the handlers whose tools the
-// scenarios call, and the context the in-process server serves them under
-// (nil: the host's) — the one place a principal the tools read is set. A
-// context with no principal is served as one scenario principal, as the
-// server's auth middleware authenticates every call.
-type toolServer struct {
-	Handlers []toolRegistrar
-	Context  context.Context
-}
-
 // toolSession is every scenario's subject: an MCP client session on the
 // in-process server.
 type toolSession struct {
@@ -138,18 +246,17 @@ type toolSession struct {
 }
 
 // serveTools registers every handler on a fresh server, connects a client to
-// it over an in-memory transport, and closes both when the test ends.
-func serveTools(t *testing.T, h *scenariohost.Host, srv toolServer) *toolSession {
+// it over an in-memory transport, and closes both when the test ends. The
+// server serves its calls under ctx, the principal the session acts as; a ctx
+// carrying none is served as one scenario principal, as the server's auth
+// middleware authenticates every call.
+func serveTools(ctx context.Context, t *testing.T, h *scenariohost.Host, handlers ...toolRegistrar) *toolSession {
 	t.Helper()
-	ctx := srv.Context
-	if ctx == nil {
-		ctx = h.Context(t)
-	}
 	if _, ok := security.PrincipalFrom(ctx); !ok {
 		ctx = security.WithPrincipal(ctx, security.Principal{Subject: "scenario"})
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "scenario-tools", Version: "testgen"}, nil)
-	for _, r := range srv.Handlers {
+	for _, r := range handlers {
 		r.Register(server)
 	}
 	clientEnd, serverEnd := mcp.NewInMemoryTransports()
@@ -194,34 +301,141 @@ func mustUnmarshal(t *testing.T, raw string, into any) {
 	}
 }
 
-// expect checks one step's outcome against its binding's expectation: an
-// expected error must arrive (carrying the expected code, when one is named);
-// an unexpected error fails; a named result must be a JSON subset of the
-// marshalled outcome.
-func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
-	t.Helper()
+// check judges one outcome against its expectation: an expected error must
+// arrive (carrying the expected code, when one is named); an unexpected error
+// fails; a named result must be a JSON subset of the marshalled outcome. It
+// returns "" when the expectation holds, the failure otherwise.
+func check(scenario string, seq int, out any, err error, expectJSON string) string {
 	var want struct {
 		Result        string `json:"result"`
 		ErrorExpected bool   `json:"errorExpected"`
 		ErrorCode     string `json:"errorCode"`
 	}
-	mustUnmarshal(t, expectJSON, &want)
+	if e := json.Unmarshal([]byte(expectJSON), &want); e != nil {
+		return fmt.Sprintf("testgen: decode %s: %v", expectJSON, e)
+	}
 	if want.ErrorExpected {
 		if err == nil {
-			t.Fatalf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
+			return fmt.Sprintf("%s step %d: expected error %q, got nil", scenario, seq, want.ErrorCode)
 		}
 		if want.ErrorCode != "" && !errorHasCode(err, want.ErrorCode) {
-			t.Fatalf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
+			return fmt.Sprintf("%s step %d: expected error code %q, got %v", scenario, seq, want.ErrorCode, err)
 		}
-		return
+		return ""
 	}
 	if err != nil {
-		t.Fatalf("%s step %d: unexpected error: %v", scenario, seq, err)
+		return fmt.Sprintf("%s step %d: unexpected error: %v", scenario, seq, err)
 	}
 	if want.Result != "" && !resultMatches(want.Result, out) {
 		got, _ := json.Marshal(out)
-		t.Fatalf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
+		return fmt.Sprintf("%s step %d: result %s is not a subset of %s", scenario, seq, want.Result, got)
 	}
+	return ""
+}
+
+// expect fails the test unless the outcome meets its expectation.
+func expect(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if msg := check(scenario, seq, out, err, expectJSON); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// held reports whether the outcome of run already meets expectJSON: the pre-state
+// reading of the differential.
+func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
+	out, err := run()
+	return check(scenario, seq, out, err, expectJSON) == ""
+}
+
+// differential fails a step whose every probe expectation held before the step
+// ran: a test whose assertions were already true proves nothing about the step.
+func differential(t *testing.T, scenario string, seq int, pre ...bool) {
+	t.Helper()
+	for _, was := range pre {
+		if !was {
+			return
+		}
+	}
+	if len(pre) > 0 {
+		t.Fatalf("%s step %d: vacuous: every probe expectation already held before the step ran, so the step proves nothing", scenario, seq)
+	}
+}
+
+// pathValue reads path from the JSON form of from: dot-separated member
+// names, each optionally followed by [] (the first element of an array); ""
+// is the value itself.
+func pathValue(from any, path string) (any, error) {
+	raw, err := json.Marshal(from)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return v, nil
+	}
+	for _, seg := range strings.Split(path, ".") {
+		name, arrays := seg, 0
+		for strings.HasSuffix(name, "[]") {
+			name = strings.TrimSuffix(name, "[]")
+			arrays++
+		}
+		if name != "" {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("path %q: no object to read member %q from", path, name)
+			}
+			if v, ok = obj[name]; !ok {
+				return nil, fmt.Errorf("path %q: no member %q", path, name)
+			}
+		}
+		for ; arrays > 0; arrays-- {
+			arr, ok := v.([]any)
+			if !ok || len(arr) == 0 {
+				return nil, fmt.Errorf("path %q: %q is not a non-empty array", path, seg)
+			}
+			v = arr[0]
+		}
+	}
+	return v, nil
+}
+
+// refInto sets into (a pointer to an argument) to the value at path of an earlier result.
+func refInto(t *testing.T, scenario string, seq int, from any, path string, into any) {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("%s step %d: ref %q: %v", scenario, seq, path, err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatalf("%s step %d: ref %q does not fit its argument: %v", scenario, seq, path, err)
+	}
+}
+
+// threadRef returns the JSON object args with member name set to the value at path of an earlier result.
+func threadRef(t *testing.T, scenario string, seq int, args, name string, from any, path string) string {
+	t.Helper()
+	v, err := pathValue(from, path)
+	if err != nil {
+		t.Fatalf("%s step %d: ref: %v", scenario, seq, err)
+	}
+	fields := map[string]any{}
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		t.Fatalf("%s step %d: arguments %s: %v", scenario, seq, args, err)
+	}
+	fields[name] = v
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("%s step %d: arguments: %v", scenario, seq, err)
+	}
+	return string(raw)
 }
 
 // errorHasCode matches the code as a substring of the error text: a tool
