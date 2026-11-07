@@ -236,6 +236,7 @@ func (d UIDesignRecord) Element(id string) (UIElement, UIScreen, bool)
 
 **Interfaces (Produces):**
 - `composegen.EmitScenarioCompose(m *projectmodel.Model) ([]byte, error)` → `internal/scenariocompose/compose.gen.go`, package `scenariocompose`, one `func New<Iface>(t *testing.T, h *scenariohost.Host) <pkg>.<Iface>` per non-client contract, built with the **same wiring `main.gen.go` uses** over `h.TemporalHostPort`, `h.PostgresURL`, `h.GitHub`, `h.Repo` (map substrates by the deployment model's infra bindings; a binding with no scenariohost substrate is a generation error naming it), plus `func Workflows() scenariohost.Workflows` registering every Manager workflow, and `func Null<Iface>(ops ...string) <pkg>.<Iface>` wrapping `New<Iface>` so the named ops return the zero result (Task 2.9).
+- **Client constructors (amended after Task 2.8 review; delivered with it):** for every MCP/REST client contract whose generated handler package exists (`internal/client/web/<pkg>` for REST, `internal/client/<leaf>/<pkg>` for an MCP tool table, the Manager it fronts being exposed to it exactly as `composegen`/`clientgen` decide), `func New<ClientIface>(t *testing.T, h *scenariohost.Host) *<handlerpkg>.Handler` returning the generated `Handler{Manager: <the real Manager>, Security: edgeSecurity()}`. `edgeSecurity()` is `security.New(security.WithPolicyDecisionPoint(generatedPolicy{}))`, where `generatedPolicy` is deny-by-default and permits exactly the `(verb, scope)` rows of the same `httpgen.PlanOps` derivation `authz.gen.go` is written from, on the principal's own scope (the app's hand `Hooks.PolicyDecisionPoint` lives in `package main` and cannot be imported; the generated table is what the generated transports can be held to). Test: `TestScenarioCompose_ClientConstructorHasRealPolicy`; compile proof: `TestScenarioCompose_CompilesAgainstScenariohost` (real `clientgen` output) and testgen's `TestMCP_GeneratedFileCompiles` (real `EmitScenarioCompose` output).
 - scenariohost: `func (h *Host) PrincipalContext(t *testing.T, p Principal) context.Context` where `type Principal struct{ Subject string; Roles []string }`; `ResourceAccessContext/EngineContext/ManagerContext` gain a `Principal` parameter variant `…ContextAs(t, p)`.
 - arch `ARCH-TEST-COMPOSE` (Error): under `internal/{manager,engine,resourceaccess,client,utility}/**` the only `_test.go` files are `<stereotype>_scenarios.gen_test.go` and `null.gen_test.go`; any `*_hooks_test.go` is a violation; and no file in a `_test` package declares a type with a method set matching a contract interface (check via `go/types` implements against the generated interfaces).
 
@@ -283,14 +284,15 @@ func TestScenario_<id>(t *testing.T) {
   })
 }
 ```
-- `Output.HooksOnce` is deleted from `testgen.Output`. `Drift` loses `hooksDrift`/`symbolDrift`.
-- Machine clients (`emit_mcp.go`/`emit_rest.go`): subject = `serveTools(t, h, scenariocompose.New<Iface>(t, h))` with `permitAll` **removed** — the generated server uses `scenariocompose.Security(h)` (the app's generated PDP over the dev principal from `Principals`). Over-the-wire execution against devstack is Plan 3; here the in-process server must at least use the real generated authz rows.
+- The Go emitters never emit a hooks file. `Drift` loses `hooksDrift`/`symbolDrift`. `Output.HooksOnce` is **narrowed here and deleted in Task 2.10**: it survives Task 2.8 only to carry the web client's `hooks.ts` (the Playwright emitter is Task 2.10's), and `TestGo_NoHooksFileEmitted` pins that it never holds a Go file.
+- Machine clients (`emit_mcp.go`/`emit_rest.go`): subject = `serveTools(t, h, scenariocompose.New<ClientIface>(t, h))` with `permitAll` **removed** — `New<ClientIface>` (Task 2.6, client constructors) returns the generated handlers over the real Manager, authorized by the generated authorization rows (there is no `scenariocompose.Security(h)`; the policy is built inside the constructor). Over-the-wire execution against devstack is Plan 3; here the in-process server uses the real generated authz rows.
+- Ref threading is emitted in its runtime form `refInto(t, "<id>", <seq>, outN, "<path>", &inM.<Param>)` (and `threadRef` for tool-call arguments), not the static `inM.X = outN.Y`: step results are `any` and modelgen's lint-folded field names (`Id`→`ID`) and nested/array paths are not knowable in the emitter. A mis-spelled path therefore fails at test run time, so **`TP-ARG-REF` (Task 2.4) must resolve every ref path against the result schema at record time**; a bad path never reaches a generated test.
 
 - [ ] **Step 1: Write the failing tests:**
 ```go
 func TestGo_NoHooksFileEmitted(t *testing.T)
 func TestGo_PrincipalFromPlan(t *testing.T)            // generated source contains `ManagerContextAs(t, principal("team-member"))`
-func TestGo_RefThreading(t *testing.T)                 // `in2.TodoId = out1.Id`
+func TestGo_RefThreading(t *testing.T)                 // `refInto(t, "<id>", 2, out1, "", &in2.Order)` (runtime form; see the ref-threading note above)
 func TestGo_ArrangeExhaustive(t *testing.T)            // each of the four ArrangeCall kinds emits its line; a compile-time exhaustive switch
 func TestGo_DifferentialFailsVacuous(t *testing.T)     // compile+run the generated test for a fixture whose probe expectation holds before the step against a null subject → output contains "vacuous"
 func TestMCP_NoPermitAll(t *testing.T)
@@ -326,7 +328,7 @@ func TestMCP_NoPermitAll(t *testing.T)
 - `surface.spec.gen.ts`: for each screen: `goto(route)`, then for each non-repeating element `await expect(locate(page, id)).toBeAttached()`.
 - `<id>.spec.gen.ts`: `installLatency(page, Number(process.env.AIARCH_UI_LATENCY_MS ?? 1500))` → arrange → per step: action line from an exhaustive map over `UIAction` kinds → **Layer A assertions** from `LayerAObservables(action)` with `immediate` → observables from the binding, those whose `Target` matches an `ActorOutcome` output with `Immediate` also get `immediate`, the rest default timeout → probes executed via `fetch` and compared (`expect(json).toMatchObject(...)`).
 - `playwright.config.gen.ts`: unchanged plus `globalSetup` that runs `surface.spec.gen.ts` first (or `dependencies` project).
-- `hooks.ts` is no longer emitted; `Drift` reports any `hooks.ts` as orphan.
+- `hooks.ts` is no longer emitted; `Drift` reports any `hooks.ts` as orphan. **This task owns the deletion deferred from Task 2.8:** delete `testgen.Output.HooksOnce`, `Drift`'s `hooks.ts` presence check and the CLI's (`cmd/testgen`) `HooksOnce` write/orphan path; the field must not exist once this task lands.
 
 - [ ] **Step 1: Write the failing tests:**
 ```go
