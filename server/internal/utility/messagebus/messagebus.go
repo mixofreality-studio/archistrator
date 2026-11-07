@@ -137,16 +137,18 @@ type KindBinding struct {
 // newTemporalMessageBus is the hand-written, unexported builder behind
 // the generated NewTemporalMessageBus constructor (option-1 delegated
 // DI). It builds the impl over a Temporal control-plane client and the
-// ExecutionKind → binding table — constructing the hand-written kindRegistry — and
+// ExecutionKind → binding tables (one per Manager that owns Schedule kinds, merged) — constructing the hand-written kindRegistry — and
 // returns the MessageBus interface so the concrete struct stays
 // unexported. The constructor performs no IO; infrastructure failures surface
 // lazily on the first call as typed fwra errors. cl must be non-nil; an empty table
 // is allowed (every RegisterSchedule then surfaces fwra.ContractMisuse for an
 // unknown kind, which is the correct pre-condition failure).
-func newTemporalMessageBus(cl client.Client, table map[ExecutionKind]KindBinding) MessageBus {
-	internal := make(map[ExecutionKind]kindBinding, len(table))
-	for k, b := range table {
-		internal[k] = kindBinding{workflowType: b.WorkflowType, taskQueue: b.TaskQueue}
+func newTemporalMessageBus(cl client.Client, tables ...map[ExecutionKind]KindBinding) MessageBus {
+	internal := make(map[ExecutionKind]kindBinding)
+	for _, table := range tables {
+		for k, b := range table {
+			internal[k] = kindBinding{workflowType: b.WorkflowType, taskQueue: b.TaskQueue}
+		}
 	}
 	return &temporalMessageBus{cl: cl, registry: newKindRegistry(internal)}
 }

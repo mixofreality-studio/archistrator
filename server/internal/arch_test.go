@@ -396,17 +396,6 @@ func appArchSpec() arch.Spec {
 	// An unsanctioned dependency (e.g. a MongoDB driver) fails this test. Test-only deps
 	// (testcontainers, the Gitea SDK) are not scanned: Check loads with Tests:false.
 	spec.AllowedImportPrefixes = append(spec.AllowedImportPrefixes, "github.com/invopop/jsonschema")
-
-	// Hooks-file import allowlist — what a component's ONE hand-written test
-	// file (<stereotype>_hooks_test.go) may import beyond the built-in set
-	// (its own package, stdlib, platform testinfra doubles, scenariohost).
-	// Deterministic component tests are black-box: a hooks file arranges the
-	// subject against generated fakes of the resources it fronts, never
-	// against another component's internals. modulePrefix already ends in
-	// "internal/", so the entries are relative to it.
-	spec.HooksImportAllowlist = []string{
-		modulePrefix + "resourceaccess/projectstate/fake",
-	}
 	return spec
 }
 

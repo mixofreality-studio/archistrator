@@ -25,6 +25,7 @@ import (
 // Config is the container's env-loaded configuration.
 type Config struct {
 	// Infrastructure inputs (all string; typed coercion is the hand adapter's job).
+	ArtifactRepoURL         string
 	GithubAppAppID          string
 	GithubAppPrivateKeyPEM  string
 	GithubAppAccount        string
@@ -34,6 +35,7 @@ type Config struct {
 	KeycloakJWKSURL         string
 	KeycloakIssuer          string
 	PostgresURL             string
+	ProjectStateGitRepoURL  string
 	TemporalHostport        string
 	TemporalNamespace       string
 
@@ -51,11 +53,16 @@ type Config struct {
 	OperationsDryRun              bool
 	OperatedRuntimeGitOpsRepoURL  string
 	ProjectStateGitLocal          bool
-	ProjectStateGitRepoURL        string
-	ArtifactRepoURL               string
 	ArtifactRepoOwner             string
 	ArtifactRepoLocal             bool
 	AuthDevMode                   bool
+	WebDistDir                    string
+	DevRoles                      string
+	DevSubject                    string
+	LocalExecRunTimeout           string
+	StateMcpBin                   string
+	WebappAssetVersion            string
+	WebappOrigin                  string
 
 	// DevPrincipal is the framework's local-profile edge principal (devPrincipalEnv):
 	// read it through LocalDevPrincipal, never directly.
@@ -66,6 +73,7 @@ type Config struct {
 // naming every missing always-required variable.
 func LoadConfig() (*Config, error) {
 	c := &Config{
+		ArtifactRepoURL:               getenv("ARCHISTRATOR_ARTIFACT_REPO_URL"),
 		GithubAppAppID:                getenv("ARCHISTRATOR_GITHUB_APP_ID"),
 		GithubAppPrivateKeyPEM:        getenv("ARCHISTRATOR_GITHUB_APP_PRIVATE_KEY_PEM"),
 		GithubAppAccount:              getenv("ARCHISTRATOR_GITHUB_ACCOUNT"),
@@ -75,6 +83,7 @@ func LoadConfig() (*Config, error) {
 		KeycloakJWKSURL:               getenv("ARCHISTRATOR_KEYCLOAK_JWKS_URL"),
 		KeycloakIssuer:                getenv("ARCHISTRATOR_KEYCLOAK_ISSUER"),
 		PostgresURL:                   getenv("ARCHISTRATOR_POSTGRES_URL"),
+		ProjectStateGitRepoURL:        getenv("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL"),
 		TemporalHostport:              getenvString("ARCHISTRATOR_TEMPORAL_HOSTPORT", "temporal-frontend.temporal.svc:7233"),
 		TemporalNamespace:             getenvString("ARCHISTRATOR_TEMPORAL_NAMESPACE", "default"),
 		ListenAddr:                    getenvString("ARCHISTRATOR_LISTEN_ADDR", ":8080"),
@@ -90,11 +99,16 @@ func LoadConfig() (*Config, error) {
 		OperationsDryRun:              getenvBool("ARCHISTRATOR_OPERATIONS_DRYRUN", "false"),
 		OperatedRuntimeGitOpsRepoURL:  getenvString("ARCHISTRATOR_OPERATED_RUNTIME_GITOPS_REPO_URL", ""),
 		ProjectStateGitLocal:          getenvBool("ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL", "false"),
-		ProjectStateGitRepoURL:        getenvString("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL", ""),
-		ArtifactRepoURL:               getenvString("ARCHISTRATOR_ARTIFACT_REPO_URL", ""),
 		ArtifactRepoOwner:             getenvString("ARCHISTRATOR_ARTIFACT_REPO_OWNER", ""),
 		ArtifactRepoLocal:             getenvBool("ARCHISTRATOR_ARTIFACT_REPO_LOCAL", "false"),
 		AuthDevMode:                   getenvBool("ARCHISTRATOR_AUTH_DEV_MODE", "false"),
+		WebDistDir:                    getenvString("ARCHISTRATOR_WEB_DIST_DIR", ""),
+		DevRoles:                      getenvString("ARCHISTRATOR_DEV_ROLES", ""),
+		DevSubject:                    getenvString("ARCHISTRATOR_DEV_SUBJECT", ""),
+		LocalExecRunTimeout:           getenvString("ARCHISTRATOR_LOCAL_EXEC_RUN_TIMEOUT", ""),
+		StateMcpBin:                   getenvString("ARCHISTRATOR_STATE_MCP_BIN", ""),
+		WebappAssetVersion:            getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", ""),
+		WebappOrigin:                  getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", ""),
 		DevPrincipal:                  getenv(devPrincipalEnv),
 	}
 
@@ -109,7 +123,7 @@ func LoadConfig() (*Config, error) {
 // infrastructure provisioned for that profile.
 var requiredEnvByProfile = map[string][]string{
 	"cloud": {"ARCHISTRATOR_POSTGRES_URL"},
-	"local": {"ARCHISTRATOR_POSTGRES_URL"},
+	"local": {"ARCHISTRATOR_POSTGRES_URL", "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL"},
 	"test":  {},
 }
 

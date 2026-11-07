@@ -20,7 +20,14 @@
     "operationsManager"
   ],
   "variantConstructorNoError": {
-    "messageBus/Temporal": true
+    "messageBus/Temporal": true,
+    "projectStateAccess/GitLocal": true,
+    "gitActivityStatusAccess/GitLocal": true,
+    "activityExecutionAccess/GitLocal": true,
+    "designSessionAccess/GitLocal": true,
+    "sourceControlAccess/GitLocal": true,
+    "episodeAccess/LocalFS": true,
+    "artifactAccess/GitLocal": true
   },
   "scheduleRegistrarComponent": "messageBus",
   "variantHookArgs": {
@@ -40,11 +47,6 @@
         "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
       }
     ],
-    "gitActivityStatusAccess/GitLocal": [
-      {
-        "GoType": "string"
-      }
-    ],
     "gitActivityStatusAccess/GitHub": [
       {
         "GoType": "string"
@@ -59,11 +61,6 @@
       {
         "GoType": "projectstate.CredentialMinter",
         "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-      }
-    ],
-    "designSessionAccess/GitLocal": [
-      {
-        "GoType": "string"
       }
     ],
     "designSessionAccess/GitHub": [
@@ -82,11 +79,6 @@
         "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
       }
     ],
-    "activityExecutionAccess/GitLocal": [
-      {
-        "GoType": "string"
-      }
-    ],
     "activityExecutionAccess/GitHub": [
       {
         "GoType": "string"
@@ -101,11 +93,6 @@
       {
         "GoType": "projectstate.CredentialMinter",
         "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
-      }
-    ],
-    "episodeAccess/LocalFS": [
-      {
-        "GoType": "string"
       }
     ],
     "artifactAccess/GitHubCloud": [
@@ -138,11 +125,6 @@
         "GoType": "bool"
       }
     ],
-    "sourceControlAccess/GitLocal": [
-      {
-        "GoType": "string"
-      }
-    ],
     "agenticJobAccess/GitHubActions": [
       {
         "GoType": "*github.AppClient",
@@ -162,12 +144,6 @@
       },
       {
         "GoType": "int64"
-      }
-    ],
-    "messageBus/Temporal": [
-      {
-        "GoType": "map[messagebus.ExecutionKind]messagebus.KindBinding",
-        "GoImport": "github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
       }
     ]
   },

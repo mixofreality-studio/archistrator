@@ -1209,6 +1209,19 @@ const (
 	executionKindRegister = "operationsRegister"
 )
 
+// ExecutionKinds is the set of ExecutionKinds this Manager owns that a Schedule or a queued
+// signal-with-start names, each paired with its registered workflow type and this Manager's task
+// queue; the generated composition roots hand it to the schedule registrar
+// (messagebus.NewTemporalMessageBus). reconcile is the startup Schedule; the delinquency
+// enforcement workflow is started by billing's applyDelinquencyPolicy signal-with-start
+// ({customerId}:delinquency), which resolves its kind through the same table.
+func ExecutionKinds() map[messagebus.ExecutionKind]messagebus.KindBinding {
+	return map[messagebus.ExecutionKind]messagebus.KindBinding{
+		executionKindReconcile:   {WorkflowType: executionKindReconcile, TaskQueue: TaskQueue},
+		executionKindDelinquency: {WorkflowType: executionKindDelinquency, TaskQueue: TaskQueue},
+	}
+}
+
 // signalApplyDelinquencyPolicy resumes the delinquency-enforcement branch; backs
 // ApplyDelinquencyPolicy (ncuc5). Delivered by settlementManager (signals.go).
 const signalApplyDelinquencyPolicy = "applyDelinquencyPolicy"

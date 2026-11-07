@@ -473,7 +473,7 @@ func testgenOutputPaths(t *testing.T, raw []byte, moduleDir string) []string {
 		t.Fatal(err)
 	}
 	var paths []string
-	for _, m := range []map[string][]byte{out.Generated, out.HooksOnce} {
+	for _, m := range []map[string][]byte{out.Generated} {
 		for k := range m {
 			paths = append(paths, path.Join(moduleDir, k))
 		}

@@ -5746,6 +5746,10 @@ type ContractDep struct {
 	GoType string `json:"goType,omitempty"`
 	// GoImport is the single import path a PLAIN dep's GoType needs (optional).
 	GoImport string `json:"goImport,omitempty"`
+	// Setting names the deployment setting that supplies a PLAIN dep's value (cfg.<Field> in
+	// the production composition, the setting's default in a generated scenario subject), so
+	// no composition-root hook has to. Optional; its type must suit GoType.
+	Setting string `json:"setting,omitempty"`
 }
 
 // ContractInterface mirrors codegen.Interface: the generated Go interface's name,

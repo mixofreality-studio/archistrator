@@ -116,7 +116,6 @@ import (
 	tlog "go.temporal.io/sdk/log"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
-	managerbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
@@ -958,39 +957,6 @@ func (h *appHooks) ActivityExecutionAccessGitHubArgs(cfg *Config) (string, strin
 	return h.projectStateCloudPorts(cfg)
 }
 
-// GitActivityStatusAccessGitLocalArgs / DesignSessionAccessGitLocalArgs (B6) supply the
-// SAME LOCAL repoURL setting projectStateAccess's own GitLocal arm reads
-// (cfg.ProjectStateGitRepoURL) — a hook purely to REUSE that existing binding-scoped
-// setting rather than declare a duplicate one for the same env var.
-func (h *appHooks) GitActivityStatusAccessGitLocalArgs(cfg *Config) string {
-	return cfg.ProjectStateGitRepoURL
-}
-
-func (h *appHooks) DesignSessionAccessGitLocalArgs(cfg *Config) string {
-	return cfg.ProjectStateGitRepoURL
-}
-
-// ActivityExecutionAccessGitLocalArgs reads the SAME binding-scoped setting its
-// siblings read — one on-disk repo, four facets over it.
-func (h *appHooks) ActivityExecutionAccessGitLocalArgs(cfg *Config) string {
-	return cfg.ProjectStateGitRepoURL
-}
-
-// SourceControlAccessGitLocalArgs supplies the GitLocal PR rail's repoURL — the SAME
-// on-disk repo the projectstate GitLocal substrate and the local construction executor
-// operate on (reusing the existing binding-scoped setting, like the three hooks above).
-func (h *appHooks) SourceControlAccessGitLocalArgs(cfg *Config) string {
-	return cfg.ProjectStateGitRepoURL
-}
-
-// EpisodeAccessLocalFSArgs (Task 8) supplies the LocalFS episodeAccess variant's
-// repoURL — the SAME shared repo the GitLocal hooks above and the local construction
-// executor already bind to (reusing the existing binding-scoped setting rather than
-// declaring a duplicate one for the same env var).
-func (h *appHooks) EpisodeAccessLocalFSArgs(cfg *Config) string {
-	return cfg.ProjectStateGitRepoURL
-}
-
 // SourceControlAccessGitHubArgs supplies the shared AppClient + the App identity the
 // sourcecontrol RA is built over.
 func (h *appHooks) SourceControlAccessGitHubArgs(cfg *Config) (*github.AppClient, string, string, bool) {
@@ -1132,54 +1098,6 @@ func (h *appHooks) FinalizeEpisodeAccess(_ *Config, v episode.EpisodeAccess) epi
 	return v
 }
 
-// MessageBusTemporalArgs supplies messageBus's ONE constructor argument the
-// deployment model cannot express (Task 7c): the ExecutionKind -> KindBinding
-// table messagebus.NewTemporalMessageBus's registry resolves every
-// RegisterSchedule call against (both the three managers' STARTUP schedules
-// below and any future workflow-invoked registerSchedule call, e.g. billing's
-// per-customer closeBillingCycle:<id>). composegen threads the dialed `tc` as
-// a separate positional arg ahead of this hook call — see the generated
-// main.gen.go call site — so this hook supplies ONLY the table.
-//
-// NOT compiler-linked to the managers' own private executionKind* constants
-// (they are unexported; a cross-package reference is impossible) — this table
-// is the single hand-maintained source of truth pairing each logical
-// ExecutionKind string with its registered Temporal workflow-type name (always
-// identical today, since every RegisterSchedule caller passes its own
-// executionKind* constant as both) and the owning Manager's TaskQueue. A
-// rename of any of these constants must be mirrored here; nothing else
-// enforces it.
-func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKind]messagebus.KindBinding {
-	return map[messagebus.ExecutionKind]messagebus.KindBinding{
-		// billing: the startup shortfallSweep Schedule (billingmanager.go's
-		// executionKindShortfallSweep) + the per-customer closeBillingCycle:<id>
-		// Schedule registered at onboarding (executionKindClose).
-		"billingShortfallSweep": {WorkflowType: "billingShortfallSweep", TaskQueue: managerbilling.TaskQueue},
-		"billingCloseCycle":     {WorkflowType: "billingCloseCycle", TaskQueue: managerbilling.TaskQueue},
-		// operations: the startup operatedStateReconcile Schedule
-		// (operationsmanager.go's executionKindReconcile).
-		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
-		// operations: the per-customer delinquency enforcement workflow, started by
-		// billing's applyDelinquencyPolicy signal-with-start ({customerId}:delinquency).
-		"operationsDelinquencyEnforcement": {WorkflowType: "operationsDelinquencyEnforcement", TaskQueue: operations.TaskQueue},
-		// delivery: the two startup Schedules (Task 7c + stage 4b1 Task 6;
-		// deliverymanager.go's executionKindPumpSweep / executionKindRoundSweep). The pump
-		// sweep's WORKFLOW TYPE name is unchanged at stage 4a (R2 — nineteen replay fixtures
-		// replay against them); only the task queue and the Schedule ids moved to the
-		// delivery namespace. The replan sweep was a third entry here and went with its
-		// workflow at stage 4b2: it fired every five minutes to produce an empty result.
-		//
-		// A KIND MISSING FROM THIS TABLE IS A BOOT FAILURE, not a dormant Schedule:
-		// messagebus.RegisterSchedule rejects an unknown kind as ContractMisuse (U4) and
-		// RegisterSchedules runs at startup, so the server exits with "unknown executionKind".
-		// That is how the round sweep's absence here was found — by the boot test, not by any
-		// unit test, because nothing else compiler-links this hand-maintained table to the
-		// managers' unexported executionKind* constants.
-		"constructionPumpSweep": {WorkflowType: "constructionPumpSweep", TaskQueue: delivery.TaskQueue},
-		"deliveryRoundSweep":    {WorkflowType: "deliveryRoundSweep", TaskQueue: delivery.TaskQueue},
-	}
-}
-
 // FinalizeMessageBus is identity, EXCEPT when CONSTRUCTION_DRYRUN=true: it then
 // wraps messageBus so the two platform-wide delivery Schedules (pump sweep
 // 30s / round sweep 5m — registered via delivery.RegisterSchedules at the
@@ -1203,18 +1121,15 @@ func (h *appHooks) FinalizeMessageBus(cfg *Config, v messagebus.MessageBus) mess
 	return dryRunConstructionScheduleGate{inner: v, kinds: h.constructionExecutionKinds(cfg), logger: h.logger}
 }
 
-// constructionExecutionKinds returns the ExecutionKinds bound to construction's
-// own TaskQueue in MessageBusTemporalArgs's table above — the SAME table the
-// composition root feeds messagebus.NewTemporalMessageBus — so
-// dryRunConstructionScheduleGate can never drift from "which kinds are
-// construction's" as that table evolves; a future construction Schedule added
-// there is picked up automatically.
-func (h *appHooks) constructionExecutionKinds(cfg *Config) map[messagebus.ExecutionKind]bool {
+// constructionExecutionKinds returns the ExecutionKinds construction owns: the kinds the
+// delivery Manager exports (delivery.ExecutionKinds) — the SAME table the generated composition
+// root feeds messagebus.NewTemporalMessageBus — so dryRunConstructionScheduleGate can never
+// drift from "which kinds are construction's"; a future construction Schedule added there is
+// picked up automatically.
+func (h *appHooks) constructionExecutionKinds(_ *Config) map[messagebus.ExecutionKind]bool {
 	kinds := make(map[messagebus.ExecutionKind]bool)
-	for kind, binding := range h.MessageBusTemporalArgs(cfg) {
-		if binding.TaskQueue == delivery.TaskQueue {
-			kinds[kind] = true
-		}
+	for kind := range delivery.ExecutionKinds() {
+		kinds[kind] = true
 	}
 	return kinds
 }
@@ -1288,14 +1203,6 @@ func (h *appHooks) RegisterDeliveryManagerWorker(_ *Config) bool { return true }
 // Operations registers unconditionally too: its optional-dormant deps simply go dormant
 // when absent — the operations workflows run unchanged (hand run() always registered them).
 func (h *appHooks) RegisterOperationsManagerWorker(_ *Config) bool { return true }
-
-func (h *appHooks) DeliveryManagerEscalationWaitTimeout() time.Duration {
-	return h.config.ConstructionEscalationTimeout
-}
-
-func (h *appHooks) DeliveryManagerInterventionMode() string {
-	return h.config.ConstructionInterventionMode
-}
 
 // DeliveryManagerRepo is the ONE repo resolver the merged Manager threads into all
 // three moved rails: projectID → the project's own RepoRef via the sourcecontrol

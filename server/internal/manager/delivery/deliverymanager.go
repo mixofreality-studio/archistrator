@@ -14354,6 +14354,22 @@ const (
 	executionKindAnswerJob = "deliveryAnswerJob"
 )
 
+// ExecutionKinds is the set of Schedule-fired ExecutionKinds this Manager owns, each paired with
+// its registered workflow type and this Manager's task queue. The generated composition roots
+// hand it to the schedule registrar (messagebus.NewTemporalMessageBus), so a kind a Manager
+// registers a Schedule for is linked to the constant that names it: a rename moves both, and the
+// registrar cannot reject it as an unknown kind at boot. A kind started only by a workflow
+// (not by a Schedule) is not listed.
+func ExecutionKinds() map[messagebus.ExecutionKind]messagebus.KindBinding {
+	return map[messagebus.ExecutionKind]messagebus.KindBinding{
+		// The two startup Schedules: the 30s pump sweep and the 5m stranded-round sweep. The pump
+		// sweep keeps its construction* workflow type (nineteen replay fixtures replay against
+		// it); only its task queue and Schedule ids moved to the delivery namespace.
+		executionKindPumpSweep:  {WorkflowType: executionKindPumpSweep, TaskQueue: TaskQueue},
+		executionKindRoundSweep: {WorkflowType: executionKindRoundSweep, TaskQueue: TaskQueue},
+	}
+}
+
 // The gate's ledger vocabulary. A construction gate's human row has no named person
 // behind it — the decision signal carries feedback, not an identity — so the ROLE is
 // what the round records and "operator" is who the platform can honestly say answered it.

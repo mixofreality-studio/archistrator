@@ -142,11 +142,15 @@ func TestLoadConfig_RealConstruction_RequiresArtifactRepoURL(t *testing.T) {
 // ARCHISTRATOR_POSTGRES_URL: billingStateAccess and merchantGatewayAccess bind their
 // Postgres variant there too (spec §12 ruling B5). Regression guard on the
 // generated requiredEnvByProfile table (config.gen.go, emitted by configgen from
-// project.json's deployment.infrastructure "postgres" decl's profiles list).
+// project.json's deployment.infrastructure "postgres" decl's profiles list). The local
+// profile also requires the on-disk project-state repo (Task 2.11d: the required
+// "project-state-git-repo" git-repo infrastructure replaced the optional binding setting).
 func TestMissingFor_Local_RequiresPostgres(t *testing.T) {
 	t.Setenv("ARCHISTRATOR_POSTGRES_URL", "")
-	if got := MissingFor("local"); !slices.Equal(got, []string{"ARCHISTRATOR_POSTGRES_URL"}) {
-		t.Fatalf(`MissingFor("local") = %v, want [ARCHISTRATOR_POSTGRES_URL]`, got)
+	t.Setenv("ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL", "")
+	want := []string{"ARCHISTRATOR_POSTGRES_URL", "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL"}
+	if got := MissingFor("local"); !slices.Equal(got, want) {
+		t.Fatalf(`MissingFor("local") = %v, want %v`, got, want)
 	}
 }
 

@@ -12378,21 +12378,34 @@
                 "HOSTPORT": "ARCHISTRATOR_TEMPORAL_HOSTPORT",
                 "NAMESPACE": "ARCHISTRATOR_TEMPORAL_NAMESPACE"
               }
+            },
+            {
+              "key": "project-state-git-repo",
+              "substrate": "git-repo",
+              "profiles": [
+                "local"
+              ],
+              "presence": "required",
+              "env": {
+                "URL": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL"
+              }
+            },
+            {
+              "key": "artifact-repo",
+              "substrate": "git-repo",
+              "profiles": [
+                "local"
+              ],
+              "presence": "optional",
+              "env": {
+                "URL": "ARCHISTRATOR_ARTIFACT_REPO_URL"
+              }
             }
           ],
           "bindings": [
             {
               "component": "projectStateAccess",
               "presence": "required",
-              "settings": [
-                {
-                  "name": "projectStateGitRepoURL",
-                  "type": "string",
-                  "default": "",
-                  "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
-                  "description": "projectStateAccess GitLocal on-disk head-state repo URL (file://)."
-                }
-              ],
               "perProfile": {
                 "cloud": {
                   "variant": "GitHub",
@@ -12401,7 +12414,10 @@
                   ]
                 },
                 "local": {
-                  "variant": "GitLocal"
+                  "variant": "GitLocal",
+                  "infra": [
+                    "project-state-git-repo"
+                  ]
                 }
               }
             },
@@ -12416,7 +12432,10 @@
                   ]
                 },
                 "local": {
-                  "variant": "GitLocal"
+                  "variant": "GitLocal",
+                  "infra": [
+                    "project-state-git-repo"
+                  ]
                 }
               }
             },
@@ -12431,7 +12450,10 @@
                   ]
                 },
                 "local": {
-                  "variant": "GitLocal"
+                  "variant": "GitLocal",
+                  "infra": [
+                    "project-state-git-repo"
+                  ]
                 }
               }
             },
@@ -12446,22 +12468,16 @@
                   ]
                 },
                 "local": {
-                  "variant": "GitLocal"
+                  "variant": "GitLocal",
+                  "infra": [
+                    "project-state-git-repo"
+                  ]
                 }
               }
             },
             {
               "component": "artifactAccess",
               "presence": "optional-dormant",
-              "settings": [
-                {
-                  "name": "artifactRepoURL",
-                  "type": "string",
-                  "default": "",
-                  "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
-                  "description": "artifactAccess GitLocal on-disk construction-output repo URL (file://)."
-                }
-              ],
               "perProfile": {
                 "cloud": {
                   "variant": "GitHubCloud",
@@ -12470,7 +12486,10 @@
                   ]
                 },
                 "local": {
-                  "variant": "GitLocal"
+                  "variant": "GitLocal",
+                  "infra": [
+                    "artifact-repo"
+                  ]
                 }
               }
             },
@@ -12497,7 +12516,10 @@
                   ]
                 },
                 "local": {
-                  "variant": "GitLocal"
+                  "variant": "GitLocal",
+                  "infra": [
+                    "project-state-git-repo"
+                  ]
                 }
               }
             },
@@ -12545,7 +12567,10 @@
                   "variant": "NoOp"
                 },
                 "local": {
-                  "variant": "LocalFS"
+                  "variant": "LocalFS",
+                  "infra": [
+                    "project-state-git-repo"
+                  ]
                 }
               }
             },
@@ -12709,20 +12734,6 @@
               "description": "Select the file:// on-disk git projectStateAccess substrate (local profile)."
             },
             {
-              "name": "projectStateGitRepoURL",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL",
-              "description": "Per-project repo file:// URL when projectStateGitLocal is true."
-            },
-            {
-              "name": "artifactRepoURL",
-              "type": "string",
-              "default": "",
-              "env": "ARCHISTRATOR_ARTIFACT_REPO_URL",
-              "description": "artifactAccess construction-output repo clone URL. Constructed only when set (else the slice stages no outputs)."
-            },
-            {
               "name": "artifactRepoOwner",
               "type": "string",
               "default": "",
@@ -12742,6 +12753,55 @@
               "default": "false",
               "env": "ARCHISTRATOR_AUTH_DEV_MODE",
               "description": "Inject a dev principal on every request and skip access-token validation. MUST be off behind an IdP-fronted edge."
+            },
+            {
+              "name": "webDistDir",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_WEB_DIST_DIR",
+              "description": "The built browser surfaces' directory, served on the API's origin beside /api and /mcp; empty serves none."
+            },
+            {
+              "name": "devRoles",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_DEV_ROLES",
+              "description": "Comma-separated roles of the local development principal."
+            },
+            {
+              "name": "devSubject",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_DEV_SUBJECT",
+              "description": "Subject of the local development principal."
+            },
+            {
+              "name": "localExecRunTimeout",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_LOCAL_EXEC_RUN_TIMEOUT",
+              "description": "Wall-clock budget of one locally executed agent run, as a Go duration; empty keeps the built-in budget."
+            },
+            {
+              "name": "stateMcpBin",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_STATE_MCP_BIN",
+              "description": "Path of the aiarch-state-mcp binary the local executor seats into an agent run; empty builds it."
+            },
+            {
+              "name": "webappAssetVersion",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_WEBAPP_ASSET_VERSION",
+              "description": "Version of the webApp assets the MCP Apps widgets load."
+            },
+            {
+              "name": "webappOrigin",
+              "type": "string",
+              "default": "",
+              "env": "ARCHISTRATOR_WEBAPP_ORIGIN",
+              "description": "Origin the webApp is served from, for the MCP Apps widgets."
             }
           ]
         }
@@ -20481,11 +20541,13 @@
         {
           "name": "escalationWaitTimeout",
           "goType": "time.Duration",
-          "goImport": "time"
+          "goImport": "time",
+          "setting": "constructionEscalationTimeout"
         },
         {
           "name": "interventionMode",
-          "goType": "string"
+          "goType": "string",
+          "setting": "constructionInterventionMode"
         },
         {
           "name": "repo",

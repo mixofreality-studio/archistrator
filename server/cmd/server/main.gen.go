@@ -21,6 +21,9 @@ import (
 	temporalprop "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal"
 	security "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	telemetry "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/telemetry"
+	billingmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/billing"
+	deliverymcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/delivery"
+	operationsmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/operations"
 	web "github.com/mixofreality-studio/archistrator/server/internal/client/web"
 	billingweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/billing"
 	deliveryweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/delivery"
@@ -46,6 +49,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/usage"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	otelhttp "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
@@ -101,13 +105,12 @@ type Hooks interface {
 	// Return the argument unchanged for no wrapping.
 	WrapManagers(managers WebManagers) WebManagers
 
-	// ExtraMounts contributes composition-root-only routes (e.g. /api/userinfo,
-	// /mcp) onto the root mux, behind the same auth boundary. The wrapped
-	// managers are supplied for transports the generated server does not mount,
-	// and sec is the security Utility the generated web handlers hold: a machine
-	// client's generated MCP tools take the same one, e.g.
-	// (&<client pkg>.Handler{Manager: managers.<Manager>, Security: sec}).Register(server),
-	// so both transports authorize every call alike.
+	// ExtraMounts contributes the routes only the app can write (e.g.
+	// /api/userinfo) onto the root mux, behind the same auth boundary. Every
+	// Client surface the design declares is already mounted by generated code:
+	// the REST handlers, the MCP tool tables at /mcp, and the browser surfaces.
+	// sec is the security Utility those transports hold; a hand route authorizes
+	// against the same one.
 	ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers)
 
 	// ActivityExecutionAccessGitHubArgs supplies the activityExecutionAccess GitHub variant's constructor
@@ -115,12 +118,6 @@ type Hooks interface {
 	// typed values). Read from cfg; the returned tuple is spread into the
 	// generated variant constructor call.
 	ActivityExecutionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
-
-	// ActivityExecutionAccessGitLocalArgs supplies the activityExecutionAccess GitLocal variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	ActivityExecutionAccessGitLocalArgs(cfg *Config) string
 
 	// AgenticJobAccessGitHubActionsArgs supplies the agenticJobAccess GitHubActions variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
@@ -140,35 +137,11 @@ type Hooks interface {
 	// generated variant constructor call.
 	DesignSessionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
 
-	// DesignSessionAccessGitLocalArgs supplies the designSessionAccess GitLocal variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	DesignSessionAccessGitLocalArgs(cfg *Config) string
-
-	// EpisodeAccessLocalFSArgs supplies the episodeAccess LocalFS variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	EpisodeAccessLocalFSArgs(cfg *Config) string
-
 	// GitActivityStatusAccessGitHubArgs supplies the gitActivityStatusAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
 	// generated variant constructor call.
 	GitActivityStatusAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
-
-	// GitActivityStatusAccessGitLocalArgs supplies the gitActivityStatusAccess GitLocal variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	GitActivityStatusAccessGitLocalArgs(cfg *Config) string
-
-	// MessageBusTemporalArgs supplies the messageBus Temporal variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	MessageBusTemporalArgs(cfg *Config) map[messagebus.ExecutionKind]messagebus.KindBinding
 
 	// ProjectStateAccessGitHubArgs supplies the projectStateAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
@@ -181,12 +154,6 @@ type Hooks interface {
 	// typed values). Read from cfg; the returned tuple is spread into the
 	// generated variant constructor call.
 	SourceControlAccessGitHubArgs(cfg *Config) (*github.AppClient, string, string, bool)
-
-	// SourceControlAccessGitLocalArgs supplies the sourceControlAccess GitLocal variant's constructor
-	// arguments the deployment model cannot express (composition-root ports /
-	// typed values). Read from cfg; the returned tuple is spread into the
-	// generated variant constructor call.
-	SourceControlAccessGitLocalArgs(cfg *Config) string
 
 	// FinalizeActivityExecutionAccess is called immediately after activityExecutionAccess's construction
 	// (presence required). Return v unchanged unless
@@ -284,18 +251,6 @@ type Hooks interface {
 	// register; gate on the dep presence / a dry-run stub otherwise).
 	RegisterOperationsManagerWorker(cfg *Config) bool
 
-	// DeliveryManagerEscalationWaitTimeout supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	DeliveryManagerEscalationWaitTimeout() time.Duration
-
-	// DeliveryManagerInterventionMode supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	DeliveryManagerInterventionMode() string
-
 	// DeliveryManagerRepo supplies a composition-root value the deployment model
 	// cannot express (a func-typed resolver, or a scalar/interface dep with no
 	// setting/binding link). Return the zero value (nil for an interface) for a
@@ -309,8 +264,8 @@ type Hooks interface {
 	DeliveryManagerRepoBase() string
 }
 
-// edgeSecurity is the security Utility every generated transport (the REST handlers,
-// and the MCP tools ExtraMounts serves) authorizes against, built from the composition
+// edgeSecurity is the security Utility every generated transport (the REST handlers
+// and the MCP tool tables at /mcp) authorizes against, built from the composition
 // root's policy. TestPolicyAdmitsEveryGeneratedRequest builds it the same way.
 func edgeSecurity(hooks Hooks) security.Security {
 	return security.New(security.WithPolicyDecisionPoint(hooks.PolicyDecisionPoint()))
@@ -389,7 +344,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		activityExecutionAccess = v
 		logger.Info("activityExecutionAccess (GitHub) ready")
 	case "local":
-		activityExecutionAccess = projectstate.NewGitLocalActivityExecutionAccess(hooks.ActivityExecutionAccessGitLocalArgs(cfg))
+		activityExecutionAccess = projectstate.NewGitLocalActivityExecutionAccess(cfg.ProjectStateGitRepoURL)
 		logger.Info("activityExecutionAccess (GitLocal) ready")
 	default:
 		return errors.New("activityExecutionAccess: no ResourceAccess variant for the active profile")
@@ -450,7 +405,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		designSessionAccess = v
 		logger.Info("designSessionAccess (GitHub) ready")
 	case "local":
-		designSessionAccess = projectstate.NewGitLocalDesignSessionAccess(hooks.DesignSessionAccessGitLocalArgs(cfg))
+		designSessionAccess = projectstate.NewGitLocalDesignSessionAccess(cfg.ProjectStateGitRepoURL)
 		logger.Info("designSessionAccess (GitLocal) ready")
 	default:
 		return errors.New("designSessionAccess: no ResourceAccess variant for the active profile")
@@ -462,7 +417,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		episodeAccess = episode.NewNoOpEpisodeAccess()
 		logger.Info("episodeAccess (NoOp) ready")
 	case "local":
-		episodeAccess = episode.NewLocalFSEpisodeAccess(hooks.EpisodeAccessLocalFSArgs(cfg))
+		episodeAccess = episode.NewLocalFSEpisodeAccess(cfg.ProjectStateGitRepoURL)
 		logger.Info("episodeAccess (LocalFS) ready")
 	default:
 		return errors.New("episodeAccess: no ResourceAccess variant for the active profile")
@@ -478,7 +433,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		gitActivityStatusAccess = v
 		logger.Info("gitActivityStatusAccess (GitHub) ready")
 	case "local":
-		gitActivityStatusAccess = projectstate.NewGitLocalGitActivityStatusAccess(hooks.GitActivityStatusAccessGitLocalArgs(cfg))
+		gitActivityStatusAccess = projectstate.NewGitLocalGitActivityStatusAccess(cfg.ProjectStateGitRepoURL)
 		logger.Info("gitActivityStatusAccess (GitLocal) ready")
 	default:
 		return errors.New("gitActivityStatusAccess: no ResourceAccess variant for the active profile")
@@ -507,10 +462,10 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	var messageBus messagebus.MessageBus
 	switch profile {
 	case "cloud":
-		messageBus = messagebus.NewTemporalMessageBus(tc, hooks.MessageBusTemporalArgs(cfg))
+		messageBus = messagebus.NewTemporalMessageBus(tc, managerbilling.ExecutionKinds(), delivery.ExecutionKinds(), operations.ExecutionKinds())
 		logger.Info("messageBus (Temporal) ready")
 	case "local":
-		messageBus = messagebus.NewTemporalMessageBus(tc, hooks.MessageBusTemporalArgs(cfg))
+		messageBus = messagebus.NewTemporalMessageBus(tc, managerbilling.ExecutionKinds(), delivery.ExecutionKinds(), operations.ExecutionKinds())
 		logger.Info("messageBus (Temporal) ready")
 	default:
 		return errors.New("messageBus: no Utility variant for the active profile")
@@ -574,7 +529,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		sourceControlAccess = v
 		logger.Info("sourceControlAccess (GitHub) ready")
 	case "local":
-		sourceControlAccess = sourcecontrol.NewGitLocalSourceControlAccess(hooks.SourceControlAccessGitLocalArgs(cfg))
+		sourceControlAccess = sourcecontrol.NewGitLocalSourceControlAccess(cfg.ProjectStateGitRepoURL)
 		logger.Info("sourceControlAccess (GitLocal) ready")
 	}
 	sourceControlAccess = hooks.FinalizeSourceControlAccess(cfg, sourceControlAccess)
@@ -621,7 +576,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, designHealthEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
+	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, designHealthEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, cfg.ConstructionEscalationTimeout, cfg.ConstructionInterventionMode, hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
 	if hooks.RegisterDeliveryManagerWorker(cfg) {
 		wDeliveryManager := worker.New(tc, delivery.TaskQueue, worker.Options{})
 		delivery.RegisterManagerWorker(wDeliveryManager, deliveryManager)
@@ -671,6 +626,10 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		OperationsManager: operationsManager,
 	}
 	webManagers = hooks.WrapManagers(webManagers)
+	webManagers, err = applyNullOps(hooks.ResolveProfile(cfg), webManagers)
+	if err != nil {
+		return err
+	}
 
 	genServer := web.NewServer(dev, validator,
 		&billingweb.Handler{Manager: webManagers.BillingManager, Security: sec},
@@ -678,7 +637,29 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		&operationsweb.Handler{Manager: webManagers.OperationsManager, Security: sec},
 	)
 	root := http.NewServeMux()
-	root.Handle("/", genServer)
+	// The built browser surfaces share the API's origin, so their relative /api calls
+	// reach it; /api, the probes and /mcp are more specific patterns and win.
+	if cfg.WebDistDir != "" {
+		surfaces, err := newSurfaceHandler(cfg.WebDistDir)
+		if err != nil {
+			return err
+		}
+		root.Handle("/api/", genServer)
+		root.Handle("/healthz", genServer)
+		root.Handle("/readyz", genServer)
+		root.Handle("/", surfaces)
+		logger.Info("browser surfaces served", "dir", cfg.WebDistDir)
+	} else {
+		root.Handle("/", genServer)
+	}
+	// MCP machine clients: every generated tool table on one server, behind the same
+	// auth boundary as /api (a bearer token, or the local dev principal) and authorized
+	// by the same security Utility.
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: serviceName, Version: "1.0.0"}, nil)
+	(&billingmcp.Handler{Manager: webManagers.BillingManager, Security: sec}).Register(mcpServer)
+	(&deliverymcp.Handler{Manager: webManagers.DeliveryManager, Security: sec}).Register(mcpServer)
+	(&operationsmcp.Handler{Manager: webManagers.OperationsManager, Security: sec}).Register(mcpServer)
+	root.Handle("/mcp", web.AuthMiddleware(dev, validator)(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil)))
 	hooks.ExtraMounts(root, cfg, dev, validator, sec, webManagers)
 	handler := otelhttp.NewHandler(root, serviceName)
 	srv := &http.Server{

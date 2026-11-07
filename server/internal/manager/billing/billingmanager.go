@@ -714,6 +714,17 @@ const (
 	executionKindShortfallSweep = "billingShortfallSweep"
 )
 
+// ExecutionKinds is the set of Schedule-fired ExecutionKinds this Manager owns, each paired with
+// its registered workflow type and this Manager's task queue; the generated composition roots
+// hand it to the schedule registrar (messagebus.NewTemporalMessageBus). Both are Schedules: the
+// startup shortfallSweep and the per-customer closeBillingCycle registered at onboarding.
+func ExecutionKinds() map[messagebus.ExecutionKind]messagebus.KindBinding {
+	return map[messagebus.ExecutionKind]messagebus.KindBinding{
+		executionKindShortfallSweep: {WorkflowType: executionKindShortfallSweep, TaskQueue: TaskQueue},
+		executionKindClose:          {WorkflowType: executionKindClose, TaskQueue: TaskQueue},
+	}
+}
+
 // Schedule ids + cadence (billingManager.md §6.1; operational-concepts.md §4).
 const (
 	// scheduleIDCloseCyclePrefix is the per-customer cycle-close Schedule id prefix; the

@@ -55,6 +55,6 @@ type MessageBus interface {
 // NewTemporalMessageBus constructs the Temporal-backed MessageBus, delegating to the hand-written,
 // unexported builder newTemporalMessageBus in the RA package (which owns the stateful setup).
 // The constructor returns the interface, so the concrete impl stays unexported.
-func NewTemporalMessageBus(cl client.Client, table map[ExecutionKind]KindBinding) MessageBus {
-	return newTemporalMessageBus(cl, table)
+func NewTemporalMessageBus(cl client.Client, tables ...map[ExecutionKind]KindBinding) MessageBus {
+	return newTemporalMessageBus(cl, tables...)
 }
