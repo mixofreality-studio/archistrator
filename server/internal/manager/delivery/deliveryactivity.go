@@ -519,7 +519,7 @@ func pipelinePhaseLabel(p PipelinePhase) string {
 func (wf *csWorkflows) stageDesignDraft(
 	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind, attemptID string,
 ) (producedSubject, error) {
-	_, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	_, branch := wf.designVenue(ctx, tc.In.ProjectID, tc.In.ActivityID)
 	model, branchVersion, err := wf.readBackDesignModelOn(ctx, tc.In.ProjectID, kind, branch)
 	if err != nil {
 		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
@@ -557,7 +557,7 @@ func designBranchLabel(branch string) string {
 func (wf *csWorkflows) readBackCritique(
 	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind, attemptID string,
 ) (producedSubject, error) {
-	_, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	_, branch := wf.designVenue(ctx, tc.In.ProjectID, tc.In.ActivityID)
 	proj, err := wf.readProjectOnBranch(ctx, tc.In.ProjectID, branch)
 	if err != nil {
 		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
@@ -582,11 +582,11 @@ func (wf *csWorkflows) readBackCritique(
 // designVenue resolves WHERE a design job runs and WHERE its output lands: the opaque
 // per-project RepoRef the job dispatches into, and the branch it commits on.
 //
-// IT IS THE CHILD'S ONE NEW wf.Repo READER, and that is a deliberate exception to R6/R8-22
-// ("the child adds no new wf.Repo reader"), because the two rails give the resolver two
+// IT IS THE CHILD'S ONE NEW projectRepo READER, and that is a deliberate exception to R6/R8-22
+// ("the child adds no new venue reader"), because the two rails give the verb two
 // answers and a design job cannot take construction's. csWorkflows.gitEnabled — which every
-// other reader in the child routes through — additionally asks wf.RailEnabled, and
-// railLifecycleEnabled answers FALSE for the deterministic GitLocal ref: correct for
+// other reader in the child routes through — additionally refuses a GitLocal ref, and
+// railEnabled answers FALSE for the deterministic GitLocal ref: correct for
 // construction (its PR rail has never run against a filesystem venue, and the local merge job
 // owns that merge) and wrong for design, whose branch → PR → merge lifecycle is exactly what
 // that ref runs. Routing the design dispatch through gitEnabled would send it to the CENTRAL
@@ -601,8 +601,8 @@ func (wf *csWorkflows) readBackCritique(
 // An unresolvable project answers ("", "") — the dormant path: the RA falls back to its
 // configured repo and the read-back/stage ride main, which is byte-for-byte the retired
 // rail's dormant behaviour.
-func (wf *csWorkflows) designVenue(projectID ProjectID, activityID ActivityID) (repo string, branch string) {
-	ref, branch, ok := wf.designVenueRef(projectID, activityID)
+func (wf *csWorkflows) designVenue(ctx workflow.Context, projectID ProjectID, activityID ActivityID) (repo string, branch string) {
+	ref, branch, ok := wf.designVenueRef(ctx, projectID, activityID)
 	if !ok {
 		return "", ""
 	}
@@ -610,19 +610,16 @@ func (wf *csWorkflows) designVenue(projectID ProjectID, activityID ActivityID) (
 }
 
 // designVenueRef is designVenue BEFORE the ref is flattened to its string, and it is the
-// child's one wf.Repo read (designVenue now delegates, so there is still exactly one).
+// child's one projectRepo read (designVenue now delegates, so there is still exactly one).
 //
 // The typed ref is what the RAIL verbs take, and openComputeBranch needs one: the string
 // form exists because a dispatch target and a human-facing label want it, not because the
-// resolver's answer is a string. ok=false is the dormant venue — no repo resolver, or a
-// project the resolver does not know — and its callers then ride main.
+// rail's answer is a string. ok=false is the dormant venue — no rail bound, or a
+// project the rail does not know — and its callers then ride main.
 func (wf *csWorkflows) designVenueRef(
-	projectID ProjectID, activityID ActivityID,
+	ctx workflow.Context, projectID ProjectID, activityID ActivityID,
 ) (sourcecontrol.RepoRef, string, bool) {
-	if wf.Repo == nil {
-		return sourcecontrol.RepoRef(""), "", false
-	}
-	ref, ok := wf.Repo(projectID)
+	ref, ok := wf.projectRepo(ctx, projectID)
 	if !ok {
 		return sourcecontrol.RepoRef(""), "", false
 	}
@@ -665,7 +662,7 @@ func (wf *csWorkflows) runDesignJob(
 func (wf *csWorkflows) submitDesignJob(
 	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind,
 ) (pipelineHandle, error) {
-	repo, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	repo, branch := wf.designVenue(ctx, tc.In.ProjectID, tc.In.ActivityID)
 	target, terr := designRepoTarget(repo)
 	if terr != nil {
 		return pipelineHandle{}, terr
@@ -1027,7 +1024,7 @@ func (wf *csWorkflows) stageDesignOutput(
 	if encErr != nil {
 		return "", fwmanager.MapError(encErr)
 	}
-	_, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	_, branch := wf.designVenue(ctx, tc.In.ProjectID, tc.In.ActivityID)
 	in := tc.In
 	state := tc.State
 	var staged projectstate.StagedRef
@@ -1116,7 +1113,7 @@ func (wf *csWorkflows) applyRecoveringOnBranch(
 // This is walkPhases' per-phase dispatch, reproduced for ONE lifecycle task instead of one
 // flat phase, through the SAME helpers: submitCarryingNotes (the operator's steer rides the
 // dispatch), submitPipeline → constructRepoTarget (the venue, where isGitLocalVenue
-// recognition already lives — R6/R-D: no new wf.Repo reader), the shared observe ladder with
+// recognition already lives — R6/R-D: no new projectRepo reader), the shared observe ladder with
 // the PR's CI mirror on it, and the pending→resolved attempt pair on the execution ledger.
 //
 // WHAT IT DELIBERATELY DOES NOT REPRODUCE, and where each went:
@@ -1809,7 +1806,7 @@ func (wf *csWorkflows) computeProjectPlan(
 // deterministic GitLocal ref for every project), so a dormant venue is a boot with no repo
 // at all, which is a unit-test posture and not one a project runs in.
 func (wf *csWorkflows) openComputeBranch(ctx workflow.Context, tc taskContext) (string, error) {
-	repoRef, branch, ok := wf.designVenueRef(tc.In.ProjectID, tc.In.ActivityID)
+	repoRef, branch, ok := wf.designVenueRef(ctx, tc.In.ProjectID, tc.In.ActivityID)
 	if !ok {
 		return "", nil
 	}
@@ -3191,7 +3188,7 @@ func (wf *csWorkflows) completeProjectDesignOnMainStaging(
 func (wf *csWorkflows) readComputedPlanSource(
 	ctx workflow.Context, in deliveryActivityInput,
 ) (projectstate.Project, error) {
-	_, branch := wf.designVenue(in.ProjectID, in.ActivityID)
+	_, branch := wf.designVenue(ctx, in.ProjectID, in.ActivityID)
 	src, err := wf.readProjectOnBranch(ctx, in.ProjectID, branch)
 	if err == nil {
 		return src, nil
@@ -4118,7 +4115,7 @@ func latestTaskOutcome(row projectstate.ActivityExecution, task projectstate.Met
 // opens the per-activity branch + PR — the same three facts ConstructActivityWorkflow's
 // step 0 and step 2a record, reached through the same helpers so the two rails cannot
 // disagree about what starting an activity means. The git half is dormant (a no-op) when
-// the slice is unwired, and it adds NO second reader of wf.Repo: startedCred and
+// the slice is unwired, and it adds NO second reader of projectRepo: startedCred and
 // openActivityBranchAndPR both route through the one gitEnabled, which is where
 // isGitLocalVenue recognition already lives (R6).
 func (wf *csWorkflows) openActivityRow(ctx workflow.Context, in deliveryActivityInput, state *constructState) error {
@@ -4736,7 +4733,7 @@ func (wf *csWorkflows) runWalkMerge(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	ws *walkState, state *constructState,
 ) (bool, error) {
-	if !state.walk.gitOn || wf.RailEnabled(in.ProjectID) || state.mergeCompleted {
+	if !state.walk.gitOn || wf.railEnabled(ctx, in.ProjectID) || state.mergeCompleted {
 		return false, nil
 	}
 	// A LIFECYCLE THAT DISPATCHES NOTHING HAS NOTHING TO MERGE (stage 4b1 Task 9). The
@@ -4939,7 +4936,7 @@ func (wf *csWorkflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (
 	// gh-mode venue switch (B5): retarget the dispatch to the project's OWN repo +
 	// aiarch-construct.yml when the per-project Repo resolves; a zero target leaves the
 	// central-repo fallback (resolveTarget) intact for unresolvable projects.
-	target, workflowFile, terr := wf.constructRepoTarget(spec.ProjectID)
+	target, workflowFile, terr := wf.constructRepoTarget(ctx, spec.ProjectID)
 	if terr != nil {
 		return pipelineHandle{}, terr
 	}
@@ -5107,7 +5104,7 @@ func (wf *csWorkflows) openActivityBranchAndPR(
 	preMintedCred railCredEnvelope,
 	headVersion *projectstate.Version,
 ) (gitForward, error) {
-	repoRef, ok := wf.gitEnabled(in.ProjectID)
+	repoRef, ok := wf.gitEnabled(ctx, in.ProjectID)
 	if !ok {
 		return gitForward{enabled: false}, nil
 	}
@@ -5465,7 +5462,7 @@ func (wf *csWorkflows) startedCred(ctx workflow.Context, projectID ProjectID) (r
 		return railCredEnvelope{}, false, nil
 	}
 	// CLOUD profile: a PR rail + repo resolve ⇒ mint the real installation token.
-	if repoRef, ok := wf.gitEnabled(projectID); ok {
+	if repoRef, ok := wf.gitEnabled(ctx, projectID); ok {
 		cred, err := wf.mintCred(ctx, repoRef)
 		if err != nil {
 			return railCredEnvelope{}, false, err
@@ -7922,4 +7919,95 @@ func (wf *csWorkflows) rearmUpstream(ctx workflow.Context, in deliveryActivityIn
 			return err
 		}
 	}
+}
+
+// ===========================================================================
+// THE VENUE READERS (moved here from deliverymanager.go: each takes a workflow.Context,
+// which is the file-layout rule R-C — a context-taker goes beside the child). They resolve
+// a project's repo through the rail's ProjectRepo verb and derive the construction dispatch
+// target and the PR-rail lifecycle from the answer.
+// ===========================================================================
+
+// constructRepoTarget resolves the per-project construction venue: it asks the rail's
+// ProjectRepo verb (projectRepo) and DECODES the opaque RepoRef into the RA's
+// infrastructure-neutral RepoTarget{Owner,Name} + the construct workflow file. An
+// unwired/unresolving rail yields a ZERO RepoTarget + empty workflow file, so submitPipeline leaves the contract
+// fields zero and the RA falls back to the configured central construction repo (the
+// pre-B5 legacy behavior, preserved for unresolvable projects). A malformed RepoRef
+// surfaces the RA's ContractMisuse — decoded via sourcecontrol's own OwnerRepo accessor
+// so the RepoRef encoding stays owned by sourceControlAccess (no encoding leak here).
+func (wf *csWorkflows) constructRepoTarget(ctx workflow.Context, projectID ProjectID) (agenticjob.RepoTarget, string, error) {
+	repoRef, ok := wf.projectRepo(ctx, projectID)
+	if !ok {
+		return agenticjob.RepoTarget{}, "", nil
+	}
+	// A GITLOCAL ref is not a construction venue (stage 4a fix round 1). Recognising it
+	// here reproduces the pre-collapse nil resolver byte-for-byte (zero RepoTarget, empty
+	// workflow file ⇒ the RA falls back to the configured central construction repo)
+	// without splitting the dep back into two. railEnabled makes the same recognition, so on
+	// a local boot the dispatch AND the rail lifecycle agree.
+	if isGitLocalVenue(projectID, repoRef) {
+		return agenticjob.RepoTarget{}, "", nil
+	}
+	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
+	if err != nil {
+		return agenticjob.RepoTarget{}, "", err
+	}
+	return agenticjob.RepoTarget{Owner: owner, Name: name}, constructWorkflowFileName, nil
+}
+
+// gitEnabled reports whether the git-forward slice is wired AND a repo resolves for
+// this project. When false the spine runs unchanged (the live Postgres-store
+// composition that predates the GitStore).
+//
+// The PR-rail lifecycle is available for a project when its repo resolves to a PR-rail
+// venue; the local profile's deterministic GitLocal ref is a filesystem venue, so there it
+// reads rail-dormant and construction keeps its local-merge-job flow (railEnabled).
+func (wf *csWorkflows) gitEnabled(ctx workflow.Context, projectID ProjectID) (sourcecontrol.RepoRef, bool) {
+	if wf.GitStatus == nil {
+		return sourcecontrol.RepoRef(""), false
+	}
+	ref, ok := wf.projectRepo(ctx, projectID)
+	if !ok || isGitLocalVenue(projectID, ref) {
+		return sourcecontrol.RepoRef(""), false
+	}
+	return ref, true
+}
+
+// projectRepo resolves the project's repo through the rail's ProjectRepo verb, reached as
+// the generated activity like every other RA op. ok=false is "this project has no venue":
+// no rail bound, a project the rail cannot resolve (logged, as the closure's catalog-miss
+// arm did), or a rail that reports no repo. It is the csWorkflows' ONE reader of the venue.
+func (wf *csWorkflows) projectRepo(ctx workflow.Context, projectID ProjectID) (sourcecontrol.RepoRef, bool) {
+	if !wf.RailWired {
+		return sourcecontrol.RepoRef(""), false
+	}
+	info, err := wf.Acts.RailProjectRepo(ctx, sourcecontrol.ProjectID(projectID))
+	if err != nil {
+		workflow.GetLogger(ctx).Warn("could not resolve the project's repo; rail dormant for this project",
+			"projectID", string(projectID), "err", err)
+		return sourcecontrol.RepoRef(""), false
+	}
+	return info.Repo, info.Found
+}
+
+// railEnabled reports whether the PR-rail LIFECYCLE is available for construction ON THIS
+// PROJECT. A rail dep alone is not enough: the local profile binds the GitLocal
+// sourceControlAccess AND resolves every project to the deterministic GitLocal RepoRef,
+// which is a filesystem venue, not a PR-rail one. Construction keeps its local-merge-job
+// flow there, so such a boot must read as rail-dormant here or runLocalMergeStep would skip
+// and nothing would merge local activity branches (it would also mint a rail credential
+// in the construction history). The two non-local arms keep their pre-collapse verdicts:
+//
+//   - a GitLocal ref (the local profile): dormant, so the local merge job owns the merge.
+//   - a rail that MISSES for this project (a catalog with no repo for it): enabled. The
+//     lifecycle is dormant for that project anyway (gitEnabled needs an actual ref), and
+//     the local merge must NOT substitute for it on a PR-rail boot.
+//   - no rail bound: dormant.
+func (wf *csWorkflows) railEnabled(ctx workflow.Context, projectID ProjectID) bool {
+	if !wf.RailWired {
+		return false
+	}
+	ref, ok := wf.projectRepo(ctx, projectID)
+	return !ok || !isGitLocalVenue(projectID, ref)
 }

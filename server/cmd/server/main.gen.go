@@ -256,18 +256,6 @@ type Hooks interface {
 	// Worker registration is composition-root policy (return true to always
 	// register; gate on the dep presence / a dry-run stub otherwise).
 	RegisterOperationsManagerWorker(cfg *Config) bool
-
-	// DeliveryManagerRepo supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	DeliveryManagerRepo() func(projectID delivery.ProjectID) (sourcecontrol.RepoRef, bool)
-
-	// DeliveryManagerRepoBase supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	DeliveryManagerRepoBase() string
 }
 
 // edgeSecurity is the security Utility every generated transport (the REST handlers
@@ -582,7 +570,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, designHealthEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, cfg.ConstructionEscalationTimeout, cfg.ConstructionInterventionMode, hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
+	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, designHealthEngine, agenticJobAccess, sourceControlAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, cfg.ConstructionEscalationTimeout, cfg.ConstructionInterventionMode)
 	if hooks.RegisterDeliveryManagerWorker(cfg) {
 		wDeliveryManager := worker.New(tc, delivery.TaskQueue, worker.Options{})
 		delivery.RegisterManagerWorker(wDeliveryManager, deliveryManager)

@@ -9565,6 +9565,12 @@
                     "from": "delivery-manager",
                     "to": "source-control-access",
                     "mode": "sync",
+                    "label": "projectRepo(projectID) → ProjectRepoInfo{Repo, WebURL, Found} — resolve the project's own repo (the catalog's ref on a GitHub venue, the deterministic GitLocal ref on the local profile) and its web url"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
                     "label": "getInstallationToken(repo) → RepoCredential"
                   },
                   {
@@ -10152,6 +10158,12 @@
                     "from": "delivery-manager",
                     "to": "source-control-access",
                     "mode": "sync",
+                    "label": "projectRepo(projectID) → ProjectRepoInfo{Repo, WebURL, Found} — resolve the project's own repo (the catalog's ref on a GitHub venue, the deterministic GitLocal ref on the local profile) and its web url"
+                  },
+                  {
+                    "from": "delivery-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
                     "label": "ReadManagedFile(repo, .claude/.method-assets-manifest.json, cred) → {Content, Found} — the managed-scaffold sync before the answer job: a repo this process already converged reads the seated manifest's pin, and a current pin converges only the two workflow files"
                   },
                   {
@@ -10728,6 +10740,12 @@
               {
                 "activityNodeId": "dispatch-task",
                 "calls": [
+                  {
+                    "from": "delivery-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "projectRepo(projectID) → ProjectRepoInfo{Repo, WebURL, Found} — resolve the project's own repo (the catalog's ref on a GitHub venue, the deterministic GitLocal ref on the local profile) and its web url"
+                  },
                   {
                     "from": "delivery-manager",
                     "to": "source-control-access",
@@ -20548,15 +20566,6 @@
           "name": "interventionMode",
           "goType": "string",
           "setting": "constructionInterventionMode"
-        },
-        {
-          "name": "repo",
-          "goType": "func(projectID ProjectID) (sourcecontrol.RepoRef, bool)",
-          "goImport": "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
-        },
-        {
-          "name": "repoBase",
-          "goType": "string"
         }
       ],
       "title": "DeliveryManager",
@@ -39082,6 +39091,26 @@
         "ProjectID": {
           "type": "string"
         },
+        "ProjectRepoInfo": {
+          "type": "object",
+          "properties": {
+            "Repo": {
+              "$ref": "#/$defs/RepoRef"
+            },
+            "WebURL": {
+              "type": "string"
+            },
+            "Found": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Repo",
+            "WebURL",
+            "Found"
+          ],
+          "additionalProperties": false
+        },
         "PullRequestRef": {
           "type": "string"
         },
@@ -39465,6 +39494,22 @@
               "$ref": "#/$defs/ManagedFileRead"
             },
             "error": true
+          },
+          {
+            "name": "ProjectRepo",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/ProjectRepoInfo"
+            },
+            "error": true,
+            "readOnly": true
           }
         ]
       }

@@ -158,7 +158,7 @@ func buildManager(h *scenariohost.Host, url string, jobs agenticjob.AgenticJobAc
 		projectstate.NewGitLocalActivityExecutionAccess(url),
 		messagebus.NewTemporalMessageBus(tc, deliveryKinds()),
 		episode.NewLocalFSEpisodeAccess(url),
-		escalationWait, interventionMode, localRepo, "")
+		escalationWait, interventionMode)
 }
 
 // The composition root's two scalar delivery settings on the local profile.
@@ -166,12 +166,6 @@ const (
 	escalationWait   = 30 * time.Minute
 	interventionMode = "tiered"
 )
-
-// localRepo is the local profile's repo resolver (cmd/server DeliveryManagerRepo,
-// GitLocal arm): every project resolves to its deterministic GitLocal RepoRef.
-func localRepo(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
-	return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
-}
 
 // stack is one scenario's downstream wiring, kept so Step and Probe hooks reach the
 // same instances the subject's worker runs against.

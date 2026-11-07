@@ -234,6 +234,13 @@ func (a *genActivities) RailPostReview(ctx context.Context, repo sourcecontrol.R
 	return fwmanager.MapError(err)
 }
 
+// RailProjectRepo wraps sourceControlAccess.projectRepo.
+// Registered as "sourceControlAccess.projectRepo".
+func (a *genActivities) RailProjectRepo(ctx context.Context, projectID sourcecontrol.ProjectID) (sourcecontrol.ProjectRepoInfo, error) {
+	v, err := a.Rail.ProjectRepo(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID)
+	return v, fwmanager.MapError(err)
+}
+
 // RailReadManagedFile wraps sourceControlAccess.readManagedFile.
 // Registered as "sourceControlAccess.readManagedFile".
 func (a *genActivities) RailReadManagedFile(ctx context.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {

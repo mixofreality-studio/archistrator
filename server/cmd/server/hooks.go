@@ -9,7 +9,7 @@ package main
 // swaps, the conditional-worker gates, and the func/scalar manager-dep resolvers.
 //
 // The struct is built ONCE in main() from the resolved *Config; the no-arg hooks
-// (repo resolvers, construction-transition ports, repoBase) close over that
+// (construction-transition ports, escalation/mode scalars) close over that
 // stored cfg + logger, and the GitHub-App satellite (AppClient) + the
 // sourcecontrol catalog surface are built once here and reused across the hooks
 // that need them.
@@ -140,8 +140,8 @@ type appHooks struct {
 	// spaFS. Set only by tests, which need an SPA to mount without a
 	// `localdist` build.
 	embeddedSPA func() (fs.FS, bool)
-	// config is the resolved *Config the no-arg hooks (repo resolvers,
-	// construction-transition ports, repoBase, escalation/mode scalars) close over —
+	// config is the resolved *Config the no-arg hooks (construction-transition ports,
+	// escalation/mode scalars) close over —
 	// the generated Hooks signatures for those seams take no cfg argument.
 	config *Config
 
@@ -239,7 +239,7 @@ func (h *appHooks) buildGithubApp(cfg *Config, logger *slog.Logger) error {
 		return err
 	}
 	h.appClient = app
-	scCatalog, scAccess, err := sourcecontrol.NewGitHubSourceControl(app, cfg.GithubAppAccount, cfg.GithubAppAppSlug, true /* repoPrivate */)
+	scCatalog, scAccess, err := sourcecontrol.NewGitHubSourceControl(app, cfg.GithubAppAccount, cfg.GithubAppAppSlug, cfg.GithubAppAPIBaseURL, true /* repoPrivate */)
 	if err != nil {
 		return err
 	}
@@ -1212,83 +1212,3 @@ func (h *appHooks) RegisterDeliveryManagerWorker(_ *Config) bool { return true }
 // Operations registers unconditionally too: its optional-dormant deps simply go dormant
 // when absent — the operations workflows run unchanged (hand run() always registered them).
 func (h *appHooks) RegisterOperationsManagerWorker(_ *Config) bool { return true }
-
-// DeliveryManagerRepo is the ONE repo resolver the merged Manager threads into all
-// three moved rails: projectID → the project's own RepoRef via the sourcecontrol
-// catalog (name-as-identity). Non-nil retargets every construction dispatch to the
-// project repo (aiarch-construct.yml) AND activates the branch→PR rail; nil (a
-// repo-less server) keeps the central-repo fallback + a dormant rail.
-//
-// PER-RAIL BEHAVIOUR IS PRESERVED THROUGH ONE DEP (stage 4a fix round 1). The three
-// hooks this replaces did NOT agree: the two DESIGN hooks carried a second arm — when
-// no GitHub App catalog is bound AND the profile is "local", resolve every project to
-// the deterministic GitLocal RepoRef, which is what activates the local design rail's
-// branch → PR → merge lifecycle — while the CONSTRUCTION hook returned nil there
-// ("construction keeps its local-merge-job flow this pass"). Collapsing to the
-// construction body would have taken the local design rail down; collapsing to the
-// design body would have switched construction's local PR rail ON. Neither is
-// acceptable, and no contract change is needed to avoid both: this hook returns the
-// DESIGN arm (the superset), and the construction half recognises a GitLocal ref and
-// treats it as "no per-project venue", which is exactly the nil it used to be handed.
-// BOTH of its readers do so (round 1 shipped only the first, which left the rail on):
-// the dispatch venue (constructRepoTarget) and the rail LIFECYCLE
-// (railLifecycleEnabled → wfDeps.RailEnabled, which gates the credential mint and the
-// local merge step) — internal/manager/delivery. The selection moved; no rail's
-// behaviour did.
-func (h *appHooks) DeliveryManagerRepo() func(projectID delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
-	if h.scCatalog == nil {
-		if h.gitLocalRailBound() {
-			return func(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
-				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
-			}
-		}
-		return nil
-	}
-	return func(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
-		return h.repoForProject(projectstate.ProjectID(pid))
-	}
-}
-
-// gitLocalRailBound reports whether the bound sourceControlAccess is the GitLocal PR
-// rail: the local profile's binding arm builds it, and the creds-win Finalize keeps it
-// only when no GitHub App creds exist (scCatalog/scAccess nil). The design rails' repo
-// resolution must then resolve every project to the deterministic local RepoRef so the
-// rail lifecycle (branch → PR → merge) activates.
-func (h *appHooks) gitLocalRailBound() bool {
-	return resolveProfile(h.config) == "local"
-}
-
-// repoForProject resolves one project's RepoRef through the sourcecontrol catalog,
-// warning + returning ok=false (rail dormant for that project) on a resolution miss.
-func (h *appHooks) repoForProject(projectID projectstate.ProjectID) (sourcecontrol.RepoRef, bool) {
-	railAccount := sourcecontrol.AccountRef(h.config.GithubAppAccount)
-	ref, err := h.scCatalog.RepoRefForProject(railAccount, sourcecontrol.ProjectID(projectID.String()))
-	if err != nil {
-		h.logger.Warn("design PR rail: could not resolve RepoRef for project; rail dormant for this project", "projectID", projectID, "err", err)
-		return sourcecontrol.RepoRef(""), false
-	}
-	return ref, true
-}
-
-// DeliveryManagerRepoBase is the project-wide construction-repo WEB base the
-// delivery Manager composes each git row's clickable prUrl from; "" when the
-// construction repo is unconfigured.
-func (h *appHooks) DeliveryManagerRepoBase() string {
-	c := h.config
-	return constructionRepoBase(c.GithubAppAPIBaseURL, c.ConstructionRepoOwner, c.ConstructionRepoName)
-}
-
-// constructionRepoBase composes the construction-repo WEB base
-// (<host>/<owner>/<repo>) — "" when owner or repo is empty. The WEB host differs
-// from the API host: github.com (not api.github.com), or the GHES API root with the
-// /api/v3 REST suffix stripped.
-func constructionRepoBase(apiBaseURL, owner, repo string) string {
-	if owner == "" || repo == "" {
-		return ""
-	}
-	host := "https://github.com"
-	if base := strings.TrimRight(strings.TrimSpace(apiBaseURL), "/"); base != "" {
-		host = strings.TrimSuffix(base, "/api/v3")
-	}
-	return host + "/" + owner + "/" + repo
-}

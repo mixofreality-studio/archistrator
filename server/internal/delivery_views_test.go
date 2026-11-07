@@ -52,7 +52,7 @@ func viewManager(proj projectstate.Project, files []string) delivery.DeliveryMan
 	eps := &episodefake.FakeEpisodeAccess{
 		ListEpisodesFn: func(fwra.Context, episode.EpisodeQuery) ([]episode.EpisodeRecord, error) { return nil, nil },
 	}
-	return delivery.NewDeliveryManager(noSessions{}, ps, art, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil, "")
+	return delivery.NewDeliveryManager(noSessions{}, ps, art, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "")
 }
 
 // noSessions is a Temporal client with no workflow running: the activity view asks a

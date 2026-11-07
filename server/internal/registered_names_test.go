@@ -232,6 +232,7 @@ var registeredTemporalNamesGolden = []string{
 	"sourceControlAccess.openBranch",
 	"sourceControlAccess.openPullRequest",
 	"sourceControlAccess.postReview",
+	"sourceControlAccess.projectRepo",
 	"sourceControlAccess.readManagedFile",
 	"sourceControlAccess.syncManagedScaffold",
 	"usageAccess.readRange",
@@ -253,7 +254,7 @@ func mustRegisteredNames(t *testing.T) []string {
 	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
+	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "")
 	delivery.RegisterManagerWorker(&reg, deliveryMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)

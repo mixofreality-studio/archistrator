@@ -6,9 +6,11 @@
 package scenariocompose
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +20,8 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
+	mcpdeliveryclient "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -26,6 +30,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	managerbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
@@ -552,6 +557,118 @@ func (n nullBillingStateAccess) SettleCycle(rc fwra.Context, p0 uuid.UUID, p1 bi
 	return zero, nil
 }
 
+// buildDeliveryManager builds the DeliveryManager a scenario drives, once per test.
+func buildDeliveryManager(s *subject) delivery.DeliveryManager {
+	return memoize(s, "deliveryManager", func() delivery.DeliveryManager {
+		m := delivery.NewDeliveryManager(s.temporal(), buildProjectStateAccess(s), buildArtifactAccess(s), buildInterventionEngine(s), buildReviewEngine(s), buildEstimationEngine(s), buildOperationEstimationEngine(s), buildBillingEngine(s), buildDesignHealthEngine(s), nil, buildSourceControlAccess(s), buildGitActivityStatusAccess(s), buildDesignSessionAccess(s), buildActivityExecutionAccess(s), buildMessageBus(s), buildEpisodeAccess(s), time.Duration(1800000000000), "tiered")
+		// An optional-dormant dependency has no variant here: the Worker stays unregistered,
+		// as the composition root's Register<Iface>Worker gate would leave it.
+		return m
+	})
+}
+
+// NewDeliveryManager builds the real DeliveryManager the scenario drives: the generated component over the
+// substrates the scenario host booted. A test's constructors share their components.
+func NewDeliveryManager(t *testing.T, h *scenariohost.Host) delivery.DeliveryManager {
+	t.Helper()
+	return buildDeliveryManager(subjectFor(t, h))
+}
+
+// nullDeliveryManager wraps a DeliveryManager, answering the operations it was told to with their zero result.
+type nullDeliveryManager struct {
+	inner delivery.DeliveryManager
+	ops   map[string]bool
+}
+
+// NullDeliveryManager is inner with each operation named in ops ("DeliveryManager.<Op>") replaced by one that returns
+// the zero result and a nil error: the null-subject run proving a scenario can fail. A name
+// of this interface that it has no operation for panics, so a typo cannot stub nothing.
+func NullDeliveryManager(inner delivery.DeliveryManager, ops ...string) delivery.DeliveryManager {
+	return nullDeliveryManager{inner: inner, ops: nullOps("DeliveryManager", []string{"StartProject", "ExecuteNextActivity", "DispatchActivityTask", "SubmitReviewDecision", "AskQuestions", "AcknowledgeStaleBasis", "SetProjectRunState", "OverrideActivity", "SetProjectExecutionPolicy", "QueryProjectView", "QueryActivityView"}, ops)}
+}
+
+func (n nullDeliveryManager) StartProject(rc fwm.Context, p0 delivery.OwnerScope, p1 string, p2 *string, p3 *delivery.OperatingModel, p4 *delivery.ResearchInput, p5 bool) (delivery.StartProjectResult, error) {
+	if !n.ops["StartProject"] {
+		return n.inner.StartProject(rc, p0, p1, p2, p3, p4, p5)
+	}
+	var zero delivery.StartProjectResult
+	return zero, nil
+}
+
+func (n nullDeliveryManager) ExecuteNextActivity(rc fwm.Context, p0 delivery.ProjectID, p1 string) (delivery.PumpResult, error) {
+	if !n.ops["ExecuteNextActivity"] {
+		return n.inner.ExecuteNextActivity(rc, p0, p1)
+	}
+	var zero delivery.PumpResult
+	return zero, nil
+}
+
+func (n nullDeliveryManager) DispatchActivityTask(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ActivityID, p2 string, p3 *delivery.ReviewFeedback) (delivery.SessionRef, error) {
+	if !n.ops["DispatchActivityTask"] {
+		return n.inner.DispatchActivityTask(rc, p0, p1, p2, p3)
+	}
+	var zero delivery.SessionRef
+	return zero, nil
+}
+
+func (n nullDeliveryManager) SubmitReviewDecision(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ActivityID, p2 string, p3 delivery.ReviewDecisionInput, p4 *delivery.ReviewFeedback) error {
+	if !n.ops["SubmitReviewDecision"] {
+		return n.inner.SubmitReviewDecision(rc, p0, p1, p2, p3, p4)
+	}
+	return nil
+}
+
+func (n nullDeliveryManager) AskQuestions(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ActivityID, p2 string, p3 string, p4 []delivery.AnchoredComment) error {
+	if !n.ops["AskQuestions"] {
+		return n.inner.AskQuestions(rc, p0, p1, p2, p3, p4)
+	}
+	return nil
+}
+
+func (n nullDeliveryManager) AcknowledgeStaleBasis(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ActivityID, p2 string, p3 string) error {
+	if !n.ops["AcknowledgeStaleBasis"] {
+		return n.inner.AcknowledgeStaleBasis(rc, p0, p1, p2, p3)
+	}
+	return nil
+}
+
+func (n nullDeliveryManager) SetProjectRunState(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ProjectRunState, p2 string) error {
+	if !n.ops["SetProjectRunState"] {
+		return n.inner.SetProjectRunState(rc, p0, p1, p2)
+	}
+	return nil
+}
+
+func (n nullDeliveryManager) OverrideActivity(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ActivityID, p2 delivery.ActivityOverride) error {
+	if !n.ops["OverrideActivity"] {
+		return n.inner.OverrideActivity(rc, p0, p1, p2)
+	}
+	return nil
+}
+
+func (n nullDeliveryManager) SetProjectExecutionPolicy(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ExecutionPolicyInput) error {
+	if !n.ops["SetProjectExecutionPolicy"] {
+		return n.inner.SetProjectExecutionPolicy(rc, p0, p1)
+	}
+	return nil
+}
+
+func (n nullDeliveryManager) QueryProjectView(rc fwm.Context, p0 delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+	if !n.ops["QueryProjectView"] {
+		return n.inner.QueryProjectView(rc, p0)
+	}
+	var zero delivery.ProjectView
+	return zero, nil
+}
+
+func (n nullDeliveryManager) QueryActivityView(rc fwm.Context, p0 delivery.ProjectID, p1 delivery.ActivityID) (delivery.ActivityView, error) {
+	if !n.ops["QueryActivityView"] {
+		return n.inner.QueryActivityView(rc, p0, p1)
+	}
+	var zero delivery.ActivityView
+	return zero, nil
+}
+
 // buildDesignHealthEngine builds the DesignHealthEngine a scenario drives, once per test.
 func buildDesignHealthEngine(s *subject) designhealth.DesignHealthEngine {
 	return memoize(s, "designHealthEngine", func() designhealth.DesignHealthEngine {
@@ -921,7 +1038,7 @@ func (n nullMerchantGatewayAccess) ReadStoredInstrument(rc fwra.Context, p0 uuid
 // buildMessageBus builds the MessageBus a scenario drives, once per test.
 func buildMessageBus(s *subject) messagebus.MessageBus {
 	return memoize(s, "messageBus", func() messagebus.MessageBus {
-		return messagebus.NewTemporalMessageBus(s.temporal(), managerbilling.ExecutionKinds(), operations.ExecutionKinds())
+		return messagebus.NewTemporalMessageBus(s.temporal(), managerbilling.ExecutionKinds(), delivery.ExecutionKinds(), operations.ExecutionKinds())
 	})
 }
 
@@ -1468,7 +1585,7 @@ type nullSourceControlAccess struct {
 // the zero result and a nil error: the null-subject run proving a scenario can fail. A name
 // of this interface that it has no operation for panics, so a typo cannot stub nothing.
 func NullSourceControlAccess(inner sourcecontrol.SourceControlAccess, ops ...string) sourcecontrol.SourceControlAccess {
-	return nullSourceControlAccess{inner: inner, ops: nullOps("SourceControlAccess", []string{"AdoptProjectRepo", "CommitManagedFiles", "GetInstallationToken", "GetPullRequestStatus", "MergePullRequest", "OpenBranch", "OpenPullRequest", "PostReview", "SyncManagedScaffold", "ReadManagedFile"}, ops)}
+	return nullSourceControlAccess{inner: inner, ops: nullOps("SourceControlAccess", []string{"AdoptProjectRepo", "CommitManagedFiles", "GetInstallationToken", "GetPullRequestStatus", "MergePullRequest", "OpenBranch", "OpenPullRequest", "PostReview", "SyncManagedScaffold", "ReadManagedFile", "ProjectRepo"}, ops)}
 }
 
 func (n nullSourceControlAccess) AdoptProjectRepo(rc fwra.Context, p0 sourcecontrol.RepoAdoptionSpec) (sourcecontrol.RepoRef, error) {
@@ -1550,6 +1667,14 @@ func (n nullSourceControlAccess) ReadManagedFile(rc fwra.Context, p0 sourcecontr
 	return zero, nil
 }
 
+func (n nullSourceControlAccess) ProjectRepo(rc fwra.Context, p0 sourcecontrol.ProjectID) (sourcecontrol.ProjectRepoInfo, error) {
+	if !n.ops["ProjectRepo"] {
+		return n.inner.ProjectRepo(rc, p0)
+	}
+	var zero sourcecontrol.ProjectRepoInfo
+	return zero, nil
+}
+
 // buildUsageAccess builds the UsageAccess a scenario drives, once per test.
 func buildUsageAccess(s *subject) usage.UsageAccess {
 	return memoize(s, "usageAccess", func() usage.UsageAccess {
@@ -1597,12 +1722,52 @@ func (n nullUsageAccess) RecordComputeUsage(rc fwra.Context, p0 []usage.UsageEve
 	return zero, nil
 }
 
+// authzKey is one decision a generated transport asks: a verb on a scope kind.
+type authzKey struct{ verb, scope string }
+
+// generatedAuthorizations is every (verb, scope) the generated REST handlers and MCP tools send the
+// policy, read from the same derivation as the composition root's authz.gen.go.
+var generatedAuthorizations = map[authzKey]bool{
+	{verb: "acknowledge-stale-basis", scope: "deliveryCatalog"}:      true,
+	{verb: "ask-questions", scope: "deliveryCatalog"}:                true,
+	{verb: "dispatch-activity-task", scope: "deliveryCatalog"}:       true,
+	{verb: "execute-next-activity", scope: "deliveryCatalog"}:        true,
+	{verb: "override-activity", scope: "deliveryCatalog"}:            true,
+	{verb: "query-activity-view", scope: "deliveryCatalog"}:          true,
+	{verb: "query-project-view", scope: "deliveryCatalog"}:           true,
+	{verb: "set-project-execution-policy", scope: "deliveryCatalog"}: true,
+	{verb: "set-project-run-state", scope: "deliveryCatalog"}:        true,
+	{verb: "start-project", scope: "deliveryCatalog"}:                true,
+	{verb: "submit-review-decision", scope: "deliveryCatalog"}:       true,
+}
+
+// generatedPolicy permits an authenticated principal exactly the generated requests on its own
+// scope. It denies everything else: a test's handlers are never served by a permit-all policy.
+type generatedPolicy struct{}
+
+func (generatedPolicy) Decide(_ context.Context, p security.Principal, a security.Action, r security.ResourceRef) (bool, error) {
+	return p.Subject != "" && r.ID == p.Subject && generatedAuthorizations[authzKey{verb: a.Verb, scope: r.Kind}], nil
+}
+
+// edgeSecurity is the security Utility every generated handler a test serves authorizes against.
+func edgeSecurity() security.Security {
+	return security.New(security.WithPolicyDecisionPoint(generatedPolicy{}))
+}
+
+// NewMcpClient builds the generated handlers of the mcpClient client over the real DeliveryManager and the
+// generated authorization policy: the value a test serves (Register) and calls through.
+func NewMcpClient(t *testing.T, h *scenariohost.Host) *mcpdeliveryclient.Handler {
+	t.Helper()
+	return &mcpdeliveryclient.Handler{Manager: buildDeliveryManager(subjectFor(t, h)), Security: edgeSecurity()}
+}
+
 // Workflows registers every Manager's workflows exactly as the composition root registers
 // them on a live Worker, for the replay gate (scenariohost.MainWithWorkflows). The Managers
 // are built with nil collaborators: a replay never executes an activity.
 func Workflows() scenariohost.Workflows {
 	return scenariohost.Workflows{Register: func(w scenariohost.Worker) {
 		managerbilling.RegisterManagerWorker(w, managerbilling.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil))
+		delivery.RegisterManagerWorker(w, delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, time.Duration(1800000000000), "tiered"))
 		operations.RegisterManagerWorker(w, operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	}}
 }

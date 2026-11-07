@@ -230,12 +230,7 @@ func buildManager(h *scenariohost.Host, url string, jobs agenticjob.AgenticJobAc
 		projectstate.NewGitLocalActivityExecutionAccess(url),
 		messagebus.NewTemporalMessageBus(h.TemporalClient(), deliveryKinds()),
 		episode.NewLocalFSEpisodeAccess(url),
-		30*time.Minute, "tiered",
-		// The local profile's repo resolver (cmd/server DeliveryManagerRepo, GitLocal arm).
-		func(pid mgr.ProjectID) (sourcecontrol.RepoRef, bool) {
-			return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
-		},
-		"")
+		30*time.Minute, "tiered")
 }
 
 // deliveryKinds is the messageBus kind table the delivery Manager's schedules

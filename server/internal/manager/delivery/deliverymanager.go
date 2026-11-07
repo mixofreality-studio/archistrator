@@ -1262,7 +1262,7 @@ func (m *deliveryManager) startAnswerJob(ctx context.Context, projectID ProjectI
 		"op", "delivery.AskQuestions.startAnswerJob",
 		"projectID", string(projectID), "artifactKind", artifactKindString(kind),
 		"addressee", addressee, "branch", branch)
-	if m.client == nil || m.pipeline == nil || m.repo == nil {
+	if m.client == nil || m.pipeline == nil || m.rail == nil {
 		log.Warn("answer job NOT dispatched: design pipeline/repo not configured (rail dormant) — the question is recorded but will not be auto-answered")
 		return
 	}
@@ -1835,7 +1835,7 @@ func (m *deliveryManager) GetProject(rc fwmanager.Context, projectID ProjectID) 
 	}
 	m.computeNetworkAtRead(&proj)
 	m.computeDeploymentEdgesAtRead(&proj)
-	st := m.projectStateToContract(proj)
+	st := m.projectStateToContract(ctx, proj)
 	st.PumpHalt = m.readPumpHalt(ctx, projectID)
 	st.RunState = projectRunStateOf(st.OperatorPaused, st.PumpHalt)
 	return st, nil
@@ -2322,7 +2322,7 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 // ProjectState transport shape. Read-time projections (each git row's prUrl/prNumber
 // composed from the per-project repo base + the opaque ref, and the EV/SPI earned-value
 // curve from m.estimator) are sourced server-side here rather than re-derived by the webClient.
-func (m *deliveryManager) projectStateToContract(p projectstate.Project) ProjectState {
+func (m *deliveryManager) projectStateToContract(ctx context.Context, p projectstate.Project) ProjectState {
 	phase := Phase(int(p.Phase))
 	return ProjectState{
 		ProjectID: ProjectID(p.ID),
@@ -2336,7 +2336,7 @@ func (m *deliveryManager) projectStateToContract(p projectstate.Project) Project
 		OperatingModel:      OperatingModel(string(p.OperatingModel.OrDefault())),
 		Research:            researchToContract(p.Research),
 		Slots:               slotsToContract(p),
-		GitRows:             m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit, p.ActivityExecution),
+		GitRows:             m.gitRowsToContract(ctx, ProjectID(p.ID), p.ActivityGit, p.ActivityExecution),
 		ActivityExecution:   constructionRowsToContract(p.ActivityExecution, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
 		ConstructionStarted: constructionStartedFor(p.ActivityExecution),
 		// The recorded operator pause, passed through as stored (plan B1.7): the console
@@ -2632,29 +2632,35 @@ func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
 
 // gitRowsToContract maps the per-activity git head-state map (honest-empty: nil in ⇒
 // nil out). It composes each row's READ-TIME prUrl/prNumber projections from the
-// PER-PROJECT repo base + the opaque pullRequestRef — the durable aggregate stays
-// provider-opaque; prUrl/prNumber are pure read-time projections, never stored.
+// PER-PROJECT web url sourceControlAccess.ProjectRepo answers + the opaque
+// pullRequestRef — the durable aggregate stays provider-opaque; prUrl/prNumber are pure
+// read-time projections, never stored.
 //
 // Since the venue switch (0df2ce0) gh-mode construction PRs open in the PROJECT's own
-// repo, not the central construction repo, so the base is resolved per-project via
-// projectRepoBase(projectID) (which falls back to the central m.repoBase exactly when
-// the dispatch resolver is nil or misses — links stay central-pointing precisely when
-// dispatch does).
+// repo, so the base is the project's own web url (projectRepoOf); a project with no venue
+// gets none and its rows carry no prUrl.
 //
 // A GITLOCAL VENUE HAS NO PR RAIL, so it stores no row; every activity the walk opened has
 // its activity branch all the same, and that branch is what the code review links to on a
 // filesystem venue (dct5 round-1 ruling). So on GitLocal each opened activity reads a row
 // naming its branch, with no PR (localBranchRows).
 func (m *deliveryManager) gitRowsToContract(
-	projectID ProjectID, rows map[string]projectstate.ActivityGitStatus, executions map[string]projectstate.ActivityExecution,
+	ctx context.Context, projectID ProjectID, rows map[string]projectstate.ActivityGitStatus, executions map[string]projectstate.ActivityExecution,
 ) map[string]ActivityGitStatus {
-	if m.gitLocalProject(projectID) {
+	info, resolved := projectRepoOf(ctx, m.rail, projectID)
+	if resolved && isGitLocalVenue(projectID, info.Repo) {
 		return localBranchRows(rows, executions)
 	}
 	if len(rows) == 0 {
 		return nil
 	}
-	base := m.deliveryProjectRepoBase(projectID)
+	// A GITLOCAL PROJECT HAS NO WEB HOST: the deterministic local venue is a FILESYSTEM path,
+	// not a forge, and the verb answers it an empty web url (so a plausible-looking URL that
+	// 404s is never stamped onto a prUrl). An unresolved project has no base either.
+	base := ""
+	if resolved {
+		base = info.WebURL
+	}
 	out := make(map[string]ActivityGitStatus, len(rows))
 	for id, g := range rows {
 		prNumber, prURL := projectPRRef(g.PullRequestRef, base)
@@ -2674,13 +2680,24 @@ func (m *deliveryManager) gitRowsToContract(
 	return out
 }
 
-// gitLocalProject reports whether the project's venue is the GitLocal filesystem venue.
-func (m *deliveryManager) gitLocalProject(projectID ProjectID) bool {
-	if m.repo == nil {
-		return false
+// projectRepoOf is the Manager-side read of sourceControlAccess.ProjectRepo (the workflows
+// reach the same verb as an activity, csWorkflows.projectRepo). resolved=false is "this
+// project has no venue": no rail bound, a rail that cannot resolve the project (logged — the
+// rail dormant for it), or a rail that reports no repo.
+func projectRepoOf(ctx context.Context, rail sourcecontrol.SourceControlAccess, projectID ProjectID) (sourcecontrol.ProjectRepoInfo, bool) {
+	if rail == nil {
+		return sourcecontrol.ProjectRepoInfo{}, false
 	}
-	ref, ok := m.repo(projectID)
-	return ok && isGitLocalVenue(projectID, ref)
+	info, err := rail.ProjectRepo(fwra.Context{Context: ctx}, sourcecontrol.ProjectID(projectID))
+	if err != nil {
+		slog.Default().Warn("could not resolve the project's repo; no venue for this project",
+			"projectID", string(projectID), "err", err)
+		return sourcecontrol.ProjectRepoInfo{}, false
+	}
+	if !info.Found {
+		return sourcecontrol.ProjectRepoInfo{}, false
+	}
+	return info, true
 }
 
 // localBranchRows is the GitLocal venue's git rows: whatever rows the store holds, plus one
@@ -2722,64 +2739,6 @@ func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
 		prURL = repoBase + "/pull/" + ref
 	}
 	return prNumber, prURL
-}
-
-// projectRepoBase resolves the WEB base each git row's prUrl is composed against FOR THIS
-// PROJECT. Since the venue switch (0df2ce0) gh-mode construction PRs open in the project's
-// OWN repo, so a per-project base must be projected rather than reusing the central
-// construction repo's base (m.repoBase) — those URLs would otherwise point at the wrong
-// repo and lie. The host stays the same as the configured central base (github.com or the
-// GHES web root); only owner/repo swap to the project's own.
-//
-// Fallback (mirrors the dispatch fallback so links stay central-pointing EXACTLY when
-// dispatch stays central): the central m.repoBase is returned verbatim when the resolver
-// is nil, misses the project, yields a malformed ref, or the central base has no host to
-// borrow (unconfigured ⇒ "" ⇒ prUrl omitted downstream).
-func (m *deliveryManager) deliveryProjectRepoBase(projectID ProjectID) string {
-	if m.repo == nil {
-		return m.repoBase
-	}
-	repoRef, ok := m.repo(projectID)
-	if !ok {
-		return m.repoBase
-	}
-	// A GITLOCAL PROJECT HAS NO WEB HOST (review fix round 1, finding 2). The deterministic local
-	// venue is a FILESYSTEM path, not a forge, and it is invisible here by accident rather than by
-	// construction: GitLocalRepoRefForProject mints a WELL-FORMED owner|owner/repo ref, so
-	// RepoRefOwnerRepo decodes it happily and the composed base came out as
-	// "<configured host>/local/<projectId>" — a plausible-looking URL that 404s, stamped onto every
-	// prUrl of every activity of every local boot. R6's single recognition point is what settles it,
-	// and it is the same question railLifecycleEnabled asks two lines from the same resolver.
-	if isGitLocalVenue(projectID, repoRef) {
-		return ""
-	}
-	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
-	if err != nil {
-		return m.repoBase
-	}
-	host := repoWebHost(m.repoBase)
-	if host == "" {
-		return m.repoBase
-	}
-	return host + "/" + owner + "/" + name
-}
-
-// repoWebHost recovers the <host> prefix from a <host>/<owner>/<repo> web base by
-// stripping the final two path segments. The host retains its scheme (https://…); a
-// GHES subpath host (e.g. https://ghe.example.com/prefix) is preserved because only the
-// trailing owner/repo pair is removed. "" in (unconfigured central base) ⇒ "" out.
-func repoWebHost(repoBase string) string {
-	s := strings.TrimRight(repoBase, "/")
-	i := strings.LastIndex(s, "/")
-	if i < 0 {
-		return ""
-	}
-	s = s[:i] // drop /<repo>
-	i = strings.LastIndex(s, "/")
-	if i < 0 {
-		return ""
-	}
-	return s[:i] // drop /<owner>
 }
 
 // worstOriginFor is the wire worstOrigin: the ledger's roll-up on a recorded row, and
@@ -5784,15 +5743,6 @@ type constructionManager struct {
 	// assembly does. Threaded into the csWorkflows via wfDeps.SDPEngines (WorkerManifest).
 	sdpEngines sdpEngines
 
-	// repo (B5) is the per-project Repo resolver the gh-mode venue switch dispatches
-	// through: projectID → the project's own RepoRef. nil, a miss, or the DESIGN rails'
-	// GitLocal ref (isGitLocalVenue) ⇒ that project's construction dispatch falls back to
-	// the configured central construction repo AND the PR-rail slice stays dormant
-	// (constructRepoTarget / railLifecycleEnabled). A project repo retargets the dispatch
-	// (aiarch-construct.yml in the project repo) AND activates the branch→PR rail.
-	// Threaded into the csWorkflows via wfDeps.Repo (WorkerManifest).
-	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
-
 	// messageBus (7b) is the generated messageBus Utility dep — the restricted
 	// Manager-only signal/schedule surface. Threaded into genActivities so the
 	// csWorkflows can reach registerSchedule/deliverSignal through the generated
@@ -5851,7 +5801,6 @@ func newConstructionManager(
 	episodes episode.EpisodeAccess,
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
-	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
 	// eng are the three estimate Engines deterministic Project Design calls. ONE trailing
 	// struct parameter rather than three positional interfaces, because this constructor
 	// already takes sixteen and three more nils at seventeen call sites is a miscount
@@ -5873,7 +5822,6 @@ func newConstructionManager(
 		episodes:              episodes,
 		escalationWaitTimeout: escalationWaitTimeout,
 		interventionMode:      interventionMode,
-		repo:                  repo,
 		sdpEngines:            eng,
 		scenarios:             projectstate.ComponentScenarios,
 	}
@@ -8678,21 +8626,15 @@ type wfDeps struct {
 	// Activities (pipeline / artifact / rail); its Opts hook applies the per-op presets.
 	Acts genInvokers
 
-	// RailEnabled reports whether the PR-rail LIFECYCLE is available for construction
-	// ON THIS PROJECT — the rail dep alone is not enough, and neither is a resolver:
-	// the local profile binds the GitLocal sourceControlAccess AND (since the three
-	// repo hooks collapsed into one) resolves every project to the deterministic
-	// GitLocal RepoRef, which is a filesystem venue, not a PR-rail one. Construction
-	// keeps its local-merge-job flow there, so such a boot must read as rail-dormant
-	// here or runLocalMergeStep would skip and nothing would merge local activity
-	// branches. It gates the PR-rail lifecycle (gitEnabled) alongside GitStatus +
-	// Repo. Derived ONCE per worker by railLifecycleEnabled; never nil (csNewWorkflows
-	// defaults an unwired slice to railDormant).
-	RailEnabled func(projectID ProjectID) bool
-
-	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the
-	// PR-rail lifecycle is dormant (no repo to open branches/PRs in).
-	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+	// RailWired reports whether a sourceControlAccess is bound at all. The project's repo
+	// is resolved through that rail's ProjectRepo verb (csWorkflows.projectRepo, an
+	// activity), so with no rail there is nothing to ask: every project reads as having no
+	// venue, the PR-rail lifecycle is dormant and construction dispatches to the configured
+	// central repo. WHETHER the PR-rail lifecycle is available for a project is a
+	// per-project question the verb answers (csWorkflows.railEnabled): the local profile
+	// resolves every project to the deterministic GitLocal ref, a filesystem venue, not a
+	// PR-rail one, so construction keeps its local-merge-job flow there.
+	RailWired bool
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
 	// project from its head-state (the Manager's own pure selection), under the
@@ -8739,8 +8681,8 @@ type csWorkflows struct {
 
 	Acts genInvokers
 
-	RailEnabled func(projectID ProjectID) bool
-	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+	// RailWired: see wfDeps.RailWired.
+	RailWired bool
 
 	NextEligibleActivity  func(proj projectstate.Project, rule eligibilityRule) pumpSelection
 	InterventionPolicy    intervention.InterventionPolicy
@@ -8764,18 +8706,8 @@ type csWorkflows struct {
 	Deliveries walkDeliveryRecorder
 }
 
-// railDormant is the RailEnabled answer of a boot with no construction PR-rail
-// lifecycle at all (no rail dep, no repo resolver, or an unwired git-forward slice):
-// dormant for every project. It is what csNewWorkflows substitutes for a zero
-// wfDeps.RailEnabled, so the field is never nil and gitEnabled can call it blind.
-func railDormant(ProjectID) bool { return false }
-
 // csNewWorkflows builds the csWorkflows receiver from the injected seams.
 func csNewWorkflows(d wfDeps) *csWorkflows {
-	railEnabled := d.RailEnabled
-	if railEnabled == nil {
-		railEnabled = railDormant
-	}
 	scenarios := d.Scenarios
 	if scenarios == nil {
 		scenarios = projectstate.ComponentScenarios
@@ -8785,8 +8717,7 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 		Review:                d.Review,
 		GitStatus:             d.GitStatus,
 		Acts:                  d.Acts,
-		RailEnabled:           railEnabled,
-		Repo:                  d.Repo,
+		RailWired:             d.RailWired,
 		NextEligibleActivity:  d.NextEligibleActivity,
 		InterventionPolicy:    d.InterventionPolicy,
 		EscalationWaitTimeout: d.EscalationWaitTimeout,
@@ -9339,6 +9270,7 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		"agenticJobAccess.submitAgenticJob":        submitPipelineActivityOptions(),
 		"agenticJobAccess.observeAgenticJob":       observePipelineActivityOptions(),
 		"sourceControlAccess.getInstallationToken": mintCredActivityOptions(),
+		"sourceControlAccess.projectRepo":          railActivityOptions(),
 		"sourceControlAccess.openBranch":           railActivityOptions(),
 		"sourceControlAccess.openPullRequest":      railActivityOptions(),
 		"sourceControlAccess.getPullRequestStatus": railActivityOptions(),
@@ -9451,44 +9383,6 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 	}
 }
 
-// railLifecycleEnabled derives wfDeps.RailEnabled: the construction PR-rail LIFECYCLE
-// needs the rail dep, the per-project repo resolver, AND a resolved venue that is a
-// PR-rail venue at all. The first two alone are not enough (stage 4a fix round 2): the
-// ONE repo resolver the merged Manager threads into all three rails answers, on the
-// "local" profile with no GitHub App catalog, with the deterministic GitLocal RepoRef —
-// the DESIGN rails' local branch → PR → merge venue, and a filesystem venue that
-// construction has never dispatched against. Before the three hooks collapsed into one,
-// construction was simply handed nil there and read rail-dormant; a local boot that read
-// RailEnabled=true instead would mint a rail credential in the construction history AND
-// make runLocalMergeStep skip, so nothing would merge local activity branches.
-//
-// The question is therefore PER PROJECT — the resolver is what carries the answer — and
-// the two non-local arms keep their pre-collapse verdicts exactly:
-//
-//   - a GitLocal ref (the local profile): dormant, so the local merge job owns the merge.
-//   - a resolver that MISSES for this project (a cloud catalog with no repo for it):
-//     enabled. The lifecycle is dormant for that project anyway (gitEnabled needs an
-//     actual ref), and the local merge must NOT substitute for it on a PR-rail boot.
-//   - no rail dep or no resolver at all: dormant, as before.
-//
-// The resolver is a pure name-as-identity derivation on both profiles, so calling it
-// inside the workflow is replay-safe (gitEnabled and constructRepoTarget already do).
-func railLifecycleEnabled(rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) func(projectID ProjectID) bool {
-	if rail == nil || repo == nil {
-		return railDormant
-	}
-	return func(projectID ProjectID) bool {
-		ref, ok := repo(projectID)
-		return !ok || !isGitLocalVenue(projectID, ref)
-	}
-}
-
-// railEnabled is the construction half's OWN rail answer, derived from the deps it was
-// handed. It exists so WorkerManifest and the boot-level test read the SAME derivation.
-func (m *constructionManager) railEnabled() func(projectID ProjectID) bool {
-	return railLifecycleEnabled(m.rail, m.repo)
-}
-
 // WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
 // the four workflow bodies under their registered names, the per-activity option-preset
 // hook, and the genActivities threaded from the impl's stored published deps.
@@ -9503,15 +9397,13 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		// speaks projectstate.GitActivityStatusAccess directly (constructionmanager.go).
 		GitStatus: m.gitActivityStatus,
 		Acts:      genInvokers{Opts: optsHook},
-		// RailEnabled gates the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
-		// Repo (B5) is the per-project venue resolver: a project repo retargets every
-		// construction dispatch to it (aiarch-construct.yml) AND activates the branch→PR
-		// rail; nothing resolved keeps the central-repo fallback + dormant rail. What the
-		// resolver ANSWERS is part of the derivation (not just the runWithGitForward
-		// composite) so the local GitLocal venue — the design rails' local PR rail, never
-		// a construction venue — keeps runLocalMergeStep firing (wfDeps.RailEnabled doc).
-		RailEnabled:           m.railEnabled(),
-		Repo:                  m.repo,
+		// RailWired lets the workflows ask the rail for each project's venue (B5): a project
+		// repo retargets every construction dispatch to it (aiarch-construct.yml) AND
+		// activates the branch→PR rail; nothing resolved keeps the central-repo fallback +
+		// dormant rail. What the verb ANSWERS is part of the derivation (csWorkflows.railEnabled)
+		// so the local GitLocal venue — the design rails' local PR rail, never a construction
+		// venue — keeps runLocalMergeStep firing (wfDeps.RailWired doc).
+		RailWired:             m.rail != nil,
 		NextEligibleActivity:  nextEligibleActivity,
 		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),
 		EscalationWaitTimeout: m.escalationWaitTimeout,
@@ -11141,15 +11033,14 @@ type deliveryManager struct {
 	projectState      projectstate.ProjectStateAccess
 	pipeline          agenticjob.AgenticJobAccess
 	rail              sourcecontrol.SourceControlAccess
-	repo              func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 	designSession     projectstate.DesignSessionAccess
 	activityExecution projectstate.ActivityExecutionAccess
 	episodes          episode.EpisodeAccess
 
-	// estimator + repoBase serve the folded CATALOG ops (GetProject's compute-at-read CPM +
-	// EV/SPI, and each git row's prUrl). repoBase "" omits prUrl.
+	// estimator serves the folded CATALOG ops (GetProject's compute-at-read CPM + EV/SPI).
+	// Each git row's prUrl is composed against the web url sourceControlAccess.ProjectRepo
+	// answers (projectRepoOf); an empty one omits prUrl.
 	estimator estimation.EstimationEngine
-	repoBase  string
 
 	// designHealth is the DesignHealthEngine behind the designHealth read
 	// (GetDesignHealth, QueryProjectView{kind: designHealth}) — its contract's one op,
@@ -11182,13 +11073,11 @@ func newDeliveryManager(
 	episodes episode.EpisodeAccess,
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
-	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
-	repoBase string,
 ) *deliveryManager {
 	return &deliveryManager{
 		cs: newConstructionManager(c, projectState, art, interventionEng, reviewEng, pipeline,
 			rail, gitStatus, designSession, activityExecution, bus,
-			episodes, escalationWaitTimeout, interventionMode, repo,
+			episodes, escalationWaitTimeout, interventionMode,
 			// The three estimate Engines, handed to the construction half TOO: the generic child
 			// runs on its worker and walks the projectDesign lifecycle, whose one task is a
 			// server-side computation over them.
@@ -11197,12 +11086,10 @@ func newDeliveryManager(
 		projectState:      projectState,
 		pipeline:          pipeline,
 		rail:              rail,
-		repo:              repo,
 		designSession:     designSession,
 		activityExecution: activityExecution,
 		episodes:          episodes,
 		estimator:         estimator,
-		repoBase:          repoBase,
 		designHealth:      designHealth,
 	}
 }
@@ -12619,7 +12506,7 @@ func indirectDailyRateOf(pa projectstate.PlanningAssumptions) projectstate.Money
 // a pure helper goes here beside the Manager.
 //
 // isGitLocalVenue is in this half, and it matters: R6's SINGLE recognition point
-// for the deterministic local venue, called from railLifecycleEnabled OUTSIDE the
+// for the deterministic local venue, called from railEnabled OUTSIDE the
 // file it used to live in. constructRepoTarget is here for the same reason — since
 // Task 10 it is the venue resolver for BOTH the design and the construction
 // dispatch, not one rail's.
@@ -12700,42 +12587,11 @@ type csPipelineObservation struct {
 // archistrator's own repo keeps its hand-maintained copy (self-hosting divergence).
 const constructWorkflowFileName = "aiarch-construct.yml"
 
-// constructRepoTarget resolves the per-project construction venue: it runs the injected
-// Repo resolver and DECODES the opaque RepoRef into the RA's infrastructure-neutral
-// RepoTarget{Owner,Name} + the construct workflow file. A nil/unresolving resolver
-// yields a ZERO RepoTarget + empty workflow file, so submitPipeline leaves the contract
-// fields zero and the RA falls back to the configured central construction repo (the
-// pre-B5 legacy behavior, preserved for unresolvable projects). A malformed RepoRef
-// surfaces the RA's ContractMisuse — decoded via sourcecontrol's own OwnerRepo accessor
-// so the RepoRef encoding stays owned by sourceControlAccess (no encoding leak here).
-func (wf *csWorkflows) constructRepoTarget(projectID ProjectID) (agenticjob.RepoTarget, string, error) {
-	if wf.Repo == nil {
-		return agenticjob.RepoTarget{}, "", nil
-	}
-	repoRef, ok := wf.Repo(projectID)
-	if !ok {
-		return agenticjob.RepoTarget{}, "", nil
-	}
-	// A GITLOCAL ref is not a construction venue (stage 4a fix round 1). Recognising it
-	// here reproduces the pre-collapse nil resolver byte-for-byte (zero RepoTarget, empty
-	// workflow file ⇒ the RA falls back to the configured central construction repo)
-	// without splitting the dep back into two. Round 2 gave railLifecycleEnabled the same
-	// recognition, so on a local boot the dispatch AND the rail lifecycle agree.
-	if isGitLocalVenue(projectID, repoRef) {
-		return agenticjob.RepoTarget{}, "", nil
-	}
-	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
-	if err != nil {
-		return agenticjob.RepoTarget{}, "", err
-	}
-	return agenticjob.RepoTarget{Owner: owner, Name: name}, constructWorkflowFileName, nil
-}
-
 // isGitLocalVenue reports whether a resolved RepoRef is the DESIGN rails' deterministic
 // GitLocal venue for this project — the local profile's filesystem repo, which is not a
 // construction venue and carries no PR-rail lifecycle for construction. It is the ONE
 // place the recognition lives: the dispatch target (constructRepoTarget) and the rail
-// lifecycle (railLifecycleEnabled) must never disagree about it, and the encoding stays
+// lifecycle (railEnabled) must never disagree about it, and the encoding stays
 // owned by sourceControlAccess (the ref is compared against what its own pure resolver
 // mints, never parsed here).
 func isGitLocalVenue(projectID ProjectID, repoRef sourcecontrol.RepoRef) bool {
@@ -12898,16 +12754,6 @@ type gitForward struct {
 	prRef     string
 	crLabel   string
 	isRevert  bool
-}
-
-// gitEnabled reports whether the git-forward slice is wired AND a repo resolves for
-// this project. When false the spine runs unchanged (the live Postgres-store
-// composition that predates the GitStore).
-func (wf *csWorkflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
-	if wf.GitStatus == nil || wf.Repo == nil || !wf.RailEnabled(projectID) {
-		return sourcecontrol.RepoRef(""), false
-	}
-	return wf.Repo(projectID)
 }
 
 // activityBranchName derives the provider-neutral per-activity branch name

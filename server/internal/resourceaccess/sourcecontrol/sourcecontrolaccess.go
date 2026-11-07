@@ -238,7 +238,7 @@ type githubClient interface {
 var _ githubClient = (*fwgithub.AppClient)(nil)
 
 // access is the concrete GitHub-App-backed sourceControlAccess. It implements the
-// single merged SourceControlAccess port (all ten ops) over a single githubClient.
+// single merged SourceControlAccess port (all eleven ops) over a single githubClient.
 // It is UNEXPORTED (option-1 generated-DI): the package's only public surface is the
 // generated SourceControlAccess interface + models + the generated
 // NewGitHubSourceControlAccess constructor (plus the small hand-written catalog/locator
@@ -257,6 +257,11 @@ type access struct {
 	// repoPrivate selects repo visibility on provision (a provider hint, not a
 	// contract field).
 	repoPrivate bool
+	// webHost is the forge's WEB host (scheme + host, no trailing slash) a repo's browsable
+	// url is composed against: https://github.com by default, or the GHES root. Set by
+	// NewGitHubSourceControl from the configured API base; the generated constructor leaves
+	// the github.com default.
+	webHost string
 	// now is the clock (overridable in tests for deterministic cache expiry).
 	now func() time.Time
 
@@ -298,6 +303,7 @@ func newGitHubSourceControlAccess(client *fwgithub.AppClient, defaultAccount, ap
 		defaultAccount: strings.TrimSpace(defaultAccount),
 		appSlug:        strings.TrimSpace(appSlug),
 		repoPrivate:    repoPrivate,
+		webHost:        githubWebHost(""),
 		now:            time.Now,
 		tokenCache:     map[string]cachedToken{},
 		scaffoldSynced: map[string]string{},
@@ -982,6 +988,36 @@ func (a *access) MergePullRequest(rc fwra.Context, repo RepoRef, pr PullRequestR
 // ---------------------------------------------------------------------------
 // Internal helpers.
 // ---------------------------------------------------------------------------
+
+// ProjectRepo resolves the project's own repo: the catalog's name-as-identity ref
+// ("account|account/<project>", RepoRefForProject under the configured default account) and
+// its browsable web url on the forge's web host. It is a pure derivation — no IO — so a
+// project the App has not yet adopted resolves like any other; whether the repo exists is the
+// rail verbs' concern, as it was for the closure this verb replaces.
+func (a *access) ProjectRepo(_ fwra.Context, projectID ProjectID) (ProjectRepoInfo, error) {
+	ref, err := a.RepoRefForProject("", projectID)
+	if err != nil {
+		return ProjectRepoInfo{}, err
+	}
+	_, fullName, err := splitRepoRef(ref)
+	if err != nil {
+		return ProjectRepoInfo{}, err
+	}
+	return ProjectRepoInfo{Repo: ref, WebURL: a.webHost + "/" + fullName, Found: true}, nil
+}
+
+// githubWebHost maps a GitHub REST root onto the forge's WEB host: github.com's
+// api.github.com root (and the empty default) is https://github.com; a GHES root drops its
+// /api/v3 suffix; any other host is taken as the web host verbatim.
+func githubWebHost(apiBaseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(apiBaseURL), "/")
+	switch base {
+	case "", "https://api.github.com", "http://api.github.com":
+		return "https://github.com"
+	default:
+		return strings.TrimSuffix(base, "/api/v3")
+	}
+}
 
 // resolveAccount picks the caller-supplied account or falls back to the
 // composition-root default.
@@ -1680,13 +1716,16 @@ type Error = fwra.Error
 
 // NewGitHubSourceControl builds the GitHub-App-backed sourceControlAccess over the shared
 // *fwgithub.AppClient and returns both published surfaces (catalog + generated interface).
-func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug string, repoPrivate bool) (CatalogAccess, SourceControlAccess, error) {
+// apiBaseURL is the REST root the client was built against (empty == github.com); the access
+// derives the forge's web host from it for ProjectRepo's browsable url.
+func NewGitHubSourceControl(client *fwgithub.AppClient, account, appSlug, apiBaseURL string, repoPrivate bool) (CatalogAccess, SourceControlAccess, error) {
 	scAccess, err := NewGitHubSourceControlAccess(client, account, appSlug, repoPrivate)
 	if err != nil {
 		return nil, nil, err
 	}
-	scConcrete := scAccess.(CatalogAccess)
-	return scConcrete, scAccess, nil
+	scConcrete := scAccess.(*access)
+	scConcrete.webHost = githubWebHost(apiBaseURL)
+	return scConcrete, scConcrete, nil
 }
 
 // ===========================================================================
@@ -1809,6 +1848,16 @@ func (a *gitLocalAccess) GetInstallationToken(_ fwra.Context, repo RepoRef) (Rep
 		return RepoCredential{}, fwra.New(fwra.ContractMisuse, "gitlocal GetInstallationToken: zero RepoRef")
 	}
 	return RepoCredential{Bytes: []byte(gitLocalCredentialToken), ExpiresAt: gitLocalFarExpiry}, nil
+}
+
+// ProjectRepo resolves every project to its deterministic local RepoRef — the venue the local
+// design rail's branch → PR → merge lifecycle runs against. A filesystem venue has no web host,
+// so WebURL is empty and the Manager composes no pull-request link for it.
+func (a *gitLocalAccess) ProjectRepo(_ fwra.Context, projectID ProjectID) (ProjectRepoInfo, error) {
+	if strings.TrimSpace(string(projectID)) == "" {
+		return ProjectRepoInfo{}, fwra.New(fwra.ContractMisuse, "gitlocal ProjectRepo: empty projectID")
+	}
+	return ProjectRepoInfo{Repo: GitLocalRepoRefForProject(projectID), Found: true}, nil
 }
 
 // AdoptProjectRepo returns the deterministic local RepoRef for the project. The shared

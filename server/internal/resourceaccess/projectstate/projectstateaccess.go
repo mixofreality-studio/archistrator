@@ -5766,6 +5766,10 @@ type ContractOperation struct {
 	// no result.
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  bool            `json:"error"`
+	// ReadOnly marks an operation that only observes (the platform's projectmodel field of the
+	// same name): methodcheck holds a test probe to one. Omitted when false, so every
+	// operation that does not set it keeps its committed bytes.
+	ReadOnly bool `json:"readOnly,omitempty"`
 	// UI optionally marks this operation as rendering an MCP App view.
 	// Ops without it stay plain tools. See docs/superpowers/specs/2026-07-13-mcp-apps-design.md §3.5.
 	UI *OpUI `json:"ui,omitempty"`

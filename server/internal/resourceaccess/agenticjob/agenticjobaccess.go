@@ -1090,7 +1090,7 @@ func (dryRunPipeline) ObserveAgenticJob(_ fwra.Context, handle PipelineHandle) (
 // (no full clone per dispatch) over clone isolation: the agent's git subprocesses
 // now write into the shared repo's own .git (worktree metadata, objects, refs); see
 // the SECURITY POSTURE doc block below. The dormant git-forward PR rail note still
-// holds: RailEnabled needs sourceControlAccess, which requires the same GitHub creds
+// holds: railEnabled needs sourceControlAccess, which requires the same GitHub creds
 // this arm is selected for the ABSENCE of (constructactivity.go's gitEnabled) —
 // nobody else creates the activity branch in this profile, so this realisation must.
 //

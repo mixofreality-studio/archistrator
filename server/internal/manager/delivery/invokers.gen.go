@@ -239,6 +239,13 @@ func (i genInvokers) RailPostReview(ctx workflow.Context, repo sourcecontrol.Rep
 	return err
 }
 
+// RailProjectRepo invokes activity "sourceControlAccess.projectRepo".
+func (i genInvokers) RailProjectRepo(ctx workflow.Context, projectID sourcecontrol.ProjectID) (sourcecontrol.ProjectRepoInfo, error) {
+	var out sourcecontrol.ProjectRepoInfo
+	err := workflow.ExecuteActivity(i.options(ctx, "sourceControlAccess.projectRepo"), "sourceControlAccess.projectRepo", projectID).Get(ctx, &out)
+	return out, err
+}
+
 // RailReadManagedFile invokes activity "sourceControlAccess.readManagedFile".
 func (i genInvokers) RailReadManagedFile(ctx workflow.Context, repo sourcecontrol.RepoRef, path string, cred sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
 	var out sourcecontrol.ManagedFileRead

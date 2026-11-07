@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"os"
-	"sort"
 	"strings"
 	"testing"
 
@@ -13,10 +12,9 @@ import (
 
 // TestScenarioCompose_EmitsForOwnModel runs the platform's scenariocompose emitter over
 // archistrator's own project.json with the knobs appgen.json carries (Task 2.11d). The local
-// profile is model-derived, so the only Manager the generated test subject may leave unbuilt is
-// deliveryManager, and only for its two composition-root policy dependencies repo and repoBase
-// (Task 2.11e moves them behind sourceControlAccess). A refusal of anything else, or an error,
-// means a binding's local arm is still hook-supplied.
+// profile is model-derived and (Task 2.11e) no Manager depends on composition-root policy, so
+// the generated test subject builds every Manager: zero refusals. A refusal, or an error, means
+// a binding's local arm or a Manager dependency is still hook-supplied.
 func TestScenarioCompose_EmitsForOwnModel(t *testing.T) {
 	m, err := projectmodel.LoadFile("../../../.aiarch/state/project.json")
 	if err != nil {
@@ -59,17 +57,10 @@ func TestScenarioCompose_EmitsForOwnModel(t *testing.T) {
 	if !strings.Contains(string(src), "package scenariocompose") {
 		t.Errorf("the emitted subject is not package scenariocompose")
 	}
-	// The emitter reports one refusal per Manager: the first policy dependency it meets, which is
-	// repo (declared before repoBase). Both belong to deliveryManager until Task 2.11e removes them.
-	var got []string
+	// Task 2.11e removed the last two composition-root policy dependencies (deliveryManager's repo
+	// closure and repoBase string, now the sourceControlAccess ProjectRepo verb), so the generated
+	// subject builds every Manager of the own model: no refusal remains.
 	for _, r := range refused {
-		if r.Manager != "deliveryManager" || (r.Dependency != "repo" && r.Dependency != "repoBase") {
-			t.Errorf("unexpected refusal %s: only deliveryManager's repo/repoBase may remain", r)
-		}
-		got = append(got, r.Manager+"/"+r.Dependency)
-	}
-	sort.Strings(got)
-	if len(got) != 1 {
-		t.Errorf("refusals = %v, want exactly one (deliveryManager)", got)
+		t.Errorf("manager left unbuilt: %s", r)
 	}
 }

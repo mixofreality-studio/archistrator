@@ -1055,6 +1055,18 @@ func internalToolCatalog() []InternalTool {
 			OutputSchema: json.RawMessage("{\"type\":\"object\"}"),
 		},
 		{
+			Name:         "sourceControlProjectRepo",
+			Component:    "sourceControlAccess",
+			Layer:        "ResourceAccess",
+			Operation:    "ProjectRepo",
+			Params:       []string{"projectID"},
+			ReadOnly:     false,
+			AgentHidden:  false,
+			Description:  "ProjectRepo on the sourceControlAccess ResourceAccess contract (state-changing). Raw generated internal tool.",
+			InputSchema:  json.RawMessage("{\"$defs\":{\"ProjectID\":{\"type\":\"string\"}},\"additionalProperties\":false,\"properties\":{\"projectID\":{\"$ref\":\"#/$defs/ProjectID\"}},\"required\":[\"projectID\"],\"type\":\"object\"}"),
+			OutputSchema: json.RawMessage("{\"$defs\":{\"ProjectRepoInfo\":{\"type\":\"object\",\"properties\":{\"Repo\":{\"$ref\":\"#/$defs/RepoRef\"},\"WebURL\":{\"type\":\"string\"},\"Found\":{\"type\":\"boolean\"}},\"required\":[\"Repo\",\"WebURL\",\"Found\"],\"additionalProperties\":false},\"RepoRef\":{\"type\":\"string\"}},\"$ref\":\"#/$defs/ProjectRepoInfo\"}"),
+		},
+		{
 			Name:         "sourceControlReadManagedFile",
 			Component:    "sourceControlAccess",
 			Layer:        "ResourceAccess",

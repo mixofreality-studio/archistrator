@@ -7,7 +7,7 @@ package main
 // composition root and are passed into projectstate.NewGitHubProjectStateAccess as ports
 // (the projectstate RA NEVER calls sourceControlAccess — the cred is a caller-supplied
 // parameter, D-SC §1.1 returned-not-recorded). gitWebHost is host-derivation policy shared
-// with constructionRepoBase and stays here too.
+// with the sourcecontrol RA's web-host derivation (ProjectRepo) and stays here too.
 //
 // cmd/server is OUTSIDE internal/, so this file may freely import both concrete RA packages
 // and the github satellite; it imports no Temporal.
@@ -21,7 +21,7 @@ import (
 )
 
 // gitWebHost derives the GitHub WEB host (https://github.com, or a GHES web host) the
-// per-project repo clone URLs are composed from. Mirrors constructionRepoBase's host
+// per-project repo clone URLs are composed from. Mirrors the sourcecontrol RA's (githubWebHost) host
 // derivation: github.com by default; for GHES strip the /api/v3 REST suffix off the
 // configured API base URL to recover the web host.
 func gitWebHost(apiBaseURL string) string {

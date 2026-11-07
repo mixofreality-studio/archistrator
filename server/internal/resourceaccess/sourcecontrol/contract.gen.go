@@ -42,6 +42,12 @@ type MergeResult struct {
 
 type ProjectID string
 
+type ProjectRepoInfo struct {
+	Repo   RepoRef `json:"Repo"`
+	WebURL string  `json:"WebURL"`
+	Found  bool    `json:"Found"`
+}
+
 type PullRequestRef string
 
 type PullRequestSpec struct {
@@ -97,6 +103,7 @@ type SourceControlAccess interface {
 	PostReview(rc fwra.Context, repo RepoRef, pr PullRequestRef, review ReviewSubmission, cred RepoCredential) error
 	SyncManagedScaffold(rc fwra.Context, repo RepoRef, cred RepoCredential) (bool, error)
 	ReadManagedFile(rc fwra.Context, repo RepoRef, path string, cred RepoCredential) (ManagedFileRead, error)
+	ProjectRepo(rc fwra.Context, projectID ProjectID) (ProjectRepoInfo, error)
 }
 
 // NewGitHubSourceControlAccess constructs the GitHub-backed SourceControlAccess, delegating to the hand-written,

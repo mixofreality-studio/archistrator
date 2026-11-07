@@ -23,11 +23,11 @@ import (
 // which is the use case's remain-open branch, and re-asking starts the workflow again.
 func (wf *csWorkflows) AnswerJobWorkflow(ctx workflow.Context, in answerJobInput) error {
 	log := workflow.GetLogger(ctx)
-	if wf.Repo == nil {
-		log.Warn("answer job NOT dispatched: no repo resolver (rail dormant)", "projectId", string(in.ProjectID))
+	if !wf.RailWired {
+		log.Warn("answer job NOT dispatched: no source-control rail bound (rail dormant)", "projectId", string(in.ProjectID))
 		return nil
 	}
-	repoRef, ok := wf.Repo(in.ProjectID)
+	repoRef, ok := wf.projectRepo(ctx, in.ProjectID)
 	if !ok {
 		log.Error("answer job NOT dispatched: could not resolve the project repo; re-run AskQuestions to retry", "projectId", string(in.ProjectID))
 		return nil
@@ -35,7 +35,7 @@ func (wf *csWorkflows) AnswerJobWorkflow(ctx workflow.Context, in answerJobInput
 	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch): on a GitHub venue an answer job runs the same
 	// seated aiarch-design.yml as a draft, so it must never run against a stale scaffold. The
 	// local venue seats no workflow, so there is nothing to converge (as for a design draft).
-	if wf.RailEnabled(in.ProjectID) {
+	if !isGitLocalVenue(in.ProjectID, repoRef) {
 		cred, err := wf.mintCred(ctx, repoRef)
 		if err != nil {
 			log.Error("answer job NOT dispatched: could not mint the repo credential for the managed-scaffold sync; re-run AskQuestions to retry", "error", err.Error())
