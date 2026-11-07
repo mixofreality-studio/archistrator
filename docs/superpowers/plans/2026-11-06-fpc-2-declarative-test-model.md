@@ -360,6 +360,82 @@ func TestPlaywright_EmptyObservationRefusedAtGeneration(t *testing.T)
 - [ ] **Step 4: Run** `GOWORK=off go test -p 1 ./internal/resourceaccess/projectstate ./cmd/aiarch-state-mcp ./internal/manager/delivery` — Expected: PASS; `make method-check` — Expected: PASS with Warnings only for waived rules (print the count in the commit body). Note: own-project scenario tests (`TestScenario_*`) now construct subjects via `scenariocompose`; run `make test-scenarios` for one Engine package and one RA package to prove the generated constructors wire; if a package's wiring is not derivable, the fix is in composegen's substrate mapping (Task 2.6), not a hand edit.
 - [ ] **Step 5: Commit** `git commit -m "feat(app): binding model v2 schema, typed UI design, readOnly ops, rule waivers, uitests out of construction scope; own plans migrated under ruling 8"`.
 
+**Status 2026-11-07:** blocked at Step 3 (`make gen-tests`): nothing emits `internal/scenariocompose/compose.gen.go` into an app, and `EmitScenarioCompose` refuses hook-supplied variant args. App WIP preserved on branch `wip/fpc-2-task-2-11` @63129ac4. Tasks 2.11a–2.11e below unblock it; then resume at Step 3 after cherry-picking 63129ac4 onto the task branch.
+
+---
+
+### Task 2.11a: Model-derived local profile — `Substrate` catalog, `git-repo`, `Dep.Setting` (platform: projectmodel, configgen, rungen)
+
+**Ruling (system-architect, 2026-11-07, replaces the 2.11 Step 4 remedy):** the scenario subject is the *local-profile composition*, the same profile `cmd/devstack` boots, and it must be derived completely from the model with nothing hook-supplied. Production keeps `hooks.go` only for cloud-profile policy. Neither relocating the seam to an importable package (breaks PR-2/GC-1, illegal under the layout standard, `newAppHooks` cannot run in a test) nor an args-provider interface (FILL by another name) is acceptable.
+
+**Files:**
+- Modify: `framework-go-projectmodel/deployment.go` (`Substrate` enum: `SubstrateTemporal`, `SubstratePostgres`, `SubstrateGitHubApp`, `SubstrateKeycloak`, `SubstrateOtel`, `SubstrateExternalHTTP` (exists :328), new `SubstrateGitRepo = "git-repo"`; `func Substrates() []Substrate`; `func (Substrate) Inputs() []SubstrateInput` — move the catalog from `framework-go-app-generator/internal/deploynaming.SubstrateCatalog`; `func InfraFieldName(key, input string) string`; `func InfraEnvName(prefix string, d InfraDecl, input string) string`; `const LocalProfile = "local"`), `contract.go:29` (`Dep.Setting string `json:"setting,omitempty"``), `validate.go` (unknown substrate → `PM-SUBSTRATE-UNKNOWN`; `Dep.Setting` must name a deployment setting of compatible type: duration↔`time.Duration`, string, bool, int → `PM-DEP-SETTING`).
+- Modify: `framework-go-app-generator/configgen/*` and `rungen/rungen.go` to read the promoted catalog (`deploynaming` becomes a re-export or is deleted); rungen provisions a temporary bare repo per local `git-repo` key, as it does Temporal/Postgres (`rungen.go:8`).
+- Tests: `projectmodel/validate_test.go` `TestValidate_UnknownSubstrate`, `TestValidate_DepSettingResolves`, `TestSubstrates_EveryKindHasInputs`; configgen golden for a `git-repo` field `ProjectStateGitRepoURL` and env `<PREFIX>_PROJECT_STATE_GIT_REPO_URL`; rungen test `TestRungen_ProvisionsGitRepo`.
+
+- [ ] **Step 1: Write the failing tests.** **Step 2: Run** (`GOWORK=off go test ./` in projectmodel; `./configgen ./rungen` in app-generator) — FAIL. **Step 3: Implement.** **Step 4: Run** — PASS; `GOWORK=off go test ./...` in both modules — PASS. **Step 5: Commit** `git commit -m "feat(projectmodel): Substrate catalog with git-repo, LocalProfile, infra naming, Dep.Setting; configgen/rungen consume it"`.
+
+### Task 2.11b: One `ctorArgs` for both composition roots; `localArm`; registrar kinds; `appgen compose` emits scenariocompose (platform: composegen, cmd/appgen)
+
+**Files:**
+- Modify: `framework-go-app-generator/composegen/{scenariocompose.go,catalog.go,resolve.go,hooks.go}`, `cmd/appgen/main.go:248-275` (`genCompose`).
+
+**Interfaces (Produces):**
+```go
+type argSource interface{ /* two impls: rootArgs (cfg.<Field>, tc, ctx,pool) and scenarioArgs (s.temporal(), s.t.Context(), s.postgres(), s.input("<key>","<INPUT>")) */ }
+func ctorArgs(arm variantArm, src argSource) ([]string, error)   // exhaustive switch over projectmodel.Substrates(); replaces variantArgsForSubstrate (catalog.go:29-44) and scenarioArmArgs (scenariocompose.go:263-292)
+func localArm(rb) (variantArm, bool, error)                        // the binding's projectmodel.LocalProfile arm; no local arm + required → error (same text as main.gen.go "no ResourceAccess variant for the active profile"); optional/optional-dormant → nil; hooked local arm → error "the local profile is the run contract and must be model-derived; declare its inputs as infrastructure or binding settings"
+```
+- `managerArg` and main.gen.go's manager-dependency resolution honour `Dep.Setting`: `cfg.<Field>` in production, `settingLiteral(default)` in scenario; a dependency with a setting link emits no resolver hook.
+- Registrar kinds: for `Config.ScheduleRegistrarComponent` the registrar's constructor takes, after its infra args, one `<mgrAlias>.ExecutionKinds()` per Manager that depends on it, in manager-key order; both roots emit it (app side: `NewTemporalMessageBus(cl, tables ...map[ExecutionKind]KindBinding)`).
+- `genCompose` adds `out[composegen.ScenarioComposeFile], err = composegen.EmitScenarioCompose(effective, cc)`; covered by `-check` drift; the file exists even with zero test plans (`Workflows()` feeds replay).
+- Tests: `TestCtorArgs_BothRootsSameShape`, `TestScenarioCompose_LocalArmOnly`, `TestScenarioCompose_OptionalDormantNoLocalArmIsNil`, `TestScenarioCompose_LocalHookedArmIsError`, `TestCompose_DepSettingBothRoots`, `TestCompose_RegistrarKindsFromManagers`, `TestCompose_WritesScenarioCompose`.
+
+- [ ] **Step 1: Write the failing tests.** **Step 2: Run** `GOWORK=off go test ./composegen ./cmd/appgen` — FAIL. **Step 3: Implement.** **Step 4: Run** — PASS; `GOWORK=off go test ./...` + `golangci-lint run ./...` in app-generator — PASS/0. **Step 5: Commit** `git commit -m "feat(composegen): shared ctorArgs, local-arm scenario wiring, Dep.Setting, registrar kinds; appgen compose emits scenariocompose"`.
+
+### Task 2.11c: scenariohost is the one infra→substrate mapping; arch keeps test substrates out of the binary (platform: scenariohost, framework-go/arch)
+
+**Files:**
+- Modify: `framework-go-scenariohost/host.go` (+ `go.mod` → projectmodel):
+```go
+func (h *Host) Input(t *testing.T, infraKey string, s projectmodel.Substrate, input string) string // exhaustive: temporal HOSTPORT/NAMESPACE; postgres URL; git-repo URL → h.GitRepo(t, infraKey).URL (one bare repo per key, lazy, reuse startLocalGitRepo host.go:278); otel none; github-app/keycloak/external-http → t.Fatalf naming the missing double
+func (h *Host) GitRepo(t *testing.T, infraKey string) LocalGitRepo
+func (h *Host) Env(t *testing.T, prefix string, d *projectmodel.Deployment) []string // for every LocalProfile InfraDecl: InfraEnvName(...)=Input(...); Plan 3's devstack launch consumes this
+```
+- Modify: `framework-go/arch/arch.go` — new Error rule `ARCH-SCENARIOCOMPOSE-TEST-ONLY`: only `_test` packages may import `<module>/internal/scenariocompose` or `framework-go-scenariohost`; `cmd/` included. `internal/scenariocompose` stays exempt only while all-generated (arch.go:316-334); no new exemptions.
+- Tests: `TestInput_EverySubstrateHasAnArm` (iterates `projectmodel.Substrates()`), `TestEnv_LocalInfraOnly`, `TestGitRepo_OnePerKey`; arch `TestArchScenarioComposeTestOnly_Fires` with a violating fixture + passing fixture.
+
+- [ ] **Step 1: Write the failing tests.** **Step 2: Run** — FAIL. **Step 3: Implement.** **Step 4: Run** scenariohost + framework-go `./arch` — PASS. **Step 5: Commit** `git commit -m "feat(scenariohost): Input/GitRepo/Env — the single infra→substrate mapping; arch: ARCH-SCENARIOCOMPOSE-TEST-ONLY"`.
+
+### Task 2.11d: Release 2.11a–c and conform archistrator's own model and seam (platform release; app)
+
+**Release (needs the founder's push if the classifier refuses):** tag `framework-go-projectmodel`, `framework-go`, `framework-go-app-generator`, `framework-go-scenariohost`, `method-assets` at fpc/main HEAD (next minor each); push fpc/main + those tag refs explicitly; bump `server/go.mod` pins; `GOWORK=off go mod tidy`.
+
+**App files:**
+- `.aiarch/state/project.json` `slots.6.model.deployment`: add infrastructure `{key:"project-state-git-repo", substrate:"git-repo", profiles:["local"], presence:"required", env:{URL:"ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL"}}` and `{key:"artifact-repo", substrate:"git-repo", profiles:["local"], presence:"optional", env:{URL:"ARCHISTRATOR_ARTIFACT_REPO_URL"}}`; local arms of projectState, gitActivityStatus, activityExecution, designSession, sourceControl, episode → `infra:["project-state-git-repo"]`; artifactAccess → `["artifact-repo"]`; delete binding settings and top-level settings `projectStateGitRepoURL`/`artifactRepoURL` (project.json ~12389/12458/12712/12719). `serviceContracts.deliveryManager.deps`: `escalationWaitTimeout.setting="constructionEscalationTimeout"`, `interventionMode.setting="constructionInterventionMode"`.
+- `server/appgen.json` `variantHookArgs`: delete `gitActivityStatusAccess/GitLocal`, `designSessionAccess/GitLocal`, `activityExecutionAccess/GitLocal`, `sourceControlAccess/GitLocal`, `episodeAccess/LocalFS`, `messageBus/Temporal`.
+- `server/internal/manager/{delivery,operations,billing}/*manager.go`: `func ExecutionKinds() map[messagebus.ExecutionKind]messagebus.KindBinding` moved from `cmd/server/hooks.go:1152-1197`; `constructionExecutionKinds` (hooks.go:1212) reads `delivery.ExecutionKinds()`.
+- `cmd/server/hooks.go`: delete :965-993, :1152-1197, :1292-1298.
+- Run `make gen-models gen-temporal` (regenerates main.gen.go/config.gen.go and now `internal/scenariocompose/compose.gen.go`); keep `hooks_test`/`config_parity_test` green; `make method-check`.
+- Tests: `TestExecutionKinds_EveryManagerExports`, `TestScenarioCompose_EmitsForOwnModel` (`composegen.EmitScenarioCompose` over own project.json; until 2.11e the ONLY remaining refusals may be `deliveryManager`'s `repo`/`repoBase` — assert exactly that set).
+
+- [ ] **Step 1: Write the failing tests.** **Step 2: Run** — FAIL. **Step 3: Release + pins** (record blockedActions if the push is refused; never commit a `replace`). **Step 4: App edits + regen.** **Step 5: Run** `GOWORK=off go test -p 1 ./cmd/server/ ./internal/manager/... ./internal/resourceaccess/projectstate` + `make method-check` — PASS. **Step 6: Commit** `git commit -m "feat(app): model-derived local profile — git-repo infra, Dep.Setting, Manager ExecutionKinds; hooks.go loses local-profile args"`.
+
+### Task 2.11e: `sourceControlAccess` project-repo verb; `deliveryManager` drops `repo`/`repoBase` (app; senior-developer contract design)
+
+**Basis:** `hooks.go:1322-1365` hands the Manager a policy closure and a derived string — a Phase-1 defect. The resolver's truth table (catalog when credentials exist; GitLocal on the local profile; otherwise none) is the one `FinalizeSourceControlAccess` applies, so it belongs as a verb on `sourceControlAccess`, which the Manager already depends on.
+
+**Files:**
+- `.aiarch/state/project.json` `serviceContracts.sourceControlAccess`: new op in gross terms `ProjectRepo(ctx, projectID) (RepoRef, webURL string, ok bool, err)` (name per the contract's verb conventions; `readOnly: true`); `deliveryManager.deps` drop `repo`, `repoBase`; dynamic views of the use cases that read the repo gain the call (CC-* must pass). Record through the state verbs / data edit per B11.
+- `server/internal/resourceaccess/sourcecontrol/*`: GitLocal variant uses `GitLocalRepoRefForProject`; GitHub variant uses its catalog; central construction-repo fallback from `agenticJobAccess` or settings — no closure, no derived string.
+- `server/internal/manager/delivery/*`: call the verb where `repo`/`repoBase` were used.
+- `cmd/server/hooks.go`: delete :1322-1365.
+- Tests: `TestProjectRepo_TruthTable` (pins catalog/local/none exactly as hooks.go:1322-1365 did), `TestScenarioCompose_EmitsForOwnModel` now asserts zero refusals; delivery scenario tests for the affected use cases regenerate and pass.
+
+- [ ] **Step 1: Write the failing tests.** **Step 2: Run** — FAIL. **Step 3: Implement** (contract first, then RA, then Manager, then hooks deletion, then `make gen-models gen-temporal gen-tests`). **Step 4: Run** `GOWORK=off go test -p 1 ./internal/resourceaccess/sourcecontrol ./internal/manager/delivery ./cmd/server/` + `make method-check` — PASS. **Step 5: Commit** `git commit -m "feat(sourcecontrol): ProjectRepo verb replaces the composition-root repo closure; deliveryManager depends on the verb"`. Then resume Task 2.11 at Step 3 (`make gen-tests`) after cherry-picking 63129ac4 from `wip/fpc-2-task-2-11` onto the task branch.
+
+**Earmarks (architect, not in this wave):** E1 cloud RA→RA ports via hooks (hooks.go:937-962) look like a sideways RA dependency; E2 cloud github-app arms share an AppClient via hooks against the per-variant convention; E3 non-identity `Finalize*` on the local profile (artifact, agenticJob, sourceControl, messageBus) means devstack ≠ in-process — resolve before Plan 3 claims parity (the local executor should be a declared local variant of agenticJobAccess); E4 extend the local-hooked refusal to `composegen.Generate`; E5 derive the kinds table from WorkflowDecl + dynamic views; E6 scenariohost github-app over FakeGitHub; E7 one database per Postgres key.
+
 ---
 
 ### Task 2.12: method-assets prompts, lifecycle text, Makefile, scaffold
