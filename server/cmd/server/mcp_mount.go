@@ -1,53 +1,18 @@
-// MCP transport mount. This file is the composition-root glue that exposes the
-// three web-wired managers over the Model Context Protocol, mirroring the REST
-// wiring in main.go (web.NewServer): it constructs ONE mcp.Server, registers
-// every generated per-manager tool Handler against the SAME manager instances
-// the REST Handlers use, and returns the SDK's streamable-HTTP transport wrapped
-// in the SAME auth middleware as /api/v1 (web.AuthMiddleware — dev mode injects a
-// principal with no token; prod validates the bearer token, nil validator denies).
+// MCP transport wrap. The generated composition root (main.gen.go) owns the "/mcp"
+// mount: it builds ONE mcp.Server, registers every generated per-manager tool table
+// against the SAME manager instances the REST handlers use, and mounts the SDK's
+// streamable-HTTP transport behind the SAME auth boundary as /api/v1. The hand half of
+// the surface (the ui://archistrator/shell.html resource, the dev-only CORS, the
+// anti-framing headers) rides the generated MCPMount hook (appHooks.MCPMount in hooks.go),
+// which is why this file holds only the wrap helper it calls.
 //
 // Like main.go this lives OUTSIDE internal/, so it is not scanned by the Method
-// arch checker and may freely import the MCP SDK transport. The generated tool
-// Handlers (internal/client/mcp/*) are the only things the arch checker allows to
-// import the SDK; this root mounts them.
+// arch checker.
 package main
 
 import (
 	"net/http"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	billingmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/billing"
-	deliverymcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/delivery"
-	operationsmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-
-	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
-
-// newMCPServer builds the single MCP server carrying every generated tool. Tool
-// names are manager-namespaced (billing*/delivery*/operations*), so registering
-// every Handler on one server never collides. webAppOrigin/assetVersion configure
-// the ui://archistrator/shell.html resource (mcp_apps.go) registered alongside the
-// three generated tool Handlers. sec is the security Utility the REST handlers hold:
-// every tool call is authorized against it exactly as the REST call is (FIX-047).
-func newMCPServer(
-	sec security.Security,
-	bil billing.BillingManager,
-	del delivery.DeliveryManager,
-	ops operations.OperationsManager,
-	webAppOrigin, assetVersion string,
-) *mcp.Server {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "archistrator-server", Version: "1.0.0"}, nil)
-	(&billingmcp.Handler{Manager: bil, Security: sec}).Register(srv)
-	(&deliverymcp.Handler{Manager: del, Security: sec}).Register(srv)
-	(&operationsmcp.Handler{Manager: ops, Security: sec}).Register(srv)
-	registerShellResource(srv, webAppOrigin, assetVersion)
-	return srv
-}
 
 // devCORS permits browser-based MCP hosts (the ext-apps basic-host pilot
 // harness) to call /mcp cross-origin. DEV ONLY: production hosts call
@@ -70,24 +35,4 @@ func devCORS(enabled bool, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// newMCPHandler returns the http.Handler mounted at /mcp: the SDK streamable-HTTP
-// transport in front of the shared MCP server, wrapped by the SAME auth boundary
-// as the REST surface. The dev-mode principal (or the validated bearer principal)
-// is stashed on the request context by AuthMiddleware and flows into each tool
-// handler's ctx, exactly as it does for the REST handlers (they both read it via
-// security.PrincipalFrom).
-func newMCPHandler(
-	dev web.DevConfig,
-	validator security.Validator,
-	sec security.Security,
-	bil billing.BillingManager,
-	del delivery.DeliveryManager,
-	ops operations.OperationsManager,
-	webAppOrigin, assetVersion string,
-) http.Handler {
-	srv := newMCPServer(sec, bil, del, ops, webAppOrigin, assetVersion)
-	transport := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
-	return devCORS(dev.Enabled, web.AuthMiddleware(dev, validator)(transport))
 }

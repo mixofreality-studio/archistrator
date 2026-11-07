@@ -113,6 +113,12 @@ type Hooks interface {
 	// against the same one.
 	ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers)
 
+	// MCPMount receives the MCP server carrying every generated tool table and the
+	// streamable-HTTP transport already behind the auth boundary, and returns the
+	// handler the generated root mounts at /mcp. Register hand resources on server
+	// and add outer wraps (CORS, anti-framing) here. Return authed unchanged for none.
+	MCPMount(server *mcp.Server, dev web.DevConfig, authed http.Handler) http.Handler
+
 	// ActivityExecutionAccessGitHubArgs supplies the activityExecutionAccess GitHub variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
@@ -659,7 +665,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	(&billingmcp.Handler{Manager: webManagers.BillingManager, Security: sec}).Register(mcpServer)
 	(&deliverymcp.Handler{Manager: webManagers.DeliveryManager, Security: sec}).Register(mcpServer)
 	(&operationsmcp.Handler{Manager: webManagers.OperationsManager, Security: sec}).Register(mcpServer)
-	root.Handle("/mcp", web.AuthMiddleware(dev, validator)(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil)))
+	root.Handle("/mcp", hooks.MCPMount(mcpServer, dev, web.AuthMiddleware(dev, validator)(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil))))
 	hooks.ExtraMounts(root, cfg, dev, validator, sec, webManagers)
 	handler := otelhttp.NewHandler(root, serviceName)
 	srv := &http.Server{

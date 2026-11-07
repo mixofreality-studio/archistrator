@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -117,7 +118,43 @@ func TestMessageBusManagersOnly(t *testing.T) {
 // import the bus: the Manager layer, plus the component's own subtree (its
 // generated fake). Written without trailing slashes — restrictedImportViolations
 // matches them as directories, not as raw string prefixes.
-var messageBusAllowedDirs = []string{"manager", "utility/messagebus"}
+//
+// scenariocompose is the generated TEST composition root (compose.gen.go): it builds
+// messagebus.NewTemporalMessageBus exactly as the production root cmd/server/main.gen.go
+// does (the cmd/ root is outside the scan; this one sits inside internal/). It is exempt on
+// the same footing and ONLY while every file in it is generated -
+// TestMessageBusExemptRootsStayGenerated fails the moment a hand-written file lands there,
+// the same posture ARCH-SCENARIOCOMPOSE-TEST-ONLY takes on the package.
+var messageBusAllowedDirs = []string{"manager", "utility/messagebus", messageBusGeneratedRootDir}
+
+// messageBusGeneratedRootDir is the ModulePrefix-relative directory of the generated test
+// composition root that messageBusAllowedDirs exempts.
+const messageBusGeneratedRootDir = "scenariocompose"
+
+// TestMessageBusExemptRootsStayGenerated ties the composition-root exemption to the package
+// staying all-generated: a hand-written file in it would inherit a Manager's right to hold the
+// bus with no review.
+func TestMessageBusExemptRootsStayGenerated(t *testing.T) {
+	entries, err := os.ReadDir(messageBusGeneratedRootDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", messageBusGeneratedRootDir, err)
+	}
+	gen := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Errorf("%s/%s: the exempt generated root has no subpackages", messageBusGeneratedRootDir, e.Name())
+			continue
+		}
+		if !strings.HasSuffix(e.Name(), ".gen.go") {
+			t.Errorf("%s/%s is hand-written; the message-bus exemption holds only while the package is all-generated", messageBusGeneratedRootDir, e.Name())
+			continue
+		}
+		gen++
+	}
+	if gen == 0 {
+		t.Errorf("%s holds no generated file; drop the exemption instead of keeping it vacuous", messageBusGeneratedRootDir)
+	}
+}
 
 // restrictedImportViolations is the pure core of TestMessageBusManagersOnly:
 // given each package's import list, it returns the importing package paths that
@@ -446,7 +483,15 @@ var encapsulationAllowlistData = map[string][]string{
 	// GET /api/v1/delivery/test-run/{runID}/file over the interface behind the same auth
 	// boundary and the same PDP action as query-project-view; the Manager stays the only
 	// caller of artifactAccess, so the layering is unchanged.
+	// ExecutionKinds (delivery, operations, billing alike) is the Manager's schedule-kinds
+	// table - the ExecutionKind -> {task queue, workflow type} bindings of the Schedules it
+	// registers. Composition-root registration entrypoint, same category as RegisterSchedules:
+	// the generated main.gen.go and the generated scenario composition root
+	// (internal/scenariocompose/compose.gen.go) call <pkg>.ExecutionKinds() and hand it to the
+	// message-bus registrar (plan Tasks 2.11b/2.11d). It replaced the table hooks.go
+	// hand-maintained.
 	"internal/manager/delivery": {
+		"ExecutionKinds",
 		"MaterializeActivityPlan",
 		"RegisterManagerWorker",
 		"RegisterSchedules",
@@ -458,6 +503,7 @@ var encapsulationAllowlistData = map[string][]string{
 	// Temporal registration entrypoints (see delivery). RegisterSchedules registers the
 	// operatedStateReconcile Schedule at startup.
 	"internal/manager/operations": {
+		"ExecutionKinds",
 		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
@@ -466,6 +512,7 @@ var encapsulationAllowlistData = map[string][]string{
 	// Temporal registration entrypoints (see delivery). RegisterSchedules registers the
 	// shortfallSweep Schedule.
 	"internal/manager/billing": {
+		"ExecutionKinds",
 		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",

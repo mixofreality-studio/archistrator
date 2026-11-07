@@ -28,7 +28,7 @@ package main
 // server-side equivalent — grep across cmd/server confirms the child's own
 // `/mcp` mount (mcp_mount.go) never touched it; it lived entirely in the
 // stdio bridge this amendment removes. Moving it into cmd/server (e.g. via
-// mcp.Server.AddReceivingMiddleware on newMCPServer, mcp_mount.go) would
+// mcp.Server.AddReceivingMiddleware in appHooks.MCPMount, hooks.go) would
 // touch a different composition root than this task's scope and is NOT done
 // here — left as a follow-up (see this task's report). The daemon-shaped
 // equivalent kept in this file is simpler: print the SPA URL once, directly,

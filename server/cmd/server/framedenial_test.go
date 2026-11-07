@@ -73,7 +73,9 @@ func TestExtraMounts_DeniesFramingOnEveryResponse(t *testing.T) {
 			root.Handle("/", web.NewServer(web.DevConfig{}, nil)) // main.gen.go's mount
 			h := newTestAppHooks()
 			h.embeddedSPA = func() (fs.FS, bool) { return spaTestFS(), true }
-			h.ExtraMounts(root, &Config{ProjectStateGitLocal: tc.gitLocal}, web.DevConfig{Enabled: true, Principal: devPrincipal()}, nil, testSecurity(), WebManagers{})
+			dev := web.DevConfig{Enabled: true, Principal: devPrincipal()}
+			mountGeneratedMCP(root, h, dev, nil, testSecurity(), WebManagers{}) // main.gen.go's /mcp mount
+			h.ExtraMounts(root, &Config{ProjectStateGitLocal: tc.gitLocal}, dev, nil, testSecurity(), WebManagers{})
 
 			ts := httptest.NewServer(root)
 			defer ts.Close()

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"sort"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestExecutionKinds_EveryManagerExports(t *testing.T) {
 				}
 			}
 			sort.Strings(names)
-			if len(names) != len(c.want) || names[0] != c.want[0] || names[1] != c.want[1] {
+			if !slices.Equal(names, c.want) {
 				t.Errorf("kinds = %v, want %v", names, c.want)
 			}
 		})

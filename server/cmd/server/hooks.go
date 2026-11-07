@@ -106,6 +106,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	github "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	keycloak "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak"
@@ -587,6 +588,21 @@ func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConf
 	denyFramingOnEveryPath(root, routes)
 }
 
+// MCPMount is the seam on the generated /mcp mount (composegen owns the literal "/mcp"
+// pattern, so a second hand mount of it would be dead code behind the generated one). It
+// registers the ui://archistrator/shell.html MCP-Apps resource on the generated server
+// beside the generated tool tables, then wraps the authenticated transport in the dev-only
+// browser-host CORS and the anti-framing headers every other response carries.
+//
+// WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION are read here for the reason ExtraMounts reads
+// them: they are composition-root-only values the deployment model does not declare.
+func (h *appHooks) MCPMount(server *mcp.Server, dev web.DevConfig, authed http.Handler) http.Handler {
+	registerShellResource(server,
+		getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173"),
+		getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev"))
+	return denyFraming(devCORS(dev.Enabled, authed))
+}
+
 // mountRoutes is ExtraMounts' route table; root here is the inner mux
 // ExtraMounts wraps, already carrying the generated surface at "/".
 func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers) {
@@ -603,12 +619,6 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 		root.Handle("/api/v1/", log5xxResponses(h.logger, apiSurface))
 	}
 	root.Handle("GET /api/userinfo", web.AuthMiddleware(dev, validator)(http.HandlerFunc(security.UserInfoHandler)))
-	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
-	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")
-	root.Handle("/mcp", newMCPHandler(dev, validator, sec,
-		managers.BillingManager, managers.DeliveryManager, managers.OperationsManager,
-		webAppOrigin, assetVersion))
-
 	// GET /api/v1/projects/{projectID}/operated-app-id — the D13 derivation, answered
 	// server-side so the browser never reimplements it (see OperatedAppIDForProject).
 	// Same auth boundary and same composition-root-only status as /api/userinfo;

@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 )
 
 func TestShellStubHTML(t *testing.T) {
@@ -70,7 +68,7 @@ func TestDevCORSPreflight(t *testing.T) {
 func TestMCPAppsSeam(t *testing.T) {
 	const webAppOrigin = "https://app.example.com"
 	const assetVersion = "42"
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, testSecurity(), nil, nil, nil, webAppOrigin, assetVersion)
+	handler := composedMCPRoot(t, webAppOrigin, assetVersion)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -78,7 +76,7 @@ func TestMCPAppsSeam(t *testing.T) {
 	defer cancel()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "archistrator-test-client", Version: "0.0.1"}, nil)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp"}, nil)
 	if err != nil {
 		t.Fatalf("MCP initialize against /mcp failed: %v", err)
 	}
@@ -133,7 +131,7 @@ func TestMCPAppsSeam(t *testing.T) {
 // is required.
 func mustListTools(t *testing.T) []*mcp.Tool {
 	t.Helper()
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, testSecurity(), nil, nil, nil, "http://localhost:5173", "dev")
+	handler := composedMCPRoot(t, "http://localhost:5173", "dev")
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -141,7 +139,7 @@ func mustListTools(t *testing.T) []*mcp.Tool {
 	defer cancel()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "archistrator-test-client", Version: "0.0.1"}, nil)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp"}, nil)
 	if err != nil {
 		t.Fatalf("MCP initialize against /mcp failed: %v", err)
 	}
