@@ -594,12 +594,11 @@ func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConf
 // beside the generated tool tables, then wraps the authenticated transport in the dev-only
 // browser-host CORS and the anti-framing headers every other response carries.
 //
-// WEBAPP_ORIGIN/WEBAPP_ASSET_VERSION are read here for the reason ExtraMounts reads
-// them: they are composition-root-only values the deployment model does not declare.
+// The shell resource's origin and asset version come from the resolved Config (the
+// deployment model's webappOrigin / webappAssetVersion settings, whose declared defaults
+// are the local webApp dev server and "dev").
 func (h *appHooks) MCPMount(server *mcp.Server, dev web.DevConfig, authed http.Handler) http.Handler {
-	registerShellResource(server,
-		getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173"),
-		getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev"))
+	registerShellResource(server, h.config.WebappOrigin, h.config.WebappAssetVersion)
 	return denyFraming(devCORS(dev.Enabled, authed))
 }
 

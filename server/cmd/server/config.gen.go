@@ -107,8 +107,8 @@ func LoadConfig() (*Config, error) {
 		DevSubject:                    getenvString("ARCHISTRATOR_DEV_SUBJECT", ""),
 		LocalExecRunTimeout:           getenvString("ARCHISTRATOR_LOCAL_EXEC_RUN_TIMEOUT", ""),
 		StateMcpBin:                   getenvString("ARCHISTRATOR_STATE_MCP_BIN", ""),
-		WebappAssetVersion:            getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", ""),
-		WebappOrigin:                  getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", ""),
+		WebappAssetVersion:            getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev"),
+		WebappOrigin:                  getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173"),
 		DevPrincipal:                  getenv(devPrincipalEnv),
 	}
 

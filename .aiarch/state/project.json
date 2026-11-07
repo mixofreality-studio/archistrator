@@ -12792,14 +12792,14 @@
             {
               "name": "webappAssetVersion",
               "type": "string",
-              "default": "",
+              "default": "dev",
               "env": "ARCHISTRATOR_WEBAPP_ASSET_VERSION",
               "description": "Version of the webApp assets the MCP Apps widgets load."
             },
             {
               "name": "webappOrigin",
               "type": "string",
-              "default": "",
+              "default": "http://localhost:5173",
               "env": "ARCHISTRATOR_WEBAPP_ORIGIN",
               "description": "Origin the webApp is served from, for the MCP Apps widgets."
             }

@@ -106,15 +106,14 @@ func mountGeneratedMCP(root *http.ServeMux, hooks Hooks, dev web.DevConfig, vali
 // composedMCPRoot is the real composed mux in main.gen.go's order: the generated server at "/",
 // the generated /mcp mount, then the hand routes (ExtraMounts) — in dev mode, with nil Managers
 // (tools/list and resources/read never invoke one). The shell resource is keyed by the two
-// composition-root env values, set here.
+// Config values (webappOrigin / webappAssetVersion), set here.
 func composedMCPRoot(t *testing.T, webAppOrigin, assetVersion string) http.Handler {
 	t.Helper()
-	t.Setenv("ARCHISTRATOR_WEBAPP_ORIGIN", webAppOrigin)
-	t.Setenv("ARCHISTRATOR_WEBAPP_ASSET_VERSION", assetVersion)
 	dev := web.DevConfig{Enabled: true, Principal: devPrincipal()}
 	root := http.NewServeMux()
 	root.Handle("/", web.NewServer(dev, nil))
 	h := newTestAppHooks()
+	h.config = &Config{WebappOrigin: webAppOrigin, WebappAssetVersion: assetVersion}
 	mountGeneratedMCP(root, h, dev, nil, testSecurity(), WebManagers{})
 	h.ExtraMounts(root, &Config{}, dev, nil, testSecurity(), WebManagers{})
 	return root

@@ -445,7 +445,7 @@ func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func newTestAppHooks() *appHooks {
-	return &appHooks{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	return &appHooks{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), config: &Config{}}
 }
 
 // TestExtraMounts_OperationsRoutesStayMountedOnEveryProfile drives the real mux
