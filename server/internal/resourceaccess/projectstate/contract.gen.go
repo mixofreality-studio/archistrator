@@ -118,9 +118,18 @@ const (
 )
 
 type Actor struct {
-	ID   string `json:"id"`
-	Role string `json:"role"`
+	ID   string     `json:"id"`
+	Role string     `json:"role"`
+	Kind *ActorKind `json:"kind,omitempty"`
 }
+
+type ActorKind string
+
+const (
+	ActorKindHuman  ActorKind = "human"
+	ActorKindAgent  ActorKind = "agent"
+	ActorKindSystem ActorKind = "system"
+)
 
 type AdvanceClock struct {
 	Duration string `json:"duration"`
@@ -1238,8 +1247,9 @@ type TestPlanRecord struct {
 }
 
 type TestPrincipal struct {
-	Subject string   `json:"subject"`
-	Roles   []string `json:"roles"`
+	Subject    string   `json:"subject"`
+	Roles      []string `json:"roles"`
+	OnBehalfOf *string  `json:"onBehalfOf,omitempty"`
 }
 
 type TestingVariant int

@@ -1600,7 +1600,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -1872,15 +1873,18 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 },
                 {
                   "id": "operated-system",
-                  "role": "Operated System"
+                  "role": "Operated System",
+                  "kind": "system"
                 },
                 {
                   "id": "infrastructure",
-                  "role": "Infrastructure"
+                  "role": "Infrastructure",
+                  "kind": "system"
                 }
               ],
               "trigger": "timer",
@@ -2291,11 +2295,13 @@
               "actors": [
                 {
                   "id": "customer",
-                  "role": "Customer"
+                  "role": "Customer",
+                  "kind": "human"
                 },
                 {
                   "id": "payment-provider",
-                  "role": "Merchant Gateway Provider"
+                  "role": "Merchant Gateway Provider",
+                  "kind": "system"
                 }
               ],
               "trigger": "timer",
@@ -2513,7 +2519,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -2816,7 +2823,8 @@
               "actors": [
                 {
                   "id": "settlement-manager",
-                  "role": "Settlement Manager"
+                  "role": "Settlement Manager",
+                  "kind": "system"
                 }
               ],
               "trigger": "timer",
@@ -3079,7 +3087,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -3360,7 +3369,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -3684,7 +3694,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -4001,7 +4012,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -4277,7 +4289,8 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -4472,7 +4485,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -4639,7 +4653,8 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -4804,7 +4819,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -5092,7 +5108,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -5355,7 +5372,8 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -5598,7 +5616,8 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -5842,11 +5861,13 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 },
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "timer",
@@ -6363,7 +6384,8 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -6499,11 +6521,13 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 },
                 {
                   "id": "infrastructure",
-                  "role": "Infrastructure"
+                  "role": "Infrastructure",
+                  "kind": "system"
                 }
               ],
               "trigger": "clientAction",
@@ -6685,7 +6709,8 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -6839,7 +6864,8 @@
               "actors": [
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -6948,15 +6974,18 @@
               "actors": [
                 {
                   "id": "customer",
-                  "role": "Customer"
+                  "role": "Customer",
+                  "kind": "human"
                 },
                 {
                   "id": "infrastructure",
-                  "role": "Infrastructure"
+                  "role": "Infrastructure",
+                  "kind": "system"
                 },
                 {
                   "id": "operator",
-                  "role": "Operator"
+                  "role": "Operator",
+                  "kind": "human"
                 }
               ],
               "trigger": "busMessage",
@@ -7151,7 +7180,8 @@
               "actors": [
                 {
                   "id": "architect-user",
-                  "role": "Architect User"
+                  "role": "Architect User",
+                  "kind": "human"
                 }
               ],
               "trigger": "clientAction",
@@ -35319,6 +35349,7 @@
         },
         "Actor": {
           "type": "object",
+          "description": "A use-case participant role. kind classifies who acts: a human, an automated agent acting on a human's behalf (its test principal must then carry onBehalfOf, TP-PRINCIPAL-DELEGATION), or a system. Absent reads as a human.",
           "properties": {
             "id": {
               "type": "string",
@@ -35326,6 +35357,9 @@
             },
             "role": {
               "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/ActorKind"
             }
           },
           "required": [
@@ -35333,6 +35367,20 @@
             "role"
           ],
           "additionalProperties": false
+        },
+        "ActorKind": {
+          "type": "string",
+          "description": "Who acts in a use case: a human, an agent that acts on a human's behalf, or a system.",
+          "enum": [
+            "human",
+            "agent",
+            "system"
+          ],
+          "x-enum-varnames": [
+            "ActorKindHuman",
+            "ActorKindAgent",
+            "ActorKindSystem"
+          ]
         },
         "AdvanceClock": {
           "type": "object",
@@ -38449,6 +38497,10 @@
               "items": {
                 "type": "string"
               }
+            },
+            "onBehalfOf": {
+              "type": "string",
+              "description": "The subject of the human this identity acts for: the delegation claim an agent's calls carry. Required of every principal whose actor is an agent (TP-PRINCIPAL-DELEGATION); absent for a human."
             }
           },
           "required": [
