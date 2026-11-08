@@ -4,6 +4,7 @@
 package usage_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,6 +52,7 @@ func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query usage.UsageRangeQuery `json:"query"`
 			}
@@ -59,7 +61,7 @@ func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
                               "CycleID": "2026-10",
                               "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
                             }}`, &in)
-			return subject.ReadRange(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ReadRange(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		pre1_1 := held("operate-a-delivered-system-P4 probe 1.1 before", 1, run1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p4-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 		var in1 inputOperateADeliveredSystemP4S1
@@ -84,7 +86,7 @@ func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 		out1, err1 = subject.RecordComputeUsage(h.ResourceAccessContext(t, "1"), in1.Events)
 		expect(t, "operate-a-delivered-system-P4", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p4-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		expectProbe(t, "operate-a-delivered-system-P4 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0004\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p4-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 		differential(t, "operate-a-delivered-system-P4", 1, pre1_1)
 	})
 }
@@ -107,6 +109,7 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query usage.UsageRangeQuery `json:"query"`
 			}
@@ -115,7 +118,7 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
                               "CycleID": "2026-10",
                               "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
                             }}`, &in)
-			return subject.ReadRange(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ReadRange(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		pre1_1 := held("operate-a-delivered-system-P5 probe 1.1 before", 1, run1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0002\",\"Units\":{\"Amount\":1.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 		var in1 inputOperateADeliveredSystemP5S1
@@ -156,7 +159,7 @@ func TestScenario_operate_a_delivered_system_P5(t *testing.T) {
 		out1, err1 = subject.RecordComputeUsage(h.ResourceAccessContext(t, "1"), in1.Events)
 		expect(t, "operate-a-delivered-system-P5", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0002\",\"Units\":{\"Amount\":1.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		expectProbe(t, "operate-a-delivered-system-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0001\",\"Units\":{\"Amount\":0.25,\"Unit\":\"vCPU-hour\"}},{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0005\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-ops-p5-tick-0002\",\"Units\":{\"Amount\":1.0,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 		differential(t, "operate-a-delivered-system-P5", 1, pre1_1)
 	})
 }
@@ -187,6 +190,7 @@ func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query usage.UsageRangeQuery `json:"query"`
 			}
@@ -195,12 +199,13 @@ func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
                               "CycleID": "2026-10",
                               "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
                             }}`, &in)
-			return subject.ReadRange(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ReadRange(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		// probe 1.2: usageAccess.ReadRange for compute-usage-final
 		var pout1_2 any
 		var perr1_2 error
 		run1_2 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query usage.UsageRangeQuery `json:"query"`
 			}
@@ -209,7 +214,7 @@ func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
                               "CycleID": "2026-10",
                               "OperatedAppID": "6f1c2b9e-0a11-4c00-8000-0000000000a1"
                             }}`, &in)
-			return subject.ReadRange(h.ResourceAccessContext(t, "1.2"), in.Query)
+			return subject.ReadRange(pc.ResourceAccessContext(t, "1.2"), in.Query)
 		}
 		pre1_1 := held("withdraw-a-delivered-system-P2 probe 1.1 before", 1, run1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 		pre1_2 := held("withdraw-a-delivered-system-P2 probe 1.2 before", 1, run1_2, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
@@ -235,9 +240,9 @@ func TestScenario_withdraw_a_delivered_system_P2(t *testing.T) {
 		out1, err1 = subject.RecordComputeUsage(h.ResourceAccessContext(t, "1"), in1.Events)
 		expect(t, "withdraw-a-delivered-system-P2", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "withdraw-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		expectProbe(t, "withdraw-a-delivered-system-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 		pout1_2, perr1_2 = run1_2()
-		expect(t, "withdraw-a-delivered-system-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
+		expectProbe(t, "withdraw-a-delivered-system-P2 probe 1.2", 1, pout1_2, perr1_2, `{"result":"[{\"CustomerID\":\"3b0e6c1a-7d2f-4e5b-9a10-0000000c0007\",\"OperatedAppID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a1\",\"CycleID\":\"2026-10\",\"RuntimeEventID\":\"rt-withdraw-p2-final-0001\",\"Units\":{\"Amount\":2.75,\"Unit\":\"vCPU-hour\"}}]","errorExpected":false}`)
 		differential(t, "withdraw-a-delivered-system-P2", 1, pre1_1, pre1_2)
 	})
 }
@@ -289,10 +294,30 @@ func expect(t *testing.T, scenario string, seq int, out any, err error, expectJS
 	}
 }
 
+// probeTimedOut reports a probe read that ran past its deadline: a read that does not return is
+// neither a result nor an expected error, so no expectation is judged against it.
+func probeTimedOut(err error) bool {
+	return err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "deadline exceeded"))
+}
+
+// expectProbe is expect for a probe's read: a read that timed out fails the step with that, instead
+// of being judged against the expectation (an expected error would otherwise accept the timeout).
+func expectProbe(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if probeTimedOut(err) {
+		t.Fatalf("%s step %d: probe timed out: %v", scenario, seq, err)
+	}
+	expect(t, scenario, seq, out, err, expectJSON)
+}
+
 // held reports whether the outcome of run already meets expectJSON: the pre-state
-// reading of the differential.
+// reading of the differential. A read that timed out held nothing: it does not count as the
+// expectation already being true.
 func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
 	out, err := run()
+	if probeTimedOut(err) {
+		return false
+	}
 	return check(scenario, seq, out, err, expectJSON) == ""
 }
 

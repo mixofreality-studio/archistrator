@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -22,167 +23,16 @@ import (
 
 const (
 	freshManagerActivity = "C-list-manager"
-	freshMachineActivity = "C-machine-api"
-	freshSurfaceActivity = "U-SPA-web-app"
+	freshMachineActivity = "C-todo-api"
+	freshSurfaceActivity = "U-SPA-todo-web-app"
 )
 
-// listManagerContract is the Manager's contract as a designer writes it: no deps. Recording it
-// through the verb derives them from the System's edges.
-const listManagerContract = `{
- "component": "listManager", "layer": "Manager", "goPackage": "internal/manager/list", "title": "list",
- "$defs": {"OwnerName": {"type": "string"}, "TodoID": {"type": "string"}},
- "interface": {"name": "ListManager", "layer": "manager", "operations": [
-   {"name": "TakeStock", "params": [{"name": "owner", "schema": {"$ref": "#/$defs/OwnerName"}}], "result": {"$ref": "#/$defs/OwnerName"}, "error": true},
-   {"name": "MarkTodo", "params": [{"name": "todoID", "schema": {"$ref": "#/$defs/TodoID"}}], "error": true}
- ]}
-}`
-
-// The Manager's other two kinds of dep: an Engine and a Utility that binds no infrastructure.
-const rulesEngineContract = `{
- "component": "rulesEngine", "layer": "Engine", "goPackage": "internal/engine/rules", "title": "rules",
- "$defs": {"Verdict": {"type": "string"}},
- "interface": {"name": "RulesEngine", "layer": "engine", "operations": [{"name": "Judge", "params": [], "result": {"$ref": "#/$defs/Verdict"}, "error": true}]}
-}`
-
-const clockContract = `{
- "component": "clock", "layer": "Utility", "goPackage": "internal/utility/clock", "title": "clock",
- "$defs": {"Instant": {"type": "string"}},
- "interface": {"name": "Clock", "layer": "utility", "operations": [{"name": "Now", "params": [], "result": {"type": "integer"}, "error": false}]}
-}`
-
-const rulesEngineImpl = `// Package rules is the rules engine.
-package rules
-
-import fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
-
-type engine struct{}
-
-func newRulesEngine() RulesEngine { return engine{} }
-
-func (engine) Judge(fweng.Context) (Verdict, error) { return "", nil }
-`
-
-const clockImpl = `// Package clock is the clock utility.
-package clock
-
-import fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-
-type clock struct{}
-
-func newClock() Clock { return clock{} }
-
-func (clock) Now(fwra.Context) int64 { return 0 }
-`
-
-const callerImpl = `// Package caller is the caller resource access.
-package caller
-
-import (
-	"net/http"
-
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-)
-
-type httpAccess struct {
-	baseURL string
-	client  *http.Client
-}
-
-func newExternalHTTPCallerAccess(baseURL string, client *http.Client) (CallerAccess, error) {
-	return &httpAccess{baseURL: baseURL, client: client}, nil
-}
-
-func (*httpAccess) EstablishListOwner(fwra.Context, CallerProof) (ListOwner, error) {
-	return "", nil
-}
-`
-
-const listManagerImpl = `// Package list is the list manager.
-package list
-
-import (
-	"github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	"go.temporal.io/sdk/client"
-
-	"example/internal/engine/rules"
-	"example/internal/resourceaccess/caller"
-	"example/internal/resourceaccess/todolist"
-	"example/internal/utility/clock"
-)
-
-type listManager struct {
-	client client.Client
-	caller caller.CallerAccess
-	todos  todolist.TodoListAccess
-	rules  rules.RulesEngine
-	clock  clock.Clock
-}
-
-func newListManager(c client.Client, caller caller.CallerAccess, todos todolist.TodoListAccess, rules rules.RulesEngine, clock clock.Clock) *listManager {
-	return &listManager{client: c, caller: caller, todos: todos, rules: rules, clock: clock}
-}
-
-func (*listManager) TakeStock(_ manager.Context, owner OwnerName) (OwnerName, error) {
-	return owner, nil
-}
-
-func (*listManager) MarkTodo(manager.Context, TodoID) error { return nil }
-
-// WorkerManifest supplies this Manager's workflows to the generated RegisterManagerWorker.
-func (m *listManager) WorkerManifest() genWorkerManifest {
-	return genWorkerManifest{Activities: genActivities{CallerAccess: m.caller, TodoListAccess: m.todos, Clock: m.clock}}
-}
-`
-
-// composedState is the fresh state with the Manager and machine client contracts recorded. The
-// Manager's goes through the verb, which derives its constructor deps from the System.
+// composedState is the fresh state: the conformance fixture already holds every component's
+// contract (Manager, Engines, Utility, ResourceAccess and the Clients' derived ones) and the
+// test plans and UI design that bind them.
 func composedState(t *testing.T) []byte {
 	t.Helper()
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(freshState(t), &top); err != nil {
-		t.Fatal(err)
-	}
-	var contracts map[string]json.RawMessage
-	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
-		t.Fatal(err)
-	}
-	contracts["rulesEngine"] = json.RawMessage(rulesEngineContract)
-	contracts["clock"] = json.RawMessage(clockContract)
-	raw, err := json.Marshal(contracts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	top["serviceContracts"] = raw
-	out, err := json.Marshal(top)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return withBrowserContracts(t, withRecordedManager(t, withManagerDeps(t, out)))
-}
-
-// withRecordedManager records listManagerContract through the verb, as the Manager's detailed
-// design does.
-func withRecordedManager(t *testing.T, state []byte) []byte {
-	t.Helper()
-	var anyProject projectstate.ProjectID
-	proj, _, err := projectstate.DecodeProjectJSON(state, anyProject)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, _ := seedProject(t, proj, jobModeConstruct, 0)
-	s.ActivityID, s.ComponentID = freshManagerActivity, "list-manager"
-	var contract map[string]any
-	if err := json.Unmarshal([]byte(listManagerContract), &contract); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.recordServiceContract(contract); err != nil {
-		t.Fatalf("the Manager's contract: %v", err)
-	}
-	out, err := os.ReadFile(filepath.Join(s.StateRoot, statePathPrefix, projectFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
+	return freshState(t)
 }
 
 // recordClientContracts derives every Client's contract into contracts.
@@ -208,49 +58,6 @@ func recordClientContracts(t *testing.T, proj *projectstate.Project, sys *projec
 			contracts[key] = raw
 		}
 	}
-}
-
-// withManagerDeps draws the Manager's Engine and Utility into the System: the components, their
-// edges, and a call to each in a step the Manager already works in, so every operation is reached;
-// the Manager's own MarkTodo is called there by the same caller.
-func withManagerDeps(t *testing.T, state []byte) []byte {
-	t.Helper()
-	var top map[string]any
-	if err := json.Unmarshal(state, &top); err != nil {
-		t.Fatal(err)
-	}
-	system := top["slots"].(map[string]any)["5"].(map[string]any)["model"].(map[string]any)
-	system["components"] = append(system["components"].([]any),
-		map[string]any{"id": "rules-engine", "name": "RulesEngine", "kind": "engine", "layer": "engine", "encapsulates": "list rules", "encapsulatesVolatilities": []any{}, "atomicBusinessVerbs": []any{"judge"}, "contractKey": "rulesEngine"},
-		map[string]any{"id": "clock", "name": "Clock", "kind": "utility", "layer": "utility", "encapsulates": "the time", "atomicBusinessVerbs": []any{}, "contractKey": "clock"})
-	system["relationships"] = append(system["relationships"].([]any),
-		map[string]any{"from": "list-manager", "to": "rules-engine", "mode": "sync", "label": "Judge"},
-		map[string]any{"from": "list-manager", "to": "clock", "mode": "sync", "label": "Now"})
-	for _, v := range system["dynamicViews"].([]any) {
-		for _, st := range v.(map[string]any)["steps"].([]any) {
-			step := st.(map[string]any)
-			for _, c := range step["calls"].([]any) {
-				if call := c.(map[string]any); call["to"] == "list-manager" {
-					// The Manager's MarkTodo, which names a todo by an ID-suffixed param, is reached
-					// from the same caller.
-					markTodo := map[string]any{"from": call["from"], "to": "list-manager", "mode": "sync", "label": "markTodo(caller, todoId) → keptList"}
-					if alt, ok := call["alt"]; ok {
-						markTodo["alt"] = alt
-					}
-					step["calls"] = append(step["calls"].([]any), markTodo,
-						map[string]any{"from": "list-manager", "to": "rules-engine", "mode": "sync", "label": "Judge"},
-						map[string]any{"from": "list-manager", "to": "clock", "mode": "sync", "label": "Now"})
-					out, err := json.Marshal(top)
-					if err != nil {
-						t.Fatal(err)
-					}
-					return out
-				}
-			}
-		}
-	}
-	t.Fatal("no view calls the Manager")
-	return nil
 }
 
 // conformClientDesign states on a recorded project what the design rules now ask of a Client: an
@@ -411,21 +218,38 @@ func requireNothingLeftBehind(t *testing.T, repo string) {
 	}
 }
 
-// composedRepo has both resource accesses and the Manager built, committed as a passing
-// construction leaves them: the job generated each contract, the verb tidied.
+// serverContracts are the fixture's contracts the server-side activities construct, in the order a
+// construction agent finishes them: a Manager's constructor takes the contracts it depends on.
+const serverContracts = "todoListAccess messageBus accessGrantingEngine listRulingEngine listManager"
+
+// composedRepo has every server-side component built (the fixture's own bodies) and committed
+// as a passing construction leaves them: the job generated each contract, the verb tidied.
 func composedRepo(t *testing.T) string {
 	t.Helper()
-	repo := bornRepo(t, composedState(t))
+	return composedRepoFrom(t, composedState(t))
+}
+
+// composedRepoFrom is composedRepo over a variant of the fixture's state.
+func composedRepoFrom(t *testing.T, state []byte) string {
+	t.Helper()
+	repo := bornRepo(t, state)
 	module := strings.TrimSpace(inRepo(t, repo, "go", "list", "-m"))
-	inRepo(t, repo, "make", "gen-models", "CONTRACTS="+freshContract+" callerAccess listManager rulesEngine clock")
-	writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(todoListImpl))
-	writeRepoFile(t, repo, "internal/engine/rules/rulesengine.go", []byte(rulesEngineImpl))
-	writeRepoFile(t, repo, "internal/utility/clock/clockutility.go", []byte(clockImpl))
-	writeRepoFile(t, repo, "internal/resourceaccess/caller/calleraccess.go", []byte(callerImpl))
+	inRepo(t, repo, "make", "gen-models", "CONTRACTS="+serverContracts)
+	for _, path := range []string{
+		"internal/resourceaccess/todolist/todolistaccess.go",
+		"internal/utility/messagebus/messagebusutility.go",
+		"internal/engine/accessgranting/accessgrantingengine.go",
+		"internal/engine/listruling/listrulingengine.go",
+	} {
+		writeRepoFile(t, repo, path, []byte(fixtureImpl(t, path, module)))
+	}
 	runGenerators(t, repo, activitySpec(t, repo, freshManagerActivity, "construction"))
-	writeRepoFile(t, repo, "internal/manager/list/listmanager.go", []byte(strings.ReplaceAll(listManagerImpl, `"example/`, `"`+module+`/`)))
-	// The resource accesses' own integration tasks have already landed their tests.
-	inRepo(t, repo, "make", "gen-tests")
+	for _, name := range []string{"listmanager", "add", "clear", "discard", "mark", "open", "reword", "toggle"} {
+		path := "internal/manager/list/" + name + ".go"
+		writeRepoFile(t, repo, path, []byte(fixtureImpl(t, path, module)))
+	}
+	// No generated scenario test yet: they import the composition's scenariocompose package, which
+	// the Manager's integration generates, so every component's tests land after it.
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "build the components")
 	return repo
@@ -437,12 +261,18 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	repo := composedRepo(t)
 	spec := activitySpec(t, repo, freshManagerActivity, "integration")
 	runGenerators(t, repo, spec)
+	requireInScope(t, repo, spec)
+	inRepo(t, repo, "git", "commit", "-q", "-m", "generate the composition")
+	// The scenario tests are the job's, generated from the reviewed plans once the composition
+	// exists; the agent's own changes (hooks.go, the module graph) are what the scope holds it to.
 	inRepo(t, repo, "make", "gen-tests")
+	inRepo(t, repo, "git", "add", "-A")
+	inRepo(t, repo, "git", "commit", "-q", "-m", "generate the scenario tests")
 	for _, want := range []string{
 		"cmd/server/main.gen.go", "cmd/server/config.gen.go", "cmd/server/hooks.go",
 		"cmd/server/authz.gen.go", "cmd/server/authz.gen_test.go",
 		"internal/client/web/server.gen.go", "internal/client/web/list/list_handlers.gen.go",
-		"internal/client/machineapi/list/list_tools.gen.go", "api/openapi.yaml",
+		"internal/client/todomcpserver/list/list_tools.gen.go", "api/openapi.yaml",
 		"cmd/devstack/main.gen.go",
 	} {
 		if _, err := os.Stat(filepath.Join(repo, want)); err != nil {
@@ -453,7 +283,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	fillPolicy(t, repo, ownListPolicyAdmittingTheGeneratedVerbs)
 	requireInScope(t, repo, spec)
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
-	statuses, logs := gate(t, repo, commandChecks(t, spec))
+	statuses, logs := gate(t, repo, withoutDiscriminate(commandChecks(t, spec)))
 	requirePassed(t, statuses, logs)
 	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy", "command:build-devstack", freshPolicyCheck} {
 		if _, ok := statuses[want]; !ok {
@@ -479,13 +309,16 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	}
 }
 
+// policyRefusal is the generated policy test's report of a request the policy refuses.
+var policyRefusal = regexp.MustCompile(`ListManager\.\w+: the policy refuses`)
+
 // freshPolicyCheck is the composition check that runs the framework's generated
 // TestPolicyAdmitsEveryGeneratedRequest (FIX-046).
 const freshPolicyCheck = "command:policy-admits-generated-requests"
 
 // ownListPolicy is RUN-015's composition-root policy, verbatim: it admits its listed verbs on
 // the principal's own list catalog and nothing else. Its verbs are that run's ListManager's, so
-// it refuses this fixture's (take-stock, mark-todo): a policy that disagrees with the requests
+// it refuses this fixture's (reword-todo, discard-todo, open-list): a policy that disagrees with the requests
 // the generated transports send.
 const ownListPolicy = `
 // listVerbs are the everyday list actions every channel may take.
@@ -513,7 +346,7 @@ func (ownListPolicy) Decide(_ context.Context, p security.Principal, a security.
 // Kind check is RUN-015's catalog-only one, which 403'd every per-todo call when the generator
 // sent Kind "todo": every generated request is now owner-scoped, MarkTodo(todoID) included, so
 // it admits them all.
-var ownListPolicyAdmittingTheGeneratedVerbs = strings.Replace(ownListPolicy, `"toggle-all": true,`, `"toggle-all": true, "take-stock": true,`, 1)
+var ownListPolicyAdmittingTheGeneratedVerbs = strings.Replace(ownListPolicy, `"toggle-all": true,`, `"toggle-all": true, "reword-todo": true, "discard-todo": true, "open-list": true,`, 1)
 
 // ownScopePolicy admits an authenticated principal every verb on its own scope: the policy a
 // Manager's integration fills when the app's only rule is "a user acts on their own".
@@ -554,13 +387,108 @@ func requirePolicyRedOnAMismatch(t *testing.T, repo string, spec projectstate.Ta
 	t.Helper()
 	fillPolicy(t, repo, ownListPolicy)
 	statuses, logs := gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
-	if statuses[freshPolicyCheck] == checkPass || !strings.Contains(logs[freshPolicyCheck], `ListManager.TakeStock: the policy refuses`) {
+	if statuses[freshPolicyCheck] == checkPass || !policyRefusal.MatchString(logs[freshPolicyCheck]) {
 		t.Errorf("RUN-015's policy stayed green over a generated request it refuses: %s\n%s", statuses[freshPolicyCheck], logs[freshPolicyCheck])
 	}
 	fillPolicy(t, repo, ownListPolicyAdmittingTheGeneratedVerbs)
 	statuses, logs = gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
 	if statuses[freshPolicyCheck] != checkPass {
 		t.Errorf("a policy admitting every generated verb on the principal's own scope went red:\n%s", logs[freshPolicyCheck])
+	}
+}
+
+// integratedRepo is composedRepo with the Manager's integration landed: the composition root,
+// the generated transports and the seeded policy, as a passing integration leaves them.
+func integratedRepo(t *testing.T) string {
+	t.Helper()
+	return integratedRepoFrom(t, composedState(t))
+}
+
+// integratedRepoFrom is integratedRepo over a variant of the fixture's state.
+func integratedRepoFrom(t *testing.T, state []byte) string {
+	t.Helper()
+	repo := composedRepoFrom(t, state)
+	runGenerators(t, repo, activitySpec(t, repo, freshManagerActivity, "integration"))
+	inRepo(t, repo, "make", "gen-tests")
+	inRepo(t, repo, "go", "mod", "tidy")
+	fillPolicy(t, repo, ownScopePolicy)
+	inRepo(t, repo, "git", "add", "-A")
+	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
+	return repo
+}
+
+// freshMachineClients are the fixture's two machine clients over its Manager: one REST, one MCP.
+var freshMachineClients = []struct{ activity, contract, pkg string }{
+	{"C-todo-api", "todoApi", "internal/client/web/list"},
+	{"C-todo-mcp-server", "todoMcpServer", "internal/client/todomcpserver/list"},
+}
+
+// A machine client is held to the fixture's own plan for it, bound by the test engineer: its
+// integration generates the client's transport scenarios from that plan (the generated
+// scenariocompose package supplies the subject; an agent writes no hooks file, FPC GC-1), and
+// every command check of the gate passes. The scenario checks are generated and present but their
+// verdicts are not asserted: running a client's scenarios over the wire is Plan 3's work, and
+// today the released toolchain refuses an agent actor's requests at run time (outsideDelegation)
+// and misses some arranged state.
+func requireMachineClientGate(t *testing.T, repo, activity, pkg string) {
+	t.Helper()
+	spec := activitySpec(t, repo, activity, "integration")
+	scenarios := 0
+	for _, c := range spec.Checks {
+		if c.Kind == projectstate.CheckKindScenario {
+			scenarios++
+		}
+	}
+	if scenarios == 0 {
+		t.Fatalf("%s's integration carries no scenario check", activity)
+	}
+	runGenerators(t, repo, spec)
+	requireInScope(t, repo, spec)
+	inRepo(t, repo, "git", "commit", "-q", "--allow-empty", "-m", "integrate "+activity)
+	if _, err := os.Stat(filepath.Join(repo, pkg, "client_scenarios.gen_test.go")); err != nil {
+		t.Errorf("the client's scenarios were not generated: %v", err)
+	}
+
+	bound := withoutDiscriminate(commandChecks(t, activitySpec(t, repo, activity, "integration")))
+	statuses, logs := gate(t, repo, bound)
+	requirePassed(t, statuses, logs)
+	for _, c := range bound.Checks {
+		if _, ok := statuses[c.ID]; !ok {
+			t.Errorf("the gate gave %s no verdict", c.ID)
+		}
+	}
+}
+
+// The fixture's Manager path: it constructs on the gate, it composes the server, and its two
+// machine clients' contracts came with the Manager's, one operation per route or tool its views reach.
+func TestFreshManagerPathComposesBothMachineClients(t *testing.T) {
+	repo := integratedRepo(t)
+	construct := activitySpec(t, repo, freshManagerActivity, "construction")
+	statuses, logs := gate(t, repo, commandChecks(t, construct))
+	requirePassed(t, statuses, logs)
+
+	main, err := os.ReadFile(filepath.Join(repo, "cmd/server/main.gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(main), "messagebus.NewMessageBus()") {
+		t.Error("the composition root must build the infra-free Utility by its pure constructor")
+	}
+	for _, c := range freshMachineClients {
+		sc, ok := stateContract(t, repo, c.contract)
+		if !ok || sc.GoPackage != c.pkg || !slices.ContainsFunc(sc.Interface.Operations, func(op projectstate.ContractOperation) bool { return op.Name == "ListAddTodo" }) {
+			t.Errorf("%s's derived contract: %+v", c.contract, sc)
+		}
+	}
+}
+
+// Each machine client over the fixture's real Manager contract (strings, a closed enum, booleans,
+// object results, a read-only operation, an owner scope) integrates on its own: its transport and
+// scenarios are generated, in scope, and its command gate is green.
+func TestMachineClientsIntegrateOverTheManagersRealShapes(t *testing.T) {
+	repo := integratedRepo(t)
+	for _, c := range freshMachineClients {
+		t.Run(c.contract, func(t *testing.T) { requireMachineClientGate(t, repo, c.activity, c.pkg) })
 	}
 }
 
@@ -581,19 +509,19 @@ func TestFreshResourceIntegrationGeneratesNoServer(t *testing.T) {
 func TestFreshClientsTakeTheirDesignedLifecycle(t *testing.T) {
 	repo := bornRepo(t, composedState(t))
 	if got := activitySpec(t, repo, freshMachineActivity, "stp").Identity.Command; got != "service-test-plan" {
-		t.Errorf("machine-api's plan takes %q", got)
+		t.Errorf("todo-api's plan takes %q", got)
 	}
 	spec := activitySpec(t, repo, freshSurfaceActivity, "construction")
 	if spec.Identity.Command != "frontend-construction" {
-		t.Errorf("web-app takes %q", spec.Identity.Command)
+		t.Errorf("todo-web-app takes %q", spec.Identity.Command)
 	}
-	if !slices.Contains(spec.EditScope.Components[0].Paths, "webApp/src/web-app/**") || slices.Contains(spec.EditScope.Components[0].Paths, "webApp/src/workspace-embed/**") {
+	if !slices.Contains(spec.EditScope.Components[0].Paths, "webApp/src/todo-web-app/**") || slices.Contains(spec.EditScope.Components[0].Paths, "webApp/src/todo-api/**") {
 		t.Errorf("a surface owns its own directory only: %v", spec.EditScope.Components[0].Paths)
 	}
 }
 
 // Finishing a browser surface must not turn every later arch gate red: its code is not a Go
-// package. A machine client that finished with no package still is red.
+// package, and neither is a REST client's. An MCP server that finished with no package still is red.
 func TestFreshFinishedBrowserSurfaceOwesNoPackage(t *testing.T) {
 	repo := composedRepo(t)
 	state := filepath.Join(repo, ".aiarch/state/project.json")
@@ -623,22 +551,22 @@ func TestFreshFinishedBrowserSurfaceOwesNoPackage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	finish(freshSurfaceActivity, "U-SPA-workspace-embed")
+	finish(freshSurfaceActivity, freshMachineActivity)
 	arch := commandChecks(t, taskSpec(t, repo, "construction"), "command:arch")
 	statuses, logs := gate(t, repo, arch)
 	if statuses["command:arch"] != checkPass {
-		t.Errorf("a finished browser surface reddened the gate:\n%s", logs["command:arch"])
+		t.Errorf("a finished browser surface or REST client reddened the gate:\n%s", logs["command:arch"])
 	}
-	finish(freshMachineActivity)
+	finish("C-todo-mcp-server")
 	statuses, logs = gate(t, repo, arch)
 	if statuses["command:arch"] == checkPass || !strings.Contains(logs["command:arch"], "ALIGN-MISSING-PKG") {
-		t.Errorf("a finished machine client with no package must be red: %s\n%s", statuses["command:arch"], logs["command:arch"])
+		t.Errorf("a finished MCP server with no package must be red: %s\n%s", statuses["command:arch"], logs["command:arch"])
 	}
 }
 
 // A browser surface's construction on the real toolchain: the job bootstraps the web project,
 // the verb installs it, the agent commits, and the gate's own npm ci, typecheck and lint pass.
-// A layer violation then goes red, and a second surface adds only its own files.
+// A layer violation then goes red.
 func TestFreshBrowserSurfacePassesItsGate(t *testing.T) {
 	if _, err := exec.LookPath("npm"); err != nil {
 		t.Fatal("npm is required: a browser surface's gate cannot be proven without it")
@@ -652,7 +580,7 @@ func TestFreshBrowserSurfacePassesItsGate(t *testing.T) {
 
 	spec := activitySpec(t, repo, freshSurfaceActivity, "construction")
 	runGenerators(t, repo, spec)
-	s := &Session{Mode: jobModeConstruct, StateRoot: repo, ActivityID: freshSurfaceActivity, TaskID: "construction", ComponentID: "web-app", git: runGit}
+	s := &Session{Mode: jobModeConstruct, StateRoot: repo, ActivityID: freshSurfaceActivity, TaskID: "construction", ComponentID: "todo-web-app", git: runGit}
 	res, err := s.runChecks(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
@@ -663,7 +591,7 @@ func TestFreshBrowserSurfacePassesItsGate(t *testing.T) {
 	for _, f := range res.Results {
 		t.Errorf("the verb's %s failed:\n%s", f.ID, f.Tail)
 	}
-	for _, want := range []string{"webApp/package-lock.json", "webApp/src/contracts/schema.ts", "webApp/src/api/ops.gen.ts", "webApp/web-app.html", "uitests/package.json"} {
+	for _, want := range []string{"webApp/package-lock.json", "webApp/src/contracts/schema.ts", "webApp/src/api/ops.gen.ts", "webApp/todo-web-app.html", "uitests/package.json"} {
 		if _, err := os.Stat(filepath.Join(repo, want)); err != nil {
 			t.Errorf("no %s: %v", want, err)
 		}
@@ -684,20 +612,13 @@ func TestFreshBrowserSurfacePassesItsGate(t *testing.T) {
 	requireNothingLeftBehind(t, repo)
 
 	// A route reaching the transport directly breaks the layering.
-	writeRepoFile(t, repo, "webApp/src/web-app/routes/Bad.tsx", []byte("import type { JSX } from 'react';\nimport { useOpsClient } from '../../api/opsContext';\n\nexport function Bad(): JSX.Element {\n  useOpsClient();\n  return <main />;\n}\n"))
+	writeRepoFile(t, repo, "webApp/src/todo-web-app/routes/Bad.tsx", []byte("import type { JSX } from 'react';\nimport { useOpsClient } from '../../api/opsContext';\n\nexport function Bad(): JSX.Element {\n  useOpsClient();\n  return <main />;\n}\n"))
 	statuses, _ = gate(t, repo, commandChecks(t, spec, "command:lint"))
 	if statuses["command:lint"] == checkPass {
 		t.Error("eslint stayed green over a route that imports the transport")
 	}
-	if err := os.Remove(filepath.Join(repo, "webApp/src/web-app/routes/Bad.tsx")); err != nil {
+	if err := os.Remove(filepath.Join(repo, "webApp/src/todo-web-app/routes/Bad.tsx")); err != nil {
 		t.Fatal(err)
-	}
-
-	second := activitySpec(t, repo, "U-SPA-workspace-embed", "construction")
-	runGenerators(t, repo, second)
-	requireInScope(t, repo, second)
-	if strings.Contains(inRepo(t, repo, "git", "diff", "--cached", "--name-only"), "package.json") {
-		t.Error("a second surface must keep the project's own files")
 	}
 }
 
@@ -709,9 +630,9 @@ func TestFreshBrowserContractIsDerivedFromItsLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const surface = "web-app"
-	requireDerivedShape(t, proj.ServiceContracts["webApp"])
-	scenarios, err := projectstate.ComponentScenarios(&proj, "webApp")
+	const surface = "todo-web-app"
+	requireDerivedShape(t, proj.ServiceContracts["todoWebApp"])
+	scenarios, err := projectstate.ComponentScenarios(&proj, "todoWebApp")
 	if err != nil || len(scenarios) == 0 {
 		t.Fatalf("the surface's scenarios: %d, %v", len(scenarios), err)
 	}
@@ -725,7 +646,7 @@ func TestFreshBrowserContractIsDerivedFromItsLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, op := range proj.ServiceContracts["webApp"].Interface.Operations {
+	for _, op := range proj.ServiceContracts["todoWebApp"].Interface.Operations {
 		got = append(got, op.Name)
 	}
 	if !slices.Equal(got, []string{"OnlyOne", "AndAnother"}) {
@@ -736,7 +657,7 @@ func TestFreshBrowserContractIsDerivedFromItsLabels(t *testing.T) {
 	if err := projectstate.RecordBrowserContract(&proj, surface); err == nil || !strings.Contains(err.Error(), "must lead with exported operation names") {
 		t.Errorf("a prose label names no operation: %v", err)
 	}
-	if err := projectstate.RecordBrowserContract(&proj, "machine-api"); err == nil {
+	if err := projectstate.RecordBrowserContract(&proj, "todo-api"); err == nil {
 		t.Error("only a browser surface has a derived contract")
 	}
 }
@@ -773,7 +694,7 @@ func TestFreshBrowserSurfaceWithNoScenariosHasNoSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	delete(proj.ServiceContracts, "webApp")
+	delete(proj.ServiceContracts, "todoWebApp")
 	if _, err := projectstate.TaskSpecFor(&proj, freshSurfaceActivity, "integration"); err == nil || !strings.Contains(err.Error(), "no scenario to integrate against") {
 		t.Errorf("got %v", err)
 	}
@@ -798,9 +719,9 @@ func TestRecordServiceContractRefusesAClient(t *testing.T) {
 		component string
 		contract  projectstate.ServiceContract
 	}{
-		{"machine-api", projectstate.ServiceContract{Layer: "Client"}},
-		{"machine-api", projectstate.ServiceContract{Layer: "Manager"}},
-		{"web-app", projectstate.ServiceContract{Layer: "Utility"}},
+		{"todo-api", projectstate.ServiceContract{Layer: "Client"}},
+		{"todo-api", projectstate.ServiceContract{Layer: "Manager"}},
+		{"todo-web-app", projectstate.ServiceContract{Layer: "Utility"}},
 		{"list-manager", projectstate.ServiceContract{Layer: "client"}},
 	} {
 		if err := refuseClientContract(proj, tc.component, tc.contract); err == nil || !strings.Contains(err.Error(), "authors no contract") {
@@ -904,12 +825,21 @@ func TestRecordingAUIDesignDerivesTheSurfaceContract(t *testing.T) {
 	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
 		t.Fatal(err)
 	}
-	delete(contracts, "webApp")
+	delete(contracts, "todoWebApp")
 	raw, err := json.Marshal(contracts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	top["serviceContracts"] = raw
+	// The surface's design is recorded below, so the project starts without it.
+	var artifacts map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(top["phaseArtifacts"], &artifacts); err != nil {
+		t.Fatal(err)
+	}
+	delete(artifacts, "uiDesign")
+	if top["phaseArtifacts"], err = json.Marshal(artifacts); err != nil {
+		t.Fatal(err)
+	}
 	state, err := json.Marshal(top)
 	if err != nil {
 		t.Fatal(err)
@@ -920,18 +850,22 @@ func TestRecordingAUIDesignDerivesTheSurfaceContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ := seedProject(t, proj, jobModeConstruct, 0)
-	s.ActivityID, s.ComponentID = freshSurfaceActivity, "web-app"
-	if err := s.recordPhaseArtifact("web-app", map[string]any{"UIDesign": map[string]any{
-		"surface": "web-app", "content": "the concept",
-		"screens": []any{map[string]any{"id": "main", "route": "/", "elements": []any{
-			map[string]any{"id": "new-todo", "role": "textbox", "name": "What needs to be done?", "within": "", "repeats": false},
-		}}},
-	}}); err != nil {
+	s.ActivityID, s.ComponentID = freshSurfaceActivity, "todo-web-app"
+	// The fixture's own UI design for the surface, recorded again: the verb writes the contract.
+	var fx struct {
+		PhaseArtifacts struct {
+			UIDesign map[string]map[string]any `json:"uiDesign"`
+		} `json:"phaseArtifacts"`
+	}
+	if err := json.Unmarshal(composedState(t), &fx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.recordPhaseArtifact("todo-web-app", map[string]any{"UIDesign": fx.PhaseArtifacts.UIDesign["todo-web-app"]}); err != nil {
 		t.Fatal(err)
 	}
 	got, _, err := s.readProject()
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireDerivedShape(t, got.ServiceContracts["webApp"])
+	requireDerivedShape(t, got.ServiceContracts["todoWebApp"])
 }

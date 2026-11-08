@@ -4,6 +4,7 @@
 package operatedsystemstate_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,26 +97,29 @@ func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				OperatedAppID uuid.UUID `json:"operatedAppID"`
 			}
 			mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000008"}`, &in)
-			return subject.ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+			return subject.ReadOperatedSystem(pc.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
 		}
 		// probe 1.2: operatedSystemStateAccess.ReadOperatedSystem for system-registered
 		var pout1_2 any
 		var perr1_2 error
 		run1_2 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				OperatedAppID uuid.UUID `json:"operatedAppID"`
 			}
 			mustUnmarshal(t, `{"operatedAppID":"0c5a0000-0000-4000-8000-000000000008"}`, &in)
-			return subject.ReadOperatedSystem(h.ResourceAccessContext(t, "1.2"), in.OperatedAppID)
+			return subject.ReadOperatedSystem(pc.ResourceAccessContext(t, "1.2"), in.OperatedAppID)
 		}
 		// probe 1.3: operatedSystemStateAccess.ReadInFlightOperatedApps for
 		var pout1_3 any
 		var perr1_3 error
 		run1_3 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Scope operatedsystemstate.InFlightScope `json:"scope"`
 			}
@@ -123,7 +127,7 @@ func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
                               "AppIDs": [],
                               "CustomerID": "0c5ac000-0000-4000-8000-000000000008"
                             }}`, &in)
-			return subject.ReadInFlightOperatedApps(h.ResourceAccessContext(t, "1.3"), in.Scope)
+			return subject.ReadInFlightOperatedApps(pc.ResourceAccessContext(t, "1.3"), in.Scope)
 		}
 		pre1_1 := held("register-a-delivered-system-for-operation-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
 		pre1_2 := held("register-a-delivered-system-for-operation-P1 probe 1.2 before", 1, run1_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
@@ -133,11 +137,11 @@ func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
 		out1, err1 = subject.RegisterOperatedSystem(h.ResourceAccessContext(t, "1"), in1.OperatedAppID, in1.CustomerID, in1.ProjectRef, in1.DeployableBundleRef, in1.IdempotencyKey)
 		expect(t, "register-a-delivered-system-for-operation-P1", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
+		expectProbe(t, "register-a-delivered-system-for-operation-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
 		pout1_2, perr1_2 = run1_2()
-		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
+		expectProbe(t, "register-a-delivered-system-for-operation-P1 probe 1.2", 1, pout1_2, perr1_2, `{"result":"{\"ID\":\"0c5a0000-0000-4000-8000-000000000008\",\"CustomerID\":\"0c5ac000-0000-4000-8000-000000000008\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"proj-osa-0008\",\"DeployableBundleRef\":\"bundle-osa-0008\"}","errorExpected":false}`)
 		pout1_3, perr1_3 = run1_3()
-		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[]","errorExpected":false}`)
+		expectProbe(t, "register-a-delivered-system-for-operation-P1 probe 1.3", 1, pout1_3, perr1_3, `{"result":"[]","errorExpected":false}`)
 		differential(t, "register-a-delivered-system-for-operation-P1", 1, pre1_1, pre1_2, pre1_3)
 	})
 }
@@ -250,10 +254,30 @@ func expect(t *testing.T, scenario string, seq int, out any, err error, expectJS
 	}
 }
 
+// probeTimedOut reports a probe read that ran past its deadline: a read that does not return is
+// neither a result nor an expected error, so no expectation is judged against it.
+func probeTimedOut(err error) bool {
+	return err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "deadline exceeded"))
+}
+
+// expectProbe is expect for a probe's read: a read that timed out fails the step with that, instead
+// of being judged against the expectation (an expected error would otherwise accept the timeout).
+func expectProbe(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if probeTimedOut(err) {
+		t.Fatalf("%s step %d: probe timed out: %v", scenario, seq, err)
+	}
+	expect(t, scenario, seq, out, err, expectJSON)
+}
+
 // held reports whether the outcome of run already meets expectJSON: the pre-state
-// reading of the differential.
+// reading of the differential. A read that timed out held nothing: it does not count as the
+// expectation already being true.
 func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
 	out, err := run()
+	if probeTimedOut(err) {
+		return false
+	}
 	return check(scenario, seq, out, err, expectJSON) == ""
 }
 

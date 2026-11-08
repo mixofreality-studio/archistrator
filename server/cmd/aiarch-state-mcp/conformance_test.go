@@ -14,7 +14,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/conformance"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-conformance"
 	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"

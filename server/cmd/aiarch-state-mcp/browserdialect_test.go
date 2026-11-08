@@ -20,7 +20,13 @@ func browserDialectSchema(t *testing.T, def string) *jsonschema.Resolved {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract := proj.ServiceContracts["webApp"]
+	// The fixture holds the contract RUN-021 recorded; the dialect under test is what the verb
+	// derives now.
+	delete(proj.ServiceContracts, "todoWebApp")
+	if err := projectstate.RecordBrowserContract(&proj, "todo-web-app"); err != nil {
+		t.Fatal(err)
+	}
+	contract := proj.ServiceContracts["todoWebApp"]
 	requireDerivedShape(t, contract)
 	defs := map[string]*jsonschema.Schema{}
 	for name, raw := range contract.Defs {
@@ -58,6 +64,12 @@ func TestBrowserContractDialect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The fixture holds the contract RUN-021 recorded; the dialect under test is what the verb
+	// derives now.
+	delete(proj.ServiceContracts, "todoWebApp")
+	if err := projectstate.RecordBrowserContract(&proj, "todo-web-app"); err != nil {
+		t.Fatal(err)
+	}
 	kindsOf := func(def string) []string {
 		var d struct {
 			OneOf []struct {
@@ -68,7 +80,7 @@ func TestBrowserContractDialect(t *testing.T) {
 				} `json:"properties"`
 			} `json:"oneOf"`
 		}
-		if err := json.Unmarshal(proj.ServiceContracts["webApp"].Defs[def], &d); err != nil {
+		if err := json.Unmarshal(proj.ServiceContracts["todoWebApp"].Defs[def], &d); err != nil {
 			t.Fatal(err)
 		}
 		var kinds []string

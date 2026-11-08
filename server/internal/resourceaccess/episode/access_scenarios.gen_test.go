@@ -4,6 +4,7 @@
 package episode_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query episode.EpisodeQuery `json:"query"`
 			}
@@ -43,7 +45,7 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
                               "ProjectID": "dct-ep-exec-P1",
                               "TargetRef": "C-dct-ep-alpha"
                             }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ListEpisodes(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		pre1_1 := held("execute-a-project-activity-P1 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P1-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-alpha\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P1:activity:C-dct-ep-alpha\",\"RunID\":\"run-p1-0001\",\"ActivityID\":\"C-dct-ep-alpha\"},\"WorkerClass\":\"senior-developer\",\"Model\":\"claude-opus-5-5\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StreamedUsage\":{\"In\":41000,\"Out\":3850,\"CacheRead\":511000,\"CacheCreate\":17950},\"CostUSD\":3.75,\"NumTurns\":37,\"ToolCallCounts\":{\"Read\":21,\"Edit\":9,\"Bash\":14},\"SubagentSpans\":[{\"ToolUseID\":\"toolu_p1_01\",\"StartedAt\":\"2026-10-01T09:05:00Z\",\"EndedAt\":\"2026-10-01T09:18:30Z\"}],\"StartedAt\":\"2026-10-01T09:00:00Z\",\"EndedAt\":\"2026-10-01T09:42:10Z\",\"TracePath\":\"episodes/traces/ep-exec-P1-a1.jsonl\"}]","errorExpected":false}`)
 		var in1 inputExecuteAProjectActivityP1S1
@@ -92,7 +94,7 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "execute-a-project-activity-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P1-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-alpha\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P1:activity:C-dct-ep-alpha\",\"RunID\":\"run-p1-0001\",\"ActivityID\":\"C-dct-ep-alpha\"},\"WorkerClass\":\"senior-developer\",\"Model\":\"claude-opus-5-5\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StreamedUsage\":{\"In\":41000,\"Out\":3850,\"CacheRead\":511000,\"CacheCreate\":17950},\"CostUSD\":3.75,\"NumTurns\":37,\"ToolCallCounts\":{\"Read\":21,\"Edit\":9,\"Bash\":14},\"SubagentSpans\":[{\"ToolUseID\":\"toolu_p1_01\",\"StartedAt\":\"2026-10-01T09:05:00Z\",\"EndedAt\":\"2026-10-01T09:18:30Z\"}],\"StartedAt\":\"2026-10-01T09:00:00Z\",\"EndedAt\":\"2026-10-01T09:42:10Z\",\"TracePath\":\"episodes/traces/ep-exec-P1-a1.jsonl\"}]","errorExpected":false}`)
+		expectProbe(t, "execute-a-project-activity-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P1-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-alpha\",\"Outcome\":0,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P1:activity:C-dct-ep-alpha\",\"RunID\":\"run-p1-0001\",\"ActivityID\":\"C-dct-ep-alpha\"},\"WorkerClass\":\"senior-developer\",\"Model\":\"claude-opus-5-5\",\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StreamedUsage\":{\"In\":41000,\"Out\":3850,\"CacheRead\":511000,\"CacheCreate\":17950},\"CostUSD\":3.75,\"NumTurns\":37,\"ToolCallCounts\":{\"Read\":21,\"Edit\":9,\"Bash\":14},\"SubagentSpans\":[{\"ToolUseID\":\"toolu_p1_01\",\"StartedAt\":\"2026-10-01T09:05:00Z\",\"EndedAt\":\"2026-10-01T09:18:30Z\"}],\"StartedAt\":\"2026-10-01T09:00:00Z\",\"EndedAt\":\"2026-10-01T09:42:10Z\",\"TracePath\":\"episodes/traces/ep-exec-P1-a1.jsonl\"}]","errorExpected":false}`)
 		differential(t, "execute-a-project-activity-P1", 1, pre1_1)
 	})
 }
@@ -116,6 +118,7 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query episode.EpisodeQuery `json:"query"`
 			}
@@ -123,7 +126,7 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
                               "ProjectID": "dct-ep-exec-P2",
                               "TargetRef": "C-dct-ep-bravo"
                             }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ListEpisodes(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		pre1_1 := held("execute-a-project-activity-P2 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P2-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-bravo\",\"Outcome\":1,\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T10:00:00Z\",\"EndedAt\":\"2026-10-01T10:31:00Z\"}]","errorExpected":false}`)
 		var in1 inputExecuteAProjectActivityP2S1
@@ -144,7 +147,7 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "execute-a-project-activity-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P2-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-bravo\",\"Outcome\":1,\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T10:00:00Z\",\"EndedAt\":\"2026-10-01T10:31:00Z\"}]","errorExpected":false}`)
+		expectProbe(t, "execute-a-project-activity-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P2-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-bravo\",\"Outcome\":1,\"Usage\":{\"In\":41200,\"Out\":3900,\"CacheRead\":512000,\"CacheCreate\":18000},\"StartedAt\":\"2026-10-01T10:00:00Z\",\"EndedAt\":\"2026-10-01T10:31:00Z\"}]","errorExpected":false}`)
 		differential(t, "execute-a-project-activity-P2", 1, pre1_1)
 	})
 }
@@ -174,6 +177,7 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query episode.EpisodeQuery `json:"query"`
 			}
@@ -181,7 +185,7 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                               "ProjectID": "dct-ep-exec-P5",
                               "TargetRef": "C-dct-ep-charlie"
                             }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ListEpisodes(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		pre1_1 := held("execute-a-project-activity-P5 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1}]","errorExpected":false}`)
 		var in1 inputExecuteAProjectActivityP5S1
@@ -209,7 +213,7 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "execute-a-project-activity-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1}]","errorExpected":false}`)
+		expectProbe(t, "execute-a-project-activity-P5 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1}]","errorExpected":false}`)
 		differential(t, "execute-a-project-activity-P5", 1, pre1_1)
 		// step 2: AppendEpisode (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var out2 any
@@ -218,6 +222,7 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var pout2_1 any
 		var perr2_1 error
 		run2_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query episode.EpisodeQuery `json:"query"`
 			}
@@ -225,7 +230,7 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                               "ProjectID": "dct-ep-exec-P5",
                               "TargetRef": "C-dct-ep-charlie"
                             }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "2.1"), in.Query)
+			return subject.ListEpisodes(pc.ResourceAccessContext(t, "2.1"), in.Query)
 		}
 		pre2_1 := held("execute-a-project-activity-P5 probe 2.1 before", 2, run2_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1},{\"EpisodeID\":\"ep-exec-P5-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":0}]","errorExpected":false}`)
 		var in2 inputExecuteAProjectActivityP5S2
@@ -253,7 +258,7 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		err2 = subject.AppendEpisode(h.ResourceAccessContext(t, "2"), in2.ProjectID, in2.Record)
 		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"errorExpected":false}`)
 		pout2_1, perr2_1 = run2_1()
-		expect(t, "execute-a-project-activity-P5 probe 2.1", 2, pout2_1, perr2_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1},{\"EpisodeID\":\"ep-exec-P5-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":0}]","errorExpected":false}`)
+		expectProbe(t, "execute-a-project-activity-P5 probe 2.1", 2, pout2_1, perr2_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P5-a1\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":1},{\"EpisodeID\":\"ep-exec-P5-a2\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-charlie\",\"Outcome\":0}]","errorExpected":false}`)
 		differential(t, "execute-a-project-activity-P5", 2, pre2_1)
 	})
 }
@@ -277,6 +282,7 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query episode.EpisodeQuery `json:"query"`
 			}
@@ -284,7 +290,7 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
                               "ProjectID": "dct-ep-exec-P6",
                               "TargetRef": "C-dct-ep-delta"
                             }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ListEpisodes(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		pre1_1 := held("execute-a-project-activity-P6 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P6-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-delta\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P6:activity:C-dct-ep-delta\",\"RunID\":\"run-p6-0003\"},\"ToolCallCounts\":{\"Bash\":40}}]","errorExpected":false}`)
 		var in1 inputExecuteAProjectActivityP6S1
@@ -313,7 +319,7 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "execute-a-project-activity-P6 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P6-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-delta\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P6:activity:C-dct-ep-delta\",\"RunID\":\"run-p6-0003\"},\"ToolCallCounts\":{\"Bash\":40}}]","errorExpected":false}`)
+		expectProbe(t, "execute-a-project-activity-P6 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P6-a3\",\"Kind\":1,\"TargetRef\":\"C-dct-ep-delta\",\"Outcome\":1,\"Lineage\":{\"WorkflowID\":\"dct-ep-exec-P6:activity:C-dct-ep-delta\",\"RunID\":\"run-p6-0003\"},\"ToolCallCounts\":{\"Bash\":40}}]","errorExpected":false}`)
 		differential(t, "execute-a-project-activity-P6", 1, pre1_1)
 	})
 }
@@ -337,6 +343,7 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Query episode.EpisodeQuery `json:"query"`
 			}
@@ -344,7 +351,7 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
                               "ProjectID": "dct-ep-exec-P7",
                               "TargetRef": "C-dct-ep-echo"
                             }}`, &in)
-			return subject.ListEpisodes(h.ResourceAccessContext(t, "1.1"), in.Query)
+			return subject.ListEpisodes(pc.ResourceAccessContext(t, "1.1"), in.Query)
 		}
 		pre1_1 := held("execute-a-project-activity-P7 probe 1.1 before", 1, run1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P7-r2\",\"Kind\":3,\"TargetRef\":\"C-dct-ep-echo\",\"Outcome\":0,\"WorkerClass\":\"senior-developer\"}]","errorExpected":false}`)
 		var in1 inputExecuteAProjectActivityP7S1
@@ -371,7 +378,7 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 		err1 = subject.AppendEpisode(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Record)
 		expect(t, "execute-a-project-activity-P7", 1, out1, err1, `{"errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "execute-a-project-activity-P7 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P7-r2\",\"Kind\":3,\"TargetRef\":\"C-dct-ep-echo\",\"Outcome\":0,\"WorkerClass\":\"senior-developer\"}]","errorExpected":false}`)
+		expectProbe(t, "execute-a-project-activity-P7 probe 1.1", 1, pout1_1, perr1_1, `{"result":"[{\"EpisodeID\":\"ep-exec-P7-r2\",\"Kind\":3,\"TargetRef\":\"C-dct-ep-echo\",\"Outcome\":0,\"WorkerClass\":\"senior-developer\"}]","errorExpected":false}`)
 		differential(t, "execute-a-project-activity-P7", 1, pre1_1)
 	})
 }
@@ -447,10 +454,30 @@ func expect(t *testing.T, scenario string, seq int, out any, err error, expectJS
 	}
 }
 
+// probeTimedOut reports a probe read that ran past its deadline: a read that does not return is
+// neither a result nor an expected error, so no expectation is judged against it.
+func probeTimedOut(err error) bool {
+	return err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "deadline exceeded"))
+}
+
+// expectProbe is expect for a probe's read: a read that timed out fails the step with that, instead
+// of being judged against the expectation (an expected error would otherwise accept the timeout).
+func expectProbe(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if probeTimedOut(err) {
+		t.Fatalf("%s step %d: probe timed out: %v", scenario, seq, err)
+	}
+	expect(t, scenario, seq, out, err, expectJSON)
+}
+
 // held reports whether the outcome of run already meets expectJSON: the pre-state
-// reading of the differential.
+// reading of the differential. A read that timed out held nothing: it does not count as the
+// expectation already being true.
 func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
 	out, err := run()
+	if probeTimedOut(err) {
+		return false
+	}
 	return check(scenario, seq, out, err, expectJSON) == ""
 }
 

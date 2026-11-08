@@ -6,11 +6,12 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.22.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.24.1
+	github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.1.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.3.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.4.0
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.22.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.5.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.5.0
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.24.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
@@ -124,7 +125,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go v0.21.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.22.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.3.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0

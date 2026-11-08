@@ -3,14 +3,15 @@ package main
 // freshproject_test.go proves a project born through the real seat path can pass its own
 // construction gate, and that the gate is not vacuous. Every wall the todomvc bench hit came
 // from code that had only ever seen archistrator's own hand-built project.json and layout, so
-// this test starts from nothing else: sourcecontrol's rendered scaffold, the contracts an
-// agent really recorded (RUN-007, testdata/fresh), the real make targets, the real task spec
+// this test starts from nothing else: sourcecontrol's rendered scaffold, the platform's
+// RUN-021 conformance fixture (todomvc), the real make targets, the real task spec
 // and the real run-checks binary. It resolves the seated module's pins through GOPROXY, which
 // is why the platform tags are released before the app consumes them.
 
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-conformance"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -33,50 +35,6 @@ const (
 	freshContract  = "todoListAccess"
 	freshPackage   = "internal/resourceaccess/todolist"
 )
-
-// todoListImpl is a component the way a junior developer is told to write it: one file named
-// for the leaf and stereotype, an unexported builder behind the generated constructor, and
-// nothing hand-written exported.
-const todoListImpl = `// Package todolist is the TodoList resource access.
-package todolist
-
-import (
-	"context"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-)
-
-type postgresAccess struct {
-	pool *pgxpool.Pool
-}
-
-func newPostgresTodoListAccess(_ context.Context, pool *pgxpool.Pool) (TodoListAccess, error) {
-	return &postgresAccess{pool: pool}, nil
-}
-
-func (*postgresAccess) RecordNewTodo(fwra.Context, ListOwner, Wording, ChangeID) (TodoID, error) {
-	return "", nil
-}
-
-func (*postgresAccess) RecordRewording(fwra.Context, ListOwner, TodoID, Wording, ChangeID) (ChangeOutcome, error) {
-	return ChangeOutcome{}, nil
-}
-
-func (*postgresAccess) RecordMarking(fwra.Context, ListOwner, *TodoID, TodoState, ChangeID) (ChangeOutcome, error) {
-	return ChangeOutcome{}, nil
-}
-
-func (*postgresAccess) DiscardTodo(fwra.Context, ListOwner, TodoID, ChangeID) (ChangeOutcome, error) {
-	return ChangeOutcome{}, nil
-}
-
-func (*postgresAccess) SweepCompleted(fwra.Context, ListOwner, ChangeID) error { return nil }
-
-func (*postgresAccess) RecallList(fwra.Context, ListOwner) (TodoList, error) {
-	return TodoList{}, nil
-}
-`
 
 var (
 	stateBinOnce sync.Once
@@ -124,31 +82,6 @@ func writeRepoFile(t *testing.T, repo, rel string, body []byte) {
 	}
 }
 
-// releasedToolchainOwedUntil is the date by which the platform release carrying binding model v2
-// (FPC plan 2, Task 2.11 "release + pin") must be pinned in go.mod. Until then the seated sandbox,
-// which resolves testgen at the pinned (pre-v2) version, cannot decode a v2 plan.
-const releasedToolchainOwedUntil = "2026-12-31"
-
-// requireReleasedToolchain skips the rest of a sandbox test when the testgen the sandbox's go.mod
-// pins predates binding model v2 (it has no -discriminate run). It is a dated skip, not a silent
-// one: after releasedToolchainOwedUntil the old toolchain fails the test instead, so the owed
-// release + pin cannot be forgotten. `remainder` names what is not run.
-func requireReleasedToolchain(t *testing.T, repo, remainder string) {
-	t.Helper()
-	usage, _ := runIn(repo, "go", "tool", "testgen", "-h") // usage goes to stderr with exit 2
-	if strings.Contains(usage, "-discriminate") {
-		return
-	}
-	until, err := time.Parse(time.DateOnly, releasedToolchainOwedUntil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if time.Now().After(until) {
-		t.Fatalf("the sandbox still pins a pre-binding-model-v2 testgen after %s: release the platform and pin it (FPC plan 2 Task 2.11 release + pin); not run: %s", releasedToolchainOwedUntil, remainder)
-	}
-	t.Skipf("FPC plan 2 Task 2.11 release + pin is owed until %s: the sandbox pins a pre-binding-model-v2 testgen, so not run: %s", releasedToolchainOwedUntil, remainder)
-}
-
 func inRepo(t *testing.T, repo string, argv ...string) string {
 	t.Helper()
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -162,120 +95,41 @@ func inRepo(t *testing.T, repo string, argv ...string) string {
 	return string(out)
 }
 
-// freshState is RUN-007's state document with its contracts recorded the way the verb now
-// records them: the capitalised layer canonicalised, the Resource named as infra refused.
+// freshState is the platform's todomvc conformance fixture (the project RUN-021 produced,
+// rebound to binding model v2 by FPC plan 2 Task 2.13): a whole designed app whose System,
+// use cases, contracts, test plans and UI design hold zero Error findings, so a fresh project
+// built from it is born gate-green and every failure a test provokes is the test's own.
 func freshState(t *testing.T) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", "fresh", "run007.project.json"))
+	raw, err := conformance.Fixture("todomvc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc struct {
-		ServiceContracts map[string]projectstate.ServiceContract `json:"serviceContracts"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
-	if doc.ServiceContracts[freshContract].Interface.Layer != "ResourceAccess" {
-		t.Fatalf("the fixture must keep the capitalised layer RUN-007's agent recorded")
-	}
-	caller := doc.ServiceContracts["callerAccess"]
-	err = canonicalizeContract("callerAccess", &caller)
-	if err == nil || !strings.Contains(err.Error(), "ExternalHTTP") {
-		t.Fatalf("recording RUN-007's IdentityProvider infra must be refused, naming the menu: %v", err)
-	}
-	caller.Infra = []string{"ExternalHTTP"}
-	if err := canonicalizeContract("callerAccess", &caller); err != nil {
-		t.Fatal(err)
-	}
-	todo := doc.ServiceContracts[freshContract]
-	if err := canonicalizeContract(freshContract, &todo); err != nil {
-		t.Fatal(err)
-	}
-	if todo.Interface.Layer != "resourceaccess" {
-		t.Fatalf("the layer must be canonical, got %q", todo.Interface.Layer)
-	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &top); err != nil {
-		t.Fatal(err)
-	}
-	contracts, err := json.Marshal(map[string]projectstate.ServiceContract{freshContract: todo, "callerAccess": caller})
-	if err != nil {
-		t.Fatal(err)
-	}
-	top["serviceContracts"] = contracts
-	top["slots"] = withClientSurfaces(t, top["slots"])
-	top["phaseArtifacts"] = withPlansUnderContractKeys(t, top["phaseArtifacts"], map[string]projectstate.ServiceContract{freshContract: todo, "callerAccess": caller})
-	out, err := json.Marshal(top)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return conformClientDesign(t, out)
+	return raw
 }
 
-// withPlansUnderContractKeys is RUN-007's plans as the verb now files them: RUN-007's agent keyed
-// them by component id, which no check could read.
-func withPlansUnderContractKeys(t *testing.T, raw json.RawMessage, contracts map[string]projectstate.ServiceContract) json.RawMessage {
+// fixtureImpl is one hand-written file of the fixture's implementation tree (the component
+// bodies the conformance chain overlays onto the generated scaffold), re-pathed from the
+// chain's module to the module a test's born repo has.
+func fixtureImpl(t *testing.T, path, module string) string {
 	t.Helper()
-	var artifacts map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &artifacts); err != nil {
-		t.Fatal(err)
-	}
-	var plans map[string]map[string]any
-	if err := json.Unmarshal(artifacts["testPlan"], &plans); err != nil {
-		t.Fatal(err)
-	}
-	keyed := make(map[string]map[string]any, len(plans))
-	for name, plan := range plans {
-		key, err := testPlanKey(contracts, name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		plan["component"] = key
-		keyed[key] = plan
-	}
-	var err error
-	if artifacts["testPlan"], err = json.Marshal(keyed); err != nil {
-		t.Fatal(err)
-	}
-	out, err := json.Marshal(artifacts)
+	impl, err := conformance.FixtureImpl("todomvc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return out
+	body, err := fs.ReadFile(impl, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(string(body), "example.com/conformance/todomvc", module)
 }
 
-// freshBrowserSurfaces are RUN-007's Clients a person uses in a browser.
-var freshBrowserSurfaces = map[string]bool{"web-app": true, "workspace-embed": true}
-
-// withClientSurfaces is RUN-007's slots as they now come out of the design: the agent left
-// uiSurface unset on every Client, which SYS-CLIENT-UISURFACE refuses, so each states it, and
-// the plan derives a browser surface's activity from it.
-func withClientSurfaces(t *testing.T, raw json.RawMessage) json.RawMessage {
+// todoListImpl is the fixture's TodoListAccess body: a component the way a junior developer is
+// told to write it, one file named for the leaf and stereotype, an unexported builder behind the
+// generated constructor, and nothing hand-written exported. It imports nothing module-local.
+func todoListImpl(t *testing.T) string {
 	t.Helper()
-	var slots map[string]map[string]any
-	if err := json.Unmarshal(raw, &slots); err != nil {
-		t.Fatal(err)
-	}
-	system := slots["5"]["model"].(map[string]any)
-	for _, c := range system["components"].([]any) {
-		comp := c.(map[string]any)
-		if comp["kind"] == "client" {
-			comp["uiSurface"] = freshBrowserSurfaces[comp["id"].(string)]
-		}
-	}
-	plan := slots["9"]["model"].(map[string]any)
-	for _, a := range plan["activities"].([]any) {
-		act := a.(map[string]any)
-		if id, _ := act["componentId"].(string); freshBrowserSurfaces[id] {
-			act["name"], act["uiSurface"] = "U-SPA-"+id, true
-		}
-	}
-	out, err := json.Marshal(slots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
+	return fixtureImpl(t, "internal/resourceaccess/todolist/todolistaccess.go", "")
 }
 
 // bornRepo seats a repo through the real scaffold render and commits it.
@@ -377,6 +231,25 @@ func commandChecks(t *testing.T, spec projectstate.TaskSpec, ids ...string) proj
 	return spec
 }
 
+// discriminateCheck is the integration gate's TP-DISCRIMINATE run.
+const discriminateCheck = "command:test-discriminate"
+
+// withoutDiscriminate drops the integration gate's test-discriminate. It nulls every scenario's
+// operation and reruns the suite once per mutant against a booted Postgres, which over the whole
+// conformance fixture outlasts the check's own 15-minute budget (scenarioCheckTimeoutSec) on a
+// developer machine. The platform's conformance proof owns that mutation run; the tests that use
+// this are about how the app composes, builds and gates a component.
+func withoutDiscriminate(spec projectstate.TaskSpec) projectstate.TaskSpec {
+	kept := spec.Checks[:0:0]
+	for _, c := range spec.Checks {
+		if c.ID != discriminateCheck {
+			kept = append(kept, c)
+		}
+	}
+	spec.Checks = kept
+	return spec
+}
+
 func requirePassed(t *testing.T, statuses, logs map[string]string) {
 	t.Helper()
 	if len(statuses) == 0 {
@@ -395,7 +268,7 @@ func builtRepo(t *testing.T) string {
 	t.Helper()
 	repo := bornRepo(t, freshState(t))
 	inRepo(t, repo, "make", "gen-models", "CONTRACTS="+freshContract)
-	writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(todoListImpl))
+	writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(todoListImpl(t)))
 	// The composition seat pins pgx from birth, so drop the require: the verb's tidy is what
 	// must bring it back from the component's import.
 	inRepo(t, repo, "go", "mod", "edit", "-droprequire=github.com/jackc/pgx/v5")
@@ -441,7 +314,7 @@ func TestFreshBirthIsGreen(t *testing.T) {
 func TestFreshComponentPassesItsGate(t *testing.T) {
 	repo := builtRepo(t)
 	construct := taskSpec(t, repo, "construction")
-	if !slices.Contains(construct.Contracts, freshContract) || slices.Contains(construct.Contracts, "callerAccess") {
+	if !slices.Contains(construct.Contracts, freshContract) || slices.Contains(construct.Contracts, "listManager") {
 		t.Fatalf("the job must generate this component's contract and no sibling's: %v", construct.Contracts)
 	}
 	statuses, logs := gate(t, repo, commandChecks(t, construct))
@@ -480,10 +353,10 @@ func TestFreshGateCatchesBrokenConventions(t *testing.T) {
 			writeRepoFile(t, repo, freshPackage+"/helpers.go", []byte("package todolist\n\nfunc helper() {}\n\nvar _ = helper\n"))
 		}},
 		{"a hand-exported symbol", arch, regexp.MustCompile(`Open`), func(t *testing.T, repo string) {
-			writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(todoListImpl+"\n// Open is hand-exported.\nfunc Open() {}\n"))
+			writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(todoListImpl(t)+"\n// Open is hand-exported.\nfunc Open() {}\n"))
 		}},
 		{"an import off the menu", arch, regexp.MustCompile(`golang\.org/x/sync`), func(t *testing.T, repo string) {
-			src := strings.Replace(todoListImpl, `"context"`, "\"context\"\n\n\t_ \"golang.org/x/sync/errgroup\"", 1)
+			src := strings.Replace(todoListImpl(t), `"context"`, "\"context\"\n\n\t_ \"golang.org/x/sync/errgroup\"", 1)
 			writeRepoFile(t, repo, freshPackage+"/todolistaccess.go", []byte(src))
 			inRepo(t, repo, "go", "mod", "tidy")
 		}},
@@ -528,7 +401,12 @@ func TestFreshGateCatchesBrokenConventions(t *testing.T) {
 			if err := json.Unmarshal(raw, &doc); err != nil {
 				t.Fatal(err)
 			}
-			doc["activityExecution"].(map[string]any)["C-caller-access"].(map[string]any)["completedAt"] = "2026-10-31T17:34:48Z"
+			rows, _ := doc["activityExecution"].(map[string]any)
+			if rows == nil {
+				rows = map[string]any{}
+			}
+			rows["C-list-manager"] = map[string]any{"completedAt": "2026-10-31T17:34:48Z"}
+			doc["activityExecution"] = rows
 			out, err := json.Marshal(doc)
 			if err != nil {
 				t.Fatal(err)
@@ -680,10 +558,22 @@ func TestFailureDigestSeesThroughRunNoise(t *testing.T) {
 // other checks print. An integration task that repeats itself must still be recognised, or the
 // run pays for every attempt its budget allows.
 func TestFreshRedScenarioRunDigestsAlike(t *testing.T) {
-	repo := builtRepo(t)
+	repo := integratedRepo(t)
 	spec := taskSpec(t, repo, "integration")
-	inRepo(t, repo, "make", "gen-tests")
-	inRepo(t, repo, "go", "mod", "tidy")
+	// An agent writes no test code, so the red scenario is a generated one whose expectation no
+	// subject can meet: every step now expects an error the contract never raises.
+	generated := filepath.Join(repo, freshPackage, "access_scenarios.gen_test.go")
+	raw, err := os.ReadFile(generated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.ReplaceAll(string(raw), `"errorExpected":false}`, `"errorExpected":true}`)
+	if broken == string(raw) {
+		t.Fatalf("the generated scenarios carry no expectation to break:\n%s", raw)
+	}
+	if err := os.WriteFile(generated, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "seed the scenario tests")
 	kept := spec.Checks[:0:0]
@@ -713,7 +603,7 @@ func TestFreshRedScenarioRunDigestsAlike(t *testing.T) {
 		_, _ = cmd.CombinedOutput()
 		got, err := os.ReadFile(filepath.Join(out, "res", failureDigestFile))
 		if err != nil || len(got) == 0 {
-			t.Fatalf("the unfilled hooks must leave a red scenario with a digest: %v", err)
+			t.Fatalf("an unmeetable expectation must leave a red scenario with a digest: %v", err)
 		}
 		return string(got)
 	}

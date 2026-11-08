@@ -4,6 +4,7 @@
 package sourcecontrol_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -716,6 +717,7 @@ func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 		var pout3_1 any
 		var perr3_1 error
 		run3_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				Repo sourcecontrol.RepoRef        `json:"repo"`
 				Pr   sourcecontrol.PullRequestRef `json:"pr"`
@@ -725,7 +727,7 @@ func TestScenario_replan_under_scope_change_P2(t *testing.T) {
                               "Bytes": "bG9jYWw=",
                               "ExpiresAt": "9999-12-31T00:00:00Z"
                             }}`, &in)
-			return subject.GetPullRequestStatus(h.ResourceAccessContext(t, "3.1"), in.Repo, in.Pr, in.Cred)
+			return subject.GetPullRequestStatus(pc.ResourceAccessContext(t, "3.1"), in.Repo, in.Pr, in.Cred)
 		}
 		pre3_1 := held("replan-under-scope-change-P2 probe 3.1 before", 3, run3_1, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
 		var in3 inputReplanUnderScopeChangeP2S3
@@ -736,7 +738,7 @@ func TestScenario_replan_under_scope_change_P2(t *testing.T) {
 		out3, err3 = subject.OpenBranch(h.ResourceAccessContext(t, "3"), in3.Repo, in3.Branch, in3.Cred)
 		expect(t, "replan-under-scope-change-P2", 3, out3, err3, `{"result":"aiarch/session/amendment-1","errorExpected":false}`)
 		pout3_1, perr3_1 = run3_1()
-		expect(t, "replan-under-scope-change-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
+		expectProbe(t, "replan-under-scope-change-P2 probe 3.1", 3, pout3_1, perr3_1, `{"result":"{\"CheckRollup\":1,\"Mergeable\":true}","errorExpected":false}`)
 		differential(t, "replan-under-scope-change-P2", 3, pre3_1)
 	})
 }
@@ -796,10 +798,30 @@ func expect(t *testing.T, scenario string, seq int, out any, err error, expectJS
 	}
 }
 
+// probeTimedOut reports a probe read that ran past its deadline: a read that does not return is
+// neither a result nor an expected error, so no expectation is judged against it.
+func probeTimedOut(err error) bool {
+	return err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "deadline exceeded"))
+}
+
+// expectProbe is expect for a probe's read: a read that timed out fails the step with that, instead
+// of being judged against the expectation (an expected error would otherwise accept the timeout).
+func expectProbe(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if probeTimedOut(err) {
+		t.Fatalf("%s step %d: probe timed out: %v", scenario, seq, err)
+	}
+	expect(t, scenario, seq, out, err, expectJSON)
+}
+
 // held reports whether the outcome of run already meets expectJSON: the pre-state
-// reading of the differential.
+// reading of the differential. A read that timed out held nothing: it does not count as the
+// expectation already being true.
 func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
 	out, err := run()
+	if probeTimedOut(err) {
+		return false
+	}
 	return check(scenario, seq, out, err, expectJSON) == ""
 }
 

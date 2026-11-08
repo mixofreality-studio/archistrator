@@ -7,6 +7,7 @@
 package projectstate_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,12 +47,13 @@ func TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				ProjectID projectstate.ProjectID `json:"projectID"`
 				Branch    string                 `json:"branch"`
 			}
 			mustUnmarshal(t, `{"projectID":"stp-aea-auc-p1","branch":"activity/D-REQ"}`, &in)
-			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(h.ResourceAccessContext(t, "1.1"), in.ProjectID, in.Branch)
+			return scenariocompose.NewDesignSessionAccess(t, h).ReadProjectOnBranch(pc.ResourceAccessContext(t, "1.1"), in.ProjectID, in.Branch)
 		}
 		pre1_1 := held("add-a-use-case-to-an-in-flight-project-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"id\":\"stp-aea-auc-p1\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
 		var in1 inputActivityExecutionAccessAddAUseCaseToAnInFlightProjectP1S1
@@ -120,7 +122,7 @@ func TestScenario_ActivityExecutionAccess_add_a_use_case_to_an_in_flight_project
 		out1, err1 = subject.StageTaskOutput(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.ExpectedVersion, in1.ExpectedActivityVersion, in1.ActivityID, in1.TaskID, in1.Branch, in1.Model, in1.Cred, in1.IdempotencyKey)
 		expect(t, "add-a-use-case-to-an-in-flight-project-P1", 1, out1, err1, `{"result":"{\"activityId\":\"D-REQ\",\"taskId\":\"coreUseCasesDraft\",\"branch\":\"activity/D-REQ\"}","errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-auc-p1\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
+		expectProbe(t, "add-a-use-case-to-an-in-flight-project-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"id\":\"stp-aea-auc-p1\",\"slots\":{\"4\":{\"model\":{\"kind\":\"coreUseCases\",\"model\":{\"decisions\":[{\"useCase\":{\"id\":\"stp-added-use-case\",\"name\":\"STP Added Use Case\",\"actors\":[{\"id\":\"architect-user\",\"role\":\"Architect User\"}],\"trigger\":\"clientAction\"},\"essenceRationale\":\"Amendment staged for review by the test plan.\",\"rejectionReason\":\"\"}]}}}}}","errorExpected":false}`)
 		differential(t, "add-a-use-case-to-an-in-flight-project-P1", 1, pre1_1)
 	})
 }
@@ -706,11 +708,12 @@ func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				ProjectID projectstate.ProjectID `json:"projectID"`
 			}
 			mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1"}`, &in)
-			return subject.ReadProject(h.ResourceAccessContext(t, "1.1"), in.ProjectID)
+			return subject.ReadProject(pc.ResourceAccessContext(t, "1.1"), in.ProjectID)
 		}
 		pre1_1 := held("manage-projects-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"stp-psa-mp-p1\",\"Version\":1,\"Phase\":0,\"Owner\":\"stp-psa-owner-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"OperatingModel\":\"selfOperated\"}","errorExpected":false}`)
 		var in1 inputProjectStateAccessManageProjectsP1S1
@@ -718,7 +721,7 @@ func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 		out1, err1 = subject.CreateProject(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.Owner, in1.Name)
 		expect(t, "manage-projects-P1", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "manage-projects-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-psa-mp-p1\",\"Version\":1,\"Phase\":0,\"Owner\":\"stp-psa-owner-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"OperatingModel\":\"selfOperated\"}","errorExpected":false}`)
+		expectProbe(t, "manage-projects-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"stp-psa-mp-p1\",\"Version\":1,\"Phase\":0,\"Owner\":\"stp-psa-owner-mp-p1\",\"Name\":\"STP Manage Projects P1\",\"OperatingModel\":\"selfOperated\"}","errorExpected":false}`)
 		differential(t, "manage-projects-P1", 1, pre1_1)
 		// step 2: ReadProject (node catalog-open; guards operating-model=[no: self-operated])
 		var out2 any
@@ -741,11 +744,12 @@ func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 		var pout4_1 any
 		var perr4_1 error
 		run4_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				ProjectID projectstate.ProjectID `json:"projectID"`
 			}
 			mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1"}`, &in)
-			return subject.ReadProject(h.ResourceAccessContext(t, "4.1"), in.ProjectID)
+			return subject.ReadProject(pc.ResourceAccessContext(t, "4.1"), in.ProjectID)
 		}
 		pre4_1 := held("manage-projects-P1 probe 4.1 before", 4, run4_1, `{"result":"{\"Version\":2,\"reviewPolicy\":{\"preset\":\"full\"}}","errorExpected":false}`)
 		var in4 inputProjectStateAccessManageProjectsP1S4
@@ -755,7 +759,7 @@ func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 		out4, err4 = subject.RecordReviewPolicy(h.ResourceAccessContext(t, "4"), in4.ProjectID, in4.ExpectedVersion, in4.Policy, in4.IdempotencyKey)
 		expect(t, "manage-projects-P1", 4, out4, err4, `{"result":"2","errorExpected":false}`)
 		pout4_1, perr4_1 = run4_1()
-		expect(t, "manage-projects-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Version\":2,\"reviewPolicy\":{\"preset\":\"full\"}}","errorExpected":false}`)
+		expectProbe(t, "manage-projects-P1 probe 4.1", 4, pout4_1, perr4_1, `{"result":"{\"Version\":2,\"reviewPolicy\":{\"preset\":\"full\"}}","errorExpected":false}`)
 		differential(t, "manage-projects-P1", 4, pre4_1)
 		// step 5: SetResearchInput (node capture-research; guards operating-model=[no: self-operated])
 		var out5 any
@@ -764,11 +768,12 @@ func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 		var pout5_1 any
 		var perr5_1 error
 		run5_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				ProjectID projectstate.ProjectID `json:"projectID"`
 			}
 			mustUnmarshal(t, `{"projectID":"stp-psa-mp-p1"}`, &in)
-			return subject.ReadProject(h.ResourceAccessContext(t, "5.1"), in.ProjectID)
+			return subject.ReadProject(pc.ResourceAccessContext(t, "5.1"), in.ProjectID)
 		}
 		pre5_1 := held("manage-projects-P1 probe 5.1 before", 5, run5_1, `{"result":"{\"Version\":3,\"Research\":{\"sources\":[{\"title\":\"Founder brief\",\"path\":\".aiarch/state/research/00-founder-brief.txt\",\"contentBytes\":67}]}}","errorExpected":false}`)
 		var in5 inputProjectStateAccessManageProjectsP1S5
@@ -783,7 +788,7 @@ func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 		out5, err5 = subject.SetResearchInput(h.ResourceAccessContext(t, "5"), in5.ProjectID, in5.ExpectedVersion, in5.Research)
 		expect(t, "manage-projects-P1", 5, out5, err5, `{"result":"3","errorExpected":false}`)
 		pout5_1, perr5_1 = run5_1()
-		expect(t, "manage-projects-P1 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"Version\":3,\"Research\":{\"sources\":[{\"title\":\"Founder brief\",\"path\":\".aiarch/state/research/00-founder-brief.txt\",\"contentBytes\":67}]}}","errorExpected":false}`)
+		expectProbe(t, "manage-projects-P1 probe 5.1", 5, pout5_1, perr5_1, `{"result":"{\"Version\":3,\"Research\":{\"sources\":[{\"title\":\"Founder brief\",\"path\":\".aiarch/state/research/00-founder-brief.txt\",\"contentBytes\":67}]}}","errorExpected":false}`)
 		differential(t, "manage-projects-P1", 5, pre5_1)
 	})
 }
@@ -1028,10 +1033,30 @@ func expect(t *testing.T, scenario string, seq int, out any, err error, expectJS
 	}
 }
 
+// probeTimedOut reports a probe read that ran past its deadline: a read that does not return is
+// neither a result nor an expected error, so no expectation is judged against it.
+func probeTimedOut(err error) bool {
+	return err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "deadline exceeded"))
+}
+
+// expectProbe is expect for a probe's read: a read that timed out fails the step with that, instead
+// of being judged against the expectation (an expected error would otherwise accept the timeout).
+func expectProbe(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if probeTimedOut(err) {
+		t.Fatalf("%s step %d: probe timed out: %v", scenario, seq, err)
+	}
+	expect(t, scenario, seq, out, err, expectJSON)
+}
+
 // held reports whether the outcome of run already meets expectJSON: the pre-state
-// reading of the differential.
+// reading of the differential. A read that timed out held nothing: it does not count as the
+// expectation already being true.
 func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
 	out, err := run()
+	if probeTimedOut(err) {
+		return false
+	}
 	return check(scenario, seq, out, err, expectJSON) == ""
 }
 

@@ -98,18 +98,19 @@ func TestScenario_register_a_delivered_system_for_operation_P1(t *testing.T) {
 		var pout1_1 any
 		var perr1_1 error
 		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
 			var in struct {
 				OperatedAppID uuid.UUID `json:"operatedAppID"`
 			}
 			mustUnmarshal(t, `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a2"}`, &in)
-			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(h.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
+			return scenariocompose.NewOperatedSystemStateAccess(t, h).ReadOperatedSystem(pc.ResourceAccessContext(t, "1.1"), in.OperatedAppID)
 		}
 		pre1_1 := held("register-a-delivered-system-for-operation-P1 probe 1.1 before", 1, run1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"stp-mcpops-project\",\"DeployableBundleRef\":\"bundle:stp-mcpops-0001\"}","errorExpected":false}`)
 		args1 := `{"operatedAppID":"6f1c2b9e-0a11-4c00-8000-0000000000a2","customerID":"6f1c2b9e-0c00-4c00-8000-0000000000c1","projectRef":"stp-mcpops-project","deployableBundleRef":"bundle:stp-mcpops-0001"}`
 		out1, err1 = subject.Call(h.Context(t), "operationsRegisterOperatedApp", args1)
 		expect(t, "register-a-delivered-system-for-operation-P1", 1, out1, err1, `{"result":"{\"result\":1}","errorExpected":false}`)
 		pout1_1, perr1_1 = run1_1()
-		expect(t, "register-a-delivered-system-for-operation-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"stp-mcpops-project\",\"DeployableBundleRef\":\"bundle:stp-mcpops-0001\"}","errorExpected":false}`)
+		expectProbe(t, "register-a-delivered-system-for-operation-P1 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"ID\":\"6f1c2b9e-0a11-4c00-8000-0000000000a2\",\"CustomerID\":\"6f1c2b9e-0c00-4c00-8000-0000000000c1\",\"Version\":1,\"InFlight\":false,\"ProjectRef\":\"stp-mcpops-project\",\"DeployableBundleRef\":\"bundle:stp-mcpops-0001\"}","errorExpected":false}`)
 		differential(t, "register-a-delivered-system-for-operation-P1", 1, pre1_1)
 	})
 }
@@ -289,10 +290,30 @@ func expect(t *testing.T, scenario string, seq int, out any, err error, expectJS
 	}
 }
 
+// probeTimedOut reports a probe read that ran past its deadline: a read that does not return is
+// neither a result nor an expected error, so no expectation is judged against it.
+func probeTimedOut(err error) bool {
+	return err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "deadline exceeded"))
+}
+
+// expectProbe is expect for a probe's read: a read that timed out fails the step with that, instead
+// of being judged against the expectation (an expected error would otherwise accept the timeout).
+func expectProbe(t *testing.T, scenario string, seq int, out any, err error, expectJSON string) {
+	t.Helper()
+	if probeTimedOut(err) {
+		t.Fatalf("%s step %d: probe timed out: %v", scenario, seq, err)
+	}
+	expect(t, scenario, seq, out, err, expectJSON)
+}
+
 // held reports whether the outcome of run already meets expectJSON: the pre-state
-// reading of the differential.
+// reading of the differential. A read that timed out held nothing: it does not count as the
+// expectation already being true.
 func held(scenario string, seq int, run func() (any, error), expectJSON string) bool {
 	out, err := run()
+	if probeTimedOut(err) {
+		return false
+	}
 	return check(scenario, seq, out, err, expectJSON) == ""
 }
 

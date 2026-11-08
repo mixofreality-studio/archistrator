@@ -72,12 +72,23 @@ func uiDesignSession(t *testing.T) *Session {
 	if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
 		t.Fatal(err)
 	}
-	delete(contracts, "webApp")
+	delete(contracts, "todoWebApp")
 	raw, err := json.Marshal(contracts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	top["serviceContracts"] = raw
+	// The surface has neither a design nor a plan yet: the fixture's plan targets the fixture's
+	// own design's elements, which the minimal designs below do not have.
+	var artifacts map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(top["phaseArtifacts"], &artifacts); err != nil {
+		t.Fatal(err)
+	}
+	delete(artifacts["testPlan"], "todoWebApp")
+	delete(artifacts, "uiDesign")
+	if top["phaseArtifacts"], err = json.Marshal(artifacts); err != nil {
+		t.Fatal(err)
+	}
 	state, err := json.Marshal(top)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +99,7 @@ func uiDesignSession(t *testing.T) *Session {
 		t.Fatal(err)
 	}
 	s, _ := seedProject(t, proj, jobModeConstruct, 0)
-	s.ActivityID, s.ComponentID = freshSurfaceActivity, "web-app"
+	s.ActivityID, s.ComponentID = freshSurfaceActivity, "todo-web-app"
 	return s
 }
 
@@ -100,7 +111,7 @@ func TestRecordUIDesign_TypedRefusesNoScreens(t *testing.T) {
 		map[string]any{"id": "todo-toggle", "role": "checkbox", "name": "Toggle todo", "within": "todo-item", "repeats": true},
 	}}
 	design := func(mutate func(map[string]any)) map[string]any {
-		d := map[string]any{"surface": "web-app", "content": "the concept", "screens": []any{screen}}
+		d := map[string]any{"surface": "todo-web-app", "content": "the concept", "screens": []any{screen}}
 		if mutate != nil {
 			mutate(d)
 		}
@@ -113,7 +124,7 @@ func TestRecordUIDesign_TypedRefusesNoScreens(t *testing.T) {
 	}{
 		"no screens at all":    {design(func(d map[string]any) { delete(d, "screens") }), "screens"},
 		"an empty screen list": {design(func(d map[string]any) { d["screens"] = []any{} }), "screens"},
-		"prose only":           {map[string]any{"UIDesign": map[string]any{"surface": "web-app", "content": "the concept"}}, "screens"},
+		"prose only":           {map[string]any{"UIDesign": map[string]any{"surface": "todo-web-app", "content": "the concept"}}, "screens"},
 		"a screen with an empty elements array": {design(func(d map[string]any) {
 			d["screens"] = []any{map[string]any{"id": "list", "route": "#/", "elements": []any{}}}
 		}), "elements"},
@@ -131,7 +142,7 @@ func TestRecordUIDesign_TypedRefusesNoScreens(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := uiDesignSession(t)
-			err := s.recordPhaseArtifact("web-app", tc.payload)
+			err := s.recordPhaseArtifact("todo-web-app", tc.payload)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("want a refusal naming %q, got: %v", tc.want, err)
 			}
@@ -142,21 +153,21 @@ func TestRecordUIDesign_TypedRefusesNoScreens(t *testing.T) {
 	}
 
 	s := uiDesignSession(t)
-	if err := s.recordPhaseArtifact("web-app", design(nil)); err != nil {
+	if err := s.recordPhaseArtifact("todo-web-app", design(nil)); err != nil {
 		t.Fatalf("a typed design must record: %v", err)
 	}
 	got, _, err := s.readProject()
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := got.PhaseArtifacts.UIDesign["web-app"]
+	rec := got.PhaseArtifacts.UIDesign["todo-web-app"]
 	if len(rec.Screens) != 1 || len(rec.Screens[0].Elements) != 4 {
 		t.Fatalf("recorded design = %+v", rec)
 	}
 	if e := rec.Screens[0].Elements[3]; e.Role != projectstate.UIRoleCheckbox || e.Within == nil || *e.Within != "todo-item" || !e.Repeats {
 		t.Errorf("element did not round-trip: %+v", e)
 	}
-	requireDerivedShape(t, got.ServiceContracts["webApp"])
+	requireDerivedShape(t, got.ServiceContracts["todoWebApp"])
 }
 
 func TestRecordServiceContract_SetsReadOnlyFromVerb(t *testing.T) {
