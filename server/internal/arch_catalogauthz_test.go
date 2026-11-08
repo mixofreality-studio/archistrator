@@ -68,30 +68,49 @@ const hooksPath = "../cmd/server/hooks.go"
 // catalogScopedGolden is the owner-scoped-catalog verb set, per generated web handler
 // package. EVERY entry is a deliberate decision; adding one means answering "does this
 // op name a resource in its body?" and, if it does, giving it an arm on the composition
-// root's guard instead.
+// root's guard instead (and listing it in bodyNamedProjectOps).
 //
-//   - delivery/start-project — creates (names nothing) OR adopts (names a project in the
-//     body). The adopt arm is guarded; the catalog decision still answers "may this
-//     principal start projects at all", which is the right question for a create.
-//   - delivery/query-project-view — the `projects` kind names nothing (it IS the catalog
-//     listing); the other six kinds name a project through `query.projectId` and are
-//     guarded.
-//   - operations/reconcile-operated-state — the platform-wide reconcile sweep. It takes
-//     no parameters at all: there is no resource to name, in the path or the body, so
-//     the catalog decision is the whole question. NOT guarded, and nothing to guard.
-//   - billing — NONE. Its one exposed op, get-billing-cycle, names its customer in the
-//     path, so it is authorized against {customer, id}, never the catalog.
+// Since FIX-046 (http-generator v0.5.0) the generator no longer guesses a resource kind
+// from an ID path param: EVERY generated handler authorizes {<manager>Catalog,
+// principal.Subject}, so the pinned set is each package's whole exposed surface. The
+// resource-scoped decision for a data-held resource (a project, a customer) belongs to
+// the Manager, which is earmarked with FIX-046 and runs under the interim
+// authenticated-only PDP (cmd/server/authz.go) meanwhile. The two delivery ops that name
+// a project in their BODY are the exception that keeps a composition-root arm
+// (bodyNamedProjectOps).
+//
+//   - billing - get-billing-cycle, onboard-payment-integration, register-customer: the
+//     customer is the principal's own subject or is named in the path; no body id is a
+//     foreign project.
+//   - delivery - the whole delivery surface (eleven ops). start-project and
+//     query-project-view name a project in the body and are guarded; the other nine
+//     carry a path/task id the Manager owns.
+//   - operations - the whole operations surface (eight ops), including the
+//     platform-wide reconcile-operated-state sweep, which names nothing at all.
 var catalogScopedGolden = map[string][]string{
-	"billing":    {},
-	"delivery":   {"query-project-view", "start-project"},
-	"operations": {"reconcile-operated-state"},
+	"billing": {"get-billing-cycle", "onboard-payment-integration", "register-customer"},
+	"delivery": {
+		"acknowledge-stale-basis", "ask-questions", "dispatch-activity-task",
+		"execute-next-activity", "override-activity", "query-activity-view",
+		"query-project-view", "set-project-execution-policy", "set-project-run-state",
+		"start-project", "submit-review-decision",
+	},
+	"operations": {
+		"apply-delinquency-policy", "deploy-after-construction", "query-cost-projection",
+		"query-deployment-health", "query-operated-system-view", "reconcile-operated-state",
+		"register-operated-app", "withdraw-system",
+	},
 }
+
+// bodyNamedProjectOps is the subset of delivery's catalog-scoped ops that name a PROJECT
+// in the request body and are therefore re-authorized against {project, id} by
+// projectScopedDeliveryManager. The guard must cover exactly this set.
+var bodyNamedProjectOps = []string{"query-project-view", "start-project"}
 
 // compositionRootGuards names the receiver whose methods re-authorize a body-carried id,
 // and the delivery package whose catalog set they must exactly cover.
 const (
 	guardReceiver   = "projectScopedDeliveryManager"
-	guardedPackage  = "delivery"
 	guardSourceFile = "cmd/server/hooks.go"
 )
 
@@ -181,7 +200,7 @@ func TestCompositionRootGuardsEveryCatalogScopedDeliveryOp(t *testing.T) {
 	}
 	sort.Strings(got)
 
-	want := slices.Clone(catalogScopedGolden[guardedPackage])
+	want := slices.Clone(bodyNamedProjectOps)
 	sort.Strings(want)
 
 	if !slices.Equal(got, want) {

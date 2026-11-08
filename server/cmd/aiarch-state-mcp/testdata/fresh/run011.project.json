@@ -7419,32 +7419,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7474,32 +7449,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7529,32 +7479,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7584,32 +7509,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7639,32 +7539,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7694,32 +7569,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "assistant-grant-for-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":true,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7749,32 +7599,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7804,32 +7629,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7859,32 +7659,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7914,32 +7689,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -7969,32 +7719,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8024,32 +7749,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8079,32 +7779,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8134,32 +7809,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8189,32 +7839,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8244,32 +7869,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8299,32 +7899,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "assistant-grant-for-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":true,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8354,32 +7929,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8409,32 +7959,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8464,32 +7989,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8519,32 +8019,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8574,32 +8049,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8629,32 +8079,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8684,32 +8109,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -8739,32 +8139,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n3",
-          "component": "actorIdentityAccess",
-          "operation": "RecognizeActor",
-          "inputs": [
-           {
-            "name": "proof",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": {
-               "credential": "member-proof-alice"
-              }
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"recognized\":true,\"onBehalf\":false,\"refusal\":\"\"}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      }
@@ -11974,30 +11349,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-add-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -12025,30 +11377,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-add-2"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":0}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -12076,30 +11405,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n4",
-          "component": "todoListAccess",
-          "operation": "RecallList",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-find-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Call mum\",\"completed\":true},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 2,
@@ -12131,40 +11437,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n5",
-          "component": "todoListAccess",
-          "operation": "SelectInView",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-find-1"
-             }
-            },
-            "schemaRef": ""
-           },
-           {
-            "name": "view",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "all"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Call mum\",\"completed\":true},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 3,
@@ -12186,30 +11459,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n6",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-find-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":2}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -12302,30 +11552,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-fix-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -12408,30 +11635,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-fix-2"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":0}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -12684,30 +11888,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n5",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-agent-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":0}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -12800,30 +11981,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n5",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-mark-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -12928,30 +12086,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-every-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":2}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13056,30 +12191,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-every-2"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":0}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13162,30 +12274,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n5",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-remove-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13213,30 +12302,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n4",
-          "component": "todoListAccess",
-          "operation": "RecallList",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-review-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Call mum\",\"completed\":true},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 2,
@@ -13268,40 +12334,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n6",
-          "component": "todoListAccess",
-          "operation": "SelectInView",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-review-1"
-             }
-            },
-            "schemaRef": ""
-           },
-           {
-            "name": "view",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "active"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13329,30 +12362,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n4",
-          "component": "todoListAccess",
-          "operation": "RecallList",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-review-2"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Call mum\",\"completed\":true},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 2,
@@ -13374,30 +12384,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n7",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-review-2"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":2}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13425,30 +12412,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n4",
-          "component": "todoListAccess",
-          "operation": "RecallList",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-count-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Water plants\",\"completed\":false},{\"title\":\"Send invoice\",\"completed\":true},{\"title\":\"Renew passport\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 2,
@@ -13470,30 +12434,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n5",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-count-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":2}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13566,30 +12507,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-sweep-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13617,30 +12535,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n8",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-sweep-2"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":2}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13668,30 +12563,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n4",
-          "component": "todoListAccess",
-          "operation": "RecallList",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-switch-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Call mum\",\"completed\":true},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 2,
@@ -13723,40 +12595,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n5",
-          "component": "todoListAccess",
-          "operation": "SelectInView",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-switch-1"
-             }
-            },
-            "schemaRef": ""
-           },
-           {
-            "name": "view",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "completed"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Call mum\",\"completed\":true}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 3,
@@ -13778,30 +12617,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n6",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-switch-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":2}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -13829,30 +12645,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n4",
-          "component": "todoListAccess",
-          "operation": "RecallList",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-mcp-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Call mum\",\"completed\":true},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 2,
@@ -13884,40 +12677,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n5",
-          "component": "todoListAccess",
-          "operation": "SelectInView",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-mcp-1"
-             }
-            },
-            "schemaRef": ""
-           },
-           {
-            "name": "view",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "active"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"todos\":[{\"title\":\"Pay rent\",\"completed\":false},{\"title\":\"Book flights\",\"completed\":false}]}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        },
        {
         "seq": 3,
@@ -13939,30 +12699,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n6",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-mcp-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":2}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14055,30 +12792,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-1"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14161,30 +12875,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-2"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":0}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14267,30 +12958,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-3"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14383,30 +13051,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-4"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14489,30 +13134,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-5"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":0}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14585,30 +13207,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-6"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14691,30 +13290,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-7"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":1}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      },
@@ -14742,30 +13318,7 @@
          "errorExpected": false,
          "errorCode": ""
         },
-        "probes": [
-         {
-          "for": "n18",
-          "component": "todoListAccess",
-          "operation": "TallyItemsLeft",
-          "inputs": [
-           {
-            "name": "member",
-            "value": {
-             "kind": "literal",
-             "model": {
-              "json": "member-work-8"
-             }
-            },
-            "schemaRef": ""
-           }
-          ],
-          "expect": {
-           "result": "{\"count\":0}",
-           "errorExpected": false,
-           "errorCode": ""
-          }
-         }
-        ]
+        "probes": []
        }
       ]
      }

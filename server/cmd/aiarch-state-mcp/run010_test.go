@@ -235,6 +235,8 @@ func TestRun010SeatedGateLoadsTheState(t *testing.T) {
 	repo := bornRepo(t, run010Raw(t))
 	cmd := exec.Command("go", "test", "-count=1", "-v", "-run", archGateRun, "./internal/")
 	cmd.Dir = repo
+	// The sandbox is a standalone module: a workspace the developer's shell exports must not reach it.
+	cmd.Env = append(os.Environ(), "GOWORK=off")
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "--- FAIL: TestProjectModel") || !strings.Contains(string(out), `unknown layer "resourceaccess"`) {
 		t.Fatalf("the seated gate must refuse RUN-010's state: %v\n%s", err, out)

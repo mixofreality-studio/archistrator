@@ -91,30 +91,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n7",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-add"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Existing\",\"completed\":false},{\"title\":\"Buy milk\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -142,30 +119,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n4",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-back"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -479,30 +433,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n6",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-drive1"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -530,30 +461,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n8",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-drive2"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":true}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -656,30 +564,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n9",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-fix1"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy oat milk\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -772,30 +657,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n9",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-fix2"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -898,30 +760,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n5",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-mark"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -1036,30 +875,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n9",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-all1"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":false},{\"title\":\"Walk dog\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -1174,30 +990,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n9",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-all2"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":true}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -1290,30 +1083,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n5",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-rm"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -1341,30 +1111,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n4",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-left"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false},{\"title\":\"Feed cat\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -1447,30 +1194,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n6",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-sw1"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Walk dog\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -1559,30 +1283,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n4",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-sw"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false},{\"title\":\"Feed cat\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -1610,30 +1311,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n6",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-stock"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[{\"title\":\"Buy milk\",\"completed\":true},{\"title\":\"Walk dog\",\"completed\":false}]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -2313,30 +1991,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n12",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-tend4"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []
@@ -2673,30 +2328,7 @@
             "errorExpected": false,
             "errorCode": ""
           },
-          "probes": [
-            {
-              "for": "n7",
-              "component": "list-record-access",
-              "operation": "RecallList",
-              "inputs": [
-                {
-                  "name": "listOwner",
-                  "value": {
-                    "kind": "literal",
-                    "model": {
-                      "json": "owner-host1"
-                    }
-                  },
-                  "schemaRef": ""
-                }
-              ],
-              "expect": {
-                "result": "{\"todos\":[]}",
-                "errorExpected": false,
-                "errorCode": ""
-              }
-            }
-          ]
+          "probes": []
         }
       ],
       "arrange": []

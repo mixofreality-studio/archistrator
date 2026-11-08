@@ -545,9 +545,9 @@ jobs:
 
       # DETERMINISTIC COMPONENT TESTING — the integration step (spec §12 B12, R2).
       # The deterministic half of integration is the JOB's: it generates the
-      # black-box scenario tests from the reviewed plan BEFORE the agent (seeding
-      # the hooks file), the agent wires the component, fills the hooks and commits
-      # the generated tests with its wiring, and the check gate after it runs them.
+      # black-box scenario tests from the reviewed plan BEFORE the agent, the agent
+      # wires the component and commits the generated tests with its wiring (it writes
+      # no test code), and the check gate after it runs them.
       - name: Generate the scenario tests
         if: ${{ steps.spec.outputs.integration == 'true' }}
         env:
