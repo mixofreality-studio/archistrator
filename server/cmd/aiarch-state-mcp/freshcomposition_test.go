@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -283,7 +284,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	fillPolicy(t, repo, ownListPolicyAdmittingTheGeneratedVerbs)
 	requireInScope(t, repo, spec)
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
-	statuses, logs := gate(t, repo, withoutDiscriminate(commandChecks(t, spec)))
+	statuses, logs := gate(t, repo, commandChecks(t, spec))
 	requirePassed(t, statuses, logs)
 	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy", "command:build-devstack", freshPolicyCheck} {
 		if _, ok := statuses[want]; !ok {
@@ -426,11 +427,9 @@ var freshMachineClients = []struct{ activity, contract, pkg string }{
 // A machine client is held to the fixture's own plan for it, bound by the test engineer: its
 // integration generates the client's transport scenarios from that plan (the generated
 // scenariocompose package supplies the subject; an agent writes no hooks file, FPC GC-1), and
-// every command check of the gate passes. The scenario checks are generated and present but their
-// verdicts are not asserted: running a client's scenarios over the wire is Plan 3's work, and
-// today the released toolchain refuses an agent actor's requests at run time (outsideDelegation)
-// and misses some arranged state.
-func requireMachineClientGate(t *testing.T, repo, activity, pkg string) {
+// every command check of the gate passes, test-discriminate included. The scenarios' own
+// verdicts are held by requireClientScenarioVerdicts, which waits on the delegation claim.
+func requireMachineClientGate(t *testing.T, repo, activity, contract, pkg string) {
 	t.Helper()
 	spec := activitySpec(t, repo, activity, "integration")
 	scenarios := 0
@@ -449,13 +448,115 @@ func requireMachineClientGate(t *testing.T, repo, activity, pkg string) {
 		t.Errorf("the client's scenarios were not generated: %v", err)
 	}
 
-	bound := withoutDiscriminate(commandChecks(t, activitySpec(t, repo, activity, "integration")))
+	bound := commandChecks(t, activitySpec(t, repo, activity, "integration"))
 	statuses, logs := gate(t, repo, bound)
 	requirePassed(t, statuses, logs)
 	for _, c := range bound.Checks {
 		if _, ok := statuses[c.ID]; !ok {
 			t.Errorf("the gate gave %s no verdict", c.ID)
 		}
+	}
+	requireClientScenarioVerdicts(t, repo, activity, contract, pkg)
+}
+
+// delegationClaimOwedUntil dates the platform work the machine clients' scenario verdicts wait on.
+const delegationClaimOwedUntil = "2026-12-31"
+
+// scenariohostMapsDelegations reports whether the pinned scenariohost turns a plan principal's
+// onBehalfOf into the Claims["delegations"] grant (grantor and intents) that the conformance
+// fixture's ListManager reads. v0.5.0 writes Claims["onBehalfOf"] instead, so an agent actor's
+// request reaches the Manager with no delegation and is refused (outsideDelegation).
+func scenariohostMapsDelegations(t *testing.T) bool {
+	t.Helper()
+	out, err := runIn(".", "go", "list", "-m", "-f", "{{.Dir}}", "github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost")
+	if err != nil {
+		t.Fatalf("locating the pinned scenariohost: %v\n%s", err, out)
+	}
+	dir := strings.TrimSpace(out)
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("the pinned scenariohost at %q has no Go files: %v", dir, err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), `"delegations"`) {
+			return true
+		}
+	}
+	return false
+}
+
+// requireDelegationClaim skips the rest of a machine-client test until the pinned scenariohost
+// maps onBehalfOf to Claims["delegations"]. It is a dated skip, not a silent one: after
+// delegationClaimOwedUntil it fails the test instead, so the owed platform fix (FPC plan 2 Task
+// 2.11h earmark E15, Plan 3) cannot be forgotten. `remainder` names what is not run.
+func requireDelegationClaim(t *testing.T, remainder string) {
+	t.Helper()
+	if scenariohostMapsDelegations(t) {
+		return
+	}
+	until, err := time.Parse(time.DateOnly, delegationClaimOwedUntil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Now().After(until) {
+		t.Fatalf("the pinned scenariohost still writes no Claims[\"delegations\"] after %s: map onBehalfOf to it, release and pin (FPC plan 2 Task 2.11h earmark E15); not run: %s", delegationClaimOwedUntil, remainder)
+	}
+	t.Skipf("FPC plan 2 Task 2.11h earmark E15 is owed until %s: the pinned scenariohost writes Claims[\"onBehalfOf\"], not the Claims[\"delegations\"] the fixture's ListManager reads, so the agent actors' scenarios are refused at run time; not run: %s", delegationClaimOwedUntil, remainder)
+}
+
+// requireClientScenarioVerdicts is the whole of a machine client's gate: each scenario check's own
+// verdict passes and lands under the contract key, and a wrong expectation goes red, so the run
+// really crosses the transport to the Manager. The wrong-expectation edit is found before the
+// delegation wait, so the generated file's shape is held even while the verdicts are not.
+func requireClientScenarioVerdicts(t *testing.T, repo, activity, contract, pkg string) {
+	t.Helper()
+	gen := filepath.Join(repo, pkg, "client_scenarios.gen_test.go")
+	generated, err := os.ReadFile(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bound = `"errorExpected":false}`
+	lines := strings.Split(string(generated), "\n")
+	at := slices.IndexFunc(lines, func(l string) bool {
+		return strings.HasPrefix(strings.TrimLeft(l, "\t"), "expect(t, ") && strings.Contains(l, bound)
+	})
+	if at < 0 {
+		t.Fatalf("the generated scenarios carry no expectation to get wrong:\n%s", generated)
+	}
+	lines[at] = strings.Replace(lines[at], bound, `"errorExpected":true}`, 1)
+	broken := strings.Join(lines, "\n")
+
+	requireDelegationClaim(t, activity+"'s scenario verdicts and the wrong-expectation red")
+	spec := activitySpec(t, repo, activity, "integration")
+	spec.Checks = slices.DeleteFunc(slices.Clone(spec.Checks), func(c projectstate.SpecCheck) bool {
+		return c.Kind != projectstate.CheckKindScenario
+	})
+	statuses, logs := gate(t, repo, spec)
+	requirePassed(t, statuses, logs)
+	for _, c := range spec.Checks {
+		if _, ok := statuses[c.ID]; !ok {
+			t.Errorf("the gate gave %s no verdict", c.ID)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, "test-results", contract, "results.json")); err != nil {
+		t.Errorf("the verdicts must land under the contract key: %v", err)
+	}
+
+	if err := os.WriteFile(gen, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runIn(repo, "go", "test", "-count=1", "./"+pkg+"/"); err == nil {
+		t.Errorf("a wrong expectation stayed green:\n%s", out)
+	}
+	if err := os.WriteFile(gen, generated, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -488,7 +589,7 @@ func TestFreshManagerPathComposesBothMachineClients(t *testing.T) {
 func TestMachineClientsIntegrateOverTheManagersRealShapes(t *testing.T) {
 	repo := integratedRepo(t)
 	for _, c := range freshMachineClients {
-		t.Run(c.contract, func(t *testing.T) { requireMachineClientGate(t, repo, c.activity, c.pkg) })
+		t.Run(c.contract, func(t *testing.T) { requireMachineClientGate(t, repo, c.activity, c.contract, c.pkg) })
 	}
 }
 

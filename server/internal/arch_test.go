@@ -1019,6 +1019,9 @@ var encapsulationAllowlistData = map[string][]string{
 		// it to the local rail, which refuses a stale binary before gating.
 		"StateToolVersion",
 		"TaskSpecSchemaVersion",
+		// The per-run allowance the null-subject check's budget is derived from; the
+		// internal taskspec test holds the derived budget to it.
+		"DiscriminateRunTimeoutSec",
 		"SpecIdentity",
 		"SpecModel",
 		"SpecEstimate",

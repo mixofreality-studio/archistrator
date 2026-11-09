@@ -732,3 +732,38 @@ func sameScope(a, b projectstate.SpecEditScope) bool {
 			return x.ID == y.ID && slices.Equal(x.Paths, y.Paths)
 		})
 }
+
+// The null-subject run is one `go test` per scenario and one per stimulus operation, so its budget
+// is the module's run count times a per-run allowance, never a constant (a todomvc-sized module
+// outlasted the flat 900 s cap of a scenario check).
+func TestDiscriminateBudgetScalesWithTheModulesRuns(t *testing.T) {
+	p := ownProject(t)
+	spec, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := 0
+	for key, c := range p.ServiceContracts {
+		layer := c.Layer
+		if layer == "" {
+			layer = c.Interface.Layer
+		}
+		if strings.EqualFold(layer, "client") {
+			continue
+		}
+		scs, err := projectstate.ComponentScenarios(p, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range scs {
+			runs += 1 + len(s.Stimuli)
+		}
+	}
+	if runs < 100 {
+		t.Fatalf("the own project has %d discriminate runs; the test needs a module big enough to outgrow the flat budget", runs)
+	}
+	got := checkByID(t, spec, "command:test-discriminate").TimeoutSec
+	if want := runs * projectstate.DiscriminateRunTimeoutSec; got < want {
+		t.Errorf("test-discriminate budget = %ds, want at least %d runs x %ds = %ds", got, runs, projectstate.DiscriminateRunTimeoutSec, want)
+	}
+}

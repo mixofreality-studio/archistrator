@@ -12189,6 +12189,12 @@ const (
 	commandCheckTimeoutSec  = 300
 	lintCheckTimeoutSec     = 600
 	scenarioCheckTimeoutSec = 900
+
+	// DiscriminateRunTimeoutSec is the allowance of one `go test` run inside testgen's
+	// -discriminate: the real subject once per scenario, then once per stimulus operation with
+	// that operation nulled. A run builds the scenario's package and boots its substrate (about
+	// 5 s on a developer machine); the allowance is three times that, for a slower runner.
+	DiscriminateRunTimeoutSec = 15
 )
 
 // TaskSpecSchemaVersion is the generation of TaskSpec's shape and of TaskSpecFor's
@@ -12197,7 +12203,7 @@ const (
 // encoding — so a stale state tool is named as stale, not reported as "task spec
 // drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
 // charters and lifecycles.
-const TaskSpecSchemaVersion = 3
+const TaskSpecSchemaVersion = 4
 
 // StateToolVersion is the generation of the task-spec code a binary carries: the
 // method-assets module version it was built with (from its own build info; a workspace
@@ -12897,7 +12903,7 @@ func serviceScopeAndChecks(p *Project, integration bool, componentID string, pkg
 		checks = append(checks,
 			commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec),
 			// TP-DISCRIMINATE: every scenario must fail once its operation is nulled.
-			commandCheck("test-discriminate", "Every scenario fails against a null subject", []string{"make", "test-discriminate"}, dir, scenarioCheckTimeoutSec))
+			commandCheck("test-discriminate", "Every scenario fails against a null subject", []string{"make", "test-discriminate"}, dir, discriminateTimeoutSec(p)))
 		if composesServer(p, contracts) {
 			scope.Extra = append(scope.Extra, compositionPaths(p)...)
 			checks = append(checks, compositionChecks(p, dir)...)
@@ -13169,6 +13175,32 @@ const installUITestsCheck = "install-uitests"
 
 // surfaceCheckID is the check id of the generated surface check.
 const surfaceCheckID = "surface-check"
+
+// discriminateTimeoutSec is the budget of the null-subject run. testgen's -discriminate runs every
+// Go scenario of the module once on its real subject and once per stimulus operation with that
+// operation nulled, each a separate `go test`, so the budget is that run count times
+// DiscriminateRunTimeoutSec, never less than a scenario check's. Clients are not counted: their
+// null runs wait for the booted server and are skipped.
+func discriminateTimeoutSec(p *Project) int {
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return scenarioCheckTimeoutSec
+	}
+	all, err := scenario.Derive(in)
+	if err != nil {
+		return scenarioCheckTimeoutSec
+	}
+	runs := 0
+	for key := range p.ServiceContracts {
+		if strings.EqualFold(contractLayer(p, key), "client") {
+			continue
+		}
+		for _, sc := range scenario.ForComponent(all, key) {
+			runs += 1 + len(sc.Stimuli)
+		}
+	}
+	return max(scenarioCheckTimeoutSec, runs*DiscriminateRunTimeoutSec)
+}
 
 // scenarioChecks is one check per scenario projected onto each contract.
 func scenarioChecks(p *Project, contracts []string) ([]SpecCheck, error) {

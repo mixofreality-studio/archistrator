@@ -231,25 +231,6 @@ func commandChecks(t *testing.T, spec projectstate.TaskSpec, ids ...string) proj
 	return spec
 }
 
-// discriminateCheck is the integration gate's TP-DISCRIMINATE run.
-const discriminateCheck = "command:test-discriminate"
-
-// withoutDiscriminate drops the integration gate's test-discriminate. It nulls every scenario's
-// operation and reruns the suite once per mutant against a booted Postgres, which over the whole
-// conformance fixture outlasts the check's own 15-minute budget (scenarioCheckTimeoutSec) on a
-// developer machine. The platform's conformance proof owns that mutation run; the tests that use
-// this are about how the app composes, builds and gates a component.
-func withoutDiscriminate(spec projectstate.TaskSpec) projectstate.TaskSpec {
-	kept := spec.Checks[:0:0]
-	for _, c := range spec.Checks {
-		if c.ID != discriminateCheck {
-			kept = append(kept, c)
-		}
-	}
-	spec.Checks = kept
-	return spec
-}
-
 func requirePassed(t *testing.T, statuses, logs map[string]string) {
 	t.Helper()
 	if len(statuses) == 0 {
