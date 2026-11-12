@@ -176,7 +176,11 @@ gen-lifecycles-check: gen-lifecycles
 # with "test timed out after 10m0s" mid-suite, so `make test-scenarios` went red
 # with no scenario failing. The bound covers the slowest package with headroom; it
 # relaxes no assertion.
-GO_TEST_TIMEOUT ?= 90m
+# 2026-11-11: cmd/aiarch-state-mcp now carries the two fresh-project integrations
+# (TestFreshManagerIntegrationComposesTheServer ~35 min with smoke:composition and
+# the scenario host; the package as a whole ~110 min measured), so 90m panicked
+# with a test timeout in that one package. 180m covers it with headroom.
+GO_TEST_TIMEOUT ?= 180m
 
 test: claude-assets
 	GOWORK=off go test -p 1 -timeout $(GO_TEST_TIMEOUT) ./...
