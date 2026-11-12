@@ -33,8 +33,22 @@
 #                      per stimulus operation with that operation nulled; a scenario that still
 #                      passes would pass without the behavior it claims to test, and is printed
 #                      as `TP-DISCRIMINATE <component> <scenario> <op>` (exit 1). Run it on a
-#                      tree gen-tests-check has just passed.
-.PHONY: gen-tests gen-tests-check test-scenarios test-discriminate
+#                      tree gen-tests-check has just passed. Machine-client scenarios null the
+#                      Manager operation a call reaches in the app the test launches; web scenarios
+#                      run through the scenario host (`go tool webscenarios`) with the Manager
+#                      operation their step drives nulled in the server it launches.
+#   surface-check    — for each browser surface, run its generated surface.spec.gen.ts alone (the
+#                      `surface` Playwright project): every non-repeating element of the surface's
+#                      UI design must be on its screen by the role and accessible name the design
+#                      gives it. The scenario flows depend on it. Needs `npm ci` and the Playwright
+#                      browser in ../uitests. Both web targets run under the scenario host
+#                      (`go tool webscenarios`), which boots the composed app into the host's
+#                      substrates, serves the arrange endpoint and tears everything down itself:
+#                      Playwright's own webServer would SIGKILL the app and leak its Postgres
+#                      container.
+#   test-web         — run every browser surface's generated scenarios (the `scenarios` Playwright
+#                      project, after the surface check it depends on) under the scenario host.
+.PHONY: gen-tests gen-tests-check test-scenarios test-discriminate surface-check test-web
 
 TESTGEN := github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen
 
@@ -50,3 +64,15 @@ test-discriminate:
 test-scenarios:
 	mkdir -p test-results
 	GOWORK=off go test -p 1 -timeout $(GO_TEST_TIMEOUT) ./internal/... -run 'TestScenario_' -json > test-results/go-test.jsonl 2>&1; rc=$$?; cat test-results/go-test.jsonl; exit $$rc
+
+surface-check:
+	@found=0; for cfg in ../uitests/generated/*/playwright.config.gen.ts; do \
+		[ -e "$$cfg" ] || continue; found=1; \
+		GOWORK=off go tool webscenarios -C ../uitests -config "$${cfg#../uitests/}" -project surface || exit 1; \
+	done; [ "$$found" = 1 ] || echo "surface-check: no browser surface to check"
+
+test-web:
+	@found=0; for cfg in ../uitests/generated/*/playwright.config.gen.ts; do \
+		[ -e "$$cfg" ] || continue; found=1; \
+		GOWORK=off go tool webscenarios -C ../uitests -config "$${cfg#../uitests/}" -project scenarios || exit 1; \
+	done; [ "$$found" = 1 ] || echo "test-web: no browser surface to run"

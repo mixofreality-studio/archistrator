@@ -12165,10 +12165,11 @@ func ContractKeyOf(p *Project, componentID string) (string, bool) {
 // no I/O, no map-order dependence, so the server and the job compute byte-identical
 // hashes from the same project.json.
 
-// The three kinds of typed check.
+// The kinds of typed check.
 const (
 	CheckKindRule     = "rule"     // methodcheck rule families over the project state
 	CheckKindCommand  = "command"  // a shell command run in the checkout
+	CheckKindSmoke    = "smoke"    // the composed app boots through its run contract and answers /readyz, the SPA and /mcp
 	CheckKindScenario = "scenario" // one generated scenario test
 )
 
@@ -12189,12 +12190,21 @@ const (
 	commandCheckTimeoutSec  = 300
 	lintCheckTimeoutSec     = 600
 	scenarioCheckTimeoutSec = 900
+	// smokeCheckTimeoutSec bounds the boot smoke: the launcher may build the SPA and the server,
+	// provision Postgres and Temporal, and then stops, which removes what it provisioned.
+	smokeCheckTimeoutSec = 900
 
 	// DiscriminateRunTimeoutSec is the allowance of one `go test` run inside testgen's
 	// -discriminate: the real subject once per scenario, then once per stimulus operation with
 	// that operation nulled. A run builds the scenario's package and boots its substrate (about
 	// 5 s on a developer machine); the allowance is three times that, for a slower runner.
 	DiscriminateRunTimeoutSec = 15
+
+	// DevstackBootSec is the allowance of one boot of the composed app through its run contract,
+	// on top of a run's own: every client scenario of the null-subject run launches the app (a
+	// devstack per `go test`, or per web scenario through the scenario host), which provisions
+	// Postgres and Temporal, builds the server and the SPA, and waits for /readyz.
+	DevstackBootSec = 120
 )
 
 // TaskSpecSchemaVersion is the generation of TaskSpec's shape and of TaskSpecFor's
@@ -12203,7 +12213,7 @@ const (
 // encoding — so a stale state tool is named as stale, not reported as "task spec
 // drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
 // charters and lifecycles.
-const TaskSpecSchemaVersion = 4
+const TaskSpecSchemaVersion = 5
 
 // StateToolVersion is the generation of the task-spec code a binary carries: the
 // method-assets module version it was built with (from its own build info; a workspace
@@ -12743,6 +12753,12 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 		return serviceScopeAndChecks(p, ms.Command == "service-integration", item.ComponentID, pkgs, contracts)
 	case "frontend-construction", "frontend-integration":
 		return frontendScopeAndChecks(p, ms.Command == "frontend-integration", item.ComponentID, contracts)
+	case "deployment-integration":
+		// The rollout is the composed app's too: it boots through its run contract before it
+		// converges anywhere. Its scope stays explicit "any path", as every deployment task's.
+		checks := append([]SpecCheck{projectRuleCheck()}, bootChecks(p.ModuleDir)...)
+		sortChecks(checks)
+		return SpecEditScope{Extra: []string{anyPath}}, checks, nil
 	}
 	// A construct-mode task whose scope cannot be derived (deployment, documentation, the
 	// testing variants, a service with no Go package) changes repo files no rule names, so
@@ -13008,11 +13024,7 @@ const devstackDir = "cmd/devstack"
 // other transport (RUN-015: a catalog-only policy 403'd every per-todo call, first seen at the
 // SPA, which may not edit hooks.go).
 func compositionChecks(p *Project, dir string) []SpecCheck {
-	out := []SpecCheck{
-		commandCheck("build-server", "The composition root builds", []string{"go", "build", "-o", "/dev/null", "./cmd/server/"}, dir, commandCheckTimeoutSec),
-		// The launcher acceptance boots is compiled in the activity that owns it, not first at acceptance.
-		commandCheck("build-devstack", "The local run contract builds", []string{"go", "build", "-o", "/dev/null", "./" + devstackDir + "/"}, dir, commandCheckTimeoutSec),
-	}
+	out := bootChecks(dir)
 	for _, sub := range compositionGenerators {
 		if sub == "temporal" {
 			continue // a Manager's task already checks it; a Client has no Temporal layer of its own
@@ -13022,6 +13034,23 @@ func compositionChecks(p *Project, dir string) []SpecCheck {
 	return append(out, commandCheck(policyCheckID, "The composition root's policy admits every request its generated transports send",
 		[]string{"go", "test", "./cmd/server/", "-run", "^TestPolicyAdmitsEveryGeneratedRequest$"}, dir, commandCheckTimeoutSec))
 }
+
+// bootChecks are what makes an integration the integration of the composed app: the composition
+// root and the run contract build, and the app then boots through that run contract (the smoke:
+// /readyz, the SPA and the MCP tool table the model generates, then a teardown that leaves nothing
+// behind). The two builds stay as sub-steps the smoke needs green first; the launcher acceptance
+// boots is compiled in the activity that owns it, not first at acceptance.
+func bootChecks(dir string) []SpecCheck {
+	return []SpecCheck{
+		commandCheck("build-server", "The composition root builds", []string{"go", "build", "-o", "/dev/null", "./cmd/server/"}, dir, commandCheckTimeoutSec),
+		commandCheck("build-devstack", "The local run contract builds", []string{"go", "build", "-o", "/dev/null", "./" + devstackDir + "/"}, dir, commandCheckTimeoutSec),
+		{ID: smokeCheckID, Kind: CheckKindSmoke, Title: "The composed app boots through its run contract and answers /readyz, the SPA and /mcp",
+			Source: SpecCheckSource{Dir: dir}, TimeoutSec: smokeCheckTimeoutSec},
+	}
+}
+
+// smokeCheckID names the boot smoke.
+const smokeCheckID = CheckKindSmoke + ":composition"
 
 // policyCheckID names the composition check that holds the policy to the generated requests.
 const policyCheckID = "policy-admits-generated-requests"
@@ -13148,11 +13177,17 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 				continue
 			}
 			// The generated surface check: every control the design names is on the page with
-			// the role and accessible name the design gives it.
+			// the role and accessible name the design gives it. It runs under the scenario host
+			// (go tool webscenarios), which boots the composed app into the host's substrates and
+			// tears everything down itself: Playwright's own webServer would SIGKILL the app and
+			// leak its Postgres container.
 			checks = append(checks, commandCheck(surfaceCheckID, "The surface has every designed element",
-				[]string{"npx", "playwright", "test", "-c", "generated/" + c + "/playwright.config.gen.ts", "--grep", "surface"},
-				"uitests", scenarioCheckTimeoutSec))
+				WebScenariosArgv(p.ModuleDir, c, "-project", "surface"),
+				p.ModuleDir, scenarioCheckTimeoutSec))
 		}
+		// The browser surface's integration is the app's too: its page is served by the composed
+		// server, so the smoke boots it and holds the page and the tool table.
+		checks = append(checks, compositionChecks(p, p.ModuleDir)...)
 		scen, err := scenarioChecks(p, contracts)
 		if err != nil {
 			return SpecEditScope{}, nil, err
@@ -13170,6 +13205,20 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 	return scope, checks, nil
 }
 
+// WebScenariosArgv is the command that runs a browser surface's generated Playwright project under
+// the scenario host (`go tool webscenarios`), from the module directory: -C is the repo-root
+// `uitests` project as that directory reaches it ("uitests" for a module at the repo root,
+// "../uitests" for one nested below it), -config the contract's generated config, and the rest the
+// Playwright selection (-project surface, or -grep <scenario>).
+func WebScenariosArgv(moduleDir, contract string, selection ...string) []string {
+	ui, err := filepath.Rel(moduleDir, "uitests")
+	if err != nil {
+		ui = "uitests"
+	}
+	argv := []string{"go", "tool", "webscenarios", "-C", filepath.ToSlash(ui), "-config", "generated/" + contract + "/playwright.config.gen.ts"}
+	return append(argv, selection...)
+}
+
 // installUITestsCheck is the check id of the UI tests' install.
 const installUITestsCheck = "install-uitests"
 
@@ -13177,10 +13226,11 @@ const installUITestsCheck = "install-uitests"
 const surfaceCheckID = "surface-check"
 
 // discriminateTimeoutSec is the budget of the null-subject run. testgen's -discriminate runs every
-// Go scenario of the module once on its real subject and once per stimulus operation with that
-// operation nulled, each a separate `go test`, so the budget is that run count times
-// DiscriminateRunTimeoutSec, never less than a scenario check's. Clients are not counted: their
-// null runs wait for the booted server and are skipped.
+// scenario of the module once on its real subject and once per stimulus operation with that
+// operation nulled, each a separate `go test` (or, for a web scenario, a scenario-host run), so the
+// budget is that run count times DiscriminateRunTimeoutSec, never less than a scenario check's. A
+// client's runs launch the composed app and null the Manager operation a call reaches in it, so
+// each adds one DevstackBootSec.
 func discriminateTimeoutSec(p *Project) int {
 	in, err := ScenarioInputOf(p)
 	if err != nil {
@@ -13190,16 +13240,17 @@ func discriminateTimeoutSec(p *Project) int {
 	if err != nil {
 		return scenarioCheckTimeoutSec
 	}
-	runs := 0
+	budget := 0
 	for key := range p.ServiceContracts {
+		perRun := DiscriminateRunTimeoutSec
 		if strings.EqualFold(contractLayer(p, key), "client") {
-			continue
+			perRun += DevstackBootSec
 		}
 		for _, sc := range scenario.ForComponent(all, key) {
-			runs += 1 + len(sc.Stimuli)
+			budget += (1 + len(sc.Stimuli)) * perRun
 		}
 	}
-	return max(scenarioCheckTimeoutSec, runs*DiscriminateRunTimeoutSec)
+	return max(scenarioCheckTimeoutSec, budget)
 }
 
 // scenarioChecks is one check per scenario projected onto each contract.
@@ -13221,10 +13272,10 @@ func scenarioChecks(p *Project, contracts []string) ([]SpecCheck, error) {
 	return out, nil
 }
 
-// checkKindOrder ranks the check kinds: rule, command, scenario.
-var checkKindOrder = map[string]int{CheckKindRule: 0, CheckKindCommand: 1, CheckKindScenario: 2}
+// checkKindOrder ranks the check kinds: rule, command, smoke, scenario.
+var checkKindOrder = map[string]int{CheckKindRule: 0, CheckKindCommand: 1, CheckKindSmoke: 2, CheckKindScenario: 3}
 
-// sortChecks orders checks by kind (rule, command, scenario), then id.
+// sortChecks orders checks by kind (rule, command, smoke, scenario), then id.
 func sortChecks(checks []SpecCheck) {
 	slices.SortStableFunc(checks, func(a, b SpecCheck) int {
 		if d := checkKindOrder[a.Kind] - checkKindOrder[b.Kind]; d != 0 {

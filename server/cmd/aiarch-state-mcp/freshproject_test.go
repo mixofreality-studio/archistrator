@@ -9,6 +9,7 @@ package main
 // is why the platform tags are released before the app consumes them.
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -53,7 +54,9 @@ func stateBinary(t *testing.T) string {
 		}
 		stateBinPath = filepath.Join(dir, "aiarch-state-mcp")
 		cmd := exec.Command("go", "build", "-o", stateBinPath, ".")
-		cmd.Env = append(os.Environ(), "GOWORK=off")
+		// The binary is built against the module's own pins; AIARCH_TEST_STATE_GOWORK builds it
+		// in a workspace instead, for a change that lands before the platform release it needs.
+		cmd.Env = append(os.Environ(), "GOWORK="+cmp.Or(os.Getenv("AIARCH_TEST_STATE_GOWORK"), "off"))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			stateBinErr = &buildError{out: string(out), err: err}
 		}

@@ -1022,6 +1022,7 @@ var encapsulationAllowlistData = map[string][]string{
 		// The per-run allowance the null-subject check's budget is derived from; the
 		// internal taskspec test holds the derived budget to it.
 		"DiscriminateRunTimeoutSec",
+		"DevstackBootSec",
 		"SpecIdentity",
 		"SpecModel",
 		"SpecEstimate",
@@ -1034,6 +1035,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"SpecGenerator",
 		"CheckKindRule",
 		"CheckKindCommand",
+		"CheckKindSmoke",
 		"CheckKindScenario",
 		// ValidEditScopeGlob: the ONE edit-scope glob grammar ("**", "<dir>/**", literal)
 		// TaskSpecFor validates its scope against and cmd/aiarch-state-mcp's edit-scope gate
@@ -1041,6 +1043,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// pure predicate, same category as the result shape above.
 		"ValidEditScopeGlob",
 		"EditScopeGlobMatch",
+		// WebScenariosArgv: the ONE spelling of the command that runs a browser surface's
+		// generated Playwright project under the scenario host (`go tool webscenarios`). The
+		// surface-check TaskSpecFor derives and the web scenario batch cmd/aiarch-state-mcp runs
+		// are the same command, so they cannot diverge. A pure function, same category as the
+		// result shape above.
+		"WebScenariosArgv",
 		// RULE ATTRIBUTION REGISTRY (moved from cmd/aiarch-state-mcp/staleness.go, Task B2):
 		// the rule-id-prefix → owning-slot table. cmd/aiarch-state-mcp's slot-scoped severity
 		// policy reads AttributeRule; TaskSpecFor's slot rule checks read RulePrefixesFor —

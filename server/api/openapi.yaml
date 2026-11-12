@@ -3318,6 +3318,10 @@ components:
             properties:
                 id:
                     type: string
+                kind:
+                    type:
+                        - "null"
+                        - string
                 role:
                     type: string
             required:

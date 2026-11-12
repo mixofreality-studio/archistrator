@@ -10,21 +10,13 @@ import (
 )
 
 // TestPolicyAdmitsEveryGeneratedRequest holds the composition root's policy to the requests the
-// generated transports really send it: for every row of generatedAuthorizations, the local dev
-// principal the DevConfig hook gives is permitted that verb on its own scope, asked through
-// edgeSecurity, the Security every generated REST handler and MCP tool holds. A policy that
-// refuses one of them would refuse that request in the browser and over MCP alike.
-//
-// The hooks are a zero appHooks, as main would hold before it builds anything: the policy and
-// DevConfig must be answerable without the state main builds.
+// generated transports really send it: for every row of generatedAuthorizations, an authenticated
+// principal is permitted that verb on its own scope, asked through edgeSecurity, the Security
+// every generated REST handler and MCP tool holds. A policy that refused one of them would
+// refuse that request in the browser and over MCP alike.
 func TestPolicyAdmitsEveryGeneratedRequest(t *testing.T) {
-	var hooks Hooks = new(appHooks)
-	cfg := &Config{DevPrincipal: "generated-authz-dev-principal"}
-	principal := hooks.DevConfig(cfg).Principal
-	if principal.Subject == "" {
-		t.Fatal("DevConfig gives no principal for the local profile's dev subject, so the policy cannot be held to the generated requests")
-	}
-	sec := edgeSecurity(hooks)
+	principal := security.Principal{Subject: "owner-a"}
+	sec := edgeSecurity()
 	for _, row := range generatedAuthorizations {
 		decision, err := sec.Authorize(context.Background(), principal,
 			security.Action{Verb: row.Verb},
@@ -33,5 +25,47 @@ func TestPolicyAdmitsEveryGeneratedRequest(t *testing.T) {
 			t.Errorf("%s.%s: the policy refuses the request the generated transports send (verb %q on the principal's own %s, subject %q): permit=%v err=%v",
 				row.Manager, row.Op, row.Verb, row.Scope, principal.Subject, decision.Permit, err)
 		}
+	}
+}
+
+// TestPolicyGen_AdmitsEveryGeneratedRequestForOwner: the policy reads no role and no principal
+// kind, so every generated request is admitted for a user and an application principal alike,
+// with no roles and with an agent role.
+func TestPolicyGen_AdmitsEveryGeneratedRequestForOwner(t *testing.T) {
+	sec := edgeSecurity()
+	for _, kind := range []security.PrincipalKind{security.PrincipalUser, security.PrincipalApplication} {
+		for _, roles := range [][]string{{}, {"agent"}} {
+			principal := security.Principal{Kind: kind, Subject: "owner-a", Roles: roles}
+			for _, row := range generatedAuthorizations {
+				decision, err := sec.Authorize(context.Background(), principal,
+					security.Action{Verb: row.Verb},
+					security.ResourceRef{Kind: row.Scope, ID: principal.Subject})
+				if err != nil || !decision.Permit {
+					t.Errorf("%s.%s: refused for a %s principal with roles %v (verb %q on %s): permit=%v err=%v",
+						row.Manager, row.Op, kind, roles, row.Verb, row.Scope, decision.Permit, err)
+				}
+			}
+		}
+	}
+}
+
+// TestPolicyGen_DeniesNonOwner: the policy admits nothing but the generated requests on the
+// principal's own scope. Another subject's scope, an unauthenticated principal, a verb no
+// transport sends and a scope no transport asks are each refused.
+func TestPolicyGen_DeniesNonOwner(t *testing.T) {
+	sec := edgeSecurity()
+	owner := security.Principal{Subject: "owner-a"}
+	denied := func(p security.Principal, verb, scope, id, why string) {
+		t.Helper()
+		decision, err := sec.Authorize(context.Background(), p, security.Action{Verb: verb}, security.ResourceRef{Kind: scope, ID: id})
+		if err == nil && decision.Permit {
+			t.Errorf("the policy permits %s: verb %q on %s %q for subject %q", why, verb, scope, id, p.Subject)
+		}
+	}
+	for _, row := range generatedAuthorizations {
+		denied(owner, row.Verb, row.Scope, "owner-b", row.Manager+"."+row.Op+" on another subject's scope")
+		denied(security.Principal{}, row.Verb, row.Scope, "", row.Manager+"."+row.Op+" for no subject")
+		denied(owner, row.Verb+"-unknown", row.Scope, owner.Subject, "a verb no transport sends")
+		denied(owner, row.Verb, row.Scope+"Unknown", owner.Subject, "a scope no transport asks")
 	}
 }

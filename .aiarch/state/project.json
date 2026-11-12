@@ -38501,6 +38501,13 @@
             "onBehalfOf": {
               "type": "string",
               "description": "The subject of the human this identity acts for: the delegation claim an agent's calls carry. Required of every principal whose actor is an agent (TP-PRINCIPAL-DELEGATION); absent for a human."
+            },
+            "intents": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "What the delegating human lets this agent do, in the app's own vocabulary: the intents of the delegation grant the scenario host writes into the agent's Claims[\"delegations\"]. Read only when onBehalfOf is set (TP-PRINCIPAL-DELEGATION refuses intents with no delegator); a grant with no intents has no reach."
             }
           },
           "required": [
@@ -83080,7 +83087,11 @@
                   }
                 ]
               }
-            ]
+            ],
+            "skip": {
+              "reason": "earmark E19 (FPC plan 3 Task 3.6): this client's scenario launches the composed app over the wire, and the own project's local profile does not boot under the scenario host yet (its module sits in server/, beside no appgen.json or devstack launcher, and the agenticJobAccess local executor is not modeled, earmark E3); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "view-live-deployment-health-P1",
@@ -83346,7 +83357,11 @@
                 },
                 "probes": []
               }
-            ]
+            ],
+            "skip": {
+              "reason": "earmark E19 (FPC plan 3 Task 3.6): this client's scenario launches the composed app over the wire, and the own project's local profile does not boot under the scenario host yet (its module sits in server/, beside no appgen.json or devstack launcher, and the agenticJobAccess local executor is not modeled, earmark E3); own-project rebinding scheduled",
+              "until": "2026-12-31"
+            }
           },
           {
             "scenario": "withdraw-a-delivered-system-P1",

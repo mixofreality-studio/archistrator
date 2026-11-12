@@ -10,20 +10,30 @@ import (
 	security "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
+// DevPrincipalHeader names the request header that picks one of the dev allowlist's
+// principals for that request (local profile only; see DevConfig.Principals).
+const DevPrincipalHeader = "X-Dev-Principal"
+
 // DevConfig configures the clearly-gated dev-mode principal injection. It MUST be
 // disabled in any IdP-fronted deployment.
 type DevConfig struct {
 	// Enabled turns on dev-mode principal injection (no token validated).
 	Enabled bool
-	// Principal is the dev identity injected on every request when Enabled.
+	// Principal is the dev identity injected on every request when Enabled and the
+	// request names no other.
 	Principal security.Principal
+	// Principals is the local-only allowlist of identities by subject. A request that
+	// carries DevPrincipalHeader naming one is served as it; any other value is a 401,
+	// "dev principal not allowed", so a header can never mint an identity the launch did
+	// not declare. Absent the header, Principal serves. Ignored unless Enabled.
+	Principals map[string]security.Principal
 }
 
 // AuthMiddleware returns the middleware mounted in front of the authenticated API
 // surface:
 //
-//   - dev.Enabled: inject dev.Principal on every request (no token required) — the
-//     local/systemtest happy path.
+//   - dev.Enabled: inject dev.Principal on every request (no token required), or the
+//     allowlisted principal a DevPrincipalHeader names — the local/systemtest happy path.
 //   - otherwise: validate the bearer access token with validator via
 //     security.Middleware, which stashes the resulting principal on the request
 //     context (readable by the handlers with security.PrincipalFrom). A nil
@@ -33,7 +43,16 @@ func AuthMiddleware(dev DevConfig, validator security.Validator) func(http.Handl
 	if dev.Enabled {
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r.WithContext(security.WithPrincipal(r.Context(), dev.Principal)))
+				p := dev.Principal
+				if subject := r.Header.Get(DevPrincipalHeader); subject != "" {
+					named, ok := dev.Principals[subject]
+					if !ok {
+						http.Error(w, "dev principal not allowed", http.StatusUnauthorized)
+						return
+					}
+					p = named
+				}
+				next.ServeHTTP(w, r.WithContext(security.WithPrincipal(r.Context(), p)))
 			})
 		}
 	}

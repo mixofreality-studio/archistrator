@@ -250,9 +250,10 @@ func TestScenarioCheckGoTimeoutFlags(t *testing.T) {
 	}
 }
 
-// TestScenarioCheckWebContract: a contract with no goPackage runs Playwright from
-// uitests with the contract's generated config, and its index is copied to the
-// repo-root test-results/<contract>/ with refs resolved there.
+// TestScenarioCheckWebContract: a contract with no goPackage runs Playwright under the scenario
+// host (go tool webscenarios, from the module directory) with the contract's generated config, and
+// its index, which Playwright writes in uitests, is copied to the repo-root test-results/<contract>/
+// with refs resolved there.
 func TestScenarioCheckWebContract(t *testing.T) {
 	root := repoWithProject(t, minimalProject())
 	var argvSeen, envSeen []string
@@ -260,7 +261,7 @@ func TestScenarioCheckWebContract(t *testing.T) {
 	r := checkRunner{root: root, outDir: filepath.Join(root, "check-results"), now: time.Now,
 		exec: func(_ context.Context, dir string, env []string, argv ...string) ([]byte, error) {
 			argvSeen, envSeen, dirSeen = argv, env, dir
-			writeIndex(t, filepath.Join(dir, "test-results", "webClient"), []scenarioVerdict{
+			writeIndex(t, filepath.Join(root, "uitests", "test-results", "webClient"), []scenarioVerdict{
 				{Scenario: "s-P1", Status: "fail", Stdout: "clicked\n", Stderr: "expected visible\n", VideoRef: "s-P1/video.webm", TraceRef: "s-P1/trace.zip"},
 			})
 			return []byte("1 failed"), errors.New("exit status 1")
@@ -268,11 +269,11 @@ func TestScenarioCheckWebContract(t *testing.T) {
 	res := r.Run(context.Background(), []projectstate.SpecCheck{
 		{ID: "scenario:webClient:s-P1", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "webClient", Scenario: "s-P1"}, TimeoutSec: 60},
 	})
-	want := []string{"npx", "playwright", "test", "-c", "generated/webClient/playwright.config.gen.ts", "--grep", `(?:^|\s)(s-P1) — `}
-	if !slices.Equal(argvSeen, want) || dirSeen != filepath.Join(root, "uitests") {
-		t.Fatalf("argv %q in %s", argvSeen, dirSeen)
+	want := []string{"go", "tool", "webscenarios", "-C", "uitests", "-config", "generated/webClient/playwright.config.gen.ts", "-grep", `(?:^|\s)(s-P1) — `}
+	if !slices.Equal(argvSeen, want) || filepath.Clean(dirSeen) != filepath.Clean(root) {
+		t.Fatalf("argv %q in %s, want %q in the module directory %s", argvSeen, dirSeen, want, root)
 	}
-	if !slices.Contains(envSeen, "AIARCH_SCENARIO_TIMEOUT_MS=60000") {
+	if !slices.Contains(envSeen, "AIARCH_SCENARIO_TIMEOUT_MS=60000") || !slices.Contains(envSeen, "GOWORK=off") {
 		t.Fatalf("env %v", envSeen)
 	}
 	if res[0].Status != "fail" || res[0].VideoRef == nil || *res[0].VideoRef != "test-results/webClient/s-P1/video.webm" ||

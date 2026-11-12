@@ -82,16 +82,6 @@ type Hooks interface {
 	// SDK logger the client + embedded workers log through.
 	TemporalLogger(logger *slog.Logger) tlog.Logger
 
-	// PolicyDecisionPoint is the authorization PDP the security Utility is built
-	// with (application policy — not model-derivable). It decides verbs for the
-	// authenticated principal's own scope: every generated REST handler and MCP
-	// tool asks it one row of generatedAuthorizations (authz.gen.go), a verb on
-	// ResourceRef{Kind: <manager>Catalog, ID: principal.Subject}, and it must
-	// permit the local dev principal every row (TestPolicyAdmitsEveryGeneratedRequest
-	// holds it, through a zero appHooks). Ownership of a data-held resource an
-	// operation names is the Manager's to enforce, never this policy's.
-	PolicyDecisionPoint() security.PolicyDecisionPoint
-
 	// TokenValidator is the access-token validator for the auth boundary; nil
 	// selects the dev-principal / deny middleware path. IdP-specific.
 	TokenValidator(ctx context.Context, cfg *Config) (security.Validator, error)
@@ -259,10 +249,10 @@ type Hooks interface {
 }
 
 // edgeSecurity is the security Utility every generated transport (the REST handlers
-// and the MCP tool tables at /mcp) authorizes against, built from the composition
-// root's policy. TestPolicyAdmitsEveryGeneratedRequest builds it the same way.
-func edgeSecurity(hooks Hooks) security.Security {
-	return security.New(security.WithPolicyDecisionPoint(hooks.PolicyDecisionPoint()))
+// and the MCP tool tables at /mcp) authorizes against, built from the policy generated
+// from the model. The generated policy tests build it the same way.
+func edgeSecurity() security.Security {
+	return security.New(security.WithPolicyDecisionPoint(generatedPolicy{}))
 }
 
 // RunGenerated performs the container's boot walk: signal context → telemetry
@@ -604,7 +594,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 
 	// Security Utility + auth boundary.
-	sec := edgeSecurity(hooks)
+	sec := edgeSecurity()
 	validator, err := hooks.TokenValidator(ctx, cfg)
 	if err != nil {
 		return err
@@ -613,6 +603,9 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	dev := hooks.DevConfig(cfg)
+	if dev.Principals, err = cfg.LocalDevPrincipals(hooks.ResolveProfile(cfg)); err != nil {
+		return err
+	}
 
 	webManagers := WebManagers{
 		BillingManager:    billingManager,
@@ -620,6 +613,14 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		OperationsManager: operationsManager,
 	}
 	webManagers = hooks.WrapManagers(webManagers)
+	scenariohostURL, err := cfg.LocalScenariohostURL(hooks.ResolveProfile(cfg))
+	if err != nil {
+		return err
+	}
+	webManagers, err = applyFaults(hooks.ResolveProfile(cfg), scenariohostURL, webManagers)
+	if err != nil {
+		return err
+	}
 	webManagers, err = applyNullOps(hooks.ResolveProfile(cfg), webManagers)
 	if err != nil {
 		return err
@@ -645,6 +646,9 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		logger.Info("browser surfaces served", "dir", cfg.WebDistDir)
 	} else {
 		root.Handle("/", genServer)
+	}
+	if scenariohostURL != "" {
+		root.Handle("/__scenariohost/", arrangeForwarder(scenariohostURL))
 	}
 	// MCP machine clients: every generated tool table on one server, behind the same
 	// auth boundary as /api (a bearer token, or the local dev principal) and authorized

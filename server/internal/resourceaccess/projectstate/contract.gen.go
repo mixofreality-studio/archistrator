@@ -1250,6 +1250,7 @@ type TestPrincipal struct {
 	Subject    string   `json:"subject"`
 	Roles      []string `json:"roles"`
 	OnBehalfOf *string  `json:"onBehalfOf,omitempty"`
+	Intents    []string `json:"intents,omitempty"`
 }
 
 type TestingVariant int

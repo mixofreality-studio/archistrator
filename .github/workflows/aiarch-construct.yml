@@ -682,8 +682,11 @@ jobs:
           AIARCH_MAIN_SHA: ${{ steps.spec.outputs.main_sha }}
         run: |
           # The spec the gate reads must still be the one the server dispatched.
-          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
-            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" || spec_hash=""
+          if [ "${spec_hash}" != "${AIARCH_SPEC_HASH}" ]; then
+            echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"
+            exit 2
+          fi
           git fetch --no-tags origin "activity/${AIARCH_ACTIVITY_ID}"
           if [ -n "${AIARCH_MAIN_SHA}" ]; then
             "${MCP_BIN}" edit-scope --spec "${RUNNER_TEMP}/spec.json" --base "${AIARCH_BASE}" --head "$(git rev-parse FETCH_HEAD)" --main "${AIARCH_MAIN_SHA}"
@@ -714,8 +717,11 @@ jobs:
             exit 1
           fi
           # The spec the gate reads must still be the one the server dispatched.
-          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
-            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" || spec_hash=""
+          if [ "${spec_hash}" != "${AIARCH_SPEC_HASH}" ]; then
+            echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"
+            exit 2
+          fi
           git checkout -f -B "activity/${AIARCH_ACTIVITY_ID}" FETCH_HEAD
           git clean -fd
           rm -rf test-results check-results
@@ -745,8 +751,11 @@ jobs:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
         run: |
           # The spec the gate reads must still be the one the server dispatched.
-          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" && [ "${spec_hash}" = "${AIARCH_SPEC_HASH}" ] \
-            || { echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"; exit 2; }
+          spec_hash="$(jq -er .hash "${RUNNER_TEMP}/spec.json")" || spec_hash=""
+          if [ "${spec_hash}" != "${AIARCH_SPEC_HASH}" ]; then
+            echo "::error::${RUNNER_TEMP}/spec.json no longer carries the dispatched spec hash ${AIARCH_SPEC_HASH}"
+            exit 2
+          fi
           branch="activity/${AIARCH_ACTIVITY_ID}"
           run_id="gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           record() {

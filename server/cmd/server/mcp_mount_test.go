@@ -87,8 +87,8 @@ func toolNames(tools []*mcp.Tool) []string {
 }
 
 // testSecurity is the edge security the composition root serves with (the generated
-// edgeSecurity over this root's policy), for tests that mount the transports directly.
-func testSecurity() security.Security { return edgeSecurity(&appHooks{}) }
+// edgeSecurity over the generated policy), for tests that mount the transports directly.
+func testSecurity() security.Security { return edgeSecurity() }
 
 // mountGeneratedMCP reproduces, line for line, the /mcp mount main.gen.go builds before it
 // calls hooks.ExtraMounts: every generated tool table on one mcp.Server, the transport behind

@@ -6,7 +6,6 @@
 package scenariocompose
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -20,10 +19,6 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
-	mcpbillingclient "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/billing"
-	mcpdeliveryclient "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/delivery"
-	mcpoperationsclient "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -124,8 +119,9 @@ func (s *subject) temporal() client.Client {
 	return tc
 }
 
-// postgres is the pool every Postgres-backed component shares. The host boots Postgres
-// outside -short only; under -short the test is skipped, never run against nothing.
+// postgres is the pool every Postgres-backed component shares, over the database the scenario's
+// state lives in (the launched app's, once the test launched one; see Host.PostgresDSN). The host
+// boots Postgres outside -short only; under -short the test is skipped, never run against nothing.
 func (s *subject) postgres() *pgxpool.Pool {
 	s.t.Helper()
 	if s.pool != nil {
@@ -134,7 +130,7 @@ func (s *subject) postgres() *pgxpool.Pool {
 	if s.h.PostgresURL == "" {
 		s.t.Skip("scenariocompose: postgres is not booted under -short")
 	}
-	pool, err := postgresinfra.NewPool(s.t.Context(), s.h.PostgresURL)
+	pool, err := postgresinfra.NewPool(s.t.Context(), s.h.PostgresDSN())
 	if err != nil {
 		s.t.Fatalf("scenariocompose: open postgres pool: %v", err)
 	}
@@ -1724,77 +1720,13 @@ func (n nullUsageAccess) RecordComputeUsage(rc fwra.Context, p0 []usage.UsageEve
 	return zero, nil
 }
 
-// authzKey is one decision a generated transport asks: a verb on a scope kind.
-type authzKey struct{ verb, scope string }
-
-// generatedAuthorizations is every (verb, scope) the generated REST handlers and MCP tools send the
-// policy, read from the same derivation as the composition root's authz.gen.go.
-var generatedAuthorizations = map[authzKey]bool{
-	{verb: "acknowledge-stale-basis", scope: "deliveryCatalog"}:      true,
-	{verb: "apply-delinquency-policy", scope: "operationsCatalog"}:   true,
-	{verb: "ask-questions", scope: "deliveryCatalog"}:                true,
-	{verb: "deploy-after-construction", scope: "operationsCatalog"}:  true,
-	{verb: "dispatch-activity-task", scope: "deliveryCatalog"}:       true,
-	{verb: "execute-next-activity", scope: "deliveryCatalog"}:        true,
-	{verb: "get-billing-cycle", scope: "billingCatalog"}:             true,
-	{verb: "onboard-payment-integration", scope: "billingCatalog"}:   true,
-	{verb: "override-activity", scope: "deliveryCatalog"}:            true,
-	{verb: "query-activity-view", scope: "deliveryCatalog"}:          true,
-	{verb: "query-cost-projection", scope: "operationsCatalog"}:      true,
-	{verb: "query-deployment-health", scope: "operationsCatalog"}:    true,
-	{verb: "query-operated-system-view", scope: "operationsCatalog"}: true,
-	{verb: "query-project-view", scope: "deliveryCatalog"}:           true,
-	{verb: "reconcile-operated-state", scope: "operationsCatalog"}:   true,
-	{verb: "register-customer", scope: "billingCatalog"}:             true,
-	{verb: "register-operated-app", scope: "operationsCatalog"}:      true,
-	{verb: "set-project-execution-policy", scope: "deliveryCatalog"}: true,
-	{verb: "set-project-run-state", scope: "deliveryCatalog"}:        true,
-	{verb: "start-project", scope: "deliveryCatalog"}:                true,
-	{verb: "submit-review-decision", scope: "deliveryCatalog"}:       true,
-	{verb: "withdraw-system", scope: "operationsCatalog"}:            true,
-}
-
-// generatedPolicy permits an authenticated principal exactly the generated requests on its own
-// scope. It denies everything else: a test's handlers are never served by a permit-all policy.
-type generatedPolicy struct{}
-
-func (generatedPolicy) Decide(_ context.Context, p security.Principal, a security.Action, r security.ResourceRef) (bool, error) {
-	return p.Subject != "" && r.ID == p.Subject && generatedAuthorizations[authzKey{verb: a.Verb, scope: r.Kind}], nil
-}
-
-// edgeSecurity is the security Utility every generated handler a test serves authorizes against.
-func edgeSecurity() security.Security {
-	return security.New(security.WithPolicyDecisionPoint(generatedPolicy{}))
-}
-
-// NewMcpClient builds the generated handlers of the mcpClient client over the real DeliveryManager and the
-// generated authorization policy: the value a test serves (Register) and calls through.
-func NewMcpClient(t *testing.T, h *scenariohost.Host) *mcpdeliveryclient.Handler {
-	t.Helper()
-	return &mcpdeliveryclient.Handler{Manager: buildDeliveryManager(subjectFor(t, h)), Security: edgeSecurity()}
-}
-
-// NewMcpClientBilling builds the generated handlers of the mcpClientBilling client over the real BillingManager and the
-// generated authorization policy: the value a test serves (Register) and calls through.
-func NewMcpClientBilling(t *testing.T, h *scenariohost.Host) *mcpbillingclient.Handler {
-	t.Helper()
-	return &mcpbillingclient.Handler{Manager: buildBillingManager(subjectFor(t, h)), Security: edgeSecurity()}
-}
-
-// NewMcpClientOperations builds the generated handlers of the mcpClientOperations client over the real OperationsManager and the
-// generated authorization policy: the value a test serves (Register) and calls through.
-func NewMcpClientOperations(t *testing.T, h *scenariohost.Host) *mcpoperationsclient.Handler {
-	t.Helper()
-	return &mcpoperationsclient.Handler{Manager: buildOperationsManager(subjectFor(t, h)), Security: edgeSecurity()}
-}
-
 // Workflows registers every Manager's workflows exactly as the composition root registers
 // them on a live Worker, for the replay gate (scenariohost.MainWithWorkflows). The Managers
 // are built with nil collaborators: a replay never executes an activity.
 func Workflows() scenariohost.Workflows {
 	return scenariohost.Workflows{Register: func(w scenariohost.Worker) {
-		managerbilling.RegisterManagerWorker(w, managerbilling.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil))
-		delivery.RegisterManagerWorker(w, delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, time.Duration(1800000000000), "tiered"))
-		operations.RegisterManagerWorker(w, operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		managerbilling.RegisterManagerWorker(w, managerbilling.NewBillingManager(nil, nil, nil, nil, nil, enginebilling.NewBillingEngine(), intervention.NewInterventionEngine(), nil))
+		delivery.RegisterManagerWorker(w, delivery.NewDeliveryManager(nil, nil, nil, intervention.NewInterventionEngine(), review.NewReviewEngine(), estimation.NewEstimationEngine(), operationestimation.NewOperationEstimationEngine(), enginebilling.NewBillingEngine(), designhealth.NewDesignHealthEngine(), nil, nil, nil, nil, nil, nil, nil, time.Duration(1800000000000), "tiered"))
+		operations.RegisterManagerWorker(w, operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, intervention.NewInterventionEngine(), autoscaler.NewAutoscalerEngine(), operationestimation.NewOperationEstimationEngine(), nil))
 	}}
 }

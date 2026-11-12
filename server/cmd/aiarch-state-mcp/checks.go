@@ -3,12 +3,15 @@ package main
 // checks.go is the check runner behind `run-checks` and the `run_checks` verb: it runs a
 // task spec's checks (projectstate.TaskSpec.Checks) against the checkout and returns one
 // compact CheckResult per check, writing each check's full output to a log under the
-// results directory. Three kinds:
+// results directory. Four kinds:
 //
 //   - rule: the policy-aware Method gate (validateFindings, the same machinery as the
 //     `validate` subcommand) filtered to the check's rule prefixes; it fails iff an Error
 //     finding survives.
 //   - command: one process in the checkout, capped at the check's TimeoutSec.
+//   - smoke: the composed app boots through its run contract (devstack.Launch) and answers
+//     /readyz, the SPA and the MCP tool table the model generates; its teardown must leave no
+//     process, container or volume behind.
 //   - scenario: the generated scenario tests of one contract, batched into one process
 //     per contract (`go test` for a contract with a Go package, Playwright for a web
 //     client), the verdicts read back from the scenario host's results.json index.
@@ -33,6 +36,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/devstack"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -74,6 +79,10 @@ type checkRunner struct {
 	outDir string // results dir; logs at outDir/checks/<sanitized id>.log
 	exec   func(ctx context.Context, dir string, env []string, argv ...string) (out []byte, err error)
 	now    func() time.Time
+	// launch boots a composed app through its run contract and inventory lists the docker
+	// objects now present; both default to devstack's, and a test substitutes them.
+	launch    func(ctx context.Context, dir string, env []string, log io.Writer) (*devstack.App, error)
+	inventory func(ctx context.Context) ([]string, error)
 }
 
 // Run runs the given checks; scenario checks are batched per contract into one process.
@@ -93,6 +102,8 @@ func (r checkRunner) Run(ctx context.Context, checks []projectstate.SpecCheck) [
 			results[i] = r.runRule(ctx, c)
 		case projectstate.CheckKindCommand:
 			results[i] = r.runCommand(ctx, c)
+		case projectstate.CheckKindSmoke:
+			results[i] = r.runSmoke(ctx, c)
 		case projectstate.CheckKindScenario:
 			contract := c.Source.Contract
 			if batched[contract] {
@@ -251,6 +262,113 @@ func commandEnv(argv0 string, extra ...string) []string {
 	return append(env, extra...)
 }
 
+// --- smoke ---
+
+// smokeTeardownSec bounds the docker inventory taken after the app stopped: the check's own
+// context may be spent by then, and the leftovers are what it exists to find.
+const smokeTeardownSec = 60
+
+// runSmoke boots the composed app in c.Source.Dir through its run contract, holds it to
+// /readyz, the SPA when the model has a built browser surface and every MCP tool the model
+// generates, stops it, and fails when the launch left a container or volume behind (the docker
+// inventory taken before and after). The log is the launcher's output tail and the verdict.
+func (r checkRunner) runSmoke(ctx context.Context, c projectstate.SpecCheck) CheckResult {
+	start := r.now()
+	ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
+	defer cancel()
+	var log bytes.Buffer
+	err := r.smoke(ctx, filepath.Join(r.root, c.Source.Dir), &log)
+	status := checkPass
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		status = checkTimeout
+		fmt.Fprintf(&log, "\n[timed out after %ds]\n", int(timeoutOf(c, defaultCheckTimeoutSec)/time.Second))
+	case err != nil:
+		status = checkFail
+		fmt.Fprintf(&log, "\nsmoke: %v\n", err)
+	}
+	return r.finish(c, status, r.since(start), log.Bytes())
+}
+
+func (r checkRunner) smoke(ctx context.Context, dir string, log *bytes.Buffer) error {
+	spec, err := r.smokeSpec(dir)
+	if err != nil {
+		return err
+	}
+	launch, inventory := r.launch, r.inventory
+	if launch == nil {
+		launch = devstack.Launch
+	}
+	if inventory == nil {
+		inventory = devstack.DockerInventory
+	}
+	before, err := inventory(ctx)
+	if err != nil {
+		return fmt.Errorf("docker inventory before the launch: %w", err)
+	}
+	var smokeErr, stopErr error
+	app, launchErr := launch(ctx, dir, nil, nil)
+	if launchErr == nil {
+		smokeErr = devstack.Smoke(ctx, app, spec)
+		stopErr = app.Stop()
+		if tail := app.Log(); tail != "" {
+			log.WriteString("devstack output (last lines):\n" + tail + "\n")
+		}
+	}
+	teardown, cancel := context.WithTimeout(context.WithoutCancel(ctx), smokeTeardownSec*time.Second)
+	defer cancel()
+	after, invErr := inventory(teardown)
+	var left []string
+	if invErr == nil {
+		left = devstack.DockerLeftovers(teardown, before, after)
+	}
+	return errors.Join(
+		launchErr, smokeErr,
+		wrapErr("stop", stopErr),
+		wrapErr("docker inventory after the teardown", invErr),
+		leftoverErr(left),
+	)
+}
+
+func wrapErr(what string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", what, err)
+}
+
+func leftoverErr(left []string) error {
+	if len(left) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the launch left %d docker object(s) behind: %s", len(left), strings.Join(left, ", "))
+}
+
+// smokeSpec is what the booted app must answer, derived from the project's model: the SPA iff it
+// has a built browser surface whose web project is seated (an unseated one is not yet built; the
+// web client's own integration seats it), and every tool its MCP clients front (devstack.ToolNames,
+// narrowed by the module's appgen.json exposed operations as the generators narrow them).
+func (r checkRunner) smokeSpec(dir string) (devstack.SmokeSpec, error) {
+	m, err := projectmodel.LoadFile(filepath.Join(r.root, statePathPrefix, projectFile))
+	if err != nil {
+		return devstack.SmokeSpec{}, fmt.Errorf("load the project model: %w", err)
+	}
+	var cfg struct {
+		Clients struct {
+			Exposed map[string][]string `json:"exposed"`
+		} `json:"clients"`
+	}
+	switch raw, err := os.ReadFile(filepath.Join(dir, "appgen.json")); {
+	case err == nil:
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return devstack.SmokeSpec{}, fmt.Errorf("parse appgen.json: %w", err)
+		}
+	case !errors.Is(err, os.ErrNotExist):
+		return devstack.SmokeSpec{}, fmt.Errorf("read appgen.json: %w", err)
+	}
+	return devstack.SmokeSpecFor(m, dir, cfg.Clients.Exposed), nil
+}
+
 // --- scenario ---
 
 // scenarioVerdict is one entry of a scenario index (results.json), the shape the Go
@@ -268,7 +386,7 @@ type scenarioVerdict struct {
 // scenarioBatch is how one contract's selected scenarios run and where their verdicts
 // land.
 type scenarioBatch struct {
-	goTest   bool     // a Go contract (go test); otherwise a web client (Playwright)
+	goTest   bool     // a Go contract (go test); otherwise a web client (Playwright under the scenario host)
 	dir      string   // the process's working directory
 	indexDir string   // where the run's results.json lands
 	refBase  string   // repo-relative directory the index's video/trace refs resolve against
@@ -304,12 +422,16 @@ func newScenarioBatch(r checkRunner, proj projectstate.Project, contract string,
 		b.env = commandEnv("go", "AIARCH_SCENARIO_TIMEOUT="+strconv.Itoa(maxSec)+"s")
 		return b
 	}
-	b.dir = filepath.Join(r.root, "uitests")
-	b.indexDir = filepath.Join(b.dir, "test-results", contract)
+	// The web batch runs under the scenario host (go tool webscenarios): it boots the composed app
+	// into the host's substrates, serves the arrange endpoint the browser calls, runs Playwright
+	// and gives back everything it launched. Playwright's own webServer would SIGKILL the app and
+	// leak its Postgres container. The process runs in the module (where the tool directive lives);
+	// Playwright, and so the verdict index, lives in the repo-root uitests project.
+	b.dir = filepath.Join(r.root, proj.ModuleDir)
+	b.indexDir = filepath.Join(r.root, "uitests", "test-results", contract)
 	b.refBase = "test-results/" + contract
-	b.argv = []string{"npx", "playwright", "test", "-c", "generated/" + contract + "/playwright.config.gen.ts",
-		"--grep", webScenarioGrep(ids)}
-	b.env = commandEnv("npx", "AIARCH_SCENARIO_TIMEOUT_MS="+strconv.Itoa(maxSec*1000))
+	b.argv = projectstate.WebScenariosArgv(proj.ModuleDir, contract, "-grep", webScenarioGrep(ids))
+	b.env = commandEnv("go", "AIARCH_SCENARIO_TIMEOUT_MS="+strconv.Itoa(maxSec*1000))
 	return b
 }
 

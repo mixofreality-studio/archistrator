@@ -464,11 +464,18 @@ func TestIntegrationChecksCarryDiscriminationAndSurfaceCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	surface := checkByID(t, web, "command:surface-check")
-	if got := strings.Join(surface.Source.Argv, " "); !strings.Contains(got, "playwright test -c generated/webClient/playwright.config.gen.ts --grep surface") {
-		t.Errorf("surface-check argv = %q", got)
+	// Under the scenario host, from the module directory: Playwright's own webServer would SIGKILL the
+	// app and leak its Postgres container. The own module is nested (server/), so -C reaches the
+	// repo-root uitests project upward.
+	wantArgv := "go tool webscenarios -C ../uitests -config generated/webClient/playwright.config.gen.ts -project surface"
+	if got := strings.Join(surface.Source.Argv, " "); got != wantArgv {
+		t.Errorf("surface-check argv = %q, want %q", got, wantArgv)
 	}
-	if surface.Source.Dir != "uitests" {
-		t.Errorf("surface-check runs in %q, want uitests", surface.Source.Dir)
+	if surface.Source.Dir != p.ModuleDir {
+		t.Errorf("surface-check runs in %q, want the module directory %q", surface.Source.Dir, p.ModuleDir)
+	}
+	if got := strings.Join(projectstate.WebScenariosArgv("", "c", "-grep", "g"), " "); got != "go tool webscenarios -C uitests -config generated/c/playwright.config.gen.ts -grep g" {
+		t.Errorf("a module at the repo root reaches uitests as %q", got)
 	}
 	cons, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction")
 	if err != nil {
@@ -640,7 +647,7 @@ func checkByID(t *testing.T, s projectstate.TaskSpec, id string) projectstate.Sp
 }
 
 func checkSortKey(c projectstate.SpecCheck) string {
-	order := map[string]string{projectstate.CheckKindRule: "0", projectstate.CheckKindCommand: "1", projectstate.CheckKindScenario: "2"}
+	order := map[string]string{projectstate.CheckKindRule: "0", projectstate.CheckKindCommand: "1", projectstate.CheckKindSmoke: "2", projectstate.CheckKindScenario: "3"}
 	return order[c.Kind] + c.ID
 }
 
@@ -735,21 +742,19 @@ func sameScope(a, b projectstate.SpecEditScope) bool {
 
 // The null-subject run is one `go test` per scenario and one per stimulus operation, so its budget
 // is the module's run count times a per-run allowance, never a constant (a todomvc-sized module
-// outlasted the flat 900 s cap of a scenario check).
+// outlasted the flat 900 s cap of a scenario check). A client's runs launch the composed app each
+// (a devstack boot per `go test`, or per web scenario), so each adds the boot allowance too.
 func TestDiscriminateBudgetScalesWithTheModulesRuns(t *testing.T) {
 	p := ownProject(t)
 	spec, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs := 0
+	runs, clientRuns := 0, 0
 	for key, c := range p.ServiceContracts {
 		layer := c.Layer
 		if layer == "" {
 			layer = c.Interface.Layer
-		}
-		if strings.EqualFold(layer, "client") {
-			continue
 		}
 		scs, err := projectstate.ComponentScenarios(p, key)
 		if err != nil {
@@ -757,13 +762,20 @@ func TestDiscriminateBudgetScalesWithTheModulesRuns(t *testing.T) {
 		}
 		for _, s := range scs {
 			runs += 1 + len(s.Stimuli)
+			if strings.EqualFold(layer, "client") {
+				clientRuns += 1 + len(s.Stimuli)
+			}
 		}
 	}
 	if runs < 100 {
 		t.Fatalf("the own project has %d discriminate runs; the test needs a module big enough to outgrow the flat budget", runs)
 	}
+	if clientRuns == 0 {
+		t.Fatal("the own project has no client scenario runs; the test needs one to hold the boot allowance")
+	}
 	got := checkByID(t, spec, "command:test-discriminate").TimeoutSec
-	if want := runs * projectstate.DiscriminateRunTimeoutSec; got < want {
-		t.Errorf("test-discriminate budget = %ds, want at least %d runs x %ds = %ds", got, runs, projectstate.DiscriminateRunTimeoutSec, want)
+	if want := runs*projectstate.DiscriminateRunTimeoutSec + clientRuns*projectstate.DevstackBootSec; got < want {
+		t.Errorf("test-discriminate budget = %ds, want at least %d runs x %ds + %d client runs x %ds boot = %ds",
+			got, runs, projectstate.DiscriminateRunTimeoutSec, clientRuns, projectstate.DevstackBootSec, want)
 	}
 }

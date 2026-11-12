@@ -15,8 +15,9 @@ type generatedAuthorization struct {
 
 // generatedAuthorizations is every request the generated REST handlers send the policy, one
 // row per served operation, read from the same derivation (httpgen.PlanOps) the handlers and
-// the generated MCP tools authorize with, so it covers both transports. The policy
-// (Hooks.PolicyDecisionPoint) must admit every row for the authenticated principal's own scope.
+// the generated MCP tools authorize with, so it covers both transports. The composition root's
+// generated policy (policy.gen.go) is derived from these rows: it admits every row for the
+// authenticated principal's own scope.
 var generatedAuthorizations = []generatedAuthorization{
 	{Manager: "BillingManager", Op: "GetBillingCycle", Verb: "get-billing-cycle", Scope: "billingCatalog"},
 	{Manager: "BillingManager", Op: "OnboardPaymentIntegration", Verb: "onboard-payment-integration", Scope: "billingCatalog"},

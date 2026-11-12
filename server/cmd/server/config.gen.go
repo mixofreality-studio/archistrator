@@ -15,11 +15,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
 // Config is the container's env-loaded configuration.
@@ -67,6 +70,14 @@ type Config struct {
 	// DevPrincipal is the framework's local-profile edge principal (devPrincipalEnv):
 	// read it through LocalDevPrincipal, never directly.
 	DevPrincipal string
+
+	// DevPrincipals is the framework's local-profile principal allowlist (devPrincipalsEnv):
+	// read it through LocalDevPrincipals, never directly.
+	DevPrincipals string
+
+	// ScenariohostURL is the framework's local-profile scenario host address (scenariohostURLEnv):
+	// read it through LocalScenariohostURL, never directly.
+	ScenariohostURL string
 }
 
 // LoadConfig reads the environment into a Config, returning a single error
@@ -110,6 +121,8 @@ func LoadConfig() (*Config, error) {
 		WebappAssetVersion:            getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev"),
 		WebappOrigin:                  getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173"),
 		DevPrincipal:                  getenv(devPrincipalEnv),
+		DevPrincipals:                 getenv(devPrincipalsEnv),
+		ScenariohostURL:               getenv(scenariohostURLEnv),
 	}
 
 	var missing []string
@@ -159,6 +172,68 @@ func (c *Config) LocalDevPrincipal(profile string) (string, error) {
 		return "", fmt.Errorf("%s is set under the %q profile: the dev principal authenticates every request and is honoured only under the local profile; unset it", devPrincipalEnv, profile)
 	}
 	return c.DevPrincipal, nil
+}
+
+// devPrincipalsEnv names the variable Config.DevPrincipals is read from.
+const devPrincipalsEnv = "ARCHISTRATOR_DEV_PRINCIPALS"
+
+// LocalDevPrincipals is the allowlist of identities the auth edge may serve a request as under
+// profile, by subject: the entries of the configured JSON list ([{"subject":"","kind":"user",
+// "roles":[],"claims":{}}]; kind is "user" unless "application") under the "local" profile, nil
+// when unset. Set under any other profile, malformed, or naming a subject twice or none, it is an
+// error naming the variable: the app must refuse to boot.
+func (c *Config) LocalDevPrincipals(profile string) (map[string]security.Principal, error) {
+	if c.DevPrincipals == "" {
+		return nil, nil
+	}
+	if profile != "local" {
+		return nil, fmt.Errorf("%s is set under the %q profile: the dev principals let a request header choose its identity and are honoured only under the local profile; unset it", devPrincipalsEnv, profile)
+	}
+	var entries []struct {
+		Subject string         `json:"subject"`
+		Kind    string         `json:"kind"`
+		Roles   []string       `json:"roles"`
+		Claims  map[string]any `json:"claims"`
+	}
+	if err := json.Unmarshal([]byte(c.DevPrincipals), &entries); err != nil {
+		return nil, fmt.Errorf("%s is not a JSON list of principals: %w", devPrincipalsEnv, err)
+	}
+	out := make(map[string]security.Principal, len(entries))
+	for _, e := range entries {
+		if e.Subject == "" {
+			return nil, fmt.Errorf("%s: an entry has no subject", devPrincipalsEnv)
+		}
+		if _, dup := out[e.Subject]; dup {
+			return nil, fmt.Errorf("%s names subject %q twice", devPrincipalsEnv, e.Subject)
+		}
+		var kind security.PrincipalKind
+		switch e.Kind {
+		case "", "user":
+			kind = security.PrincipalUser
+		case "application":
+			kind = security.PrincipalApplication
+		default:
+			return nil, fmt.Errorf("%s: entry %q has kind %q, want user or application", devPrincipalsEnv, e.Subject, e.Kind)
+		}
+		out[e.Subject] = security.Principal{Kind: kind, Subject: e.Subject, Roles: e.Roles, Claims: e.Claims}
+	}
+	return out, nil
+}
+
+// scenariohostURLEnv names the variable Config.ScenariohostURL is read from.
+const scenariohostURLEnv = "ARCHISTRATOR_SCENARIOHOST_URL"
+
+// LocalScenariohostURL is the address of the scenario host's arrange server under profile: the
+// configured one under the "local" profile, "" when unset. Set under any other profile it is an
+// error naming the variable: the app must refuse to boot.
+func (c *Config) LocalScenariohostURL(profile string) (string, error) {
+	if c.ScenariohostURL == "" {
+		return "", nil
+	}
+	if profile != "local" {
+		return "", fmt.Errorf("%s is set under the %q profile: the scenario host address is honoured only under the local profile; unset it", scenariohostURLEnv, profile)
+	}
+	return c.ScenariohostURL, nil
 }
 
 // getenv reads and trims an environment variable.

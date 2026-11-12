@@ -11,9 +11,12 @@
 //     (Layer A). It is short on purpose: a checkbox that flips only after the server answers
 //     fails it under the injected latency;
 //   - arrange / probe: a scenario's typed setup and its probes, executed over REST against the
-//     running server, as the one process principal (X-Dev-Principal when AIARCH_DEV_PRINCIPAL is set);
+//     running server, as the one process principal (X-Dev-Principal when AIARCH_DEV_PRINCIPAL is set).
+//     The three setup actions only the scenario host can perform (advanceClock, failNext,
+//     seedResource) are POSTed to the server's /__scenariohost/<kind> endpoint, which the local
+//     profile forwards to the host serving the run (go tool webscenarios);
 //   - assertNever: the exhaustiveness check of every switch over a sum type.
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 
 /** The timeout of an assertion about what the user sees the instant an action lands. */
@@ -75,10 +78,31 @@ export async function arrange(testInfo: TestInfo, call: ArrangeCall): Promise<vo
     case 'advanceClock':
     case 'failNext':
     case 'seedResource':
-      return skipUntilScenarioHost(call.kind);
+      return callHost(testInfo, call);
     default:
       return assertNever(call);
   }
+}
+
+/** The path the local-profile server forwards to the scenario host's arrange endpoint. */
+const hostPath = '/__scenariohost/';
+
+/**
+ * Performs one of the setup actions only the scenario host can: POST /__scenariohost/<kind> with the
+ * call's fields (the kind is the path). The host answers 200 once it has arranged the world, 400 for
+ * a call it cannot read and 500 carrying the text of an arrange that failed; a server that serves no
+ * endpoint answers 405, which fails the scenario rather than running it against a world it did not
+ * arrange.
+ */
+async function callHost(testInfo: TestInfo, call: Exclude<ArrangeCall, { kind: 'contractCall' }>): Promise<void> {
+  const { kind, ...body } = call;
+  const res = await fetch(new URL(hostPath + kind, baseURL(testInfo)).toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  expect(res.status, 'arrange ' + kind + ' failed: ' + res.status + ' ' + text).toBeLessThan(400);
 }
 
 /** Runs one probe: a read-only operation observed after the step. */
@@ -174,16 +198,4 @@ async function callContract(testInfo: TestInfo, call: ContractCall, label: strin
   } else {
     expect(actual, where).toEqual(want);
   }
-}
-
-/**
- * A scenario that arranges the clock, a failing operation or a seeded resource needs the
- * local-profile /__scenariohost endpoint, which no generated server serves yet (the composed server
- * answers every unknown POST with 405, so the endpoint cannot be probed for: the scenario is skipped
- * up front, by name, instead of being run against state it did not set up). testgen emits the same
- * skip into the spec ahead of every action; this is the runtime's own answer if an arrange call of
- * one of these kinds reaches it. Plan 3 adds the endpoint and replaces both.
- */
-export function skipUntilScenarioHost(kind: string): void {
-  test.skip(true, 'arrange ' + kind + ' needs the local-profile /__scenariohost endpoint, which no generated server serves yet');
 }

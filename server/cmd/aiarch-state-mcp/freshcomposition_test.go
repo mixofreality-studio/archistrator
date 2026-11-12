@@ -16,7 +16,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -271,7 +270,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	inRepo(t, repo, "git", "commit", "-q", "-m", "generate the scenario tests")
 	for _, want := range []string{
 		"cmd/server/main.gen.go", "cmd/server/config.gen.go", "cmd/server/hooks.go",
-		"cmd/server/authz.gen.go", "cmd/server/authz.gen_test.go",
+		"cmd/server/authz.gen.go", "cmd/server/authz.gen_test.go", "cmd/server/policy.gen.go",
 		"internal/client/web/server.gen.go", "internal/client/web/list/list_handlers.gen.go",
 		"internal/client/todomcpserver/list/list_tools.gen.go", "api/openapi.yaml",
 		"cmd/devstack/main.gen.go",
@@ -281,12 +280,11 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 		}
 	}
 	inRepo(t, repo, "go", "mod", "tidy")
-	fillPolicy(t, repo, ownListPolicyAdmittingTheGeneratedVerbs)
 	requireInScope(t, repo, spec)
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
-	statuses, logs := gate(t, repo, commandChecks(t, spec))
+	statuses, logs := gate(t, repo, withSmoke(commandChecks(t, spec), spec))
 	requirePassed(t, statuses, logs)
-	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy", "command:build-devstack", freshPolicyCheck} {
+	for _, want := range []string{"command:build-server", "command:gen-clients-check", "command:gen-config-check", "command:gen-compose-check", "command:arch", "command:tidy", "command:build-devstack", freshPolicyCheck, "smoke:composition"} {
 		if _, ok := statuses[want]; !ok {
 			t.Errorf("the integration gate has no %s: %v", want, statuses)
 		}
@@ -314,92 +312,45 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 var policyRefusal = regexp.MustCompile(`ListManager\.\w+: the policy refuses`)
 
 // freshPolicyCheck is the composition check that runs the framework's generated
-// TestPolicyAdmitsEveryGeneratedRequest (FIX-046).
+// TestPolicyAdmitsEveryGeneratedRequest (FIX-046), now against the policy generated from the model.
 const freshPolicyCheck = "command:policy-admits-generated-requests"
 
-// ownListPolicy is RUN-015's composition-root policy, verbatim: it admits its listed verbs on
-// the principal's own list catalog and nothing else. Its verbs are that run's ListManager's, so
-// it refuses this fixture's (reword-todo, discard-todo, open-list): a policy that disagrees with the requests
-// the generated transports send.
-const ownListPolicy = `
-// listVerbs are the everyday list actions every channel may take.
-var listVerbs = map[string]bool{
-	"add-todo": true, "retitle-todo": true, "remove-todo": true, "mark-todo": true,
-	"toggle-all": true, "clear-completed": true, "review-list": true,
-}
-
-// ownListPolicy is the app's authorization policy: an authenticated principal may take
-// the everyday list actions on its own list catalog, and nothing else. Whose list the
-// action really lands on is decided by ListManager resolving the presented credential
-// (fail closed with ErrUnresolvedOwner); this edge check only refuses anonymous callers,
-// unknown verbs and requests aimed at another principal's catalog.
-type ownListPolicy struct{}
-
-func (ownListPolicy) Decide(_ context.Context, p security.Principal, a security.Action, r security.ResourceRef) (bool, error) {
-	if p.Subject == "" || !listVerbs[a.Verb] || r.Kind != "listCatalog" {
-		return false, nil
-	}
-	return r.ID == p.Subject, nil
-}
-`
-
-// ownListPolicyAdmittingTheGeneratedVerbs is the same policy listing this fixture's verbs. Its
-// Kind check is RUN-015's catalog-only one, which 403'd every per-todo call when the generator
-// sent Kind "todo": every generated request is now owner-scoped, MarkTodo(todoID) included, so
-// it admits them all.
-var ownListPolicyAdmittingTheGeneratedVerbs = strings.Replace(ownListPolicy, `"toggle-all": true,`, `"toggle-all": true, "reword-todo": true, "discard-todo": true, "open-list": true,`, 1)
-
-// ownScopePolicy admits an authenticated principal every verb on its own scope: the policy a
-// Manager's integration fills when the app's only rule is "a user acts on their own".
-const ownScopePolicy = `
-// ownListPolicy admits an authenticated principal every verb on its own scope.
-type ownListPolicy struct{}
-
-func (ownListPolicy) Decide(_ context.Context, p security.Principal, _ security.Action, r security.ResourceRef) (bool, error) {
-	return p.Subject != "" && r.ID == p.Subject, nil
-}
-`
-
-// filledPolicyMarker separates the seeded hooks.go from the policy fillPolicy appends.
-const filledPolicyMarker = "\n// The app's authorization policy.\n"
-
-// fillPolicy answers the seeded hooks.go's PolicyDecisionPoint FILL with policy, which declares
-// ownListPolicy, as the Manager's integration does; a second call replaces the first's policy.
-func fillPolicy(t *testing.T, repo, policy string) {
+// requirePolicyRedOnAMismatch: the composition root's policy is generated from the same table as
+// the transports (cmd/server/policy.gen.go), so nobody writes one that disagrees with them. The
+// check that holds them together is still real: a policy missing a verb the transports send (what
+// RUN-015's hand-written one did) is red, naming the refused request, and the generated one is green.
+func requirePolicyRedOnAMismatch(t *testing.T, repo string, spec projectstate.TaskSpec) {
 	t.Helper()
-	hooks := filepath.Join(repo, "cmd/server/hooks.go")
-	raw, err := os.ReadFile(hooks)
+	statuses, logs := gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
+	if statuses[freshPolicyCheck] != checkPass {
+		t.Fatalf("the generated policy refuses a request the generated transports send:\n%s", logs[freshPolicyCheck])
+	}
+	path := filepath.Join(repo, "cmd/server/policy.gen.go")
+	generated, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, _, _ := strings.Cut(string(raw), filledPolicyMarker)
-	const fill = `panic("FILL: PolicyDecisionPoint")`
-	src = strings.Replace(src, fill, "return ownListPolicy{}", 1)
-	if !strings.Contains(src, "return ownListPolicy{}") {
-		t.Fatalf("the seeded hooks.go has no PolicyDecisionPoint to fill:\n%s", raw)
+	lines := strings.Split(string(generated), "\n")
+	at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, `verb: "reword-todo"`) })
+	if at < 0 {
+		t.Fatalf("the generated policy has no reword-todo row to drop:\n%s", generated)
 	}
-	writeRepoFile(t, repo, "cmd/server/hooks.go", []byte(src+filledPolicyMarker+policy))
-}
-
-// requirePolicyRedOnAMismatch: RUN-015's policy verbatim refuses requests the generated
-// transports send, so the generated policy test is red in the Manager's own integration, the
-// activity that owns hooks.go, naming the refused request.
-func requirePolicyRedOnAMismatch(t *testing.T, repo string, spec projectstate.TaskSpec) {
-	t.Helper()
-	fillPolicy(t, repo, ownListPolicy)
-	statuses, logs := gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
+	writeRepoFile(t, repo, "cmd/server/policy.gen.go", []byte(strings.Join(slices.Delete(slices.Clone(lines), at, at+1), "\n")))
+	statuses, logs = gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
 	if statuses[freshPolicyCheck] == checkPass || !policyRefusal.MatchString(logs[freshPolicyCheck]) {
-		t.Errorf("RUN-015's policy stayed green over a generated request it refuses: %s\n%s", statuses[freshPolicyCheck], logs[freshPolicyCheck])
+		t.Errorf("a policy missing a verb the transports send stayed green: %s\n%s", statuses[freshPolicyCheck], logs[freshPolicyCheck])
 	}
-	fillPolicy(t, repo, ownListPolicyAdmittingTheGeneratedVerbs)
+	if err := os.WriteFile(path, generated, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	statuses, logs = gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
 	if statuses[freshPolicyCheck] != checkPass {
-		t.Errorf("a policy admitting every generated verb on the principal's own scope went red:\n%s", logs[freshPolicyCheck])
+		t.Errorf("the generated policy, restored, went red:\n%s", logs[freshPolicyCheck])
 	}
 }
 
 // integratedRepo is composedRepo with the Manager's integration landed: the composition root,
-// the generated transports and the seeded policy, as a passing integration leaves them.
+// the generated transports and the generated policy, as a passing integration leaves them.
 func integratedRepo(t *testing.T) string {
 	t.Helper()
 	return integratedRepoFrom(t, composedState(t))
@@ -412,7 +363,6 @@ func integratedRepoFrom(t *testing.T, state []byte) string {
 	runGenerators(t, repo, activitySpec(t, repo, freshManagerActivity, "integration"))
 	inRepo(t, repo, "make", "gen-tests")
 	inRepo(t, repo, "go", "mod", "tidy")
-	fillPolicy(t, repo, ownScopePolicy)
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "integrate the manager")
 	return repo
@@ -428,7 +378,8 @@ var freshMachineClients = []struct{ activity, contract, pkg string }{
 // integration generates the client's transport scenarios from that plan (the generated
 // scenariocompose package supplies the subject; an agent writes no hooks file, FPC GC-1), and
 // every command check of the gate passes, test-discriminate included. The scenarios' own
-// verdicts are held by requireClientScenarioVerdicts, which waits on the delegation claim.
+// verdicts are held by requireClientScenarioVerdicts: the scenarios run over the wire against the
+// booted app, as the plan's principals.
 func requireMachineClientGate(t *testing.T, repo, activity, contract, pkg string) {
 	t.Helper()
 	spec := activitySpec(t, repo, activity, "integration")
@@ -459,62 +410,10 @@ func requireMachineClientGate(t *testing.T, repo, activity, contract, pkg string
 	requireClientScenarioVerdicts(t, repo, activity, contract, pkg)
 }
 
-// delegationClaimOwedUntil dates the platform work the machine clients' scenario verdicts wait on.
-const delegationClaimOwedUntil = "2026-12-31"
-
-// scenariohostMapsDelegations reports whether the pinned scenariohost turns a plan principal's
-// onBehalfOf into the Claims["delegations"] grant (grantor and intents) that the conformance
-// fixture's ListManager reads. v0.5.0 writes Claims["onBehalfOf"] instead, so an agent actor's
-// request reaches the Manager with no delegation and is refused (outsideDelegation).
-func scenariohostMapsDelegations(t *testing.T) bool {
-	t.Helper()
-	out, err := runIn(".", "go", "list", "-m", "-f", "{{.Dir}}", "github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost")
-	if err != nil {
-		t.Fatalf("locating the pinned scenariohost: %v\n%s", err, out)
-	}
-	dir := strings.TrimSpace(out)
-	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
-	if err != nil || len(files) == 0 {
-		t.Fatalf("the pinned scenariohost at %q has no Go files: %v", dir, err)
-	}
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(body), `"delegations"`) {
-			return true
-		}
-	}
-	return false
-}
-
-// requireDelegationClaim skips the rest of a machine-client test until the pinned scenariohost
-// maps onBehalfOf to Claims["delegations"]. It is a dated skip, not a silent one: after
-// delegationClaimOwedUntil it fails the test instead, so the owed platform fix (FPC plan 2 Task
-// 2.11h earmark E15, Plan 3) cannot be forgotten. `remainder` names what is not run.
-func requireDelegationClaim(t *testing.T, remainder string) {
-	t.Helper()
-	if scenariohostMapsDelegations(t) {
-		return
-	}
-	until, err := time.Parse(time.DateOnly, delegationClaimOwedUntil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if time.Now().After(until) {
-		t.Fatalf("the pinned scenariohost still writes no Claims[\"delegations\"] after %s: map onBehalfOf to it, release and pin (FPC plan 2 Task 2.11h earmark E15); not run: %s", delegationClaimOwedUntil, remainder)
-	}
-	t.Skipf("FPC plan 2 Task 2.11h earmark E15 is owed until %s: the pinned scenariohost writes Claims[\"onBehalfOf\"], not the Claims[\"delegations\"] the fixture's ListManager reads, so the agent actors' scenarios are refused at run time; not run: %s", delegationClaimOwedUntil, remainder)
-}
-
 // requireClientScenarioVerdicts is the whole of a machine client's gate: each scenario check's own
 // verdict passes and lands under the contract key, and a wrong expectation goes red, so the run
-// really crosses the transport to the Manager. The wrong-expectation edit is found before the
-// delegation wait, so the generated file's shape is held even while the verdicts are not.
+// really crosses the transport to the Manager. The generated file drives the launched app over
+// the wire (MCPSession or RESTClient), never an in-process handler.
 func requireClientScenarioVerdicts(t *testing.T, repo, activity, contract, pkg string) {
 	t.Helper()
 	gen := filepath.Join(repo, pkg, "client_scenarios.gen_test.go")
@@ -532,8 +431,10 @@ func requireClientScenarioVerdicts(t *testing.T, repo, activity, contract, pkg s
 	}
 	lines[at] = strings.Replace(lines[at], bound, `"errorExpected":true}`, 1)
 	broken := strings.Join(lines, "\n")
+	if !strings.Contains(string(generated), "scenariohost.MCPSession(") && !strings.Contains(string(generated), "scenariohost.RESTClient(") {
+		t.Fatalf("the generated scenarios do not drive the launched app over the wire:\n%s", generated)
+	}
 
-	requireDelegationClaim(t, activity+"'s scenario verdicts and the wrong-expectation red")
 	spec := activitySpec(t, repo, activity, "integration")
 	spec.Checks = slices.DeleteFunc(slices.Clone(spec.Checks), func(c projectstate.SpecCheck) bool {
 		return c.Kind != projectstate.CheckKindScenario

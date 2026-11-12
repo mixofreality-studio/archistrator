@@ -81,6 +81,43 @@ func TestTestPrincipal_OnBehalfOfRoundTrips(t *testing.T) {
 	}
 }
 
+// A delegated agent's intents are what the delegating human lets it do (FPC plan 3, Task 3.0): the
+// scenario host writes them into the agent's Claims["delegations"] grant, and a grant with no
+// intents has no reach. The app's $defs mirror must carry them, or the codec drops the field.
+func TestTestPrincipal_IntentsRoundTrips(t *testing.T) {
+	var pr projectstate.TestPrincipal
+	if err := json.Unmarshal([]byte(`{"subject":"agent-1","roles":["agent"],"onBehalfOf":"alice","intents":["read","add"]}`), &pr); err != nil {
+		t.Fatal(err)
+	}
+	if len(pr.Intents) != 2 || pr.Intents[0] != "read" || pr.Intents[1] != "add" {
+		t.Fatalf("intents = %v, want [read add]", pr.Intents)
+	}
+	out, err := json.Marshal(pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back struct {
+		Intents []string `json:"intents"`
+	}
+	if err := json.Unmarshal(out, &back); err != nil || len(back.Intents) != 2 {
+		t.Fatalf("marshalled principal = %s, want both intents (%v)", out, err)
+	}
+
+	schema := ownDefSchema(t, "TestPrincipal")
+	if !validates(t, schema, `{"subject":"agent-1","roles":[],"onBehalfOf":"alice","intents":["read"]}`) {
+		t.Error("TestPrincipal schema refuses intents")
+	}
+	if !validates(t, schema, `{"subject":"agent-1","roles":[],"onBehalfOf":"alice"}`) {
+		t.Error("TestPrincipal schema must keep intents optional")
+	}
+	if validates(t, schema, `{"subject":"agent-1","roles":[],"onBehalfOf":"alice","intents":"read"}`) {
+		t.Error("TestPrincipal schema accepts intents that are not a list")
+	}
+	if validates(t, schema, `{"subject":"agent-1","roles":[],"onBehalfOf":"alice","intents":[7]}`) {
+		t.Error("TestPrincipal schema accepts a non-string intent")
+	}
+}
+
 func TestActorKind_RefusesUnknown(t *testing.T) {
 	schema := ownDefSchema(t, "Actor")
 	for _, kind := range []string{"human", "agent", "system"} {
