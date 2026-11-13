@@ -84,16 +84,6 @@ func runIn(repo string, argv ...string) (string, error) {
 	return string(raw), err
 }
 
-// literalInput is one step input in binding model v2: a {"kind","model"} envelope over a literal
-// JSON value (a bare string would be the retired v1 spelling).
-func literalInput(name, rawJSON string) map[string]any {
-	return map[string]any{
-		"name":      name,
-		"value":     map[string]any{"kind": "literal", "model": map[string]any{"json": json.RawMessage(rawJSON)}},
-		"schemaRef": "",
-	}
-}
-
 // Every one of RUN-009's contracts records, and the spelling it wrote itself is refused, naming
 // why a view's label still resolves.
 func TestRun009ContractsRecord(t *testing.T) {

@@ -98,6 +98,19 @@ func TestTaskSpecForServiceConstructionCommands(t *testing.T) {
 	if !slices.Equal(s.Contracts, []string{"agenticJobAccess"}) {
 		t.Fatalf("the job generates the component's own contracts, got %v", s.Contracts)
 	}
+	requireBuildAndLintChecks(t, s)
+	if slices.Contains(s.EditScope.Extra, "server/cmd/server/hooks.go") ||
+		!slices.Contains(s.EditScope.Extra, "server/go.mod") {
+		t.Fatalf("construction extras %v", s.EditScope.Extra)
+	}
+	if s.Model.Estimate.TokensIn == 0 || s.Model.Estimate.USD == 0 {
+		t.Fatalf("estimate %+v", s.Model.Estimate)
+	}
+}
+
+// requireBuildAndLintChecks pins the construction build check's scope and both timeouts.
+func requireBuildAndLintChecks(t *testing.T, s projectstate.TaskSpec) {
+	t.Helper()
 	build := checkByID(t, s, "command:build")
 	if !slices.Equal(build.Source.Argv, []string{"go", "build", "./internal/resourceaccess/agenticjob/..."}) ||
 		build.Source.Dir != "server" || build.TimeoutSec != 300 {
@@ -105,13 +118,6 @@ func TestTaskSpecForServiceConstructionCommands(t *testing.T) {
 	}
 	if lint := checkByID(t, s, "command:lint"); lint.TimeoutSec != 600 {
 		t.Fatalf("lint timeout %d", lint.TimeoutSec)
-	}
-	if slices.Contains(s.EditScope.Extra, "server/cmd/server/hooks.go") ||
-		!slices.Contains(s.EditScope.Extra, "server/go.mod") {
-		t.Fatalf("construction extras %v", s.EditScope.Extra)
-	}
-	if s.Model.Estimate.TokensIn == 0 || s.Model.Estimate.USD == 0 {
-		t.Fatalf("estimate %+v", s.Model.Estimate)
 	}
 }
 

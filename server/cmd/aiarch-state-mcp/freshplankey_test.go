@@ -139,6 +139,16 @@ func TestFreshPlanRecordedUnderItsIDRunsGreen(t *testing.T) {
 	inRepo(t, repo, "git", "add", "-A")
 	inRepo(t, repo, "git", "commit", "-q", "-m", "bind the component")
 
+	runIntegrationScenarios(t, repo)
+	if _, err := os.Stat(filepath.Join(repo, "test-results", freshContract, "results.json")); err != nil {
+		t.Errorf("the verdicts must land under the contract key: %v", err)
+	}
+}
+
+// runIntegrationScenarios gates the integration's scenario checks (plus the gen-tests drift
+// check) in repo and requires every verdict green.
+func runIntegrationScenarios(t *testing.T, repo string) {
+	t.Helper()
 	spec := activitySpec(t, repo, freshActivity, "integration")
 	kept := spec.Checks[:0:0]
 	for _, c := range spec.Checks {
@@ -155,9 +165,6 @@ func TestFreshPlanRecordedUnderItsIDRunsGreen(t *testing.T) {
 	requirePassed(t, statuses, logs)
 	if len(statuses) != scenarios+1 {
 		t.Errorf("got %d results, want %d", len(statuses), scenarios+1)
-	}
-	if _, err := os.Stat(filepath.Join(repo, "test-results", freshContract, "results.json")); err != nil {
-		t.Errorf("the verdicts must land under the contract key: %v", err)
 	}
 }
 

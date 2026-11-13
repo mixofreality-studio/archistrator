@@ -579,12 +579,12 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // (framedenial.go) then binds that mux to root behind the anti-framing wrap, so
 // every response carries frame-ancestors 'none' and X-Frame-Options: DENY. Add
 // new routes in mountRoutes, never on root directly.
-func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers) {
+func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, _ security.Security, _ WebManagers) {
 	routes := http.NewServeMux()
 	if generated, pat := root.Handler(&http.Request{Method: http.MethodGet, URL: &url.URL{Path: "/"}}); pat != "" {
 		routes.Handle("/", generated)
 	}
-	h.mountRoutes(routes, cfg, dev, validator, sec, managers)
+	h.mountRoutes(routes, cfg, dev, validator)
 	denyFramingOnEveryPath(root, routes)
 }
 
@@ -604,7 +604,7 @@ func (h *appHooks) MCPMount(server *mcp.Server, dev web.DevConfig, authed http.H
 
 // mountRoutes is ExtraMounts' route table; root here is the inner mux
 // ExtraMounts wraps, already carrying the generated surface at "/".
-func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, sec security.Security, managers WebManagers) {
+func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator) {
 	// F-QA2-46: the generated handlers' writeManagerError writes every 5xx with zero
 	// server-side logging, and the manager logging wrap above only sees
 	// Infrastructure-kind *manager.Error values — so a client-visible 503 (e.g. a
