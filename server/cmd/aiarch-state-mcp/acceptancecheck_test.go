@@ -113,6 +113,31 @@ func acceptanceRepo(t *testing.T, edit func(path, body string) string) string {
 	return repo
 }
 
+// tallyAcceptance sorts the gate's check statuses: the variants of the acceptance scenario that failed,
+// how many passed and were skipped; any other check that is not a pass is reported as an error.
+func tallyAcceptance(t *testing.T, statuses, logs map[string]string) (failed map[string]bool, passed, skipped int) {
+	t.Helper()
+	failed = map[string]bool{}
+	for id, status := range statuses {
+		variant, ok := strings.CutPrefix(id, "scenario:acceptance:")
+		if !ok {
+			if status != checkPass {
+				t.Errorf("%s: %s\n%s", id, status, logs[id])
+			}
+			continue
+		}
+		switch status {
+		case checkPass:
+			passed++
+		case "skip":
+			skipped++
+		default:
+			failed[variant] = true
+		}
+	}
+	return failed, passed, skipped
+}
+
 // An acceptance run is red when a write one client made is not shown on another, and the gate says
 // where it routes. The fixture is built whole with the harvested SPA changed so that a todo is never
 // rendered as checked (the change is made to the copy written into the built repo; the committed SPA is untouched). The M-ACCEPT gate (run-checks
@@ -134,25 +159,7 @@ func TestAcceptanceJob_RedRunHoldsAndNamesTheRoute(t *testing.T) {
 	})
 	statuses, logs := gate(t, repo, activitySpec(t, repo, mAcceptActivityID, "integration"))
 
-	failed := map[string]bool{}
-	passed, skipped := 0, 0
-	for id, status := range statuses {
-		variant, ok := strings.CutPrefix(id, "scenario:acceptance:")
-		if !ok {
-			if status != checkPass {
-				t.Errorf("%s: %s\n%s", id, status, logs[id])
-			}
-			continue
-		}
-		switch status {
-		case checkPass:
-			passed++
-		case "skip":
-			skipped++
-		default:
-			failed[variant] = true
-		}
-	}
+	failed, passed, skipped := tallyAcceptance(t, statuses, logs)
 	if !failed[redVariant] {
 		t.Errorf("the gate does not name %s as failed: failed = %v (%d passed, %d skipped)\n%s", redVariant, failed, passed, skipped, logs["scenario:acceptance:"+redVariant])
 	}
