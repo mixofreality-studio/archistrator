@@ -7,6 +7,7 @@ package main
 // re-derives paths itself. Read-only; shared across the design and construct modes.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -41,4 +42,72 @@ func (s *Session) listComponentScenarios(component string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// acceptanceResidualEntry is one residual acceptance variant and why it is residual, as the verb
+// reports it: the reason is the {kind, model} envelope every sum type travels in.
+type acceptanceResidualEntry struct {
+	Scenario string           `json:"scenario"`
+	Reason   acceptanceReason `json:"reason"`
+}
+
+type acceptanceReason struct {
+	Kind  string `json:"kind"`
+	Model any    `json:"model"`
+}
+
+// reasonOf is a residual reason as its envelope. The switch is exhaustive over the sealed
+// scenario.ResidualReason (gochecksumtype), so a new reason cannot reach an agent unnamed.
+func reasonOf(r scenario.ResidualReason) acceptanceReason {
+	switch v := r.(type) {
+	case scenario.CrossClient:
+		return acceptanceReason{Kind: "crossClient", Model: struct {
+			Clients []string `json:"clients"`
+		}{v.Clients}}
+	case scenario.EventEntered:
+		return acceptanceReason{Kind: "eventEntered", Model: struct {
+			Node string `json:"node"`
+		}{v.Node}}
+	case scenario.LaterOutcome:
+		return acceptanceReason{Kind: "laterOutcome", Model: struct {
+			OutcomeNode   string `json:"outcomeNode"`
+			AfterStimulus string `json:"afterStimulus"`
+		}{v.OutcomeNode, v.AfterStimulus}}
+	}
+	return acceptanceReason{}
+}
+
+// listAcceptanceScenarios returns the acceptance variants no single client plan covers (the
+// residual the acceptance test plan binds, and nothing else), as canonical scenarios, with each
+// variant's reason. An empty residual is an empty list, not an error: a project whose paths every
+// client plan covers has nothing to accept beyond them.
+func (s *Session) listAcceptanceScenarios() (string, error) {
+	p, _, err := s.readProject()
+	if err != nil {
+		return "", err
+	}
+	scenarios, err := projectstate.AcceptanceScenarios(&p)
+	if err != nil {
+		return "", err
+	}
+	residual, err := projectstate.AcceptanceResidual(&p)
+	if err != nil {
+		return "", err
+	}
+	canonical, err := scenario.CanonicalJSON(scenarios)
+	if err != nil {
+		return "", err
+	}
+	entries := make([]acceptanceResidualEntry, 0, len(residual))
+	for _, r := range residual {
+		entries = append(entries, acceptanceResidualEntry{Scenario: r.Scenario, Reason: reasonOf(r.Reason)})
+	}
+	out, err := json.Marshal(struct {
+		Scenarios json.RawMessage           `json:"scenarios"`
+		Residual  []acceptanceResidualEntry `json:"residual"`
+	}{canonical, entries})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }

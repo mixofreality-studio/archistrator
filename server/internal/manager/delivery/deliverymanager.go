@@ -2829,7 +2829,7 @@ func constructionRowsToContract(
 		)
 		if classified {
 			wireType = ActivityType(int(typ))
-			if typ == projectstate.ActivityTypeTesting {
+			if typ == projectstate.ActivityTypeTesting || typ == projectstate.ActivityTypeMilestone {
 				v := TestingVariant(int(typVariant))
 				variant = &v
 			}
@@ -5780,6 +5780,11 @@ type constructionManager struct {
 	// canonical set the test plan binds and testgen emits against, spec §2.5). A field,
 	// not a call, so a view test projects a hand set (testrunview.go).
 	scenarios scenarioProjector
+
+	// acceptance is the projection of the acceptance contract (projectstate.AcceptanceContract): the
+	// residual use-case variants the M-ACCEPT milestone's run is joined against. The pseudo-contract
+	// names no component, so the component projector has nothing to say about it.
+	acceptance acceptanceProjector
 }
 
 // newConstructionManager is the hand-written, unexported builder the generated
@@ -5824,6 +5829,7 @@ func newConstructionManager(
 		interventionMode:      interventionMode,
 		sdpEngines:            eng,
 		scenarios:             projectstate.ComponentScenarios,
+		acceptance:            projectstate.AcceptanceScenarios,
 	}
 }
 
@@ -8249,7 +8255,8 @@ func isDesignLifecycle(typ projectstate.ActivityType) bool {
 		projectstate.ActivityTypeDocumentation,
 		projectstate.ActivityTypeUIDesign,
 		projectstate.ActivityTypeIntegration,
-		projectstate.ActivityTypeMachineClient:
+		projectstate.ActivityTypeMachineClient,
+		projectstate.ActivityTypeMilestone:
 		return false
 	}
 	return false
@@ -8665,6 +8672,11 @@ type wfDeps struct {
 	// joins against the real derivation rather than holding every testing gate on a nil.
 	Scenarios scenarioProjector
 
+	// AcceptanceScenarios is the acceptance gate's projection (deliveryactivity.go): the residual
+	// use-case variants the milestone's recorded run is joined against, projectstate.AcceptanceScenarios
+	// in production, threaded for the reason Scenarios is. nil is defaulted by csNewWorkflows.
+	AcceptanceScenarios acceptanceProjector
+
 	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
 	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
 	EscalationWaitTimeout time.Duration
@@ -8698,6 +8710,9 @@ type csWorkflows struct {
 	// Scenarios is the testing gate's projection (wfDeps.Scenarios); never nil.
 	Scenarios scenarioProjector
 
+	// AcceptanceScenarios is the acceptance gate's projection (wfDeps.AcceptanceScenarios); never nil.
+	AcceptanceScenarios acceptanceProjector
+
 	// Deliveries observes WHICH TASK each routed signal reached (walkState.deliver). Nil in
 	// production, and it is an observation seam rather than behaviour because the walk's
 	// TERMINAL cannot tell a delivered override from a lost one: a gate that never receives
@@ -8712,6 +8727,10 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 	if scenarios == nil {
 		scenarios = projectstate.ComponentScenarios
 	}
+	acceptance := d.AcceptanceScenarios
+	if acceptance == nil {
+		acceptance = projectstate.AcceptanceScenarios
+	}
 	return &csWorkflows{
 		Intervention:          d.Intervention,
 		Review:                d.Review,
@@ -8722,6 +8741,7 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 		InterventionPolicy:    d.InterventionPolicy,
 		EscalationWaitTimeout: d.EscalationWaitTimeout,
 		Scenarios:             scenarios,
+		AcceptanceScenarios:   acceptance,
 		// The generic child's strategy table is defaulted HERE, not read lazily, so an
 		// unwired composition cannot nil-map-read its way to a walk with no dispatch. The
 		// estimate Engines ride the registry constructor, which is what makes the
@@ -9410,7 +9430,8 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		SDPEngines:            m.sdpEngines,
 		// The testing gate joins the venue's run against the SAME projection the testRun
 		// view renders — one projector per Manager, threaded to both halves.
-		Scenarios: m.scenarios,
+		Scenarios:           m.scenarios,
+		AcceptanceScenarios: m.acceptance,
 	})
 
 	return genWorkerManifest{
@@ -10288,7 +10309,7 @@ func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAtte
 // projectDesign activity's review-only phase).
 func phaseWorkTask(lc methodassets.Lifecycle, phaseID string) string {
 	for _, t := range lc.Tasks {
-		if t.Phase == phaseID && t.Kind == methodassets.LifecycleTaskDispatch {
+		if t.Phase == phaseID && producesWork(t) {
 			return t.ID
 		}
 	}
@@ -10856,7 +10877,7 @@ func activityViewFrom(activityID ActivityID, item projectstate.ActivityItem, typ
 	if view.Name == "" {
 		view.Name = item.Name
 	}
-	if typ == projectstate.ActivityTypeTesting {
+	if typ == projectstate.ActivityTypeTesting || typ == projectstate.ActivityTypeMilestone {
 		view.Variant = strPtrOrNil(variant.String())
 	}
 	view.ComponentID = strPtrOrNil(item.ComponentID)
@@ -14263,6 +14284,10 @@ const (
 // project a hand set without authoring a whole use-case diagram.
 type scenarioProjector func(p *projectstate.Project, component string) ([]scenario.Scenario, error)
 
+// acceptanceProjector is the projection of the acceptance contract: the residual use-case variants
+// of a project, which the acceptance test plan binds and the M-ACCEPT milestone runs.
+type acceptanceProjector func(p *projectstate.Project) ([]scenario.Scenario, error)
+
 // scenarioStatusMissing is the status a projected scenario renders with when the run
 // recorded no result for it. It is not a venue status (those are pass/fail/skip) — it
 // is the view saying "never ran", which is what the gate holds on.
@@ -14595,7 +14620,12 @@ func (m *constructionManager) projectScenarios(proj *projectstate.Project, compo
 	if m.scenarios == nil {
 		return nil, newError(fwmanager.Infrastructure, "deliveryManager: no scenario projector wired")
 	}
-	projected, err := m.scenarios(proj, component)
+	project := m.scenarios
+	if component == projectstate.AcceptanceContract && m.acceptance != nil {
+		// The acceptance contract is no component's: its scenarios are the residual variants.
+		project = func(p *projectstate.Project, _ string) ([]scenario.Scenario, error) { return m.acceptance(p) }
+	}
+	projected, err := project(proj, component)
 	if err != nil {
 		return nil, fwmanager.Wrap(fwmanager.FailedPrecondition, err, fmt.Sprintf("projecting scenarios onto %q", component))
 	}
@@ -14936,6 +14966,8 @@ func argValueText(v projectstate.TestArgValue) string {
 			return fmt.Sprintf("step%d.probe%d.%s", t.Step, *t.Probe, t.Path)
 		}
 		return fmt.Sprintf("step%d.result.%s", t.Step, t.Path)
+	case *projectstate.PlanRef:
+		return fmt.Sprintf("plan(%s/%s step%d.%s)", t.Component, t.Scenario, t.Seq, t.Input)
 	case nil:
 		return ""
 	}

@@ -64,8 +64,10 @@ func fixtureWithDeployment(t *testing.T) []byte {
 // compose the server, the browser surface's integration serves its page from it, and the
 // deployment's rolls it out. The smoke follows every command check and precedes every scenario.
 func TestIntegrationChecks_IncludeSmokeForEveryType(t *testing.T) {
-	if projectstate.TaskSpecSchemaVersion != 5 {
-		t.Errorf("TaskSpecSchemaVersion = %d, want 5: the smoke check changes what a spec resolves to", projectstate.TaskSpecSchemaVersion)
+	// Generation 5 added the smoke check to what a spec resolves to; a later generation (6: the job
+	// task kind) keeps it.
+	if projectstate.TaskSpecSchemaVersion < 5 {
+		t.Errorf("TaskSpecSchemaVersion = %d, want at least 5: the smoke check changes what a spec resolves to", projectstate.TaskSpecSchemaVersion)
 	}
 	var anyProject projectstate.ProjectID
 	proj, _, err := projectstate.DecodeProjectJSON(fixtureWithDeployment(t), anyProject)

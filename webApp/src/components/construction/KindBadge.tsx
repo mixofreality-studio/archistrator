@@ -28,7 +28,9 @@ export type ActivityKind =
   // The three design types at the head of the plan (spec 2026-09-20 §5.1).
   | 'requirements'
   | 'architecture'
-  | 'projectDesign';
+  | 'projectDesign'
+  // The use-case acceptance milestone (M-ACCEPT): its one work task is a venue job.
+  | 'milestone';
 
 export const KIND_META: Record<ActivityKind, { label: string }> = {
   service: { label: 'Service' },
@@ -42,6 +44,7 @@ export const KIND_META: Record<ActivityKind, { label: string }> = {
   requirements: { label: 'Requirements' },
   architecture: { label: 'Architecture' },
   projectDesign: { label: 'Project design' },
+  milestone: { label: 'Milestone' },
 };
 
 /** The activity-kind palette — token-driven; no hardcoded colour. */
@@ -52,6 +55,7 @@ export function kindColor(t: Tokens, k: ActivityKind): { fg: string; bg: string 
     case 'frontend':
       return { fg: t.chatPmFg, bg: t.chatPmBg };
     case 'testing':
+    case 'milestone':
       return { fg: t.committedFg, bg: t.committedBg };
     case 'deployment':
       return { fg: t.awaitingFg, bg: t.awaitingBg };
@@ -78,6 +82,7 @@ function kindIcon(k: ActivityKind, size = 13): ReactNode {
     case 'frontend':
       return <DesignServicesOutlinedIcon sx={sx} />;
     case 'testing':
+    case 'milestone':
       return <FactCheckOutlinedIcon sx={sx} />;
     case 'deployment':
       return <RocketLaunchOutlinedIcon sx={sx} />;

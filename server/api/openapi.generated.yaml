@@ -268,10 +268,12 @@ components:
             enum:
                 - dispatch
                 - review
+                - job
             type: string
             x-enum-varnames:
                 - ActivityTaskDispatch
                 - ActivityTaskReview
+                - ActivityTaskJob
             x-go-base: string
         DeliveryActivityTaskState:
             enum:
@@ -367,6 +369,7 @@ components:
                 - 8
                 - 9
                 - 10
+                - 11
             type: integer
             x-enum-varnames:
                 - ActivityTypeService
@@ -380,6 +383,7 @@ components:
                 - ActivityTypeArchitecture
                 - ActivityTypeProjectDesign
                 - ActivityTypeMachineClient
+                - ActivityTypeMilestone
             x-go-base: int
         DeliveryActivityView:
             additionalProperties: false
@@ -3140,11 +3144,15 @@ components:
                 - 1
                 - 2
                 - 4
+                - 5
+                - 6
             type: integer
             x-enum-varnames:
                 - TestVariantHarness
                 - TestVariantPerf
                 - TestVariantQAProcess
+                - TestVariantAcceptancePlan
+                - TestVariantAcceptance
             x-go-base: int
         DeliveryTimelineEvent:
             additionalProperties: false

@@ -2846,6 +2846,10 @@ type PhaseArtifactPayload struct {
 	DeployNote       *DeployNoteRecord
 	DocOutline       *DocOutlineRecord
 	DocNote          *DocNoteRecord
+	// AcceptancePlan is the project's one acceptance plan (Amendment C). It belongs to no
+	// component, so it is no map entry and the mapKey does not apply: it is always filed as
+	// .phaseArtifacts.acceptancePlan (the record verb forces the key acceptance).
+	AcceptancePlan *AcceptancePlanRecord
 	// TestingState fields (project-level singletons / slices). CheckRun REPLACES a
 	// recorded run with the same ID (the venue re-records a run it re-ran) and appends
 	// otherwise.
@@ -3045,6 +3049,9 @@ func applyPhaseArtifactsPayload(p *Project, mapKey string, payload PhaseArtifact
 	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DeployNoteRecord { return &pa.DeployNote }, mapKey, payload.DeployNote)
 	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocOutlineRecord { return &pa.DocOutline }, mapKey, payload.DocOutline)
 	putPhaseRecord(p, func(pa *PhaseArtifacts) *map[string]DocNoteRecord { return &pa.DocNote }, mapKey, payload.DocNote)
+	if payload.AcceptancePlan != nil {
+		ensurePhaseArtifacts(p).AcceptancePlan = payload.AcceptancePlan
+	}
 }
 
 // ensurePhaseArtifacts lazy-inits p.PhaseArtifacts and returns it.
@@ -8082,6 +8089,9 @@ var activityTypeNames = map[ActivityType]string{
 	ActivityTypeArchitecture:  "architecture",
 	ActivityTypeProjectDesign: "projectDesign",
 	ActivityTypeMachineClient: "machineClient",
+	// The use-case acceptance milestone (M-ACCEPT, Amendment C): a zero-effort node whose one work
+	// task is a venue job.
+	ActivityTypeMilestone: "milestone",
 }
 var activityTypeByName = invert(activityTypeNames)
 
@@ -8117,6 +8127,11 @@ var testingVariantNames = map[TestingVariant]string{
 	TestVariantHarness:   "harness",
 	TestVariantPerf:      "perf",
 	TestVariantQAProcess: "qaProcess",
+	// The acceptance test plan (N-ATP, Amendment C): the residual use-case plan, one per project.
+	TestVariantAcceptancePlan: "acceptancePlan",
+	// The acceptance milestone's run (M-ACCEPT): the lifecycle key of a milestone is spelled
+	// milestone:<variant>, as a testing key is testing:<variant>.
+	TestVariantAcceptance: "acceptance",
 }
 var testingVariantByName = invert(testingVariantNames)
 
@@ -9101,6 +9116,8 @@ func (t ActivityType) String() string {
 		return "integration"
 	case ActivityTypeMachineClient:
 		return "machineClient"
+	case ActivityTypeMilestone:
+		return "milestone"
 	case ActivityTypeRequirements:
 		return "requirements"
 	case ActivityTypeArchitecture:
@@ -9144,6 +9161,10 @@ func (v TestingVariant) String() string {
 		return "perf"
 	case TestVariantQAProcess:
 		return "qaProcess"
+	case TestVariantAcceptancePlan:
+		return "acceptancePlan"
+	case TestVariantAcceptance:
+		return "acceptance"
 	case TestVariantNone:
 		return "none"
 	}
@@ -9400,6 +9421,10 @@ func deriveVariant(activityID string) (v TestingVariant, ok bool) {
 		return TestVariantPerf, true
 	case strings.HasPrefix(id, "N-QA"):
 		return TestVariantQAProcess, true
+	case strings.HasPrefix(id, "N-ATP"):
+		return TestVariantAcceptancePlan, true
+	case id == acceptanceMilestoneID:
+		return TestVariantAcceptance, true
 	default:
 		return TestVariantNone, false
 	}
@@ -9433,6 +9458,27 @@ func designActivityType(id string) (ActivityType, bool) {
 	return t, ok
 }
 
+// acceptanceMilestoneID is the id of the use-case acceptance milestone (Amendment C): the one
+// derived activity that runs a venue job and no agent. Like the three design ids it is classified
+// by its exact id, which the derivation alone writes (validateAdditive refuses an additive that
+// shadows it).
+const acceptanceMilestoneID = "M-ACCEPT"
+
+// milestoneActivityTypes is the exact-id table of the milestone activities: each the node that
+// runs one milestone's job, with the variant its lifecycle key (milestone:<variant>) is spelled from.
+var milestoneActivityTypes = map[string]struct {
+	typ     ActivityType
+	variant TestingVariant
+}{
+	acceptanceMilestoneID: {ActivityTypeMilestone, TestVariantAcceptance},
+}
+
+// milestoneActivityType reports the milestone type and variant of an exact milestone id.
+func milestoneActivityType(id string) (ActivityType, TestingVariant, bool) {
+	m, ok := milestoneActivityTypes[id]
+	return m.typ, m.variant, ok
+}
+
 // ClassifyActivity determines an activity's canonical (ActivityType, TestingVariant)
 // pair from the facts that EXIST AT DISPATCH TIME: its id, the owning workerClass, the
 // coding flag, and whether it builds a browser surface — all authored into the committed
@@ -9455,6 +9501,8 @@ func designActivityType(id string) (ActivityType, bool) {
 //     must be checked FIRST: all three are authored system-architect/coding=false, so
 //     rule 6 would type them Documentation and the pump would resolve a construction
 //     phase profile for a design lifecycle.
+//     0b. the milestone id M-ACCEPT (milestoneActivityType) → the milestone type with its
+//     variant; checked beside rule 0 for the same reason
 //  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} AND the id names a
 //     testing variant (deriveVariant ok) → Testing with that variant; an id that names
 //     none (N-STP/N-IT are retired, spec §7) falls through to the rules below
@@ -9479,6 +9527,11 @@ func designActivityType(id string) (ActivityType, bool) {
 func ClassifyActivity(id, workerClass string, coding, uiSurface, machineClient bool) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
 		return typ, 0, nil
+	}
+	// A milestone id is exact too, and is checked beside the design ids for the same reason: it is
+	// authored system-architect/coding=false, which rule 6 would type Documentation.
+	if typ, variant, ok := milestoneActivityType(id); ok {
+		return typ, variant, nil
 	}
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
@@ -9579,7 +9632,7 @@ func ResolveConstructionRow(
 	if !classified {
 		return typ, variant, nil, false
 	}
-	if typ == ActivityTypeTesting {
+	if typ == ActivityTypeTesting || typ == ActivityTypeMilestone {
 		variant, _ = deriveVariant(id)
 	}
 	return typ, variant, ResolvePhaseCompletions(ProfileFor(typ, variant), r.Attempts), true
@@ -9993,7 +10046,7 @@ func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string 
 // TestingVariant and the String() wire names the key is spelled from, and it is where
 // every lifecycle lookup in the server now starts.
 func LifecycleKeyFor(t ActivityType, v TestingVariant) string {
-	if t == ActivityTypeTesting {
+	if t == ActivityTypeTesting || t == ActivityTypeMilestone {
 		return t.String() + ":" + v.String()
 	}
 	return t.String()
@@ -11829,6 +11882,168 @@ func ComponentScenarios(p *Project, component string) ([]scenario.Scenario, erro
 	return scenario.ForComponent(all, component), nil
 }
 
+// The acceptance projection of the committed design (FPC plan 4, Amendment C):
+// the variants no single client plan covers, which the acceptance test plan binds and the M-ACCEPT
+// milestone runs, and the route a failing variant takes back to the work that can fix it.
+
+// AcceptanceContract is the pseudo-contract the acceptance scenarios and their checks are filed
+// under: the acceptance plan belongs to no component, so no serviceContracts key names it.
+const AcceptanceContract = "acceptance"
+
+// ClientContractKeys is the serviceContracts key of every Client contract, sorted: the cover
+// clients scenario.ForAcceptance projects a path through. A facet of a client is a contract of
+// its own, as it is for a client plan.
+func ClientContractKeys(p *Project) []string {
+	var keys []string
+	for key, sc := range p.ServiceContracts {
+		if strings.EqualFold(sc.Layer, "client") || strings.EqualFold(sc.Interface.Layer, "client") {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// acceptanceDerivation is the derived scenario set and the client keys it is projected over.
+func acceptanceDerivation(p *Project) ([]scenario.Scenario, []string, error) {
+	if p == nil {
+		return nil, nil, errors.New("projectstate.Acceptance: nil project")
+	}
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return nil, nil, err
+	}
+	all, err := scenario.Derive(in)
+	if err != nil {
+		return nil, nil, fmt.Errorf("projectstate.Acceptance: %w", err)
+	}
+	return all, ClientContractKeys(p), nil
+}
+
+// AcceptanceResidual is the acceptance variants no single client projection covers, each with why
+// (scenario.AcceptanceResidual over the committed design).
+func AcceptanceResidual(p *Project) ([]scenario.Residual, error) {
+	all, clients, err := acceptanceDerivation(p)
+	if err != nil {
+		return nil, err
+	}
+	return scenario.AcceptanceResidual(all, clients), nil
+}
+
+// AcceptanceScenarios is the residual variants themselves, sorted by variant id: what the
+// acceptance plan binds. A variant covered by one client projection is not among them.
+func AcceptanceScenarios(p *Project) ([]scenario.Scenario, error) {
+	all, clients, err := acceptanceDerivation(p)
+	if err != nil {
+		return nil, err
+	}
+	residual := scenario.AcceptanceResidual(all, clients)
+	var out []scenario.Scenario
+	for _, v := range scenario.ForAcceptance(all, clients) {
+		if scenario.IsResidual(residual, v.ID) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+// AcceptanceRouteInfo is where a failing acceptance variant is routed.
+type AcceptanceRouteInfo struct {
+	Scenario string
+	// Components is every component a call of the path's dynamic-view steps names as an endpoint,
+	// in path order, each once: the components the failure may be in.
+	Components []string
+	// ClientActivity is the committed activity that builds the client the variant's first actor
+	// stimulus enters through ("" when no activity builds it): the one to re-open.
+	ClientActivity string
+}
+
+// AcceptanceRoute names the components on the path of one acceptance variant and the client
+// activity to re-open. The variant must be a residual one: a covered variant is its client plan's.
+func AcceptanceRoute(p *Project, variant string) (AcceptanceRouteInfo, error) {
+	scenarios, err := AcceptanceScenarios(p)
+	if err != nil {
+		return AcceptanceRouteInfo{}, err
+	}
+	i := slices.IndexFunc(scenarios, func(s scenario.Scenario) bool { return s.ID == variant })
+	if i < 0 {
+		return AcceptanceRouteInfo{}, fmt.Errorf("projectstate.AcceptanceRoute: %q is not a residual acceptance variant of this project", variant)
+	}
+	v := scenarios[i]
+	return AcceptanceRouteInfo{Scenario: variant, Components: pathComponents(p, v), ClientActivity: clientActivityOf(p, v)}, nil
+}
+
+// AcceptanceRouteLine is one failing variant's line of the acceptance gate's hold comment: the
+// components on its path and the route back to the work that can fix it. The route is the reopen the
+// Manager already has (OverrideActivity, retry: a new attempt on the activity's integration task from
+// a fresh branch off main); nothing reopens automatically, the gate is a human's. A variant whose
+// client no activity builds says so.
+func AcceptanceRouteLine(r AcceptanceRouteInfo) string {
+	line := r.Scenario + ": components on path: " + strings.Join(r.Components, ", ") + " — route: "
+	if r.ClientActivity == "" {
+		client := r.Scenario[strings.LastIndex(r.Scenario, "@")+1:]
+		return line + "no client activity derives for " + client
+	}
+	return line + "OverrideActivity(" + r.ClientActivity + ", retry): a new attempt on its integration task from a fresh branch off main"
+}
+
+// pathComponents is the components the variant's use case's view names across the steps attached to
+// the variant's path nodes. A call endpoint is a component when the System has one by that id. Every
+// client a node's calls enter through is on the path, the variant's cover client or not: a variant is
+// residual because an outcome one actor has is shown on a client another did not call through, so a
+// failure of it is in a client the stimulus did not enter by (earmark E21).
+func pathComponents(p *Project, v scenario.Scenario) []string {
+	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
+	if !ok {
+		return nil
+	}
+	isComponent := map[string]bool{}
+	for _, c := range sys.Components {
+		isComponent[c.ID] = true
+	}
+	var out []string
+	add := func(id string) {
+		if isComponent[id] && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	for _, dv := range sys.DynamicViews {
+		if dv.UseCaseID != v.UseCase {
+			continue
+		}
+		for _, node := range v.Path {
+			for _, st := range dv.Steps {
+				if st.ActivityNodeID != node {
+					continue
+				}
+				for _, c := range st.Calls {
+					add(c.From)
+					add(c.To)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// clientActivityOf is the committed activity whose component the variant's first stimulus enters.
+func clientActivityOf(p *Project, v scenario.Scenario) string {
+	if len(v.Stimuli) == 0 {
+		return ""
+	}
+	list, ok := scenarioCommittedModel[*ActivityList](p, KindActivityList)
+	if !ok {
+		return ""
+	}
+	to := v.Stimuli[0].Input.To
+	for _, it := range list.Activities {
+		if it.ComponentID != "" && scenario.Normalize(it.ComponentID) == to {
+			return it.Name
+		}
+	}
+	return ""
+}
+
 // scenarioCommittedModel returns the slot's model as M only when the slot is
 // ReviewCommitted and holds a non-nil model of that type — the server-side spelling
 // of methodcheck's Slot.committed() (status == committed && len(model) > 0), via the
@@ -12213,7 +12428,7 @@ const (
 // encoding — so a stale state tool is named as stale, not reported as "task spec
 // drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
 // charters and lifecycles.
-const TaskSpecSchemaVersion = 5
+const TaskSpecSchemaVersion = 6
 
 // StateToolVersion is the generation of the task-spec code a binary carries: the
 // method-assets module version it was built with (from its own build info; a workspace
@@ -12278,7 +12493,7 @@ type SpecGenerator struct {
 
 // SpecIdentity is what the method assets say the task is.
 type SpecIdentity struct {
-	Kind          string `json:"kind"` // dispatch | review
+	Kind          string `json:"kind"` // dispatch | review | job
 	Title         string `json:"title"`
 	Phase         string `json:"phase"`
 	Command       string `json:"command"` // "" for a review task with no command
@@ -12639,7 +12854,8 @@ func isDesignMode(mode string) bool {
 }
 
 // commandArgs is the task command's $ARGUMENTS, exactly as the jobs pass them: design
-// commands take none, construction-style commands take <component_id> <activity_id>.
+// commands take none, construction-style commands take <component_id> <activity_id>, and a
+// command of an activity that builds no component (the acceptance test plan) takes <activity_id>.
 func commandArgs(lc methodassets.Lifecycle, taskID, componentID, activityID string) []string {
 	for _, t := range lc.Tasks {
 		if t.ID != taskID || t.Command == "" {
@@ -12647,6 +12863,9 @@ func commandArgs(lc methodassets.Lifecycle, taskID, componentID, activityID stri
 		}
 		if m, ok := methodassets.ManifestFor(t.Command); ok && isDesignMode(m.Mode) {
 			return nil
+		}
+		if componentID == "" {
+			return []string{activityID}
 		}
 		return []string{componentID, activityID}
 	}
@@ -12668,7 +12887,8 @@ func builtinTools(ms methodassets.MethodSpec) []string {
 // else the charter's) and its cost estimate. A task with no command runs no agent and
 // has no model.
 func specModel(p *Project, ms methodassets.MethodSpec, lc methodassets.Lifecycle, item ActivityItem) SpecModel {
-	if ms.Command == "" {
+	if ms.Command == "" || ms.Kind == methodassets.LifecycleTaskJob {
+		// A review a human decides, and a venue job whose command is only a routing slug, run no agent.
 		return SpecModel{}
 	}
 	pa, paOK := scenarioCommittedModel[*PlanningAssumptions](p, KindPlanningAssumptions)
@@ -12730,6 +12950,9 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 	case ms.Command == "":
 		// A review a human decides: nothing to run, nothing to edit.
 		return stateOnly, nil, nil
+	case ms.Kind == methodassets.LifecycleTaskJob:
+		// A venue job edits no repo file and runs no agent: the venue runs its checks.
+		return stateOnly, acceptanceJobChecks(p), nil
 	case isDesignMode(ms.Mode):
 		return stateOnly, []SpecCheck{slotRuleCheck(ms.ArtifactKind)}, nil
 	case ms.Phase == "test_plan":
@@ -12737,6 +12960,8 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 			ID: "rule:tp", Kind: CheckKindRule, Title: "Test plan rules (TP-*)",
 			Source: SpecCheckSource{RulePrefixes: []string{"TP-"}}, TimeoutSec: ruleCheckTimeoutSec,
 		}}, nil
+	case ms.Phase == "acceptance_plan":
+		return stateOnly, []SpecCheck{atpRuleCheck()}, nil
 	case ms.Phase == "requirements" || ms.Phase == "detailed_design" || ms.Kind == methodassets.LifecycleTaskReview:
 		return stateOnly, []SpecCheck{projectRuleCheck()}, nil
 	}
@@ -12765,6 +12990,40 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 	// its scope is an explicit "any path" rather than a stateOnly that would reject its
 	// legitimate output.
 	return SpecEditScope{Extra: []string{anyPath}}, []SpecCheck{projectRuleCheck()}, nil
+}
+
+// atpRuleCheck is the acceptance plan's rule check (ATP-*, with TP-* over every bound step). The
+// plan's own task is gated by it, and the milestone's job runs it again at run time, where a skip
+// whose `until` activity has since landed is an Error.
+func atpRuleCheck() SpecCheck {
+	return SpecCheck{
+		ID: "rule:atp", Kind: CheckKindRule, Title: "Acceptance plan rules (ATP-*, TP-*)",
+		Source: SpecCheckSource{RulePrefixes: []string{"ATP-", "TP-"}}, TimeoutSec: ruleCheckTimeoutSec,
+	}
+}
+
+// acceptanceJobChecks is the checks of the M-ACCEPT job: the acceptance plan's rules, the composed
+// app's boot (the composition root and the run contract build, and the app boots through it), the
+// generated tests' currency, and one scenario check per residual acceptance variant, filed under the
+// pseudo-contract AcceptanceContract. A project whose derivation does not resolve has no scenario
+// to run: the rule check then names why.
+func acceptanceJobChecks(p *Project) []SpecCheck {
+	dir := p.ModuleDir
+	checks := []SpecCheck{atpRuleCheck()}
+	checks = append(checks, bootChecks(dir)...)
+	checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec))
+	scenarios, err := AcceptanceScenarios(p)
+	if err == nil {
+		for _, v := range scenarios {
+			checks = append(checks, SpecCheck{
+				ID: CheckKindScenario + ":" + AcceptanceContract + ":" + v.ID, Kind: CheckKindScenario, Title: v.Title,
+				Source:     SpecCheckSource{Scenario: v.ID, Contract: AcceptanceContract, UseCase: v.UseCase},
+				TimeoutSec: scenarioCheckTimeoutSec,
+			})
+		}
+	}
+	sortChecks(checks)
+	return checks
 }
 
 // slotRuleCheck is a design task's rule check: the rule families attributed to the slot
@@ -13382,13 +13641,16 @@ func browserContract(key, name string, ops []string) (ServiceContract, error) {
 		Params []param        `json:"params"`
 		Result map[string]any `json:"result"`
 		Error  bool           `json:"error"`
+		// ReadOnly is derived, never authored (markReadOnlyOperations).
+		ReadOnly bool `json:"readOnly,omitempty"`
 	}
 	operations := make([]operation, 0, len(ops))
 	for _, op := range ops {
 		operations = append(operations, operation{
-			Name:   op,
-			Params: []param{{Name: "action", Schema: map[string]any{"$ref": "#/$defs/UIAction"}}},
-			Result: map[string]any{"$ref": "#/$defs/UIObservation"},
+			Name:     op,
+			Params:   []param{{Name: "action", Schema: map[string]any{"$ref": "#/$defs/UIAction"}}},
+			Result:   map[string]any{"$ref": "#/$defs/UIObservation"},
+			ReadOnly: OperationReadOnly("client", op),
 		})
 	}
 	raw, err := json.Marshal(map[string]any{
@@ -13640,6 +13902,9 @@ var layerReadVerbs = map[string][]string{
 	"resourceaccess": {"Recall"},
 	"utility":        {"Subscribe"},
 	"manager":        {"Open"},
+	// A surface's Open shows a list or a view of it: what an acceptance probe reads to see what the
+	// member's browser shows (FPC plan 4).
+	"client": {"Open"},
 }
 
 // OperationReadOnly classifies a contract operation as one that only observes: every Engine

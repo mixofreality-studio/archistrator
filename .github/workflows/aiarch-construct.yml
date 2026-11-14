@@ -259,6 +259,99 @@ jobs:
           go install github.com/mixofreality-studio/archistrator/server/cmd/aiarch-state-mcp@"${AIARCH_STATE_MCP_PIN}"
           echo "bin=${GOBIN}/aiarch-state-mcp" >> "$GITHUB_OUTPUT"
 
+      # THE TASK SPEC (spec 2026-10-11 §5.2 step 1). The job recomputes the agent
+      # task spec from the SAME code the server ran (the binary is pinned to the
+      # dispatching server's generation) over this checkout's state, and refuses
+      # to start when its hash differs from the one the server dispatched: the
+      # model, tools, edit scope and checks the panel showed are then exactly the
+      # ones this run uses. The spec's model and built-in allowlist reach
+      # claude_args through step outputs, so each is held to a plain shape here
+      # (no quote, space or newline can reach the CLI's argv). `base` is the
+      # activity branch tip before the agent runs (main when the branch does not
+      # exist yet) — the edit-scope gate diffs the agent's commits from it.
+      - name: Resolve the task spec
+        id: spec
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+        run: |
+          got="$("${MCP_BIN}" task-spec --activity "${AIARCH_ACTIVITY_ID}" --task "${AIARCH_TASK_ID}" --root . --out "${RUNNER_TEMP}/spec.json")"
+          if [ "${got}" != "${AIARCH_SPEC_HASH}" ]; then
+            echo "::error::task spec drifted: dispatched ${AIARCH_SPEC_HASH}, job resolved ${got}"; exit 1
+          fi
+          # jq -e: a missing field fails here instead of becoming the string "null".
+          # A job task (the M-ACCEPT milestone's acceptance run) runs no agent: its spec has no
+          # model and no tool allowlist, and the venue runs the spec's checks and records the CheckRun.
+          kind="$(jq -er .identity.kind "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no identity.kind"; exit 1; }
+          case "${kind}" in
+            dispatch|review|job) ;;
+            *) echo "::error::the task spec's kind is not a task kind: ${kind}"; exit 1 ;;
+          esac
+          echo "kind=${kind}" >> "$GITHUB_OUTPUT"
+          if [ "${kind}" = job ]; then
+            model=""
+            builtin=""
+          else
+            model="$(jq -er .model.id "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no model.id"; exit 1; }
+            builtin="$(jq -er '.tools.builtin | join(",")' "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no tools.builtin list"; exit 1; }
+          fi
+          # A whole-value match of at most $3 characters: no newline (grep matches
+          # per line), never "null". The bound is a length test, not an ERE
+          # interval: BSD grep caps intervals at 255.
+          plain() {
+            case "$1" in *$'\n'*|null) return 1 ;; esac
+            [ "${#1}" -le "$3" ] || return 1
+            printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
+          }
+          if [ "${kind}" != job ] && ! plain "${model}" '[A-Za-z0-9][]A-Za-z0-9._:[-]*' 128; then
+            echo "::error::the task spec's model is not a model id"; exit 1
+          fi
+          # An empty allowlist is valid: --tools '' means no built-ins.
+          if [ -n "${builtin}" ] && ! plain "${builtin}" '[A-Za-z0-9_,():*.-]*' 4096; then
+            echo "::error::the task spec's built-in tools are not a tool list"; exit 1
+          fi
+          echo "model=${model}" >> "$GITHUB_OUTPUT"
+          echo "builtin=${builtin}" >> "$GITHUB_OUTPUT"
+          # The edit-scope gate takes commit SHAs only (a ref name is refused), so
+          # base and main are pinned here, before the agent can move any ref.
+          # A shallow checkout cannot compute merge-base(main, head): deepen it
+          # to full history first (checkout's fetch-depth: 0 normally makes this
+          # a no-op), so every later fetch into this repo is complete too.
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin
+          fi
+          if git fetch --no-tags origin "activity/${AIARCH_ACTIVITY_ID}" 2>/dev/null; then
+            base="$(git rev-parse --verify "FETCH_HEAD^{commit}")"
+          else
+            base="$(git rev-parse --verify "HEAD^{commit}")"
+          fi
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          # main_sha: the gate ignores what main's merges brought in. Absent only
+          # when origin has no main (ls-remote exits 2); the gate then judges the
+          # whole base..head diff (--no-main). Any other failure fails the step.
+          rc=0; git ls-remote --exit-code --heads origin refs/heads/main > /dev/null || rc=$?
+          if [ "${rc}" = 0 ]; then
+            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+            main_sha="$(git rev-parse --verify "refs/remotes/origin/main^{commit}")"
+          elif [ "${rc}" = 2 ]; then
+            main_sha=""
+          else
+            echo "::error::could not read origin's main (git ls-remote exit ${rc})"; exit 1
+          fi
+          echo "main_sha=${main_sha}" >> "$GITHUB_OUTPUT"
+          # The component's contracts, for the model generation step. Contract keys are
+          # identifiers, so anything else in the spec is refused before it reaches make.
+          contracts="$(jq -r '(.contracts // []) | join(" ")' "${RUNNER_TEMP}/spec.json")"
+          case "${contracts}" in
+            *[!A-Za-z0-9_\ ]*) echo "::error::the spec's contracts are not identifiers: ${contracts}"; exit 1 ;;
+          esac
+          echo "contracts=${contracts}" >> "$GITHUB_OUTPUT"
+          # The integration TASK (not the optional phase input) seeds the scenario tests.
+          if [ "${AIARCH_TASK_ID}" = integration ]; then
+            echo "integration=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "integration=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # RUNTIME PROMPT MATERIALIZATION (founder-ratified 2026-07-17). The .claude
       # prompt surface the thin slash-command dispatch below routes into
       # (commands/skills/agents + seat manifest) is NOT repo-committed in operated
@@ -270,6 +363,7 @@ jobs:
       # committed .claude copy in a legacy repo cannot shadow the current generation.
       # Working-tree only: no git state is touched and nothing here is committed.
       - name: Materialize the .claude prompt surface (runtime-rendered, not repo-committed)
+        if: ${{ steps.spec.outputs.kind != 'job' }}
         env:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
           AIARCH_COMMAND: ${{ inputs.command }}
@@ -286,6 +380,7 @@ jobs:
       # jq builds the JSON from --arg values, so no value — the note least of all —
       # can break the document or reach a shell.
       - name: Write the aiarch-state MCP config
+        if: ${{ steps.spec.outputs.kind != 'job' }}
         env:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
           AIARCH_PROJECT_ID: ${{ github.event.repository.name }}
@@ -339,86 +434,6 @@ jobs:
           for line in /test-results/ /check-results/ .temporal/; do
             grep -qxF -- "${line}" "${exclude}" || printf '%s\n' "${line}" >> "${exclude}"
           done
-
-      # THE TASK SPEC (spec 2026-10-11 §5.2 step 1). The job recomputes the agent
-      # task spec from the SAME code the server ran (the binary is pinned to the
-      # dispatching server's generation) over this checkout's state, and refuses
-      # to start when its hash differs from the one the server dispatched: the
-      # model, tools, edit scope and checks the panel showed are then exactly the
-      # ones this run uses. The spec's model and built-in allowlist reach
-      # claude_args through step outputs, so each is held to a plain shape here
-      # (no quote, space or newline can reach the CLI's argv). `base` is the
-      # activity branch tip before the agent runs (main when the branch does not
-      # exist yet) — the edit-scope gate diffs the agent's commits from it.
-      - name: Resolve the task spec
-        id: spec
-        env:
-          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
-        run: |
-          got="$("${MCP_BIN}" task-spec --activity "${AIARCH_ACTIVITY_ID}" --task "${AIARCH_TASK_ID}" --root . --out "${RUNNER_TEMP}/spec.json")"
-          if [ "${got}" != "${AIARCH_SPEC_HASH}" ]; then
-            echo "::error::task spec drifted: dispatched ${AIARCH_SPEC_HASH}, job resolved ${got}"; exit 1
-          fi
-          # jq -e: a missing field fails here instead of becoming the string "null".
-          model="$(jq -er .model.id "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no model.id"; exit 1; }
-          builtin="$(jq -er '.tools.builtin | join(",")' "${RUNNER_TEMP}/spec.json")" || { echo "::error::the task spec has no tools.builtin list"; exit 1; }
-          # A whole-value match of at most $3 characters: no newline (grep matches
-          # per line), never "null". The bound is a length test, not an ERE
-          # interval: BSD grep caps intervals at 255.
-          plain() {
-            case "$1" in *$'\n'*|null) return 1 ;; esac
-            [ "${#1}" -le "$3" ] || return 1
-            printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
-          }
-          if ! plain "${model}" '[A-Za-z0-9][]A-Za-z0-9._:[-]*' 128; then
-            echo "::error::the task spec's model is not a model id"; exit 1
-          fi
-          # An empty allowlist is valid: --tools '' means no built-ins.
-          if [ -n "${builtin}" ] && ! plain "${builtin}" '[A-Za-z0-9_,():*.-]*' 4096; then
-            echo "::error::the task spec's built-in tools are not a tool list"; exit 1
-          fi
-          echo "model=${model}" >> "$GITHUB_OUTPUT"
-          echo "builtin=${builtin}" >> "$GITHUB_OUTPUT"
-          # The edit-scope gate takes commit SHAs only (a ref name is refused), so
-          # base and main are pinned here, before the agent can move any ref.
-          # A shallow checkout cannot compute merge-base(main, head): deepen it
-          # to full history first (checkout's fetch-depth: 0 normally makes this
-          # a no-op), so every later fetch into this repo is complete too.
-          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-            git fetch --no-tags --unshallow origin
-          fi
-          if git fetch --no-tags origin "activity/${AIARCH_ACTIVITY_ID}" 2>/dev/null; then
-            base="$(git rev-parse --verify "FETCH_HEAD^{commit}")"
-          else
-            base="$(git rev-parse --verify "HEAD^{commit}")"
-          fi
-          echo "base=${base}" >> "$GITHUB_OUTPUT"
-          # main_sha: the gate ignores what main's merges brought in. Absent only
-          # when origin has no main (ls-remote exits 2); the gate then judges the
-          # whole base..head diff (--no-main). Any other failure fails the step.
-          rc=0; git ls-remote --exit-code --heads origin refs/heads/main > /dev/null || rc=$?
-          if [ "${rc}" = 0 ]; then
-            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
-            main_sha="$(git rev-parse --verify "refs/remotes/origin/main^{commit}")"
-          elif [ "${rc}" = 2 ]; then
-            main_sha=""
-          else
-            echo "::error::could not read origin's main (git ls-remote exit ${rc})"; exit 1
-          fi
-          echo "main_sha=${main_sha}" >> "$GITHUB_OUTPUT"
-          # The component's contracts, for the model generation step. Contract keys are
-          # identifiers, so anything else in the spec is refused before it reaches make.
-          contracts="$(jq -r '(.contracts // []) | join(" ")' "${RUNNER_TEMP}/spec.json")"
-          case "${contracts}" in
-            *[!A-Za-z0-9_\ ]*) echo "::error::the spec's contracts are not identifiers: ${contracts}"; exit 1 ;;
-          esac
-          echo "contracts=${contracts}" >> "$GITHUB_OUTPUT"
-          # The integration TASK (not the optional phase input) seeds the scenario tests.
-          if [ "${AIARCH_TASK_ID}" = integration ]; then
-            echo "integration=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "integration=false" >> "$GITHUB_OUTPUT"
-          fi
 
       # THE CHECK TOOLCHAINS (ruling R51). The runner image carries Go (above) and
       # nothing else the spec's checks may exec, and a check whose tool is missing
@@ -571,7 +586,7 @@ jobs:
       # contract.gen.go and never writes a generator of its own. Only this task's contracts:
       # a sibling's delegating constructor needs a builder that does not exist yet.
       - name: Generate the component's models
-        if: ${{ steps.spec.outputs.contracts != '' }}
+        if: ${{ steps.spec.outputs.kind != 'job' && steps.spec.outputs.contracts != '' }}
         env:
           GOWORK: "off"
           CONTRACTS: ${{ steps.spec.outputs.contracts }}
@@ -585,6 +600,7 @@ jobs:
       # The rest of the task's generated half: the composition root at a Manager's or
       # Client's integration, the web project for a browser surface. The spec names them.
       - name: Run the task's generators
+        if: ${{ steps.spec.outputs.kind != 'job' }}
         shell: bash
         env:
           GOWORK: "off"
@@ -606,6 +622,7 @@ jobs:
           done
 
       - name: Run construction step (claude-code-action)
+        if: ${{ steps.spec.outputs.kind != 'job' }}
         # The agent's bound — claude must implement + publish within this window or
         # the step is killed (no silent multi-hour grinds). 12 min was observed
         # cutting off substantive components (a ~900 LOC component with an external

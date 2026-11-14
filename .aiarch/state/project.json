@@ -439,6 +439,19 @@
             ]
           },
           {
+            "activity": "M-ACCEPT",
+            "dependsOn": [
+              "N-ATP",
+              "U-SPA-web-client"
+            ]
+          },
+          {
+            "activity": "N-ATP",
+            "dependsOn": [
+              "M0"
+            ]
+          },
+          {
             "activity": "R-construction-pipeline-runtime",
             "dependsOn": [
               "M0"
@@ -486,6 +499,7 @@
           "C-billing-manager",
           "C-operated-runtime-access",
           "C-operations-manager",
+          "M-ACCEPT",
           "R-operated-runtime",
           "U-SPA-web-client",
           "architecture",
@@ -541,7 +555,7 @@
             "name": "Project End",
             "public": false,
             "dependsOn": [
-              "U-SPA-web-client"
+              "M-ACCEPT"
             ]
           }
         ]
@@ -13230,6 +13244,22 @@
             "componentId": "usage-access"
           },
           {
+            "name": "M-ACCEPT",
+            "effortDays": 0,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 1,
+            "title": "Use-case acceptance (M-ACCEPT)"
+          },
+          {
+            "name": "N-ATP",
+            "effortDays": 5,
+            "workerClass": "test-engineer",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Use-case acceptance test plan"
+          },
+          {
             "name": "R-construction-pipeline-runtime",
             "effortDays": 10,
             "workerClass": "senior-developer",
@@ -17336,7 +17366,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -17349,7 +17380,8 @@
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
             "ActivityTypeProjectDesign",
-            "ActivityTypeMachineClient"
+            "ActivityTypeMachineClient",
+            "ActivityTypeMilestone"
           ],
           "x-go-base": "int"
         },
@@ -18005,18 +18037,22 @@
         },
         "TestingVariant": {
           "type": "integer",
-          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused.",
+          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused. 5 is the acceptance test plan (N-ATP, Amendment C); 6 is the acceptance milestone's run (M-ACCEPT).",
           "enum": [
             0,
             1,
             2,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "TestVariantNone",
             "TestVariantHarness",
             "TestVariantPerf",
-            "TestVariantQAProcess"
+            "TestVariantQAProcess",
+            "TestVariantAcceptancePlan",
+            "TestVariantAcceptance"
           ],
           "x-go-base": "int"
         },
@@ -20877,11 +20913,13 @@
           "type": "string",
           "enum": [
             "dispatch",
-            "review"
+            "review",
+            "job"
           ],
           "x-enum-varnames": [
             "ActivityTaskDispatch",
-            "ActivityTaskReview"
+            "ActivityTaskReview",
+            "ActivityTaskJob"
           ],
           "x-go-base": "string"
         },
@@ -21001,7 +21039,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -21014,7 +21053,8 @@
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
             "ActivityTypeProjectDesign",
-            "ActivityTypeMachineClient"
+            "ActivityTypeMachineClient",
+            "ActivityTypeMilestone"
           ],
           "x-go-base": "int"
         },
@@ -24774,12 +24814,16 @@
           "enum": [
             1,
             2,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "TestVariantHarness",
             "TestVariantPerf",
-            "TestVariantQAProcess"
+            "TestVariantQAProcess",
+            "TestVariantAcceptancePlan",
+            "TestVariantAcceptance"
           ],
           "x-go-base": "int"
         },
@@ -26776,7 +26820,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -26789,7 +26834,8 @@
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
             "ActivityTypeProjectDesign",
-            "ActivityTypeMachineClient"
+            "ActivityTypeMachineClient",
+            "ActivityTypeMilestone"
           ],
           "x-go-base": "int"
         },
@@ -26833,18 +26879,22 @@
         },
         "TestingVariant": {
           "type": "integer",
-          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused.",
+          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused. 5 is the acceptance test plan (N-ATP, Amendment C); 6 is the acceptance milestone's run (M-ACCEPT).",
           "enum": [
             0,
             1,
             2,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "TestVariantNone",
             "TestVariantHarness",
             "TestVariantPerf",
-            "TestVariantQAProcess"
+            "TestVariantQAProcess",
+            "TestVariantAcceptancePlan",
+            "TestVariantAcceptance"
           ],
           "x-go-base": "int"
         },
@@ -27666,11 +27716,13 @@
           "type": "string",
           "enum": [
             "dispatch",
-            "review"
+            "review",
+            "job"
           ],
           "x-enum-varnames": [
             "ActivityTaskDispatch",
-            "ActivityTaskReview"
+            "ActivityTaskReview",
+            "ActivityTaskJob"
           ],
           "x-go-base": "string"
         },
@@ -27790,7 +27842,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -27803,7 +27856,8 @@
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
             "ActivityTypeProjectDesign",
-            "ActivityTypeMachineClient"
+            "ActivityTypeMachineClient",
+            "ActivityTypeMilestone"
           ],
           "x-go-base": "int"
         },
@@ -31570,12 +31624,16 @@
           "enum": [
             1,
             2,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "TestVariantHarness",
             "TestVariantPerf",
-            "TestVariantQAProcess"
+            "TestVariantQAProcess",
+            "TestVariantAcceptancePlan",
+            "TestVariantAcceptance"
           ],
           "x-go-base": "int"
         },
@@ -35075,6 +35133,42 @@
       "railAuthority": true,
       "title": "projectstate contract",
       "$defs": {
+        "AcceptancePlanRecord": {
+          "type": "object",
+          "description": "The acceptance plan: a binding per residual acceptance variant (\u003cscenario\u003e@\u003cclient\u003e, scenario.AcceptanceResidual) plus the principals the bindings act as. Decoded as strictly as a TestPlanRecord.",
+          "properties": {
+            "principals": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/TestPrincipal"
+              }
+            },
+            "bindings": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ScenarioBinding"
+              }
+            },
+            "browserActor": {
+              "type": "string",
+              "description": "The actor whose browser every web step and web probe runs in: one browser identity per launch (ATP-BROWSER). Required when any step or probe is on a browser surface."
+            },
+            "authoredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "principals",
+            "bindings"
+          ],
+          "additionalProperties": false
+        },
         "ActivityBuildStatus": {
           "type": "integer",
           "enum": [
@@ -35330,7 +35424,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -35343,7 +35438,8 @@
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
             "ActivityTypeProjectDesign",
-            "ActivityTypeMachineClient"
+            "ActivityTypeMachineClient",
+            "ActivityTypeMilestone"
           ],
           "x-go-base": "int"
         },
@@ -37226,8 +37322,41 @@
               "additionalProperties": {
                 "$ref": "#/$defs/DocNoteRecord"
               }
+            },
+            "acceptancePlan": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/AcceptancePlanRecord",
+              "description": "The one residual use-case plan (Amendment C): the acceptance variants no single client plan covers, bound once for the whole project. It belongs to no component, so it is a singleton, recorded under the key acceptance."
             }
           },
+          "additionalProperties": false
+        },
+        "PlanRef": {
+          "type": "object",
+          "description": "The literal bound to input \u003cinput\u003e of step \u003cseq\u003e of the client plan \u003ccomponent\u003e/\u003cscenario\u003e. Only the acceptance plan carries one; it is resolved to the literal it names at generation (ATP-REF).",
+          "properties": {
+            "component": {
+              "type": "string"
+            },
+            "scenario": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "integer",
+              "x-go-type": "int"
+            },
+            "input": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "component",
+            "scenario",
+            "seq",
+            "input"
+          ],
           "additionalProperties": false
         },
         "PlanningAssumptions": {
@@ -37298,6 +37427,11 @@
             },
             "expect": {
               "$ref": "#/$defs/TestExpect"
+            },
+            "as": {
+              "type": "string",
+              "x-go-name": "As",
+              "description": "The actor the probe runs as (an acceptance plan's cross-actor observation); the step's own actor when empty. ATP-PROBE-AS holds it to the plan's principals."
             }
           },
           "required": [
@@ -38398,6 +38532,22 @@
                 "model"
               ],
               "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "planRef"
+                },
+                "model": {
+                  "$ref": "#/$defs/PlanRef"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
             }
           ],
           "x-go-sumtype": {
@@ -38415,6 +38565,11 @@
                 "kind": "ref",
                 "type": "RefValue",
                 "kindConst": "TestArgRef"
+              },
+              {
+                "kind": "planRef",
+                "type": "PlanRef",
+                "kindConst": "TestArgPlanRef"
               }
             ]
           }
@@ -38423,11 +38578,13 @@
           "type": "string",
           "enum": [
             "literal",
-            "ref"
+            "ref",
+            "planRef"
           ],
           "x-enum-varnames": [
             "TestArgLiteral",
-            "TestArgRef"
+            "TestArgRef",
+            "TestArgPlanRef"
           ]
         },
         "TestExpect": {
@@ -38518,18 +38675,22 @@
         },
         "TestingVariant": {
           "type": "integer",
-          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused.",
+          "description": "The sub-type of a testing (N-*) activity. 0 is None: the value every non-testing activity carries, so it can cross a Temporal payload; it is NOT a testing variant. Ordinal 0 was Plan (N-STP) and 3 was SystemTest (N-IT) until 2026-10-02 (deterministic component testing, spec §7): neither is a testing variant again, and 3 is never reused. 5 is the acceptance test plan (N-ATP, Amendment C); 6 is the acceptance milestone's run (M-ACCEPT).",
           "enum": [
             0,
             1,
             2,
-            4
+            4,
+            5,
+            6
           ],
           "x-enum-varnames": [
             "TestVariantNone",
             "TestVariantHarness",
             "TestVariantPerf",
-            "TestVariantQAProcess"
+            "TestVariantQAProcess",
+            "TestVariantAcceptancePlan",
+            "TestVariantAcceptance"
           ],
           "x-go-base": "int"
         },
@@ -40130,7 +40291,8 @@
             "requirements",
             "architecture",
             "projectDesign",
-            "machineClient"
+            "machineClient",
+            "milestone"
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -40143,7 +40305,8 @@
             "ActivityTypeRequirements",
             "ActivityTypeArchitecture",
             "ActivityTypeProjectDesign",
-            "ActivityTypeMachineClient"
+            "ActivityTypeMachineClient",
+            "ActivityTypeMilestone"
           ],
           "x-go-base": "string"
         },
@@ -112489,6 +112652,11 @@
   "operatorPaused": true,
   "reviewPolicy": {},
   "ruleWaivers": [
+    {
+      "rule": "ATP-BOUND",
+      "reason": "ruling 8: the own project's residual acceptance variants are unbound until the scheduled own-plan rebinding",
+      "expires": "2026-12-31"
+    },
     {
       "rule": "CC-DECIDED-BY-ACTOR-STEP",
       "reason": "ruling 8: own-project rebinding scheduled",

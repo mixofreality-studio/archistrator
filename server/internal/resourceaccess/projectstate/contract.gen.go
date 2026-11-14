@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+type AcceptancePlanRecord struct {
+	Principals   map[string]TestPrincipal `json:"principals"`
+	Bindings     []ScenarioBinding        `json:"bindings"`
+	BrowserActor *string                  `json:"browserActor,omitempty"`
+	AuthoredAt   *time.Time               `json:"authoredAt,omitempty"`
+}
+
 type ActivityBuildStatus int
 
 const (
@@ -115,6 +122,7 @@ const (
 	ActivityTypeArchitecture  ActivityType = 8
 	ActivityTypeProjectDesign ActivityType = 9
 	ActivityTypeMachineClient ActivityType = 10
+	ActivityTypeMilestone     ActivityType = 11
 )
 
 type Actor struct {
@@ -761,6 +769,14 @@ type PhaseArtifacts struct {
 	DeployNote       map[string]DeployNoteRecord       `json:"deployNote,omitempty"`
 	DocOutline       map[string]DocOutlineRecord       `json:"docOutline,omitempty"`
 	DocNote          map[string]DocNoteRecord          `json:"docNote,omitempty"`
+	AcceptancePlan   *AcceptancePlanRecord             `json:"acceptancePlan,omitempty"`
+}
+
+type PlanRef struct {
+	Component string `json:"component"`
+	Scenario  string `json:"scenario"`
+	Seq       int    `json:"seq"`
+	Input     string `json:"input"`
 }
 
 type PlanningAssumptions struct {
@@ -780,6 +796,7 @@ type Probe struct {
 	Operation string     `json:"operation"`
 	Inputs    []TestArg  `json:"inputs"`
 	Expect    TestExpect `json:"expect"`
+	As        *string    `json:"as,omitempty"`
 }
 
 type Profile struct {
@@ -1157,6 +1174,9 @@ func (*LiteralValue) Kind() TestArgValueKind { return TestArgLiteral }
 func (*RefValue) isTestArgValue()        {}
 func (*RefValue) Kind() TestArgValueKind { return TestArgRef }
 
+func (*PlanRef) isTestArgValue()        {}
+func (*PlanRef) Kind() TestArgValueKind { return TestArgPlanRef }
+
 // TestArgValueEnvelope is the wire form of a TestArgValue: the string kind discriminator + the
 // concrete variant's own JSON under "model".
 type TestArgValueEnvelope struct {
@@ -1171,6 +1191,8 @@ func kindStringTestArgValue(k TestArgValueKind) (string, bool) {
 		return "literal", true
 	case TestArgRef:
 		return "ref", true
+	case TestArgPlanRef:
+		return "planRef", true
 	default:
 		return "", false
 	}
@@ -1201,6 +1223,8 @@ func newTestArgValueForKind(kind string) (TestArgValue, bool) {
 		return &LiteralValue{}, true
 	case "ref":
 		return &RefValue{}, true
+	case "planRef":
+		return &PlanRef{}, true
 	default:
 		return nil, false
 	}
@@ -1231,6 +1255,7 @@ type TestArgValueKind string
 const (
 	TestArgLiteral TestArgValueKind = "literal"
 	TestArgRef     TestArgValueKind = "ref"
+	TestArgPlanRef TestArgValueKind = "planRef"
 )
 
 type TestExpect struct {
@@ -1256,10 +1281,12 @@ type TestPrincipal struct {
 type TestingVariant int
 
 const (
-	TestVariantNone      TestingVariant = 0
-	TestVariantHarness   TestingVariant = 1
-	TestVariantPerf      TestingVariant = 2
-	TestVariantQAProcess TestingVariant = 4
+	TestVariantNone           TestingVariant = 0
+	TestVariantHarness        TestingVariant = 1
+	TestVariantPerf           TestingVariant = 2
+	TestVariantQAProcess      TestingVariant = 4
+	TestVariantAcceptancePlan TestingVariant = 5
+	TestVariantAcceptance     TestingVariant = 6
 )
 
 type TraceCall struct {

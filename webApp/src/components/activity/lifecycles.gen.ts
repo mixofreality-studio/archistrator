@@ -11,10 +11,13 @@
 // LifecycleNode id/kind/title/phase/dependsOn/revisionGroup, LifecyclePhase id/label/weight),
 // so a container builds a graph node by spreading a task and adding its state and revisions.
 
-/** A task either dispatches an agent, which produces an artifact, or reviews one. */
-export type LifecycleTaskKind = 'dispatch' | 'review';
+/**
+ * A task either dispatches an agent, which produces an artifact, reviews one, or is a venue job:
+ * the venue runs the task spec's checks and records the run, and no agent runs.
+ */
+export type LifecycleTaskKind = 'dispatch' | 'review' | 'job';
 
-/** The closed set of activity-type keys: the ActivityType wire name, or testing:<variant>. */
+/** The closed set of activity-type keys: the ActivityType wire name, or testing:<variant> or milestone:<variant>. */
 export type LifecycleTypeKey =
   | 'requirements'
   | 'architecture'
@@ -24,11 +27,13 @@ export type LifecycleTypeKey =
   | 'testing:harness'
   | 'testing:perf'
   | 'testing:qaProcess'
+  | 'testing:acceptancePlan'
   | 'deployment'
   | 'documentation'
   | 'uiDesign'
   | 'integration'
-  | 'machineClient';
+  | 'machineClient'
+  | 'milestone:acceptance';
 
 /** A Figure A-2 grouping of tasks: the earned-value unit. */
 export interface LifecyclePhaseDef {
@@ -776,6 +781,41 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
     ],
   },
   {
+    type: 'testing:acceptancePlan',
+    phases: [
+      {
+        id: 'acceptance_plan',
+        label: 'Acceptance Test Plan',
+        weight: 100,
+        gate: 'stpReview',
+        exitCriterion:
+          'Every residual use-case scenario is bound and the ATP-* and TP-* rules pass',
+      },
+    ],
+    tasks: [
+      {
+        id: 'stp',
+        kind: 'dispatch',
+        title: 'Acceptance Test Plan',
+        phase: 'acceptance_plan',
+        dependsOn: [],
+        revisionGroup: 'stp',
+        command: 'acceptance-test-plan',
+        workerClass: 'test-engineer',
+        artifactKind: 'ATP',
+      },
+      {
+        id: 'stpReview',
+        kind: 'review',
+        title: 'Acceptance Plan Review',
+        phase: 'acceptance_plan',
+        dependsOn: ['stp'],
+        revisionGroup: 'stp',
+        reviews: 'stp',
+      },
+    ],
+  },
+  {
     type: 'deployment',
     phases: [
       {
@@ -1102,6 +1142,40 @@ export const LIFECYCLES: readonly LifecycleDef[] = [
         kind: 'review',
         title: 'Integration Testing',
         phase: 'integration',
+        dependsOn: ['integration'],
+        revisionGroup: 'integration',
+        reviews: 'integration',
+      },
+    ],
+  },
+  {
+    type: 'milestone:acceptance',
+    phases: [
+      {
+        id: 'acceptance',
+        label: 'Acceptance',
+        weight: 100,
+        gate: 'testing',
+        exitCriterion:
+          'An acceptance run at the current composed revision covers every residual use-case scenario, all pass, and the results render',
+      },
+    ],
+    tasks: [
+      {
+        id: 'integration',
+        kind: 'job',
+        title: 'Acceptance run',
+        phase: 'acceptance',
+        dependsOn: [],
+        revisionGroup: 'integration',
+        command: 'acceptance-run',
+        artifactKind: 'AcceptanceRun',
+      },
+      {
+        id: 'testing',
+        kind: 'review',
+        title: 'Acceptance',
+        phase: 'acceptance',
         dependsOn: ['integration'],
         revisionGroup: 'integration',
         reviews: 'integration',

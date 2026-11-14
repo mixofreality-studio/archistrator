@@ -470,3 +470,64 @@ func readIndex(t *testing.T, dir string) []scenarioVerdict {
 	}
 	return v
 }
+
+// An acceptance run is one pseudo-contract whose variants run in two places: the machine-only ones
+// as Go tests in internal/acceptance, the browser-bearing ones as Playwright specs under the scenario
+// host. The generated file that holds a variant says which, so the batches split on the files the
+// generator wrote; each batch keeps its own index and its own ids. A plain contract is one batch.
+func TestScenarioBatches_SplitAcceptanceByGeneratedFile(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"internal/acceptance/acceptance_scenarios.gen_test.go", "uitests/generated/acceptance/a@web.spec.gen.ts"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, f), []byte("// generated\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := checkRunner{root: root}
+	proj := projectstate.Project{ServiceContracts: map[string]projectstate.ServiceContract{"orders": {GoPackage: "internal/manager/orders"}}}
+
+	batches := scenarioBatches(r, proj, projectstate.AcceptanceContract,
+		[]projectstate.SpecCheck{scenarioCheck("acceptance", "a@web"), scenarioCheck("acceptance", "b@api")})
+	if len(batches) != 2 {
+		t.Fatalf("batches = %d, want the Go batch and the web batch", len(batches))
+	}
+	requireAcceptanceGoBatch(t, root, batches[0])
+	requireAcceptanceWebBatch(t, root, batches[1])
+
+	// A plain contract is one batch, exactly the one newScenarioBatch derives.
+	plain := scenarioBatches(r, proj, "orders", []projectstate.SpecCheck{scenarioCheck("orders", "s1")})
+	want := newScenarioBatch(r, proj, "orders", []projectstate.SpecCheck{scenarioCheck("orders", "s1")})
+	if len(plain) != 1 || !plain[0].goTest || !slices.Equal(plain[0].argv, want.argv) {
+		t.Errorf("a plain contract must stay one batch: %+v", plain)
+	}
+}
+
+func scenarioCheck(contract, id string) projectstate.SpecCheck {
+	return projectstate.SpecCheck{ID: "scenario:" + contract + ":" + id, Kind: projectstate.CheckKindScenario,
+		Source: projectstate.SpecCheckSource{Scenario: id, Contract: contract}}
+}
+
+// requireAcceptanceGoBatch holds the machine-only variants' batch: go test over internal/acceptance,
+// selecting b@api alone, its index under the module's test-results.
+func requireAcceptanceGoBatch(t *testing.T, root string, b scenarioBatch) {
+	t.Helper()
+	if !b.goTest || b.indexDir != filepath.Join(root, "test-results", "acceptance") || b.iface != "Acceptance" {
+		t.Errorf("Go batch = %+v", b)
+	}
+	if !slices.Contains(b.argv, "./internal/acceptance/") || !slices.Contains(b.argv, goScenarioRunRegex("Acceptance", []string{"b@api"})) ||
+		strings.Contains(strings.Join(b.argv, " "), "TestScenario_a_web") {
+		t.Errorf("the Go batch runs ./internal/acceptance/ over b@api alone: %v", b.argv)
+	}
+}
+
+// requireAcceptanceWebBatch holds the browser-bearing variants' batch: the scenario host over the
+// acceptance Playwright project, selecting a@web alone, its index under uitests/test-results.
+func requireAcceptanceWebBatch(t *testing.T, root string, b scenarioBatch) {
+	t.Helper()
+	want := projectstate.WebScenariosArgv("", "acceptance", "-grep", webScenarioGrep([]string{"a@web"}))
+	if b.goTest || !slices.Equal(b.argv, want) || b.indexDir != filepath.Join(root, "uitests", "test-results", "acceptance") {
+		t.Errorf("web batch = %+v, want argv %v", b, want)
+	}
+}

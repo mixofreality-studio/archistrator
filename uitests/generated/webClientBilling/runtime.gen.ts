@@ -11,7 +11,11 @@
 //     (Layer A). It is short on purpose: a checkbox that flips only after the server answers
 //     fails it under the injected latency;
 //   - arrange / probe: a scenario's typed setup and its probes, executed over REST against the
-//     running server, as the one process principal (X-Dev-Principal when AIARCH_DEV_PRINCIPAL is set).
+//     running server, as the process principal (X-Dev-Principal when AIARCH_DEV_PRINCIPAL is set) or,
+//     for a call that names an actor (`as`), as that actor's subject: the launch honours the header
+//     only for a subject its allowlist holds. mcpCall is the same for a tool of the /mcp endpoint,
+//     with one session per (app, actor); contractCall is a step of an acceptance spec that is not a
+//     browser action, made the same way;
 //     The three setup actions only the scenario host can perform (advanceClock, failNext,
 //     seedResource) are POSTed to the server's /__scenariohost/<kind> endpoint, which the local
 //     profile forwards to the host serving the run (go tool webscenarios);
@@ -61,6 +65,17 @@ export type ContractCall = {
   readonly path: string;
   readonly args: Readonly<Record<string, unknown>>;
   readonly expect: Expectation;
+  /** The subject sent as X-Dev-Principal (absent: the launch's process principal). */
+  readonly as?: string;
+};
+
+/** One tool of the app's /mcp endpoint, with its arguments and expectation. */
+export type ToolCall = {
+  readonly tool: string;
+  readonly args: Readonly<Record<string, unknown>>;
+  readonly expect: Expectation;
+  /** The subject sent as X-Dev-Principal (absent: the launch's process principal). */
+  readonly as?: string;
 };
 
 /** The typed setup of a scenario: exactly the four things the scenario host can arrange. */
@@ -110,6 +125,14 @@ export async function probe(testInfo: TestInfo, call: ContractCall): Promise<voi
   return callContract(testInfo, call, 'probe');
 }
 
+/**
+ * Runs one acceptance step that is not a browser action: an operation of a generated route called
+ * as the actor it names (as), expecting what the step's expectation says.
+ */
+export async function contractCall(testInfo: TestInfo, call: ContractCall): Promise<void> {
+  return callContract(testInfo, call, 'step');
+}
+
 function baseURL(testInfo: TestInfo): string {
   const base = testInfo.project.use.baseURL ?? process.env.PLAYWRIGHT_TEST_BASE_URL;
   if (!base) {
@@ -118,8 +141,13 @@ function baseURL(testInfo: TestInfo): string {
   return base;
 }
 
-function headers(): Record<string, string> {
-  const principal = process.env.AIARCH_DEV_PRINCIPAL;
+/**
+ * The request headers of a call: the principal the call is made as (as, else the process
+ * principal of the run, AIARCH_DEV_PRINCIPAL). The launch honours the header only for a subject its
+ * allowlist holds, so a call as an actor the plan did not declare is refused with 401.
+ */
+function headers(as?: string): Record<string, string> {
+  const principal = as ?? process.env.AIARCH_DEV_PRINCIPAL;
   return principal ? { 'X-Dev-Principal': principal } : {};
 }
 
@@ -148,11 +176,11 @@ function requestFor(base: string, call: ContractCall): { url: string; init: Requ
     for (const [name, value] of Object.entries(fields)) {
       url.searchParams.set(name, wireText(value));
     }
-    return { url: url.toString(), init: { method: call.verb, headers: headers() } };
+    return { url: url.toString(), init: { method: call.verb, headers: headers(call.as) } };
   }
   return {
     url: url.toString(),
-    init: { method: call.verb, headers: { 'Content-Type': 'application/json', ...headers() }, body: JSON.stringify(fields) },
+    init: { method: call.verb, headers: { 'Content-Type': 'application/json', ...headers(call.as) }, body: JSON.stringify(fields) },
   };
 }
 
@@ -192,10 +220,120 @@ async function callContract(testInfo: TestInfo, call: ContractCall, label: strin
     return;
   }
   const actual: unknown = text === '' ? null : JSON.parse(text);
-  const want = expectedValue(call.expect.result);
+  matchResult(where, actual, call.expect.result);
+}
+
+/** Asserts the answer holds what the expectation names: an object or array as a subset, anything else equal. */
+function matchResult(where: string, actual: unknown, result: string): void {
+  const want = expectedValue(result);
   if (typeof want === 'object' && want !== null) {
     expect(actual, where).toMatchObject(want as Record<string, unknown> | unknown[]);
   } else {
     expect(actual, where).toEqual(want);
   }
+}
+
+/** The MCP protocol revision the runtime speaks (the one devstack.Smoke makes its handshake with). */
+const mcpProtocol = '2025-06-18';
+
+type McpReply = { result?: Record<string, unknown>; error?: { message: string } };
+
+/** The open /mcp sessions of this run, one per (app, actor): a session belongs to the principal that opened it. */
+const mcpSessions = new Map<string, Promise<string>>();
+
+/**
+ * One JSON-RPC message posted to /mcp: the reply of a call (undefined for a notification) and the
+ * session the server assigned.
+ */
+async function mcpPost(
+  url: string,
+  as: string | undefined,
+  session: string | undefined,
+  message: Record<string, unknown>,
+): Promise<{ reply: McpReply | undefined; session: string | undefined }> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      ...(session ? { 'Mcp-Session-Id': session, 'MCP-Protocol-Version': mcpProtocol } : {}),
+      ...headers(as),
+    },
+    body: JSON.stringify(message),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error('mcp ' + String(message.method) + ' as ' + (as ?? 'the process principal') + ': ' + res.status + ' ' + text);
+  }
+  const sid = res.headers.get('Mcp-Session-Id') ?? session;
+  if (!('id' in message)) {
+    return { reply: undefined, session: sid };
+  }
+  // The reply is a JSON body, or the first data event of an event stream.
+  const data = (res.headers.get('Content-Type') ?? '').startsWith('text/event-stream')
+    ? (text.split('\n').find((line) => line.startsWith('data:')) ?? 'data:').slice('data:'.length).trim()
+    : text;
+  return { reply: JSON.parse(data) as McpReply, session: sid };
+}
+
+/** Opens a session as the actor: initialize, then the initialized notification (the handshake devstack.Smoke makes). */
+async function mcpOpen(url: string, as: string | undefined): Promise<string> {
+  const init = await mcpPost(url, as, undefined, {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: { protocolVersion: mcpProtocol, capabilities: {}, clientInfo: { name: 'acceptance', version: '0' } },
+  });
+  if (init.reply?.error || !init.session) {
+    throw new Error('mcp initialize as ' + (as ?? 'the process principal') + ': ' + (init.reply?.error?.message ?? 'no session id'));
+  }
+  await mcpPost(url, as, init.session, { jsonrpc: '2.0', method: 'notifications/initialized' });
+  return init.session;
+}
+
+/**
+ * Calls one tool of the app's /mcp endpoint as the actor (as, else the process principal) and
+ * returns its structured content, or its text when it has none. A session is opened once per
+ * (app, actor) and kept. An error answer is the call's failure unless the expectation says an error
+ * is expected, in which case it must carry the expected code; a result expectation is matched as a
+ * contract call's is.
+ */
+export async function mcpCall(testInfo: TestInfo, call: ToolCall): Promise<unknown> {
+  const url = new URL('/mcp', baseURL(testInfo)).toString();
+  const key = url + '\u0000' + (call.as ?? '');
+  let opened = mcpSessions.get(key);
+  if (!opened) {
+    opened = mcpOpen(url, call.as);
+    mcpSessions.set(key, opened);
+    opened.catch(() => mcpSessions.delete(key)); // a failed open is not kept
+  }
+  const session = await opened;
+  const { reply } = await mcpPost(url, call.as, session, {
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: { name: call.tool, arguments: call.args },
+  });
+  const where = 'tools/call ' + call.tool;
+  const result = reply?.result as
+    | { isError?: boolean; structuredContent?: unknown; content?: { type: string; text?: string }[] }
+    | undefined;
+  const text = (result?.content ?? []).map((c) => c.text ?? '').join('\n');
+  const failed = reply?.error !== undefined || result?.isError === true;
+  const failure = reply?.error?.message ?? text;
+  if (call.expect.errorExpected) {
+    expect(failed, where + ' must be refused: ' + text).toBe(true);
+    const code = call.expect.errorCode;
+    if (code) {
+      const wire = wireCodes[code];
+      expect(failure.includes(code) || (wire !== undefined && failure.includes(wire)), where + ' must answer ' + code + ': ' + failure).toBe(true);
+    }
+    return undefined;
+  }
+  expect(failed, where + ' failed: ' + failure).toBe(false);
+  const actual: unknown = result?.structuredContent ?? text;
+  if (call.expect.result !== undefined && call.expect.result !== '') {
+    matchResult(where, actual, call.expect.result);
+  }
+  return actual;
 }

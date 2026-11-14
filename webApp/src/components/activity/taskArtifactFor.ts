@@ -185,6 +185,8 @@ const CLASSIFICATIONS: Readonly<Record<Classification, true>> = {
   'testing:harness': true,
   'testing:perf': true,
   'testing:qaProcess': true,
+  'testing:acceptancePlan': true,
+  'milestone:acceptance': true,
 };
 
 function isClassification(value: string): value is Classification {

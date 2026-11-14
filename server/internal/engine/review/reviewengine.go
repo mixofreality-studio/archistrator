@@ -238,7 +238,8 @@ func designActivityType(t ActivityType) bool {
 	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
 		return true
 	case ActivityTypeService, ActivityTypeFrontend, ActivityTypeTesting, ActivityTypeDeployment,
-		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration, ActivityTypeMachineClient:
+		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration, ActivityTypeMachineClient,
+		ActivityTypeMilestone:
 		return false
 	}
 	return false
@@ -264,9 +265,10 @@ func artifactKindFor(t ActivityType, p string, hasComponent bool) ReviewArtifact
 		kind = componentReviewKind(p, ReviewKindUIDesign, ReviewKindUICode)
 	case ActivityTypeIntegration, ActivityTypeMachineClient:
 		kind = componentReviewKind(p, ReviewKindNoncoding, ReviewKindNoncoding)
-	case ActivityTypeTesting, ActivityTypeDocumentation:
+	case ActivityTypeTesting, ActivityTypeDocumentation, ActivityTypeMilestone:
 		// A document or a test asset with no architecture component; its "integration"
 		// phase is a label (Plan Review, Sign-off, Doc Review), not a call-chain integration.
+		// A milestone owns no component either: its one review judges a recorded run.
 	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
 		// A design artifact is a document: the architect (or the PM) signs it off. The
 		// design rail's reviewer rows are in reviewersFor, not in the kind.
@@ -301,7 +303,8 @@ func componentReviewKind(p string, design, build ReviewArtifactKind) ReviewArtif
 func reviewersFor(t ActivityType, p string, kind ReviewArtifactKind) (reviewers []Reviewer, known bool) {
 	switch t {
 	case ActivityTypeService, ActivityTypeFrontend, ActivityTypeTesting, ActivityTypeDeployment,
-		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration, ActivityTypeMachineClient:
+		ActivityTypeDocumentation, ActivityTypeUIDesign, ActivityTypeIntegration, ActivityTypeMachineClient,
+		ActivityTypeMilestone:
 		return constructionReviewersFor(kind), true
 	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
 		return designReviewersFor(t, p), true

@@ -72,13 +72,14 @@ export const ACTIVITY_CONSTRUCTION_PHASE_APP_TO_ORDINAL: Readonly<
 // --- ActivityTaskKind ----------------------------------------------------
 // Sources: DeliveryActivityTaskKind
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
-export const ACTIVITY_TASK_KIND_VALUES = ['dispatch', 'review'] as const;
+export const ACTIVITY_TASK_KIND_VALUES = ['dispatch', 'review', 'job'] as const;
 
 export type ActivityTaskKind = (typeof ACTIVITY_TASK_KIND_VALUES)[number];
 
 export const ACTIVITY_TASK_KIND_GO_VARNAMES = [
   'ActivityTaskDispatch',
   'ActivityTaskReview',
+  'ActivityTaskJob',
 ] as const;
 
 // --- ActivityTaskState ---------------------------------------------------
@@ -120,6 +121,7 @@ export const ACTIVITY_TYPE_GO_VARNAMES = [
   'ActivityTypeArchitecture',
   'ActivityTypeProjectDesign',
   'ActivityTypeMachineClient',
+  'ActivityTypeMilestone',
 ] as const;
 
 export type ActivityTypeGoVarname = (typeof ACTIVITY_TYPE_GO_VARNAMES)[number];
@@ -139,6 +141,7 @@ export const ACTIVITY_TYPE_APP_STRINGS = [
   'architecture',
   'projectDesign',
   'machineClient',
+  'milestone',
 ] as const;
 
 export type ActivityType = (typeof ACTIVITY_TYPE_APP_STRINGS)[number];
@@ -157,6 +160,7 @@ export const ACTIVITY_TYPE_APP_TO_ORDINAL: Readonly<Record<ActivityType, number>
   architecture: 8,
   projectDesign: 9,
   machineClient: 10,
+  milestone: 11,
 };
 // --- ActivityViewState ---------------------------------------------------
 // Sources: DeliveryActivityViewState
@@ -977,14 +981,24 @@ export const TESTING_VARIANT_GO_VARNAMES = [
   'TestVariantHarness',
   'TestVariantPerf',
   'TestVariantQAProcess',
+  'TestVariantAcceptancePlan',
+  'TestVariantAcceptance',
 ] as const;
 
 export type TestingVariantGoVarname = (typeof TESTING_VARIANT_GO_VARNAMES)[number];
 
-// Sparse wire values (1, 2, 4): indexed by VALUE, with holes.
+// Sparse wire values (1, 2, 4, 5, 6): indexed by VALUE, with holes.
 export const TESTING_VARIANT_ORDINAL_TO_GO_VARNAME: readonly (
   | TestingVariantGoVarname
   | undefined
-)[] = [undefined, 'TestVariantHarness', 'TestVariantPerf', undefined, 'TestVariantQAProcess'];
+)[] = [
+  undefined,
+  'TestVariantHarness',
+  'TestVariantPerf',
+  undefined,
+  'TestVariantQAProcess',
+  'TestVariantAcceptancePlan',
+  'TestVariantAcceptance',
+];
 
 // NOT mechanically derivable to an app string: Local type name is "TestingVariant" but the Go consts use the short prefix "Test" (TestVariantHarness, ...) — "Test" is not a whole-word run of "TestingVariant", so no candidate strips and the mechanical derivation falls through to the full lowerFirst varname ("testVariantHarness"). enumMappings.ts testingVariantFromOrdinal instead returns short forms ("harness"/"perf"/"qaProcess"). Not mechanically derivable.

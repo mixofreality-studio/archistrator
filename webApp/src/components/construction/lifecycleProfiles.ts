@@ -133,7 +133,9 @@ const PHASE_TASK_ORDER: Partial<Record<string, readonly string[]>> = {
  * lifecycle at all — the zero TestingVariant is None since the system test plan
  * (`plan`) and system testing (`systemTest`) variants were retired (spec §7), not a plan fallback.
  */
-const KIND_LIFECYCLE: Readonly<Record<Exclude<ActivityKind, 'testing'>, LifecycleTypeKey>> = {
+const KIND_LIFECYCLE: Readonly<
+  Record<Exclude<ActivityKind, 'testing' | 'milestone'>, LifecycleTypeKey>
+> = {
   service: 'service',
   frontend: 'frontend',
   deployment: 'deployment',
@@ -150,6 +152,8 @@ const VARIANT_LIFECYCLE: Readonly<Record<TestingVariantName, LifecycleTypeKey>> 
   harness: 'testing:harness',
   perf: 'testing:perf',
   qaProcess: 'testing:qaProcess',
+  acceptancePlan: 'testing:acceptancePlan',
+  acceptance: 'milestone:acceptance',
 };
 
 function taskRow(def: LifecycleDef, phase: LifecyclePhaseDef, id: string): GeneratedTask {
@@ -167,7 +171,9 @@ function taskRow(def: LifecycleDef, phase: LifecyclePhaseDef, id: string): Gener
 }
 
 function phaseRow(def: LifecycleDef, phase: LifecyclePhaseDef): GeneratedPhase {
-  const work = def.tasks.find((t) => t.phase === phase.id && t.kind === 'dispatch');
+  const work = def.tasks.find(
+    (t) => t.phase === phase.id && (t.kind === 'dispatch' || t.kind === 'job')
+  );
   const order = PHASE_TASK_ORDER[phase.id] ?? [
     ...(work === undefined ? [] : [work.id]),
     phase.gate,
@@ -199,7 +205,7 @@ export function profileFor(
   variant: TestingVariantName | undefined
 ): readonly GeneratedPhase[] | undefined {
   if (kind === undefined) return undefined;
-  if (kind === 'testing') {
+  if (kind === 'testing' || kind === 'milestone') {
     return variant === undefined ? undefined : profileOf(VARIANT_LIFECYCLE[variant]);
   }
   return profileOf(KIND_LIFECYCLE[kind]);

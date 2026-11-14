@@ -624,7 +624,7 @@ export interface ProducedArtifactRow {
  * plan and run now, so a testing row that arrives without a variant has no
  * lifecycle rather than a plan one.
  */
-export type TestingVariantName = 'harness' | 'perf' | 'qaProcess';
+export type TestingVariantName = 'harness' | 'perf' | 'qaProcess' | 'acceptancePlan' | 'acceptance';
 
 /**
  * The per-activity build-status row state (ProjectActivityBuildStatus, kebab-cased
@@ -697,7 +697,10 @@ export interface ConstructionRow {
     // stage 4's DeliveryManager is what runs a design activity's slash command.
     | 'requirements'
     | 'architecture'
-    | 'projectDesign';
+    | 'projectDesign'
+    // The use-case acceptance milestone (M-ACCEPT, Amendment C): a zero-effort node whose one
+    // work task is a venue job; its lifecycle key is milestone:<variant>.
+    | 'milestone';
   /** Testing sub-type; present only when kind === 'testing'. */
   variant?: TestingVariantName;
   /**

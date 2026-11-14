@@ -1003,6 +1003,18 @@ var encapsulationAllowlistData = map[string][]string{
 		// side-effect-free function the MCP binary shares with the server read path).
 		"ScenarioInputOf",
 		"ComponentScenarios",
+		// ACCEPTANCE (FPC plan 4, Amendment C). The acceptance projection of the same derived set
+		// (the variants no single client plan covers, and the route a failing one takes), read by
+		// cmd/aiarch-state-mcp (listAcceptanceScenarios), the estimation/delivery path of the
+		// M-ACCEPT milestone and the acceptance gate: total, side-effect-free functions of the
+		// given *Project, the same category as ComponentScenarios.
+		"AcceptanceContract",
+		"ClientContractKeys",
+		"AcceptanceResidual",
+		"AcceptanceScenarios",
+		"AcceptanceRoute",
+		"AcceptanceRouteInfo",
+		"AcceptanceRouteLine",
 		// AGENT TASK SPEC (2026-10-11 spec §4, Task B2). TaskSpecFor is the ONE resolver of
 		// a lifecycle task's agent configuration (identity, model + estimate, prompt, tools,
 		// edit scope, typed checks, hash) — a total, side-effect-free function of the

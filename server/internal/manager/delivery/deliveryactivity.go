@@ -272,6 +272,9 @@ type strategyRegistry map[string]func(*csWorkflows) taskStrategy
 const (
 	strategySlotDispatch = "dispatch"
 	strategySlotJudged   = "judged"
+	// strategySlotJob is the venue-job slot: a task that runs no agent. The venue runs the task
+	// spec's checks and records the CheckRun, and the strategy reports whether it did.
+	strategySlotJob = "job"
 )
 
 // strategySlotCompute keys the COMPUTE slot by the artifactKind the lifecycle spells,
@@ -299,6 +302,7 @@ func productionStrategies(eng sdpEngines) strategyRegistry {
 	return strategyRegistry{
 		strategySlotDispatch: func(wf *csWorkflows) taskStrategy { return agenticDispatchStrategy{wf: wf} },
 		strategySlotJudged:   func(*csWorkflows) taskStrategy { return judgedTaskStrategy{} },
+		strategySlotJob:      func(wf *csWorkflows) taskStrategy { return jobTaskStrategy{wf: wf} },
 		strategySlotCompute(artifactKindSdpReview): func(wf *csWorkflows) taskStrategy {
 			return sdpComputeStrategy{wf: wf, eng: eng}
 		},
@@ -1603,7 +1607,7 @@ func (wf *csWorkflows) submitConstructionJob(
 	handle, err := wf.submitCarryingNotes(ctx, in, pipelineSpec{
 		ProjectID:   tc.In.ProjectID,
 		ActivityID:  string(tc.In.ActivityID),
-		ComponentID: tc.In.Activity.ComponentID,
+		ComponentID: dispatchComponentID(tc),
 		Phase:       tc.Phase.ID,
 		Command:     tc.Task.Command,
 		Revision:    attemptID,
@@ -1614,6 +1618,16 @@ func (wf *csWorkflows) submitConstructionJob(
 		return constructionDispatch{}, false, err
 	}
 	return constructionDispatch{handle: handle}, true, nil
+}
+
+// dispatchComponentID is the component_id a dispatch carries: the activity's component, and for a
+// venue job (which builds none) the activity's own id. The seated workflow requires the input and
+// validates it as an id; nothing reads it for a job, whose spec names no component.
+func dispatchComponentID(tc taskContext) string {
+	if id := tc.In.Activity.ComponentID; id != "" || tc.Task.Kind != methodassets.LifecycleTaskJob {
+		return id
+	}
+	return string(tc.In.ActivityID)
 }
 
 // dispatchSpecHash resolves the agent task spec of the task tc dispatches and returns its
@@ -1667,6 +1681,39 @@ func episodeIDOf(obs csPipelineObservation) string {
 		return ""
 	}
 	return obs.Episode.EpisodeID
+}
+
+// jobTaskStrategy is the JOB slot: a task the venue runs and no agent does (the M-ACCEPT
+// milestone's acceptance run). The venue runs the task spec's checks over the activity branch and
+// records the CheckRun, exactly as it does after an agent, and never starts one.
+//
+// ONE DISPATCH AND NO VARIANCE LOOP. A red check run is a VERDICT for the gate that judges it, not
+// a variance in the work: re-dispatching the same checks over the same tree can only repeat it. So
+// the strategy dispatches once, and its subject is passed whenever the attempt's CheckRun was
+// recorded, red or green; the `testing` review then judges the run (acceptanceGateHeld). It fails
+// only when the run left no record at all, the one thing no gate can judge.
+type jobTaskStrategy struct{ wf *csWorkflows }
+
+func (s jobTaskStrategy) Produce(ctx workflow.Context, tc taskContext) (producedSubject, error) {
+	carryWalkFeedback(ctx, tc)
+	tc.State.attempt = 1
+	attemptID, obs, err := s.wf.dispatchConstructionOnce(ctx, tc)
+	if err != nil {
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+			Detail: err.Error(), AttemptRecorded: attemptID != ""}, err
+	}
+	proj, rerr := s.wf.readActivityBranchProject(ctx, tc.In)
+	if rerr != nil {
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+			Detail: rerr.Error(), EpisodeID: episodeIDOf(obs), AttemptRecorded: true}, rerr
+	}
+	run, ok := selectCheckRun(&proj, string(tc.In.ActivityID), integrationTaskID, "", []string{attemptID}, true)
+	if !ok {
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, EpisodeID: episodeIDOf(obs),
+			AttemptRecorded: true, Detail: dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs)}, nil
+	}
+	return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomePassed, EpisodeID: episodeIDOf(obs),
+		AttemptRecorded: true, Detail: "acceptance run " + run.ID + " recorded"}, nil
 }
 
 // judgedTaskStrategy is the JUDGED slot, and it produces NOTHING — deliberately, and from
@@ -1874,6 +1921,7 @@ func stagedRefString(ref projectstate.StagedRef, kind projectstate.ArtifactKind)
 // task's own `command` runs its AGENT REVIEWERS, which runGate does, not strategyFor.
 //
 //	kind=dispatch, command!="" , artifactKind!="" , workerClass!=""  -> slot "dispatch"
+//	kind=job     , command!="" , artifactKind!=""                    -> slot "job" (a venue job: no agent)
 //	kind=review  , reviews!=""                                       -> slot "judged" (its subject is the judged task's output; it produces nothing of its own)
 //	kind=review  , reviews==""  , artifactKind!=""                   -> slot "compute:<artifactKind>"
 //
@@ -1907,6 +1955,12 @@ func strategySlotFor(lc methodassets.Lifecycle, t methodassets.LifecycleTask) (s
 				"lifecycle "+lc.Type+" task "+t.ID+" is a dispatch with no command, workerClass or artifactKind; the platform's lifecycle data is malformed")
 		}
 		return strategySlotDispatch, nil
+	case methodassets.LifecycleTaskJob:
+		if t.Command == "" || t.ArtifactKind == "" {
+			return "", newError(fwmanager.FailedPrecondition,
+				"lifecycle "+lc.Type+" task "+t.ID+" is a job with no command or artifactKind; the platform's lifecycle data is malformed")
+		}
+		return strategySlotJob, nil
 	case methodassets.LifecycleTaskReview:
 		if t.Reviews != "" {
 			return strategySlotJudged, nil
@@ -1918,7 +1972,7 @@ func strategySlotFor(lc methodassets.Lifecycle, t methodassets.LifecycleTask) (s
 			"lifecycle "+lc.Type+" task "+t.ID+" reviews nothing and names no artifact kind, so nothing can produce its subject")
 	}
 	return "", newError(fwmanager.FailedPrecondition,
-		"lifecycle "+lc.Type+" task "+t.ID+" has task kind "+t.Kind+", which is neither dispatch nor review")
+		"lifecycle "+lc.Type+" task "+t.ID+" has task kind "+t.Kind+", which is neither dispatch, review nor job")
 }
 
 // ---------------------------------------------------------------------------
@@ -2549,7 +2603,7 @@ func (wf *csWorkflows) runTask(
 	// third rung of gateSubjectRef's ladder. A COMPUTE review (no `reviews` target)
 	// produced its own subject, which is why this is not gated on the kind.
 	ws.produced[t.ID] = produced
-	if t.Kind == methodassets.LifecycleTaskDispatch {
+	if producesWork(t) {
 		return walkTaskPassed, nil
 	}
 	return wf.runGate(ctx, in, lc, t, tc, ws, state, policy, inbox)
@@ -2750,6 +2804,9 @@ func (wf *csWorkflows) evidenceHoldsTheGate(
 ) (bool, error) {
 	held, err := wf.testingGateHeld(ctx, in, lc, t, ws, state, gate)
 	if err != nil || held {
+		return held, err
+	}
+	if held, err = wf.acceptanceGateHeld(ctx, in, lc, t, ws, state, gate); err != nil || held {
 		return held, err
 	}
 	return wf.replanGateHeld(ctx, in, lc, t, state, gate)
@@ -4858,12 +4915,13 @@ func (wf *csWorkflows) mergeUnderSupervision(
 // whether anything in it produces a commit. Every lifecycle in method-assets v0.9.0 does
 // except `projectDesign`, whose one task is a server-side computation.
 func lifecycleDispatchesWork(lc methodassets.Lifecycle) bool {
-	for _, t := range lc.Tasks {
-		if t.Kind == methodassets.LifecycleTaskDispatch {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(lc.Tasks, producesWork)
+}
+
+// producesWork reports a task whose run produces the work a review judges: an agent's dispatch, and a
+// venue job (whose run records a CheckRun on the activity branch). A review judges and produces none.
+func producesWork(t methodassets.LifecycleTask) bool {
+	return t.Kind == methodassets.LifecycleTaskDispatch || t.Kind == methodassets.LifecycleTaskJob
 }
 
 // holdForMergeApproval suspends until an operator approves the merge. A non-approve
@@ -6812,6 +6870,131 @@ const (
 	scenarioStatusSkip    = "skip"
 	scenarioStatusTimeout = "timeout"
 )
+
+// artifactKindAcceptanceRun is the lifecycle artifactKind of the acceptance milestone's job (`integration`):
+// the row whose presence says this lifecycle's `testing` review judges an acceptance run.
+const artifactKindAcceptanceRun = "AcceptanceRun"
+
+// acceptanceGate reads the DATA and nothing else: the `testing` review of a lifecycle whose work
+// is an acceptance run, the M-ACCEPT milestone's. It is the scenario testing gate's twin over the
+// pseudo-contract `acceptance`, so the walker stays ignorant of activity types exactly as
+// scenarioTestingGate keeps it.
+func acceptanceGate(lc methodassets.Lifecycle, t methodassets.LifecycleTask) bool {
+	if t.Kind != methodassets.LifecycleTaskReview || t.ID != string(projectstate.TaskTesting) {
+		return false
+	}
+	return lifecycleRunsAcceptance(lc)
+}
+
+// lifecycleRunsAcceptance reports whether a lifecycle carries the acceptance run task.
+func lifecycleRunsAcceptance(lc methodassets.Lifecycle) bool {
+	return slices.ContainsFunc(lc.Tasks, func(row methodassets.LifecycleTask) bool {
+		return row.ArtifactKind == artifactKindAcceptanceRun
+	})
+}
+
+// acceptanceGateHeld evaluates the acceptance gate for a round that is open and reports whether it
+// HELD, in which case the system verdict and its blocking comment are on the round
+// (holdAcceptanceGate). The run it judges is the one recorded at the revision this round judges, the
+// composed attempt: a run of an earlier composition is a hold (testingGateHold's revision rule), and
+// no residual variant projected is a hold, never a vacuous pass. A task that is not the acceptance
+// gate never holds.
+func (wf *csWorkflows) acceptanceGateHeld(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, t methodassets.LifecycleTask,
+	ws *walkState, state *constructState, gate *gateLedger,
+) (bool, error) {
+	if !acceptanceGate(lc, t) {
+		return false, nil
+	}
+	revision := judgedSubject(ws, t).AttemptID
+	proj, err := wf.readActivityBranchProject(ctx, in)
+	if err != nil {
+		return false, fmt.Errorf("acceptance gate: reading the activity branch: %w", err)
+	}
+	residual, err := wf.AcceptanceScenarios(&proj)
+	if err != nil {
+		return false, fmt.Errorf("acceptance gate: projecting the acceptance scenarios: %w", err)
+	}
+	ev := testingGateEvidence{Contract: projectstate.AcceptanceContract, Projected: len(residual)}
+	run, found := selectCheckRun(&proj, string(in.ActivityID), integrationTaskID, "", []string{revision}, false)
+	if found {
+		idx, ierr := wf.Acts.ArtifactGetTestRunIndex(ctx, testRunRef(run))
+		if ierr != nil {
+			idx = artifact.TestRunIndex{} // evidence, as in readTestingGateEvidence: the gate holds naming it
+		}
+		view := joinTestRun(run, projectstate.AcceptanceContract, residual, idx)
+		ev.Run, ev.Files, ev.IndexErr = &view, idx.Files, ierr
+	}
+	reason := testingGateHold(ev, revision)
+	if reason == "" {
+		gate.checkRunID = ev.Run.Run.Id
+		return false, nil
+	}
+	gate.checkRunID = ""
+	return true, wf.holdAcceptanceGate(ctx, in, t, state, gate, ev, reason, &proj)
+}
+
+// holdAcceptanceGate lands the hold on the round as holdTestingGate does (ONE send-back verdict, ONE
+// blocking comment anchored at the run) with one addition: for every variant that did not pass (a
+// variant the run never named included) the comment carries the route back, the components on the
+// variant's path and the client activity to re-open (projectstate.AcceptanceRouteLine). Nothing
+// reopens by itself: the gate is a human's, as the testing gate is.
+func (wf *csWorkflows) holdAcceptanceGate(
+	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask,
+	state *constructState, gate *gateLedger, ev testingGateEvidence, reason string, proj *projectstate.Project,
+) error {
+	anchor := "$.testingState.checkRuns"
+	anchorText := "no run recorded"
+	if ev.Run != nil {
+		anchor = fmt.Sprintf("$.testingState.checkRuns[id=%s]", ev.Run.Run.Id)
+		anchorText = "check run " + ev.Run.Run.Id
+	}
+	text := reason
+	if routes := acceptanceRouteLines(proj, ev); len(routes) > 0 {
+		text += "\n\n" + strings.Join(routes, "\n")
+	}
+	workflow.GetLogger(ctx).Warn("delivery.gate.acceptanceHeld", "activityId", in.ActivityID, "taskId", t.ID,
+		"roundId", gate.roundID, "reason", reason)
+	return wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
+		projectstate.ReviewVerdict{
+			ReviewerRole: gateActorSystem,
+			Actor:        gateActorSystem,
+			Verdict:      projectstate.VerdictSendBack,
+			Summary:      reason,
+			AttemptID:    gate.judgedAttemptID,
+		},
+		[]projectstate.ReviewComment{{
+			Anchor:     anchor,
+			AnchorText: anchorText,
+			Text:       text,
+			AuthorRole: gateActorSystem,
+			Type:       projectstate.ReviewCommentTypeChangeRequest,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+		}})
+}
+
+// acceptanceRouteLines is the route line of every variant the run did not pass, sorted: a result that
+// is not `pass`, and a residual variant the run never named (it renders `missing`). A variant whose
+// route does not resolve is named without one rather than dropped.
+func acceptanceRouteLines(proj *projectstate.Project, ev testingGateEvidence) []string {
+	if ev.Run == nil {
+		return nil
+	}
+	var out []string
+	for _, sc := range ev.Run.Scenarios {
+		if sc.Status == scenarioStatusPass {
+			continue
+		}
+		route, err := projectstate.AcceptanceRoute(proj, sc.Id)
+		if err != nil {
+			out = append(out, sc.Id+": the route could not be resolved ("+err.Error()+")")
+			continue
+		}
+		out = append(out, projectstate.AcceptanceRouteLine(route))
+	}
+	slices.Sort(out)
+	return out
+}
 
 // readTestingGateEvidence reads the gate's evidence through the generated invokers, ONE
 // entry per contract the activity's component owns (gateContracts): the project as the

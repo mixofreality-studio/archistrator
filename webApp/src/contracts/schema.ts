@@ -454,7 +454,7 @@ export interface components {
       notes: string;
     };
     /** @enum {string} */
-    DeliveryActivityTaskKind: 'dispatch' | 'review';
+    DeliveryActivityTaskKind: 'dispatch' | 'review' | 'job';
     /** @enum {string} */
     DeliveryActivityTaskState:
       | 'pending'
@@ -496,7 +496,7 @@ export interface components {
       title: string;
     };
     /** @enum {integer} */
-    DeliveryActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    DeliveryActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
     /** @description One activity's lifecycle, per-task revisions and live review set: the Activity Experience's single read. Derived on read from the attempt ledger, the episode ledger, the operator notes, the stored lifecycle-phase completions and the live session; nothing here is stored. */
     DeliveryActivityView: {
       activityId: components['schemas']['DeliveryActivityID'];
@@ -1437,7 +1437,7 @@ export interface components {
       testRuns: null | components['schemas']['DeliveryTestRunView'][];
     };
     /** @enum {integer} */
-    DeliveryTestingVariant: 1 | 2 | 4;
+    DeliveryTestingVariant: 1 | 2 | 4 | 5 | 6;
     DeliveryTimelineEvent: {
       eventType: string;
       raw?: null;
@@ -1499,6 +1499,7 @@ export interface components {
     };
     ModelActor: {
       id: string;
+      kind?: null | string;
       role: string;
     };
     ModelCallStep: {

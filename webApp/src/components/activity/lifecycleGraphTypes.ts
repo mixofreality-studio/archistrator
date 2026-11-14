@@ -17,7 +17,7 @@
  * read-only.
  */
 
-export type LifecycleNodeKind = 'dispatch' | 'review';
+export type LifecycleNodeKind = 'dispatch' | 'review' | 'job';
 
 export type LifecycleNodeState =
   | 'done'

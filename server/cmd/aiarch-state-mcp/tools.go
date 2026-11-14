@@ -202,6 +202,14 @@ func composedVerbs(s *Session) []composedVerb {
 				return s.listComponentScenarios(in.Component)
 			}))
 		}},
+		{name: "listAcceptanceScenarios", modes: shared, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "listAcceptanceScenarios",
+				Description: "The residual acceptance variants (<scenario>@<client>) no single client plan covers, with why each is residual. " +
+					"Bind each one in the acceptance plan, and only those; never invent variants.",
+				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.listAcceptanceScenarios() }))
+		}},
 		{name: "getDraftSlot", modes: all, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "getDraftSlot",

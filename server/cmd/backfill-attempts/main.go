@@ -350,7 +350,8 @@ func producesArtifactSlots(a projectstate.ActivityItem) bool {
 		projectstate.ActivityTypeDocumentation,
 		projectstate.ActivityTypeUIDesign,
 		projectstate.ActivityTypeIntegration,
-		projectstate.ActivityTypeMachineClient:
+		projectstate.ActivityTypeMachineClient,
+		projectstate.ActivityTypeMilestone:
 		return false
 	}
 	return false

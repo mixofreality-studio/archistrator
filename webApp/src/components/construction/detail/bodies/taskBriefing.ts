@@ -88,6 +88,7 @@ export const KIND_NOUN: Record<ClassifiedKind, string> = {
   requirements: 'Requirements',
   architecture: 'Architecture',
   projectDesign: 'Project-design',
+  milestone: 'Milestone',
 };
 
 // ---------------------------------------------------------------------------

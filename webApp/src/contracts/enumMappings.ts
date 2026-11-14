@@ -154,10 +154,12 @@ const TESTING_VARIANT_APP_STRING: Readonly<Record<TestingVariantGoVarname, Testi
   TestVariantHarness: 'harness',
   TestVariantPerf: 'perf',
   TestVariantQAProcess: 'qaProcess',
+  TestVariantAcceptancePlan: 'acceptancePlan',
+  TestVariantAcceptance: 'acceptance',
 };
 
 /**
- * TestingVariant (1 harness, 2 perf, 4 qaProcess); undefined for non-testing
+ * TestingVariant (1 harness, 2 perf, 4 qaProcess, 5 acceptancePlan, 6 acceptance, the milestone's); undefined for non-testing
  * and for the retired ordinals 0 (plan) and 3 (systemTest), which the generated
  * table carries as holes — it is indexed by wire VALUE, not position.
  */

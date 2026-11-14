@@ -79,13 +79,15 @@ func uiDesignSession(t *testing.T) *Session {
 	}
 	top["serviceContracts"] = raw
 	// The surface has neither a design nor a plan yet: the fixture's plan targets the fixture's
-	// own design's elements, which the minimal designs below do not have.
+	// own design's elements, which the minimal designs below do not have, and so does the
+	// acceptance plan, whose browser steps and probes are the surface's.
 	var artifacts map[string]map[string]json.RawMessage
 	if err := json.Unmarshal(top["phaseArtifacts"], &artifacts); err != nil {
 		t.Fatal(err)
 	}
 	delete(artifacts["testPlan"], "todoWebApp")
 	delete(artifacts, "uiDesign")
+	delete(artifacts, "acceptancePlan")
 	if top["phaseArtifacts"], err = json.Marshal(artifacts); err != nil {
 		t.Fatal(err)
 	}
@@ -204,5 +206,10 @@ func TestRecordServiceContract_SetsReadOnlyFromVerb(t *testing.T) {
 	}
 	if projectstate.OperationReadOnly("ResourceAccess", "Store") || !projectstate.OperationReadOnly("Engine", "Store") {
 		t.Error("an Engine only computes; a ResourceAccess without a read verb writes")
+	}
+	// A surface's Open shows a list or a view of it (the acceptance plan probes what the member's
+	// browser shows through it), as a Manager's does; a Client's other verbs write.
+	if !projectstate.OperationReadOnly("Client", "OpenList") || projectstate.OperationReadOnly("Client", "AddTodo") {
+		t.Error("a Client's Open observes; its other operations act")
 	}
 }

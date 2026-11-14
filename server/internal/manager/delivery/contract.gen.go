@@ -101,6 +101,7 @@ type ActivityTaskKind string
 const (
 	ActivityTaskDispatch ActivityTaskKind = "dispatch"
 	ActivityTaskReview   ActivityTaskKind = "review"
+	ActivityTaskJob      ActivityTaskKind = "job"
 )
 
 type ActivityTaskState string
@@ -145,6 +146,7 @@ const (
 	ActivityTypeArchitecture  ActivityType = 8
 	ActivityTypeProjectDesign ActivityType = 9
 	ActivityTypeMachineClient ActivityType = 10
+	ActivityTypeMilestone     ActivityType = 11
 )
 
 type ActivityView struct {
@@ -1151,9 +1153,11 @@ type TestingStateView struct {
 type TestingVariant int
 
 const (
-	TestVariantHarness   TestingVariant = 1
-	TestVariantPerf      TestingVariant = 2
-	TestVariantQAProcess TestingVariant = 4
+	TestVariantHarness        TestingVariant = 1
+	TestVariantPerf           TestingVariant = 2
+	TestVariantQAProcess      TestingVariant = 4
+	TestVariantAcceptancePlan TestingVariant = 5
+	TestVariantAcceptance     TestingVariant = 6
 )
 
 type TimelineEvent struct {

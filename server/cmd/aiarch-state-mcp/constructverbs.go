@@ -438,6 +438,11 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 	}
 	return s.applyConstructionMutation("phase artifact", func(p *projectstate.Project) error {
 		key := strings.TrimSpace(mapKey)
+		if pl.AcceptancePlan != nil {
+			// The one acceptance plan belongs to no component: whatever key the agent sent, it is
+			// filed as .phaseArtifacts.acceptancePlan and the key it is spoken of by is acceptance.
+			key = projectstate.AcceptanceContract
+		}
 		if pl.TestPlan != nil {
 			var err error
 			if key, err = testPlanKey(p.ServiceContracts, key); err != nil {
@@ -633,8 +638,11 @@ func decodePhaseArtifactPayload(payload map[string]any) (projectstate.PhaseArtif
 	if err := decodeDraftStrict(b, &pl); err != nil {
 		hint := ""
 		for k := range payload {
-			if strings.EqualFold(k, "testPlan") {
+			switch {
+			case strings.EqualFold(k, "testPlan"):
 				hint = "; a testPlan's shape is " + testPlanShape
+			case strings.EqualFold(k, "acceptancePlan"):
+				hint = "; an acceptancePlan's shape is " + acceptancePlanShape
 			}
 		}
 		return projectstate.PhaseArtifactPayload{}, fmt.Errorf("the payload does not conform to PhaseArtifactPayload: %v"+
@@ -652,6 +660,13 @@ func decodePhaseArtifactPayload(payload map[string]any) (projectstate.PhaseArtif
 const testPlanShape = "{component, principals:{<name>:{subject, roles}}, bindings:[{scenario, arrange:[{kind, model}], " +
 	"steps:[{seq, operation, inputs:[{name, value:{kind:literal|ref, model}}], expect:{result, errorExpected, errorCode}, " +
 	"probes:[{for, component, operation, inputs, expect}], before}], skip:{reason, until}}]}"
+
+// acceptancePlanShape is the acceptance plan record's shape, named when one is refused. It is a
+// testPlan without the component (it is one per project) and with the browser actor, and a step's
+// input may be a planRef to the literal a client plan already binds, a probe may run as another actor.
+const acceptancePlanShape = "{principals:{<name>:{subject, roles, onBehalfOf}}, browserActor, bindings:[{scenario:\"<scenario>@<client>\", arrange:[{kind, model}], " +
+	"steps:[{seq, operation, inputs:[{name, value:{kind:literal|ref|planRef, model}}], expect:{result, errorExpected, errorCode}, " +
+	"probes:[{for, component, operation, inputs, expect, as}], before}], skip:{reason, until}}]}; a planRef's model is {component, scenario, seq, input}"
 
 // refuseBlankContent: a content-bearing record is its markdown text, which the phases after it
 // read. One recorded with no content records nothing but a passing write.

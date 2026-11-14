@@ -1829,9 +1829,6 @@ const (
 // start the agent — a terminal failed run, as the cloud job fails at that step.
 func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episodeID string) (refused string, err error) {
 	branch := plan.branch
-	if a.claudeBin == "" {
-		return "", fwra.Wrap(fwra.Infrastructure, a.claudeLookErr, "localexec: failed to start claude subprocess (the Claude Code CLI was not on PATH when this executor was built)")
-	}
 
 	// The worktree lives under a throwaway parent temp dir (NEVER inside the
 	// user's checkout): the OS temp reaper is the backstop for crash leftovers,
@@ -1863,6 +1860,36 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 		return "", fwra.Wrap(fwra.Infrastructure, addErr, "localexec: add "+plan.worktreeLabel+" worktree")
 	}
 
+	// rig is the SAME fixed AIARCH_* ambient-context envelope stamped on BOTH
+	// the attached aiarch-state MCP server's env (writeStateMCPConfig) and this
+	// process's OWN env allowlist (claudeSubprocessEnv) — see the SECURITY
+	// POSTURE doc block above claudeCommand for why both matter. The arm built every
+	// entry except AIARCH_STATE_ROOT, which is stamped here = the worktree dir this
+	// dispatch just created (not knowable until now); the plan's rig map is created
+	// fresh per submit, so mutating it is race-free.
+	rig := plan.rig
+	rig["AIARCH_STATE_ROOT"] = workDir
+
+	// Steps 1–3 of the local sequence (see the doc comment): the task spec the agent
+	// runs on, and the gate inputs captured before the agent can move any ref. They run
+	// BEFORE the agent's surface is seated because the spec says whether there is an agent:
+	// a JOB task (the M-ACCEPT milestone's acceptance run) is run by the venue alone, so it
+	// needs no claude, no prompt surface and no MCP config.
+	gate, why, err := a.prepareGate(plan.taskSpec, parentDir, workDir, branch, beforeSHA, rig)
+	if err != nil || why != "" {
+		return why, err
+	}
+	if gate.isJob() {
+		// The gates run off the submit path and the run's phase is theirs: succeeded iff every
+		// gate is green, a red check being the run's verdict and not a reason it never started.
+		ownWorkDir = false
+		go a.runJob(run, completionScope{branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate})
+		return "", nil
+	}
+	if a.claudeBin == "" {
+		return "", fwra.Wrap(fwra.Infrastructure, a.claudeLookErr, "localexec: failed to start claude subprocess (the Claude Code CLI was not on PATH when this executor was built)")
+	}
+
 	// Materialize the .claude prompt surface into the worktree BEFORE spawning claude —
 	// the local mirror of the step BOTH seated workflow templates run right after checkout
 	// ("Materialize the .claude prompt surface", aiarch-{design,construct}.yml.tmpl:
@@ -1876,25 +1903,8 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	if err := seatPromptSurface(workDir, plan.command); err != nil {
 		return "", err
 	}
-
-	// rig is the SAME fixed AIARCH_* ambient-context envelope stamped on BOTH
-	// the attached aiarch-state MCP server's env (writeStateMCPConfig) and this
-	// process's OWN env allowlist (claudeSubprocessEnv) — see the SECURITY
-	// POSTURE doc block above claudeCommand for why both matter. The arm built every
-	// entry except AIARCH_STATE_ROOT, which is stamped here = the worktree dir this
-	// dispatch just created (not knowable until now); the plan's rig map is created
-	// fresh per submit, so mutating it is race-free.
-	rig := plan.rig
-	rig["AIARCH_STATE_ROOT"] = workDir
 	if err := writeStateMCPConfig(parentDir, a.stateMCPBin, rig); err != nil {
 		return "", err
-	}
-
-	// Steps 1–3 of the local sequence (see the doc comment): the task spec the agent
-	// runs on, and the gate inputs captured before the agent can move any ref.
-	gate, why, err := a.prepareGate(plan.taskSpec, parentDir, workDir, branch, beforeSHA, rig)
-	if err != nil || why != "" {
-		return why, err
 	}
 	if gate.agentBarred() {
 		// The scenario tests could not be generated: the agent never starts, but the
@@ -2017,6 +2027,9 @@ type localGate struct {
 	// model and builtin are the spec's model id and built-in tool allowlist.
 	model   string
 	builtin []string
+	// job marks a venue job (the spec's identity.kind): no agent runs it, so the gates are its
+	// whole run (runJob).
+	job bool
 	// integration marks the integration task, whose scenario tests the job generates
 	// before the agent, in the project's module dir (ruling R43); genFailure is why that
 	// generation failed ("" when it did not run or succeeded).
@@ -2090,6 +2103,9 @@ var (
 // resolvedTaskSpec is the slice of the spec JSON task-spec writes that the local
 // sequence reads (the RA decodes it itself: it may not import projectstate's types).
 type resolvedTaskSpec struct {
+	Identity struct {
+		Kind string `json:"kind"`
+	} `json:"identity"`
 	Model struct {
 		ID string `json:"id"`
 	} `json:"model"`
@@ -2186,6 +2202,45 @@ func (a *localExecAccess) gateWithoutAgent(run *localRun, scope completionScope)
 	run.status = localRunFailed
 	run.diagnostic = diagnostic
 	run.mu.Unlock()
+}
+
+// specKindJob is the task spec's identity.kind of a venue job (methodassets.LifecycleTaskJob; the RA
+// decodes the spec itself and imports neither projectstate nor the lifecycle data).
+const specKindJob = "job"
+
+// isJob reports whether the gated run is a venue job: one no agent runs.
+func (g *localGate) isJob() bool { return g != nil && g.job }
+
+// runJob is the whole of a venue job's run: generate the scenario tests the integration task's
+// checks run against, then the gates over the branch as it stands (the edit scope passes on an
+// untouched branch, the spec's checks run, the CheckRun is recorded and committed red or green),
+// the worktree comes down, and the run ends succeeded iff every gate was green. It is
+// gateWithoutAgent's twin for a run whose agent was never meant to start, so a generation failure
+// is the run's failure here too, after the gates have recorded their evidence.
+func (a *localExecAccess) runJob(run *localRun, scope completionScope) {
+	a.gitMu.Lock()
+	headSHA, revErr := revParseBranch(a.repoPath, scope.branch)
+	a.gitMu.Unlock()
+	var failures []string
+	if scope.gate.genFailure != "" {
+		failures = append(failures, scope.gate.genFailure)
+	}
+	if revErr != nil {
+		failures = append(failures, "the branch could not be read: "+revErr.Error())
+	} else if why := runGates(scope.gate, scope.workDir, headSHA); why != "" {
+		failures = append(failures, why)
+	}
+	a.gitMu.Lock()
+	_ = removeWorktree(a.repoPath, scope.workDir)
+	a.gitMu.Unlock()
+	_ = os.RemoveAll(scope.parentDir)
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	run.status, run.diagnostic = localRunSucceeded, ""
+	if len(failures) > 0 {
+		run.status, run.diagnostic = localRunFailed, strings.Join(failures, "; ")
+	}
+	run.fingerprint = scope.gate.fingerprint
 }
 
 // agentBarred reports whether the gate bars the agent from starting (its scenario tests
@@ -2332,6 +2387,12 @@ func (g *localGate) readSpec() string {
 	var spec resolvedTaskSpec
 	if err := json.Unmarshal(raw, &spec); err != nil {
 		return "the resolved task spec is not a task spec: " + err.Error()
+	}
+	if spec.Identity.Kind == specKindJob {
+		// A job runs no agent: its spec carries no model and no tool allowlist, only the checks
+		// the venue runs. Its generators and contracts are none; nothing else of the spec is read.
+		g.job = true
+		return ""
 	}
 	if len(spec.Model.ID) > 128 || !specModelShape.MatchString(spec.Model.ID) {
 		return "the task spec's model is not a model id"

@@ -394,33 +394,96 @@ type scenarioBatch struct {
 	argv     []string // the process
 	env      []string
 	ctxSec   int // the process context's cap
+	// checks is the selected scenarios this batch runs; each batch reads its own index for them.
+	checks []projectstate.SpecCheck
 }
 
-// newScenarioBatch derives the batch for contract's scenarios ids. TimeoutSec defaults
-// to 900 (R8): each scenario gets the largest cap as its own, go test's -timeout is the
+// acceptanceGoPackage is the module-relative package testgen writes the machine-only acceptance
+// variants' Go tests into (testgen's acceptanceGoPackage).
+const acceptanceGoPackage = "internal/acceptance"
+
+// scenarioBatches is the batches one contract's selected scenarios run in. A contract is one batch
+// (newScenarioBatch). The acceptance pseudo-contract is up to two, because its variants run in two
+// places and the generated file that holds a variant says which: the Go batch over the variants with
+// no generated Playwright spec (the machine-only ones, internal/acceptance), then the web batch over
+// the rest (under the scenario host). Each keeps its own index and its own ids.
+func scenarioBatches(r checkRunner, proj projectstate.Project, contract string, checks []projectstate.SpecCheck) []scenarioBatch {
+	if contract != projectstate.AcceptanceContract {
+		b := newScenarioBatch(r, proj, contract, checks)
+		b.checks = checks
+		return []scenarioBatch{b}
+	}
+	var machine, browser []projectstate.SpecCheck
+	for _, c := range checks {
+		spec := filepath.Join(r.root, "uitests", "generated", contract, c.Source.Scenario+".spec.gen.ts")
+		if _, err := os.Stat(spec); err == nil {
+			browser = append(browser, c)
+			continue
+		}
+		machine = append(machine, c)
+	}
+	var out []scenarioBatch
+	if len(machine) > 0 {
+		b := goScenarioBatch(r, proj, contract, acceptanceGoPackage, "", machine)
+		b.checks = machine
+		out = append(out, b)
+	}
+	if len(browser) > 0 {
+		b := webScenarioBatch(r, proj, contract, browser)
+		b.checks = browser
+		out = append(out, b)
+	}
+	return out
+}
+
+// batchTimes is the ids of checks' scenarios and their summed and largest timeouts. TimeoutSec
+// defaults to 900 (R8): each scenario gets the largest cap as its own, go test's -timeout is the
 // summed caps plus slack, and the process context a little more.
-func newScenarioBatch(r checkRunner, proj projectstate.Project, contract string, checks []projectstate.SpecCheck) scenarioBatch {
-	ids := make([]string, len(checks))
-	var sumSec, maxSec int
+func batchTimes(checks []projectstate.SpecCheck) (ids []string, sumSec, maxSec int) {
+	ids = make([]string, len(checks))
 	for i, c := range checks {
 		ids[i] = c.Source.Scenario
 		sec := int(timeoutOf(c, defaultScenarioTimeoutSec) / time.Second)
 		sumSec += sec
 		maxSec = max(maxSec, sec)
 	}
+	return ids, sumSec, maxSec
+}
+
+// goScenarioBatch is the Go batch of a contract's scenarios: go test over the package, selecting
+// them by name, the verdicts under test-results/<contract> of the module.
+func goScenarioBatch(r checkRunner, proj projectstate.Project, contract, pkg, iface string, checks []projectstate.SpecCheck) scenarioBatch {
+	ids, sumSec, maxSec := batchTimes(checks)
+	if iface == "" && contract != "" {
+		iface = strings.ToUpper(contract[:1]) + contract[1:]
+	}
+	b := scenarioBatch{goTest: true, iface: iface, ctxSec: sumSec + batchSlackSec}
+	b.dir = filepath.Join(r.root, proj.ModuleDir)
+	b.indexDir = filepath.Join(b.dir, "test-results", contract)
+	b.refBase = filepath.ToSlash(filepath.Join(proj.ModuleDir, "test-results", contract))
+	b.argv = []string{"go", "test", "-p", "1", "-count=1", "-timeout", strconv.Itoa(sumSec+goTestSlackSec) + "s",
+		"./" + pkg + "/", "-run", goScenarioRunRegex(b.iface, ids), "-json"}
+	b.env = commandEnv("go", "AIARCH_SCENARIO_TIMEOUT="+strconv.Itoa(maxSec)+"s")
+	return b
+}
+
+// newScenarioBatch derives the batch for contract's scenarios ids.
+func newScenarioBatch(r checkRunner, proj projectstate.Project, contract string, checks []projectstate.SpecCheck) scenarioBatch {
 	sc := proj.ServiceContracts[contract]
-	b := scenarioBatch{goTest: sc.GoPackage != "", iface: sc.Interface.Name, ctxSec: sumSec + batchSlackSec}
+	if sc.GoPackage != "" {
+		return goScenarioBatch(r, proj, contract, sc.GoPackage, sc.Interface.Name, checks)
+	}
+	return webScenarioBatch(r, proj, contract, checks)
+}
+
+// webScenarioBatch is the batch of a web client's scenarios (or the acceptance variants that need a
+// browser), run by Playwright under the scenario host.
+func webScenarioBatch(r checkRunner, proj projectstate.Project, contract string, checks []projectstate.SpecCheck) scenarioBatch {
+	ids, sumSec, maxSec := batchTimes(checks)
+	sc := proj.ServiceContracts[contract]
+	b := scenarioBatch{iface: sc.Interface.Name, ctxSec: sumSec + batchSlackSec}
 	if b.iface == "" && contract != "" {
 		b.iface = strings.ToUpper(contract[:1]) + contract[1:]
-	}
-	if b.goTest {
-		b.dir = filepath.Join(r.root, proj.ModuleDir)
-		b.indexDir = filepath.Join(b.dir, "test-results", contract)
-		b.refBase = filepath.ToSlash(filepath.Join(proj.ModuleDir, "test-results", contract))
-		b.argv = []string{"go", "test", "-p", "1", "-count=1", "-timeout", strconv.Itoa(sumSec+goTestSlackSec) + "s",
-			"./" + sc.GoPackage + "/", "-run", goScenarioRunRegex(b.iface, ids), "-json"}
-		b.env = commandEnv("go", "AIARCH_SCENARIO_TIMEOUT="+strconv.Itoa(maxSec)+"s")
-		return b
 	}
 	// The web batch runs under the scenario host (go tool webscenarios): it boots the composed app
 	// into the host's substrates, serves the arrange endpoint the browser calls, runs Playwright
@@ -451,7 +514,36 @@ func (r checkRunner) runScenarios(ctx context.Context, contract string, checks [
 	if err != nil {
 		return failAll("scenario checks: " + err.Error())
 	}
-	b := newScenarioBatch(r, proj, contract, checks)
+	results := make([]CheckResult, len(checks))
+	for _, b := range scenarioBatches(r, proj, contract, checks) {
+		for _, res := range r.runBatch(ctx, b) {
+			for i, c := range checks {
+				if c.ID == res.CheckId {
+					results[i] = res
+				}
+			}
+		}
+	}
+	return results
+}
+
+// runBatch runs one batch's selected scenarios in one process and maps each to its verdict in the
+// batch's own index.
+func (r checkRunner) runBatch(ctx context.Context, b scenarioBatch) []CheckResult {
+	start := r.now()
+	checks := b.checks
+	failAll := func(msg string) []CheckResult {
+		out := make([]CheckResult, len(checks))
+		for i, c := range checks {
+			out[i] = r.finish(c, checkFail, r.since(start), []byte(msg+"\n"))
+			out[i].NoVerdict = ptr(true)
+		}
+		return out
+	}
+	contract := ""
+	if len(checks) > 0 {
+		contract = checks[0].Source.Contract
+	}
 	ids := make([]string, len(checks))
 	for i, c := range checks {
 		ids[i] = c.Source.Scenario

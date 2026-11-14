@@ -74,6 +74,7 @@ import PriorityHighIcon from '@mui/icons-material/PriorityHigh';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import PlayCircleOutlineOutlinedIcon from '@mui/icons-material/PlayCircleOutlineOutlined';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import FitScreenOutlinedIcon from '@mui/icons-material/FitScreenOutlined';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -123,7 +124,23 @@ const STATE_LABEL: Record<LifecycleNodeState, string> = {
 const KIND_LABEL: Record<LifecycleNodeKind, string> = {
   dispatch: 'Agent task',
   review: 'Review',
+  job: 'Venue job',
 };
+
+/** The glyph of a task's kind: an agent, a review, or a venue job (no agent). Exhaustive over the
+ *  kinds, so a fourth fails to compile here rather than drawing as an agent. */
+function kindIconOf(kind: LifecycleNodeKind): typeof SmartToyOutlinedIcon {
+  switch (kind) {
+    case 'dispatch':
+      return SmartToyOutlinedIcon;
+    case 'review':
+      return FactCheckOutlinedIcon;
+    case 'job':
+      return PlayCircleOutlineOutlinedIcon;
+    default:
+      return assertNever(kind);
+  }
+}
 
 /** A task progress has REACHED — the rail into it is drawn in the accent. */
 function reached(state: LifecycleNodeState): boolean {
@@ -447,7 +464,7 @@ export function LifecycleGraph({
   const pipFor = (n: LifecycleNode): ReactNode => {
     const paint = pipPaint(t, n.state);
     const mark = cornerMark(t, n.state);
-    const KindIcon = n.kind === 'review' ? FactCheckOutlinedIcon : SmartToyOutlinedIcon;
+    const KindIcon = kindIconOf(n.kind);
     return (
       <Box sx={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
         {n.state === 'running' ? (

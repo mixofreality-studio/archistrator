@@ -29,6 +29,7 @@
 package estimation
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -1794,9 +1795,28 @@ func deriveActivities(system SystemView) []DerivedActivity {
 			out = append(out, a)
 		}
 	}
+	if len(system.Components) > 0 {
+		out = append(out, acceptancePlanActivity())
+	}
 
 	sort.Slice(out, func(i, j int) bool { return planOrderLess(out[i].Name, out[j].Name) })
 	return out
+}
+
+// acceptancePlanActivityName is the id of the use-case acceptance test plan activity (N-ATP).
+const acceptancePlanActivityName = "N-ATP"
+
+// acceptancePlanActivity is the noncoding N-ATP activity (Amendment C): the test engineer binds
+// the use-case paths no single client plan covers. It belongs to no component (it plans the whole
+// system's acceptance), so it has no ComponentID and no architecture edge: the source rule hangs it
+// off M0 alone, and it runs beside construction.
+func acceptancePlanActivity() DerivedActivity {
+	const effort = 5
+	return DerivedActivity{
+		Name: acceptancePlanActivityName, Title: "Use-case acceptance test plan",
+		EffortDays: effort, RiskBucket: defaultRiskFor(effort), WorkerClass: "test-engineer",
+		Coding: false, Derived: true,
+	}
 }
 
 // --- Network derivation: dependency edges and milestones ---
@@ -2262,6 +2282,10 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 	allDeps := make([]NetworkDependency, 0, len(deps)+len(extraDeps))
 	allDeps = append(allDeps, deps...)
 	allDeps = append(allDeps, extraDeps...)
+	// The acceptance milestone comes after every other terminal and the acceptance test plan, so it
+	// is added once the plan's terminal set is whole; the sink then follows it alone.
+	allDeps = append(allDeps, acceptanceDependency(acts, allDeps, milestones))
+	acts = append(acts, acceptanceMilestoneActivity())
 	sort.Slice(allDeps, func(i, j int) bool { return allDeps[i].Activity < allDeps[j].Activity })
 	sort.Slice(acts, func(i, j int) bool { return planOrderLess(acts[i].Name, acts[j].Name) })
 
@@ -2271,6 +2295,34 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 	sort.Slice(milestones, func(i, j int) bool { return milestones[i].Id < milestones[j].Id })
 
 	return DerivedPlan{Activities: acts, Dependencies: allDeps, Milestones: milestones}, nil
+}
+
+// acceptanceMilestoneName is the id of the use-case acceptance milestone (M-ACCEPT).
+const acceptanceMilestoneName = "M-ACCEPT"
+
+// acceptanceMilestoneActivity is the node that runs the milestone's job. The pump opens activities
+// only (a milestone is a derived pass-through, never a Done record), so the milestone that gates the
+// project end is a zero-effort activity: EstimateForOption refuses only a negative effort. The
+// system architect owns it as the owner of the design prefix, whose class carries no rate it is paid
+// at: the job runs no agent, so nothing is spent.
+func acceptanceMilestoneActivity() DerivedActivity {
+	return DerivedActivity{
+		Name: acceptanceMilestoneName, Title: "Use-case acceptance (M-ACCEPT)",
+		EffortDays: 0, RiskBucket: 1, WorkerClass: "system-architect", Coding: false, Derived: true,
+	}
+}
+
+// acceptanceDependency is M-ACCEPT's one dependency row: every terminal of the plan so far
+// (acts, deps and ms, without M-ACCEPT itself, additive activities and edges included) and the
+// acceptance test plan, so the project ends only after the residual use-case paths ran against the
+// composed app. Sorted.
+func acceptanceDependency(acts []DerivedActivity, deps []NetworkDependency, ms []NetworkMilestone) NetworkDependency {
+	on := networkTerminals(acts, deps, ms)
+	if !slices.Contains(on, acceptancePlanActivityName) {
+		on = append(on, acceptancePlanActivityName)
+	}
+	sort.Strings(on)
+	return NetworkDependency{Activity: acceptanceMilestoneName, DependsOn: on}
 }
 
 // estimationEngineImpl is the concrete EstimationEngine. Engines are pure: it carries no fields.
