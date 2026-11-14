@@ -3242,16 +3242,14 @@ components:
                     type: string
                 effortDays:
                     type: number
-                machineClient:
-                    type: boolean
                 name:
                     type: string
                 riskBucket:
                     type: integer
+                surface:
+                    type: string
                 title:
                     type: string
-                uiSurface:
-                    type: boolean
                 workerClass:
                     type: string
             required:
@@ -3421,20 +3419,16 @@ components:
                         - resource
                         - utility
                     type: string
-                machineProtocol:
-                    type:
-                        - "null"
-                        - string
                 name:
                     type: string
                 provisioning:
                     type:
                         - "null"
                         - string
-                uiSurface:
+                surface:
                     type:
                         - "null"
-                        - boolean
+                        - string
             required:
                 - id
                 - name
@@ -3491,6 +3485,23 @@ components:
                         - array
             required:
                 - decisions
+            type: object
+        ModelDeliverySurface:
+            additionalProperties: false
+            properties:
+                audience:
+                    type: string
+                kind:
+                    type: string
+                objective:
+                    type: integer
+                source:
+                    type: string
+            required:
+                - kind
+                - audience
+                - source
+                - objective
             type: object
         ModelDeployContainer:
             additionalProperties: false
@@ -3922,6 +3933,12 @@ components:
         ModelMissionStatement:
             additionalProperties: false
             properties:
+                deliverySurfaces:
+                    items:
+                        $ref: '#/components/schemas/ModelDeliverySurface'
+                    type:
+                        - "null"
+                        - array
                 mission:
                     type: string
                 objectives:
@@ -3936,6 +3953,7 @@ components:
                 - vision
                 - objectives
                 - mission
+                - deliverySurfaces
             type: object
         ModelMoney:
             additionalProperties: false

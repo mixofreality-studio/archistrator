@@ -4684,14 +4684,19 @@ func derefString(p *string, fallback string) string {
 	return *p
 }
 
-// derefBool returns *p, or false when p is nil — projectstate's UiSurface is an
-// unauthored-means-absent tri-state; the Engine only ever sees a resolved bool.
-func derefBool(p *bool) bool { return p != nil && *p }
+// derefSurface returns *p as the wire string, or "" when p is nil — projectstate's Surface is an
+// unstated-means-absent optional; the Engine only ever sees the resolved string.
+func derefSurface(p *projectstate.Surface) string {
+	if p == nil {
+		return ""
+	}
+	return string(*p)
+}
 
 // toEstimationSystemView converts the canonical System to the estimation Engine's OWN
 // slim SystemView at the call boundary. Only what the derivation reads crosses:
 // identity, kind, and the four typed doctrine attributes (constructionProfile,
-// provisioning, uiSurface, buildStatus) — the fourth of which decides whether there is
+// provisioning, surface, buildStatus) — the fourth of which decides whether there is
 // anything to build at all.
 //
 // An unauthored constructionProfile defaults to "handwritten" — the CONSERVATIVE
@@ -4709,7 +4714,7 @@ func toEstimationSystemView(sys projectstate.System) estimation.SystemView {
 			Kind:                c.Kind.String(),
 			ConstructionProfile: derefString(c.ConstructionProfile, "handwritten"),
 			Provisioning:        derefString(c.Provisioning, "owned"),
-			UiSurface:           derefBool(c.UiSurface),
+			Surface:             derefSurface(c.Surface),
 			BuildStatus:         derefString(c.BuildStatus, ""),
 		})
 	}
@@ -4728,15 +4733,14 @@ func toProjectStateActivityList(plan estimation.DerivedPlan) projectstate.Activi
 	acts := make([]projectstate.ActivityItem, 0, len(plan.Activities))
 	for _, a := range plan.Activities {
 		acts = append(acts, projectstate.ActivityItem{
-			Name:          a.Name,
-			Title:         a.Title,
-			EffortDays:    a.EffortDays,
-			RiskBucket:    int(a.RiskBucket),
-			WorkerClass:   a.WorkerClass,
-			Coding:        a.Coding,
-			ComponentID:   a.ComponentID,
-			UISurface:     a.UiSurface,
-			MachineClient: a.MachineClient,
+			Name:        a.Name,
+			Title:       a.Title,
+			EffortDays:  a.EffortDays,
+			RiskBucket:  int(a.RiskBucket),
+			WorkerClass: a.WorkerClass,
+			Coding:      a.Coding,
+			ComponentID: a.ComponentID,
+			Surface:     projectstate.Surface(a.Surface),
 		})
 	}
 	return projectstate.ActivityList{Activities: acts}
@@ -8397,7 +8401,7 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 // is where a plan defect becomes verdictBlocked with its repair named, and swallowing it here
 // would turn a reportable defect back into a silent quiet tick.
 func admissibleInPhase(phase projectstate.Phase, rule eligibilityRule, name string, item projectstate.ActivityItem) bool {
-	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient)
+	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding, item.Surface)
 	if err != nil {
 		return true
 	}
@@ -8433,12 +8437,12 @@ func dispatchSelectionFor(proj projectstate.Project, chosen string, item project
 		}
 	}
 	// Classification is resolved HERE, once, from the facts the committed plan authored
-	// (id, workerClass, coding, uiSurface) — and the resolved pair then rides the
+	// (id, workerClass, coding, surface) — and the resolved pair then rides the
 	// dispatched constructionActivity to every consumer. An activity the rules cannot
 	// classify has no phase profile and no slash command, so dispatching it would mean
 	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
 	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
-	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient)
+	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding, item.Surface)
 	// (A design activity used to take its own quiescent arm HERE, because rule 0 classified
 	// it and then refused it: reaching this line meant some path had chosen an activity the
 	// scan walks past, and going quiet was the only safe answer — verdictBlocked writes the
@@ -11139,7 +11143,7 @@ func (m *deliveryManager) activityLifecycle(rc fwmanager.Context, projectID Proj
 		return methodassets.Lifecycle{}, newError(fwmanager.NotFound,
 			"no activity "+id+" in the committed activity list")
 	}
-	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient)
+	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding, item.Surface)
 	if err != nil {
 		return methodassets.Lifecycle{}, newError(fwmanager.FailedPrecondition, err.Error())
 	}

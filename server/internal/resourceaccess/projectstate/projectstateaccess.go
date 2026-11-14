@@ -4911,13 +4911,11 @@ type ActivityItem struct {
 	// committed component. A noncoding provisioning activity (R-*) may name the
 	// Resource component it provisions.
 	ComponentID string `json:"componentId,omitempty"`
-	// UISurface marks the activity that builds a browser surface (the Client's uiSurface,
-	// carried by the derivation). It is what puts the activity on the frontend lifecycle.
-	UISurface bool `json:"uiSurface,omitempty"`
-	// MachineClient marks the activity of a machine client (the Client's uiSurface false, carried
-	// on the plan the same way): its code and contract are generated, so it walks the machineClient
-	// lifecycle, which binds a test plan and proves it through this client.
-	MachineClient bool `json:"machineClient,omitempty"`
+	// Surface is the Client's own surface choice (Component.surface), carried by the derivation.
+	// web and mcpApp put the activity on the frontend lifecycle; rest and mcpTools are generated
+	// machine clients, which walk the machineClient lifecycle: it binds a test plan and proves it
+	// through this client. Empty for an activity that builds no Client.
+	Surface Surface `json:"surface,omitempty"`
 }
 
 // ActivityList holds the Phase-2 activity list artifact — the coding + noncoding
@@ -5565,7 +5563,7 @@ func ValidateModelIdentities(model ArtifactModel) error {
 	case *System:
 		problems = systemIdentityProblems(m)
 	case *MissionStatement:
-		problems = missionObjectiveProblems(m)
+		problems = missionProblems(m)
 	}
 	if len(problems) == 0 {
 		return nil
@@ -5574,15 +5572,66 @@ func ValidateModelIdentities(model ArtifactModel) error {
 		len(problems), strings.Join(problems, "\n  - "))
 }
 
-// missionObjectiveProblems collects the objectives with no statement. An objective IS its
-// statement — every later artifact traces back to it — so a blank one is an empty identity:
-// RUN-011 committed seven of them after a lenient decode dropped the agent's "text" field.
-func missionObjectiveProblems(m *MissionStatement) []string {
+// missionProblems collects what is wrong with a mission's identities and its delivery surfaces.
+// An objective IS its statement — every later artifact traces back to it — so a blank one is an
+// empty identity: RUN-011 committed seven of them after a lenient decode dropped the agent's "text"
+// field. The delivery surfaces (FPC W6) are the channels the brief commits the system to, and
+// non-emptiness lives here in Go, not in the schema (presence-only `required`): at least one entry,
+// each with a non-blank source (the brief's words), an objective naming exactly one of the
+// mission's objective numbers, a kind listed once, and an audience that agrees with the kind.
+func missionProblems(m *MissionStatement) []string {
 	var problems []string
 	for i, o := range m.Objectives {
 		problems = nonEmptyID(problems, o.Statement, fmt.Sprintf("objective %d: statement", i+1))
 	}
+	return append(problems, deliverySurfaceProblems(m)...)
+}
+
+func deliverySurfaceProblems(m *MissionStatement) []string {
+	if len(m.DeliverySurfaces) == 0 {
+		return []string{"deliverySurfaces is empty: list one entry per channel the brief commits the system to (web, rest, mcpTools, mcpApp)"}
+	}
+	held := map[int]int{}
+	for _, o := range m.Objectives {
+		held[o.Number]++
+	}
+	var problems []string
+	seen := map[Surface]bool{}
+	for i, d := range m.DeliverySurfaces {
+		label := fmt.Sprintf("deliverySurfaces[%d] (%s)", i, d.Kind)
+		kind, err := projectmodel.ParseSurface(string(d.Kind))
+		switch {
+		case err != nil:
+			problems = append(problems, label+": "+err.Error())
+		case seen[d.Kind]:
+			problems = append(problems, label+": the kind is listed twice")
+		default:
+			if want := audienceOf(kind); d.Audience != want {
+				problems = append(problems, fmt.Sprintf("%s: audience is %q, but %s serves a %s audience", label, d.Audience, d.Kind, want))
+			}
+		}
+		seen[d.Kind] = true
+		problems = nonEmptyID(problems, d.Source, label+": source")
+		switch held[d.Objective] {
+		case 1:
+		case 0:
+			problems = append(problems, fmt.Sprintf("%s: objective %d is not one of the mission's objective numbers", label, d.Objective))
+		default:
+			problems = append(problems, fmt.Sprintf("%s: objective %d is held by %d objectives, so it names none of them", label, d.Objective, held[d.Objective]))
+		}
+	}
 	return problems
+}
+
+// audienceOf is who a surface serves: web and mcpApp serve people, rest and mcpTools machines.
+func audienceOf(k projectmodel.SurfaceKind) Audience {
+	switch k.(type) {
+	case projectmodel.WebSurface, projectmodel.MCPAppSurface:
+		return AudienceHuman
+	case projectmodel.RESTSurface, projectmodel.MCPToolsSurface:
+		return AudienceMachine
+	}
+	return AudienceMachine
 }
 
 // nonEmptyID appends a problem when an identity is blank. label already names
@@ -6841,6 +6890,9 @@ func requireComponentFields(cRaw json.RawMessage, i int) error {
 		return fmt.Errorf("%s declares layer %q but its kind %q requires layer %q — the layer is 100%% derivable from the kind; set them to match (a missing layer field silently defaults to \"client\", which is the F81 corruption this rejects)",
 			label, enumName(layerNames, layer), enumName(componentKindNames, kind), enumName(layerNames, want))
 	}
+	if err := requireComponentSurface(obj, label); err != nil {
+		return err
+	}
 	// SYS-ENCAPSULATES (raw twin). encapsulates is a plain string whose zero value is "" —
 	// an omitted field is a silent hole (the component claims to encapsulate nothing).
 	// Require the field PRESENT on every component, and NON-EMPTY on the three
@@ -6858,6 +6910,29 @@ func requireComponentFields(cRaw json.RawMessage, i int) error {
 			return fmt.Errorf("%s is a %s and must name the volatility it encapsulates: %w",
 				label, enumName(componentKindNames, kind), err)
 		}
+	}
+	return nil
+}
+
+// requireComponentSurface holds a component's surface to the closed set (FPC W6). The two members
+// it replaced, uiSurface and machineProtocol, are deleted rather than aliased: a document that
+// still carries one would otherwise lose it silently on the next write, so it is refused by name.
+func requireComponentSurface(obj map[string]json.RawMessage, label string) error {
+	for _, retired := range []string{"uiSurface", "machineProtocol"} {
+		if _, ok := obj[retired]; ok {
+			return fmt.Errorf("%s carries %q, which no longer exists: a Client states one `surface` (web, rest, mcpTools or mcpApp)", label, retired)
+		}
+	}
+	raw, ok := obj["surface"]
+	if !ok || string(raw) == "null" {
+		return nil
+	}
+	var surface string
+	if err := json.Unmarshal(raw, &surface); err != nil {
+		return fmt.Errorf("%s has a surface that is not a string: %w", label, err)
+	}
+	if _, err := projectmodel.ParseSurface(surface); err != nil {
+		return fmt.Errorf("%s has an unrecognized surface: %w", label, err)
 	}
 	return nil
 }
@@ -9481,9 +9556,9 @@ func milestoneActivityType(id string) (ActivityType, TestingVariant, bool) {
 
 // ClassifyActivity determines an activity's canonical (ActivityType, TestingVariant)
 // pair from the facts that EXIST AT DISPATCH TIME: its id, the owning workerClass, the
-// coding flag, and whether it builds a browser surface — all authored into the committed
-// Phase-2 activity list. uiSurface is the Client's own design choice carried on the plan
-// (Component.uiSurface); it replaced a guess from the U-SPA id prefix. It supersedes the id-prefix-only DeriveType, whose N-* prefix arm
+// coding flag, and the Client surface it builds (if any) — all authored into the committed
+// Phase-2 activity list. surface is the Client's own design choice carried on the plan
+// (Component.surface); it replaced a guess from the U-SPA id prefix. It supersedes the id-prefix-only DeriveType, whose N-* prefix arm
 // conflated genuine testing (N-IT/N-STP/N-PERF/N-QA/N-STH) with infra (N-ENV/N-SC/
 // N-CI), deployment (N-DEPLOY/N-HARD) and documentation (N-DOC/N-SCHEMA/N-ADR), and
 // so handed an infra activity a testing slash-command (the N-ENV defect: the agent
@@ -9507,8 +9582,9 @@ func milestoneActivityType(id string) (ActivityType, TestingVariant, bool) {
 //     testing variant (deriveVariant ok) → Testing with that variant; an id that names
 //     none (N-STP/N-IT are retired, spec §7) falls through to the rules below
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
-//  3. uiSurface                        → Frontend
-//     machineClient                    → MachineClient
+//  3. surface web | mcpApp            → Frontend
+//     surface rest | mcpTools          → MachineClient
+//     surface ""                       → skip this rule
 //  4. id prefix I-                    → Integration
 //  5. coding == true                  → Service
 //  6. workerClass ∈ {system-architect, project-manager, product-manager} → Documentation
@@ -9524,7 +9600,7 @@ func milestoneActivityType(id string) (ActivityType, TestingVariant, bool) {
 //
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
 // zero value (no variant) otherwise.
-func ClassifyActivity(id, workerClass string, coding, uiSurface, machineClient bool) (ActivityType, TestingVariant, error) {
+func ClassifyActivity(id, workerClass string, coding bool, surface Surface) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
 		return typ, 0, nil
 	}
@@ -9544,11 +9620,17 @@ func ClassifyActivity(id, workerClass string, coding, uiSurface, machineClient b
 		}
 		return ActivityTypeUIDesign, 0, nil
 	}
-	if uiSurface {
-		return ActivityTypeFrontend, 0, nil
-	}
-	if machineClient {
-		return ActivityTypeMachineClient, 0, nil
+	if surface != "" {
+		kind, err := projectmodel.ParseSurface(string(surface))
+		if err != nil {
+			return ActivityTypeService, 0, fmt.Errorf("activity %s: %w", id, err)
+		}
+		switch kind.(type) {
+		case projectmodel.WebSurface, projectmodel.MCPAppSurface:
+			return ActivityTypeFrontend, 0, nil
+		case projectmodel.RESTSurface, projectmodel.MCPToolsSurface:
+			return ActivityTypeMachineClient, 0, nil
+		}
 	}
 	if strings.HasPrefix(strings.ToUpper(id), "I-") {
 		return ActivityTypeIntegration, 0, nil
@@ -9582,11 +9664,11 @@ func ClassifyActivity(id, workerClass string, coding, uiSurface, machineClient b
 // of the construction list view. A wrong type therefore fabricates an entire lifecycle.
 // The second return value is ok: when false the caller MUST render the row as
 // Unclassified with NO lifecycle sub-rows at all. An honest blank beats a plausible lie.
-func ClassifyType(id, workerClass string, coding, uiSurface, machineClient, hasServiceContract bool) (ActivityType, bool) {
+func ClassifyType(id, workerClass string, coding bool, surface Surface, hasServiceContract bool) (ActivityType, bool) {
 	if hasServiceContract {
 		return ActivityTypeService, true
 	}
-	typ, _, err := ClassifyActivity(id, workerClass, coding, uiSurface, machineClient)
+	typ, _, err := ClassifyActivity(id, workerClass, coding, surface)
 	// A design activity needed a tolerance here until stage 4b1 Task 10: rule 0 handed back
 	// its type WITH ErrDesignActivityNotDispatchable, so this lens had to let that one error
 	// through or it would have refused to render a row that has a type, a lifecycle and
@@ -9628,7 +9710,7 @@ func ResolveConstructionRow(
 	// hasServiceContract is false: an execution row carries no produced-artifact record
 	// (the list and its only writer, CommitActivityArtifacts, were deleted in dct4), so a
 	// row is typed by the committed plan's item alone.
-	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, meta.UISurface, meta.MachineClient, false)
+	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, meta.Surface, false)
 	if !classified {
 		return typ, variant, nil, false
 	}
@@ -12987,7 +13069,7 @@ func scopeAndChecks(p *Project, ms methodassets.MethodSpec, item ActivityItem) (
 	switch ms.Command {
 	case "service-construction", "service-integration":
 		pkgs := goPackagesOf(p, contracts)
-		if len(pkgs) == 0 && item.MachineClient {
+		if len(pkgs) == 0 && isMachineSurface(item.Surface) {
 			return SpecEditScope{}, nil, fmt.Errorf("projectstate.TaskSpecFor: machine client %q has no contract: it is derived when the contract of the Manager its views call is recorded, so that Manager must be designed first and the views must draw the call", item.ComponentID)
 		}
 		if len(pkgs) == 0 {
@@ -13587,8 +13669,8 @@ var uiDialectDefs []byte
 // facets stay.
 func RecordBrowserContract(p *Project, componentID string) error {
 	c := lookupSystemComponent(p, componentID)
-	if c == nil || c.Kind != CompClient || c.UiSurface == nil || !*c.UiSurface {
-		return fmt.Errorf("recording a UI design: %q is not a browser surface of the committed System", componentID)
+	if c == nil || !isBrowserSurface(c) {
+		return fmt.Errorf("recording a UI design: %q is not a browser surface (web or mcpApp) of the committed System", componentID)
 	}
 	key, _ := ContractKeyFor(*c)
 	ops, err := browserOps(p, c.ID)
@@ -13772,7 +13854,7 @@ func RecordMachineClientContracts(p *Project) error {
 	}
 	for i := range sys.Components {
 		c := &sys.Components[i]
-		if c.Kind != CompClient || c.UiSurface == nil || *c.UiSurface || c.MachineProtocol == nil {
+		if c.Kind != CompClient || c.Surface == nil || !isMachineSurface(*c.Surface) {
 			continue
 		}
 		if err := recordMachineClient(p, in, c); err != nil {
@@ -13852,11 +13934,48 @@ func machineClientManagerOps(in scenario.Input, clientID string) map[string][]sc
 	return out
 }
 
-// The transports a machine client can be (Component.MachineProtocol).
-const (
-	machineProtocolREST = "rest"
-	machineProtocolMCP  = "mcp"
-)
+// clientSurfaceKind parses a Client's stated surface; false for a component that is not a Client
+// or states none.
+func clientSurfaceKind(c *Component) (projectmodel.SurfaceKind, bool) {
+	if c == nil || c.Kind != CompClient || c.Surface == nil {
+		return nil, false
+	}
+	kind, err := projectmodel.ParseSurface(string(*c.Surface))
+	if err != nil {
+		return nil, false
+	}
+	return kind, true
+}
+
+// isBrowserSurface reports a Client whose surface is hand-built UI: web or mcpApp.
+func isBrowserSurface(c *Component) bool {
+	kind, ok := clientSurfaceKind(c)
+	if !ok {
+		return false
+	}
+	switch kind.(type) {
+	case projectmodel.WebSurface, projectmodel.MCPAppSurface:
+		return true
+	case projectmodel.RESTSurface, projectmodel.MCPToolsSurface:
+		return false
+	}
+	return false
+}
+
+// isMachineSurface reports a surface that is a generated machine client: rest or mcpTools.
+func isMachineSurface(s Surface) bool {
+	kind, err := projectmodel.ParseSurface(string(s))
+	if err != nil {
+		return false
+	}
+	switch kind.(type) {
+	case projectmodel.RESTSurface, projectmodel.MCPToolsSurface:
+		return true
+	case projectmodel.WebSurface, projectmodel.MCPAppSurface:
+		return false
+	}
+	return false
+}
 
 // mcpOutputSchema is what an MCP tool returns for a Manager's result: its structured output.
 func mcpOutputSchema(result json.RawMessage) json.RawMessage {
@@ -13866,6 +13985,10 @@ func mcpOutputSchema(result json.RawMessage) json.RawMessage {
 // machineClientContract is the client's view of one Manager's contract, kept to the reached ops and
 // the types they use, filed where its generated code lands.
 func machineClientContract(p *Project, c *Component, key, manager string, ops []scenario.ManagerOp) (ServiceContract, error) {
+	kind, ok := clientSurfaceKind(c)
+	if !ok {
+		return ServiceContract{}, fmt.Errorf("%q states no surface", c.ID)
+	}
 	source := p.ServiceContracts[manager]
 	if !strings.EqualFold(contractLayer(p, manager), "manager") {
 		return ServiceContract{}, fmt.Errorf("it calls %q, which is not a Manager", manager)
@@ -13889,14 +14012,18 @@ func machineClientContract(p *Project, c *Component, key, manager string, ops []
 	for i := range sc.Interface.Operations {
 		op := &sc.Interface.Operations[i]
 		op.Name = scenario.ClientOpName(source.Interface.Name, op.Name)
-		if *c.MachineProtocol == machineProtocolMCP && len(op.Result) > 0 {
+		if _, mcp := kind.(projectmodel.MCPToolsSurface); mcp && len(op.Result) > 0 {
 			op.Result = mcpOutputSchema(op.Result)
 		}
 	}
 	leaf := path.Base(source.GoPackage)
-	sc.GoPackage = path.Join(clientgen.ClientPackage(c.Name), leaf)
-	if *c.MachineProtocol == machineProtocolREST {
+	switch kind.(type) {
+	case projectmodel.MCPToolsSurface:
+		sc.GoPackage = path.Join(clientgen.ClientPackage(c.Name), leaf)
+	case projectmodel.RESTSurface:
 		sc.GoPackage = path.Join("internal/client/web", leaf)
+	case projectmodel.WebSurface, projectmodel.MCPAppSurface:
+		return ServiceContract{}, fmt.Errorf("%q has surface %s, which is hand-built UI with a browser contract, not a generated machine client", c.ID, kind.Surface())
 	}
 	sc.Component, sc.Layer, sc.Title = key, "Client", key+derivedContractMark+manager
 	sc.Interface.Name, sc.Interface.Layer = c.Name+strings.TrimSuffix(source.Interface.Name, "Manager"), "client"

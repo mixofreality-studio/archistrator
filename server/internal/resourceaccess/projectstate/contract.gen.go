@@ -294,6 +294,13 @@ type ArtifactSlot struct {
 	Provenance      *Provenance          `json:"Provenance,omitempty"`
 }
 
+type Audience string
+
+const (
+	AudienceHuman   Audience = "human"
+	AudienceMachine Audience = "machine"
+)
+
 type Axis int
 
 const (
@@ -379,8 +386,7 @@ type Component struct {
 	ContractKey              *string       `json:"contractKey,omitempty"`
 	ConstructionProfile      *string       `json:"constructionProfile,omitempty"`
 	Provisioning             *string       `json:"provisioning,omitempty"`
-	UiSurface                *bool         `json:"uiSurface,omitempty"`
-	MachineProtocol          *string       `json:"machineProtocol,omitempty"`
+	Surface                  *Surface      `json:"surface,omitempty"`
 }
 
 type ComponentKind int
@@ -456,6 +462,13 @@ const (
 	StyleLocal DeliveryStyle = 1
 	StyleBoth  DeliveryStyle = 2
 )
+
+type DeliverySurface struct {
+	Kind      Surface  `json:"kind"`
+	Audience  Audience `json:"audience"`
+	Source    string   `json:"source"`
+	Objective int      `json:"objective"`
+}
 
 type DeployContainer struct {
 	Key         string           `json:"key"`
@@ -673,9 +686,10 @@ type LiteralValue struct {
 }
 
 type MissionStatement struct {
-	Vision     string      `json:"vision"`
-	Objectives []Objective `json:"objectives"`
-	Mission    string      `json:"mission"`
+	Vision           string            `json:"vision"`
+	Objectives       []Objective       `json:"objectives"`
+	Mission          string            `json:"mission"`
+	DeliverySurfaces []DeliverySurface `json:"deliverySurfaces"`
 }
 
 type Money struct {
@@ -1134,6 +1148,15 @@ type SubjectRef struct {
 	Kind SubjectKind `json:"kind"`
 	Ref  string      `json:"ref"`
 }
+
+type Surface string
+
+const (
+	SurfaceWeb      Surface = "web"
+	SurfaceREST     Surface = "rest"
+	SurfaceMCPTools Surface = "mcpTools"
+	SurfaceMCPApp   Surface = "mcpApp"
+)
 
 type System struct {
 	Components    []Component    `json:"components"`

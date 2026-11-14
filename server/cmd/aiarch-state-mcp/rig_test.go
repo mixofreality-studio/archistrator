@@ -541,10 +541,9 @@ type freshSystem struct {
 	base   projectstate.Project
 }
 
-// statingClientSurfaces is a corpus System with each Client's uiSurface and transport stated and
-// no relationship left uncalled, as
-// SYS-CLIENT-UISURFACE now makes an agent do. The corpus stays verbatim: no run recorded the
-// field, which is the defect the rule closes.
+// statingClientSurfaces is a corpus System with each Client's surface stated and no relationship
+// left uncalled, as SYS-CLIENT-SURFACE now makes an agent do. The corpus stays verbatim: no run
+// recorded the field, which is the defect the rule closes.
 func statingClientSurfaces(t *testing.T, system json.RawMessage) json.RawMessage {
 	t.Helper()
 	var model map[string]any
@@ -553,8 +552,7 @@ func statingClientSurfaces(t *testing.T, system json.RawMessage) json.RawMessage
 	}
 	for _, c := range model["components"].([]any) {
 		if comp := c.(map[string]any); comp["kind"] == "client" {
-			comp["uiSurface"] = false
-			comp["machineProtocol"] = "mcp"
+			comp["surface"] = "mcpTools"
 		}
 	}
 	called := map[string]bool{}
@@ -581,7 +579,7 @@ func statingClientSurfaces(t *testing.T, system json.RawMessage) json.RawMessage
 	return out
 }
 
-// A System whose Clients leave uiSurface out is refused, naming the field: it decides whether
+// A System whose Clients leave surface out is refused, naming the rule: it decides whether
 // a Client is planned as a browser surface or a Go service, so it cannot default.
 func TestRig_DraftRefusesAClientWithNoStatedSurface(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
@@ -601,7 +599,7 @@ func TestRig_DraftRefusesAClientWithNoStatedSurface(t *testing.T) {
 				t.Fatal(err)
 			}
 			res := callTool(ctx, t, session, "putDraftModel", map[string]any{"model": model})
-			if !res.IsError || !strings.Contains(contentText(res), "SYS-CLIENT-UISURFACE") {
+			if !res.IsError || !strings.Contains(contentText(res), "SYS-CLIENT-SURFACE") {
 				t.Fatalf("got error=%v: %s", res.IsError, contentText(res))
 			}
 		})

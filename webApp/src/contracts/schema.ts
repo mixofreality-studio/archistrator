@@ -1459,11 +1459,10 @@ export interface components {
       coding: boolean;
       componentId?: string;
       effortDays: number;
-      machineClient?: boolean;
       name: string;
       riskBucket: number;
+      surface?: string;
       title?: string;
-      uiSurface?: boolean;
       workerClass: string;
     };
     ModelActivityList: {
@@ -1525,10 +1524,9 @@ export interface components {
       kind: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
       /** @enum {string} */
       layer: 'client' | 'manager' | 'engine' | 'resourceAccess' | 'resource' | 'utility';
-      machineProtocol?: null | string;
       name: string;
       provisioning?: null | string;
-      uiSurface?: null | boolean;
+      surface?: null | string;
     };
     ModelConstructionVenue: {
       kind: string;
@@ -1543,6 +1541,12 @@ export interface components {
     };
     ModelCoreUseCases: {
       decisions: null | components['schemas']['ModelUseCaseDecision'][];
+    };
+    ModelDeliverySurface: {
+      audience: string;
+      kind: string;
+      objective: number;
+      source: string;
     };
     ModelDeployContainer: {
       components: null | string[];
@@ -1667,6 +1671,7 @@ export interface components {
       technology: string;
     };
     ModelMissionStatement: {
+      deliverySurfaces: null | components['schemas']['ModelDeliverySurface'][];
       mission: string;
       objectives: null | components['schemas']['ModelObjective'][];
       vision: string;

@@ -62,16 +62,15 @@ type ConstructionEstimate struct {
 }
 
 type DerivedActivity struct {
-	Name          string  `json:"name"`
-	Title         string  `json:"title"`
-	EffortDays    float64 `json:"effortDays"`
-	RiskBucket    int64   `json:"riskBucket"`
-	WorkerClass   string  `json:"workerClass"`
-	Coding        bool    `json:"coding"`
-	ComponentID   string  `json:"componentId"`
-	Derived       bool    `json:"derived"`
-	UiSurface     bool    `json:"uiSurface"`
-	MachineClient bool    `json:"machineClient"`
+	Name        string  `json:"name"`
+	Title       string  `json:"title"`
+	EffortDays  float64 `json:"effortDays"`
+	RiskBucket  int64   `json:"riskBucket"`
+	WorkerClass string  `json:"workerClass"`
+	Coding      bool    `json:"coding"`
+	ComponentID string  `json:"componentId"`
+	Derived     bool    `json:"derived"`
+	Surface     string  `json:"surface"`
 }
 
 type DerivedPlan struct {
@@ -173,8 +172,8 @@ type SystemComponent struct {
 	Kind                string `json:"kind"`
 	ConstructionProfile string `json:"constructionProfile"`
 	Provisioning        string `json:"provisioning"`
-	UiSurface           bool   `json:"uiSurface"`
 	BuildStatus         string `json:"buildStatus"`
+	Surface             string `json:"surface"`
 }
 
 type SystemRelationship struct {

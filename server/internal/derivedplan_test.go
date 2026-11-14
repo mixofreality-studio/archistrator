@@ -16,7 +16,7 @@ import (
 func TestDerivedPlan_EmitsNATP(t *testing.T) {
 	system := estimation.SystemView{Components: []estimation.SystemComponent{
 		{ID: "list-manager", Name: "ListManager", Kind: "manager"},
-		{ID: "todo-web-app", Name: "TodoWebApp", Kind: "client", UiSurface: true},
+		{ID: "todo-web-app", Name: "TodoWebApp", Kind: "client", Surface: "web"},
 	}}
 	plan, err := estimation.NewEstimationEngine().DerivePlan(fweng.Context{}, system, estimation.ActivityListDeltas{})
 	if err != nil {
@@ -66,7 +66,7 @@ func TestDerivedPlan_MAcceptPrecedesMEND(t *testing.T) {
 	system := estimation.SystemView{Components: []estimation.SystemComponent{
 		{ID: "list-manager", Name: "ListManager", Kind: "manager"},
 		{ID: "ruling-engine", Name: "RulingEngine", Kind: "engine"},
-		{ID: "todo-web-app", Name: "TodoWebApp", Kind: "client", UiSurface: true},
+		{ID: "todo-web-app", Name: "TodoWebApp", Kind: "client", Surface: "web"},
 		{ID: "stripe", Name: "Stripe", Kind: "resource", Provisioning: "vendor"},
 	}}
 	additive := []estimation.AdditiveActivity{{

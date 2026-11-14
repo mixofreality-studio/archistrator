@@ -29,11 +29,13 @@
 package estimation
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
 	"unicode"
 
+	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
@@ -1330,7 +1332,10 @@ func (estimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, delta
 			Milestones:   []NetworkMilestone{namedMilestone(sdpReviewMilestone, []string{projectDesignActivity})},
 		}, nil
 	}
-	acts := deriveActivities(system)
+	acts, err := deriveActivities(system)
+	if err != nil {
+		return DerivedPlan{}, err
+	}
 	deps := deriveDependencies(system, acts)
 	ms := deriveMilestones(system, acts)
 	return applyDeltas(acts, deps, ms, deltas)
@@ -1647,20 +1652,31 @@ func knownBuildStatus(s string) bool {
 // constructionProfile still defaults to "handwritten" upstream (toEstimationSystemView) —
 // only an explicit "generated" or "provided" value skips the activity.
 //
-// A client with a UI surface gets its ONE activity from clientAppActivityFor instead,
+// A client with a browser surface (web or mcpApp) gets its ONE activity from clientAppActivityFor instead,
 // whatever its constructionProfile — one activity per component, never two.
-func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
+func codingActivityFor(c SystemComponent) (DerivedActivity, bool, error) {
 	if !knownBuildStatus(c.BuildStatus) || c.BuildStatus == buildStatusPlanned || c.BuildStatus == buildStatusExternal {
-		return DerivedActivity{}, false
+		return DerivedActivity{}, false, nil
 	}
 	if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" || c.ConstructionProfile == "provided" {
-		return DerivedActivity{}, false
+		return DerivedActivity{}, false, nil
 	}
-	if c.Kind == "client" && c.UiSurface {
-		return DerivedActivity{}, false
+	var surface projectmodel.SurfaceKind
+	if c.Kind == "client" && c.Surface != "" {
+		var err error
+		if surface, err = parseClientSurface(c); err != nil {
+			return DerivedActivity{}, false, err
+		}
+	}
+	// A browser surface (web or mcpApp) is built by clientAppActivityFor: one activity per
+	// component, never two. A surface the client does not state is generated like rest.
+	switch surface.(type) {
+	case projectmodel.WebSurface, projectmodel.MCPAppSurface:
+		return DerivedActivity{}, false, nil
+	case projectmodel.RESTSurface, projectmodel.MCPToolsSurface:
 	}
 	effort := defaultEffortFor(c.Kind)
-	return DerivedActivity{
+	activity := DerivedActivity{
 		Name:        "C-" + c.ID,
 		Title:       "Build " + c.Name,
 		EffortDays:  effort,
@@ -1669,10 +1685,25 @@ func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
 		Coding:      true,
 		ComponentID: c.ID,
 		Derived:     true,
-		// A client that is not a browser surface is generated: it walks the machineClient
-		// lifecycle, which writes nothing and proves the generated code.
-		MachineClient: c.Kind == "client",
-	}, true
+	}
+	// A client that is not a browser surface is generated (rest or mcpTools): it walks the
+	// machineClient lifecycle, which writes nothing and proves the generated code.
+	if c.Kind == "client" {
+		activity.Surface = c.Surface
+	}
+	return activity, true, nil
+}
+
+// parseClientSurface parses the surface a Client states. The Engine sees the surface as the plain
+// string its own contract carries, so this is where it becomes a SurfaceKind. A client that states
+// none is the caller's case (it never reaches here); a stated value outside the closed set is an
+// error, never a quiet "not a browser surface" (GC-2).
+func parseClientSurface(c SystemComponent) (projectmodel.SurfaceKind, error) {
+	kind, err := projectmodel.ParseSurface(c.Surface)
+	if err != nil {
+		return nil, fweng.New(fweng.ContractMisuse, fmt.Sprintf("client %q: %v", c.ID, err))
+	}
+	return kind, nil
 }
 
 // provisioningActivityFor emits the R-* provisioning activity for a vendor resource.
@@ -1698,36 +1729,53 @@ func provisioningActivityFor(c SystemComponent) (DerivedActivity, bool) {
 }
 
 // clientAppActivityFor emits the U-SPA-<clientId> frontend activity — Table 11-1 #19,
-// "Client App" — for a client that carries a UI surface, or false otherwise. The rule
-// keys on uiSurface, NOT on constructionProfile: for a client that field describes the
+// "Client App" — for a client whose surface is web or mcpApp, or false otherwise. The rule
+// keys on surface, NOT on constructionProfile: for a client that field describes the
 // generated TRANSPORT (REST handlers, typed client, MCP tools), while the UI itself is
-// hand-built. A client with no UI surface (an MCP or scheduler client) is wholly
-// generated and gets nothing.
+// hand-built. A client with no browser surface (a rest, mcpTools or scheduler client) is
+// wholly generated and gets nothing.
 //
 // This one activity carries the whole frontend: its own lifecycle runs the
 // UX-requirements and UI-design phases, so there is no separate UI-design or scaffold
 // activity, and it is not split per manager — it DEPENDS on the managers it calls
 // (architectureEdges routes those relationships, because activityForComponent indexes
 // this activity by its client).
-func clientAppActivityFor(c SystemComponent) (DerivedActivity, bool) {
+func clientAppActivityFor(c SystemComponent) (DerivedActivity, bool, error) {
 	if !knownBuildStatus(c.BuildStatus) || c.BuildStatus == buildStatusPlanned || c.BuildStatus == buildStatusExternal {
-		return DerivedActivity{}, false
+		return DerivedActivity{}, false, nil
 	}
-	if c.Kind != "client" || !c.UiSurface {
-		return DerivedActivity{}, false
+	if c.Kind != "client" {
+		return DerivedActivity{}, false, nil
+	}
+	if c.Surface == "" { // a client that states no surface is generated; nothing to build by hand
+		return DerivedActivity{}, false, nil
+	}
+	surface, err := parseClientSurface(c)
+	if err != nil {
+		return DerivedActivity{}, false, err
+	}
+	var suffix string
+	switch surface.(type) {
+	case projectmodel.WebSurface:
+		suffix = " (SPA)"
+	case projectmodel.MCPAppSurface:
+		suffix = " (MCP App)"
+	case projectmodel.RESTSurface, projectmodel.MCPToolsSurface:
+		return DerivedActivity{}, false, nil
 	}
 	effort := defaultEffortFor(c.Kind)
+	title := "Build " + spacedName(c.Name) + suffix
 	return DerivedActivity{
 		Name:        "U-SPA-" + c.ID,
-		Title:       "Build " + spacedName(c.Name) + " (SPA)",
+		Title:       title,
 		EffortDays:  effort,
 		RiskBucket:  defaultRiskFor(effort),
 		WorkerClass: workerClassFor("U"),
 		Coding:      true,
 		ComponentID: c.ID,
 		Derived:     true,
-		UiSurface:   true,
-	}, true
+		Surface:     c.Surface,
+	}, true, nil
 }
 
 // spacedName turns a component's PascalCase name into words for a human title:
@@ -1779,19 +1827,27 @@ func spacedName(name string) string {
 //	                (#5) is platform-generated, build/smoke automation is platform
 //	                infrastructure, performance testing is not in Table 11-1 (a
 //	                justified additive), and QA is a role booked as indirect cost.
-func deriveActivities(system SystemView) []DerivedActivity {
+func deriveActivities(system SystemView) ([]DerivedActivity, error) {
 	prefix := designPrefixActivities()
 	out := make([]DerivedActivity, 0, len(prefix)+len(system.Components))
 	out = append(out, prefix...)
 
 	for _, c := range system.Components {
-		if a, ok := codingActivityFor(c); ok {
+		a, ok, err := codingActivityFor(c)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			out = append(out, a)
 		}
 		if a, ok := provisioningActivityFor(c); ok {
 			out = append(out, a)
 		}
-		if a, ok := clientAppActivityFor(c); ok {
+		a, ok, err = clientAppActivityFor(c)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			out = append(out, a)
 		}
 	}
@@ -1800,7 +1856,7 @@ func deriveActivities(system SystemView) []DerivedActivity {
 	}
 
 	sort.Slice(out, func(i, j int) bool { return planOrderLess(out[i].Name, out[j].Name) })
-	return out
+	return out, nil
 }
 
 // acceptancePlanActivityName is the id of the use-case acceptance test plan activity (N-ATP).

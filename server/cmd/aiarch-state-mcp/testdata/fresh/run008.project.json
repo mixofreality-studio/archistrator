@@ -2947,7 +2947,7 @@
             ],
             "atomicBusinessVerbs": null,
             "contractKey": "webApp",
-            "uiSurface": true
+            "surface": "web"
           },
           {
             "id": "workspace-app",
@@ -2960,7 +2960,7 @@
             ],
             "atomicBusinessVerbs": null,
             "contractKey": "workspaceApp",
-            "uiSurface": true
+            "surface": "web"
           },
           {
             "id": "web-api",
@@ -2972,8 +2972,7 @@
               "Interface-protocol volatility"
             ],
             "atomicBusinessVerbs": null,
-            "contractKey": "webApi",
-            "uiSurface": false
+            "contractKey": "webApi"
           },
           {
             "id": "mcp-server",
@@ -2985,8 +2984,7 @@
               "Interface-protocol volatility"
             ],
             "atomicBusinessVerbs": null,
-            "contractKey": "mcpServer",
-            "uiSurface": false
+            "contractKey": "mcpServer"
           },
           {
             "id": "list-manager",
@@ -4878,7 +4876,7 @@
             "riskBucket": 5,
             "title": "Build Web App (SPA)",
             "componentId": "web-app",
-            "uiSurface": true
+            "surface": "web"
           },
           {
             "name": "U-SPA-workspace-app",
@@ -4888,7 +4886,7 @@
             "riskBucket": 5,
             "title": "Build Workspace App (SPA)",
             "componentId": "workspace-app",
-            "uiSurface": true
+            "surface": "web"
           }
         ]
       },

@@ -149,7 +149,7 @@ func withATPActivity(t *testing.T) *projectstate.Project {
 }
 
 func TestATPActivityClassifiesAsTheAcceptancePlanLifecycle(t *testing.T) {
-	typ, variant, err := projectstate.ClassifyActivity("N-ATP", "test-engineer", false, false, false)
+	typ, variant, err := projectstate.ClassifyActivity("N-ATP", "test-engineer", false, "")
 	if err != nil || typ != projectstate.ActivityTypeTesting || variant != projectstate.TestVariantAcceptancePlan {
 		t.Fatalf("N-ATP classifies as (%v, %v, %v), want testing/acceptancePlan", typ, variant, err)
 	}

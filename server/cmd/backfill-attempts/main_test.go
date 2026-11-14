@@ -43,8 +43,6 @@ var (
 
 func strp(s string) *string { return &s }
 
-func boolp(b bool) *bool { return &b }
-
 func contractFor(component, goPackage, iface string, ops ...string) projectstate.ServiceContract {
 	sc := projectstate.ServiceContract{Component: component, GoPackage: goPackage, Title: component + " contract"}
 	sc.Interface.Name = iface
@@ -57,7 +55,7 @@ func contractFor(component, goPackage, iface string, ops ...string) projectstate
 func fixtureProject() projectstate.Project {
 	sys := &projectstate.System{
 		Components: []projectstate.Component{
-			{ID: "web-client", Name: "WebClient", Encapsulates: "a fixture volatility", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, ContractKey: strp("webClient"), UiSurface: boolp(true)},
+			{ID: "web-client", Name: "WebClient", Encapsulates: "a fixture volatility", Kind: projectstate.CompClient, Layer: projectstate.LayerClient, ContractKey: strp("webClient"), Surface: surfacep(projectstate.SurfaceWeb)},
 			{ID: "alpha-manager", Name: "AlphaManager", Encapsulates: "a fixture volatility", Kind: projectstate.CompManager, Layer: projectstate.LayerManager, ContractKey: strp("alphaManager")},
 			{ID: "beta-engine", Name: "BetaEngine", Encapsulates: "a fixture volatility", Kind: projectstate.CompEngine, Layer: projectstate.LayerEngine, ContractKey: strp("betaEngine")},
 			{ID: "gamma-access", Name: "GammaAccess", Encapsulates: "a fixture volatility", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess, ContractKey: strp("gammaAccess")},
@@ -76,7 +74,7 @@ func fixtureProject() projectstate.Project {
 		},
 	}
 	list := &projectstate.ActivityList{Activities: []projectstate.ActivityItem{
-		{Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client", UISurface: true},
+		{Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true, ComponentID: "web-client", Surface: projectstate.SurfaceWeb},
 		{Name: "C-alpha-manager", WorkerClass: "junior-developer", Coding: true, ComponentID: "alpha-manager"},
 		{Name: "C-beta-engine", WorkerClass: "junior-developer", Coding: true, ComponentID: "beta-engine"},
 		{Name: "C-gamma-access", WorkerClass: "junior-developer", Coding: true, ComponentID: "gamma-access"},
@@ -1712,7 +1710,7 @@ func TestDesignSlotEvidence_CoversExactlyTheClassifiersDesignActivities(t *testi
 func TestDesignPhaseArtifact_NamesOneSlotOfItsOwnActivityForEveryDesignPhase(t *testing.T) {
 	covered := map[projectstate.ActivityMethodPhase]bool{}
 	for id, slots := range designActivitySlots {
-		typ, _, _ := projectstate.ClassifyActivity(id, "system-architect", false, false, false)
+		typ, _, _ := projectstate.ClassifyActivity(id, "system-architect", false, "")
 		refs := map[string]bool{}
 		for _, s := range slots {
 			refs[s.Ref] = true
@@ -1935,8 +1933,10 @@ func TestClientApp_EachConditionFailsTheClientApp(t *testing.T) {
 		files map[string]string
 		want  string
 	}{
-		{"no UI surface", func(p *projectstate.Project) { componentOf(t, p, "web-client").UiSurface = boolp(false) }, nil,
-			"client app: condition 1: client \"web-client\" has no UI surface"},
+		{"no UI surface", func(p *projectstate.Project) {
+			componentOf(t, p, "web-client").Surface = surfacep(projectstate.SurfaceMCPTools)
+		}, nil,
+			"client app: condition 1: client \"web-client\" has no browser surface (web or mcpApp)"},
 		{"a stub contract", func(p *projectstate.Project) {
 			sc := p.ServiceContracts["webClient"]
 			sc.Stub = true
@@ -2086,3 +2086,5 @@ func TestApply_RetiresThroughTheRewriteAndIsIdempotent(t *testing.T) {
 		t.Error("a re-run over the retired document wrote again")
 	}
 }
+
+func surfacep(s projectstate.Surface) *projectstate.Surface { return &s }

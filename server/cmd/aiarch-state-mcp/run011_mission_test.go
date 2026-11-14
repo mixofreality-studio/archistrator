@@ -6,6 +6,7 @@ package main
 // with a reply that the draft had passed the codec and the Method rules.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,8 +32,23 @@ func TestPutDraftModelRefusesAnUnknownField(t *testing.T) {
 		t.Fatalf("the mission slot was written: %+v", slot)
 	}
 
-	fixed := strings.ReplaceAll(string(draft), `{"text":`, `{"statement":`)
-	if err := s.putDraftModel([]byte(fixed)); err != nil {
+	// The same draft with its objectives named and numbered as the schema has them, and the
+	// delivery surfaces the mission now commits to (FPC W6), is accepted.
+	var model map[string]any
+	if err := json.Unmarshal([]byte(strings.ReplaceAll(string(draft), `{"text":`, `{"statement":`)), &model); err != nil {
+		t.Fatal(err)
+	}
+	for i, o := range model["objectives"].([]any) {
+		o.(map[string]any)["number"] = i + 1
+	}
+	model["deliverySurfaces"] = []any{
+		map[string]any{"kind": "web", "audience": "human", "source": "a small team can start using tomorrow", "objective": 1},
+	}
+	fixed, err := json.Marshal(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.putDraftModel(fixed); err != nil {
 		t.Fatalf("the same draft with its objectives named as the schema names them: %v", err)
 	}
 }

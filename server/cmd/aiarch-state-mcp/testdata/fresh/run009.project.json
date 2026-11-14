@@ -2532,7 +2532,7 @@
       ],
       "atomicBusinessVerbs": null,
       "contractKey": "webApp",
-      "uiSurface": true
+      "surface": "web"
      },
      {
       "id": "mcp-apps-surface",
@@ -2545,7 +2545,7 @@
       ],
       "atomicBusinessVerbs": null,
       "contractKey": "mcpAppsSurface",
-      "uiSurface": true
+      "surface": "web"
      },
      {
       "id": "web-api",
@@ -2558,8 +2558,7 @@
       ],
       "atomicBusinessVerbs": null,
       "contractKey": "webApi",
-      "uiSurface": false,
-      "machineProtocol": "rest"
+      "surface": "rest"
      },
      {
       "id": "mcp-server",
@@ -2572,8 +2571,7 @@
       ],
       "atomicBusinessVerbs": null,
       "contractKey": "mcpServer",
-      "uiSurface": false,
-      "machineProtocol": "mcp"
+      "surface": "mcpTools"
      },
      {
       "id": "list-keeping-manager",
@@ -4243,7 +4241,7 @@
       "riskBucket": 5,
       "title": "Build McpServer",
       "componentId": "mcp-server",
-      "machineClient": true
+      "surface": "mcpTools"
      },
      {
       "name": "C-pub-sub",
@@ -4280,7 +4278,7 @@
       "riskBucket": 5,
       "title": "Build WebApi",
       "componentId": "web-api",
-      "machineClient": true
+      "surface": "rest"
      },
      {
       "name": "U-SPA-mcp-apps-surface",
@@ -4290,7 +4288,7 @@
       "riskBucket": 5,
       "title": "Build Mcp Apps Surface (SPA)",
       "componentId": "mcp-apps-surface",
-      "uiSurface": true
+      "surface": "web"
      },
      {
       "name": "U-SPA-web-app",
@@ -4300,7 +4298,7 @@
       "riskBucket": 5,
       "title": "Build Web App (SPA)",
       "componentId": "web-app",
-      "uiSurface": true
+      "surface": "web"
      }
     ]
    },

@@ -74,6 +74,8 @@ import (
 	"strings"
 	"time"
 
+	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
+
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -334,7 +336,7 @@ var designPhaseArtifact = map[projectstate.ActivityMethodPhase]string{
 // TYPE, which is what it was always really about: a design activity's work product is a
 // committed artifact slot rather than code the corpus can read.
 func producesArtifactSlots(a projectstate.ActivityItem) bool {
-	typ, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.UISurface, a.MachineClient)
+	typ, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.Surface)
 	if err != nil {
 		return false
 	}
@@ -1074,11 +1076,29 @@ var (
 	identifierKey       = regexp.MustCompile(`^    ([A-Za-z_][A-Za-z0-9_]*)\s*[:(]`)
 )
 
+// hasBrowserSurface reports a Client whose surface is hand-built UI: web or mcpApp.
+func hasBrowserSurface(c projectstate.Component) bool {
+	if c.Surface == nil {
+		return false
+	}
+	kind, err := projectmodel.ParseSurface(string(*c.Surface))
+	if err != nil {
+		return false
+	}
+	switch kind.(type) {
+	case projectmodel.WebSurface, projectmodel.MCPAppSurface:
+		return true
+	case projectmodel.RESTSurface, projectmodel.MCPToolsSurface:
+		return false
+	}
+	return false
+}
+
 // clientAppBuilt is the CODE evidence path for a client: its activity (U-SPA-<client>,
 // Table 11-1 #19) builds the client app, whose code is the SPA rather than a Go package.
 // The client app is built only when ALL of these hold:
 //
-//  1. The client has a UI surface. One without (an MCP or scheduler client) is generated
+//  1. The client has a browser surface (web or mcpApp). One without (a rest, mcpTools or scheduler client) is generated
 //     transport and is given no client-app activity to evidence.
 //  2. Its contract, .serviceContracts[contractKey], exists, and it and every facet grouped
 //     under it is not a stub, names no goPackage (a client with one is a Go component, not
@@ -1096,8 +1116,8 @@ func clientAppBuilt(activityID string, component projectstate.Component, in inpu
 	fail := func(format string, args ...any) verdict {
 		return verdict{ActivityID: activityID, Reason: "client app: " + fmt.Sprintf(format, args...)}
 	}
-	if component.UiSurface == nil || !*component.UiSurface {
-		return fail("condition 1: client %q has no UI surface, so there is no client app to build", component.ID)
+	if !hasBrowserSurface(component) {
+		return fail("condition 1: client %q has no browser surface (web or mcpApp), so there is no client app to build", component.ID)
 	}
 	key, _ := projectstate.ContractKeyFor(component) // a client is never a Resource: always keyed
 	if own, ok := in.Project.ServiceContracts[key]; !ok || own.Component != key {
@@ -1410,13 +1430,13 @@ func evidenceFor(task projectstate.MethodTask, v verdict) projectstate.EvidenceR
 // other signal. An unclassifiable activity has no profile, so it has no task
 // vocabulary, so there is nothing honest to write against it.
 func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.ActivityType, projectstate.TestingVariant, error) {
-	typ, ok := projectstate.ClassifyType(item.Name, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient, hasContract)
+	typ, ok := projectstate.ClassifyType(item.Name, item.WorkerClass, item.Coding, item.Surface, hasContract)
 	if !ok {
 		return 0, 0, fmt.Errorf("%s: ClassifyType refused (workerClass %q, coding %v)", item.Name, item.WorkerClass, item.Coding)
 	}
 	var variant projectstate.TestingVariant // the zero value: no variant (non-testing)
 	if typ == projectstate.ActivityTypeTesting {
-		_, variant, _ = projectstate.ClassifyActivity(item.Name, item.WorkerClass, item.Coding, item.UISurface, item.MachineClient)
+		_, variant, _ = projectstate.ClassifyActivity(item.Name, item.WorkerClass, item.Coding, item.Surface)
 	}
 	return typ, variant, nil
 }

@@ -39,7 +39,7 @@ func composedState(t *testing.T) []byte {
 func recordClientContracts(t *testing.T, proj *projectstate.Project, sys *projectstate.System, contracts map[string]json.RawMessage) {
 	t.Helper()
 	for _, c := range sys.Components {
-		if c.Kind != projectstate.CompClient || c.UiSurface == nil || !*c.UiSurface {
+		if c.Kind != projectstate.CompClient || c.Surface == nil || (*c.Surface != projectstate.SurfaceWeb && *c.Surface != projectstate.SurfaceMCPApp) {
 			continue
 		}
 		if err := projectstate.RecordBrowserContract(proj, c.ID); err != nil {
@@ -76,8 +76,8 @@ func conformClientDesign(t *testing.T, state []byte) []byte {
 	if plan, ok := slots["9"].(map[string]any); ok {
 		for _, a := range plan["model"].(map[string]any)["activities"].([]any) {
 			item := a.(map[string]any)
-			if strings.HasPrefix(item["name"].(string), "C-") && machineClientID(system, item["componentId"]) {
-				item["machineClient"] = true
+			if surface := machineClientSurface(system, item["componentId"]); strings.HasPrefix(item["name"].(string), "C-") && surface != "" {
+				item["surface"] = surface
 			}
 		}
 	}
@@ -88,7 +88,7 @@ func conformClientDesign(t *testing.T, state []byte) []byte {
 	return out
 }
 
-// conformClients states each machine client's transport, leads each actor call into a browser
+// conformClients states each built Client's surface, leads each actor call into a browser
 // surface with its operation, and drops the relationships no view calls.
 func conformClients(system map[string]any) {
 	surface := map[string]bool{}
@@ -97,10 +97,13 @@ func conformClients(system map[string]any) {
 		if comp["kind"] != "client" {
 			continue
 		}
-		if ui, _ := comp["uiSurface"].(bool); ui {
+		switch comp["surface"] {
+		case "web", "mcpApp":
 			surface[comp["id"].(string)] = true
-		} else if comp["buildStatus"] == nil {
-			comp["machineProtocol"] = "mcp"
+		case nil:
+			if comp["buildStatus"] == nil {
+				comp["surface"] = "mcpTools"
+			}
 		}
 	}
 	called := map[string]bool{}
@@ -126,15 +129,17 @@ func conformClients(system map[string]any) {
 	system["relationships"] = kept
 }
 
-func machineClientID(system map[string]any, id any) bool {
+// machineClientSurface is the surface (rest or mcpTools) of the machine client id names, or "".
+func machineClientSurface(system map[string]any, id any) string {
 	for _, c := range system["components"].([]any) {
 		comp := c.(map[string]any)
 		if comp["id"] == id && comp["kind"] == "client" {
-			ui, _ := comp["uiSurface"].(bool)
-			return !ui
+			if surface, _ := comp["surface"].(string); surface == "rest" || surface == "mcpTools" {
+				return surface
+			}
 		}
 	}
-	return false
+	return ""
 }
 
 // useCaseOp is a use case's id as an exported operation name.
@@ -763,7 +768,7 @@ func TestFreshEveryPlannedTaskResolves(t *testing.T) {
 		t.Fatal("the fixture plans no activity")
 	}
 	for _, a := range planned {
-		typ, variant, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.UISurface, a.MachineClient)
+		typ, variant, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding, a.Surface)
 		if err != nil {
 			t.Errorf("%s is unclassified: %v", a.Name, err)
 			continue
@@ -783,11 +788,11 @@ func TestFreshEveryPlannedTaskResolves(t *testing.T) {
 
 // A machine client is classified by the plan's own field, and only then.
 func TestClassifyMachineClient(t *testing.T) {
-	typ, _, err := projectstate.ClassifyActivity("C-web-api", "junior-developer", true, false, true)
+	typ, _, err := projectstate.ClassifyActivity("C-web-api", "junior-developer", true, projectstate.SurfaceREST)
 	if err != nil || typ != projectstate.ActivityTypeMachineClient {
 		t.Errorf("got %v, %v", typ, err)
 	}
-	typ, _, err = projectstate.ClassifyActivity("C-web-api", "junior-developer", true, false, false)
+	typ, _, err = projectstate.ClassifyActivity("C-web-api", "junior-developer", true, "")
 	if err != nil || typ != projectstate.ActivityTypeService {
 		t.Errorf("with no flag it is a service: %v, %v", typ, err)
 	}

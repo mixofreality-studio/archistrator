@@ -2569,7 +2569,7 @@
       ],
       "atomicBusinessVerbs": null,
       "contractKey": "listApp",
-      "uiSurface": true
+      "surface": "web"
      },
      {
       "id": "list-api",
@@ -2582,8 +2582,7 @@
       ],
       "atomicBusinessVerbs": null,
       "contractKey": "listApi",
-      "uiSurface": false,
-      "machineProtocol": "rest"
+      "surface": "rest"
      },
      {
       "id": "list-mcp-server",
@@ -2596,8 +2595,7 @@
       ],
       "atomicBusinessVerbs": null,
       "contractKey": "listMcpServer",
-      "uiSurface": false,
-      "machineProtocol": "mcp"
+      "surface": "mcpTools"
      },
      {
       "id": "list-manager",
@@ -4000,7 +3998,7 @@
       "riskBucket": 5,
       "title": "Build ListApi",
       "componentId": "list-api",
-      "machineClient": true
+      "surface": "rest"
      },
      {
       "name": "C-list-manager",
@@ -4019,7 +4017,7 @@
       "riskBucket": 5,
       "title": "Build ListMcpServer",
       "componentId": "list-mcp-server",
-      "machineClient": true
+      "surface": "mcpTools"
      },
      {
       "name": "C-message-bus",
@@ -4038,7 +4036,7 @@
       "riskBucket": 5,
       "title": "Build List App (SPA)",
       "componentId": "list-app",
-      "uiSurface": true
+      "surface": "web"
      }
     ]
    },

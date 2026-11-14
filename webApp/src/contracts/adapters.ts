@@ -832,13 +832,14 @@ export function toGlossaryView(envelope: ArtifactModelEnvelope | undefined): Glo
   return model?.items ?? [];
 }
 
-/** The typed MissionStatement (vision / objectives / mission), safe-empty. */
+/** The typed MissionStatement (vision / objectives / mission / deliverySurfaces), safe-empty. */
 export function toMissionView(envelope: ArtifactModelEnvelope | undefined): MissionStatement {
   const model = narrow(envelope, 'mission');
   return {
     vision: model?.vision ?? '',
     objectives: model?.objectives ?? [],
     mission: model?.mission ?? '',
+    deliverySurfaces: model?.deliverySurfaces ?? [],
   };
 }
 

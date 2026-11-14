@@ -2645,7 +2645,7 @@
             ],
             "atomicBusinessVerbs": null,
             "contractKey": "todoWebApp",
-            "uiSurface": true
+            "surface": "web"
           },
           {
             "id": "embedded-todo-app",
@@ -2658,7 +2658,7 @@
             ],
             "atomicBusinessVerbs": null,
             "contractKey": "embeddedTodoApp",
-            "uiSurface": true
+            "surface": "web"
           },
           {
             "id": "todo-mcp-server",
@@ -2672,8 +2672,7 @@
             ],
             "atomicBusinessVerbs": null,
             "contractKey": "todoMcpServer",
-            "uiSurface": false,
-            "machineProtocol": "mcp"
+            "surface": "mcpTools"
           },
           {
             "id": "todo-list-manager",
@@ -4394,7 +4393,7 @@
             "riskBucket": 5,
             "title": "Build TodoMcpServer",
             "componentId": "todo-mcp-server",
-            "machineClient": true
+            "surface": "mcpTools"
           },
           {
             "name": "U-SPA-embedded-todo-app",
@@ -4404,7 +4403,7 @@
             "riskBucket": 5,
             "title": "Build Embedded Todo App (SPA)",
             "componentId": "embedded-todo-app",
-            "uiSurface": true
+            "surface": "web"
           },
           {
             "name": "U-SPA-todo-web-app",
@@ -4414,7 +4413,7 @@
             "riskBucket": 5,
             "title": "Build Todo Web App (SPA)",
             "componentId": "todo-web-app",
-            "uiSurface": true
+            "surface": "web"
           }
         ]
       },
