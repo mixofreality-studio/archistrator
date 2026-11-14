@@ -16,9 +16,8 @@ import (
 
 const mAcceptActivity = "M-ACCEPT"
 
-// withMAccept is the todomvc project with M-ACCEPT committed to its activity list, in memory: the
-// fixture predates the milestone, which the derivation now emits (slots 9/10 are re-materialized by
-// the plan's release step).
+// withMAccept is the todomvc project, whose activity list (slot 9) carries M-ACCEPT as the
+// derivation emits it.
 func withMAccept(t *testing.T) *projectstate.Project {
 	t.Helper()
 	p := todomvcProject(t)
@@ -26,9 +25,9 @@ func withMAccept(t *testing.T) *projectstate.Project {
 	if !ok || list == nil {
 		t.Fatal("the committed activity list did not decode")
 	}
-	list.Activities = append(list.Activities, projectstate.ActivityItem{
-		Name: mAcceptActivity, Title: "Use-case acceptance (M-ACCEPT)", EffortDays: 0, WorkerClass: "system-architect", RiskBucket: 1,
-	})
+	if !slices.ContainsFunc(list.Activities, func(a projectstate.ActivityItem) bool { return a.Name == mAcceptActivity }) {
+		t.Fatalf("the fixture's activity list carries no %s", mAcceptActivity)
+	}
 	return p
 }
 

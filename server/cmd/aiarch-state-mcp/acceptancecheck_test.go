@@ -115,7 +115,7 @@ func acceptanceRepo(t *testing.T, edit func(path, body string) string) string {
 
 // An acceptance run is red when a write one client made is not shown on another, and the gate says
 // where it routes. The fixture is built whole with the harvested SPA changed so that a todo is never
-// rendered as checked (in memory: the committed SPA is untouched). The M-ACCEPT gate (run-checks
+// rendered as checked (the change is made to the copy written into the built repo; the committed SPA is untouched). The M-ACCEPT gate (run-checks
 // --gate over the milestone's spec, as the venue's job runs it) runs every acceptance scenario of the
 // plan; the variant whose probe asserts the member's browser shows the todo the agent marked completed
 // as checked fails, and the route the hold comment carries names todo-web-app on the variant's path

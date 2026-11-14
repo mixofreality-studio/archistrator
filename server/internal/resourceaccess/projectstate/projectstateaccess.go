@@ -10154,13 +10154,31 @@ func AgentTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks
 // PhaseForTask returns the lifecycle phase a task belongs to: the phase whose work or
 // gate it is, or — for the two sub-attempt tasks, which no lifecycle carries a node for
 // — the phase their work task belongs to. The empty phase when the task is unknown.
+//
+// The two acceptance lifecycles (Amendment C) reuse the task ids of the lifecycles they stand
+// beside, so a task id can be in two phases: the milestone's job is `integration` and its gate
+// `testing`, the acceptance test plan is `stp` and `stpReview`. The answer is then the canonical
+// phase, the one that is not an acceptance phase, whatever order the map is walked in.
 func PhaseForTask(t MethodTask) ActivityMethodPhase {
+	var found ActivityMethodPhase
 	for p, pair := range lifecyclePhaseTasks {
-		if pair.work == t || pair.gate == t {
-			return p
+		if pair.work != t && pair.gate != t {
+			continue
+		}
+		if found == "" || (isAcceptancePhase(found) && !isAcceptancePhase(p)) {
+			found = p
 		}
 	}
+	if found != "" {
+		return found
+	}
 	return conditionalTasks[t]
+}
+
+// isAcceptancePhase is a phase of the acceptance test plan or of the acceptance milestone: the
+// lifecycles whose task ids are another lifecycle's.
+func isAcceptancePhase(p ActivityMethodPhase) bool {
+	return p == "acceptance_plan" || p == "acceptance"
 }
 
 // TasksForProfile returns every task an activity with this profile can have as a

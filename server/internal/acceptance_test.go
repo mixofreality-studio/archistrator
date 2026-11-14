@@ -19,6 +19,27 @@ import (
 // single client projection asserts, and reword-a-todo has the fixture's one cross-client path; the
 // paths one actor walks through one client are covered by their client's plan and are not residual.
 
+// The acceptance lifecycles reuse the task ids of the lifecycles they stand beside (the milestone's job
+// is `integration` and its gate `testing`; the acceptance test plan is `stp` and `stpReview`), so a
+// task id is in two lifecycle phases. PhaseForTask answers with the one the task canonically belongs
+// to, every time: a map iteration answered with either, which put the integration phase's tasks in
+// the acceptance phase on some runs.
+func TestPhaseForTask_ResolvesSharedTaskIdsToTheirCanonicalPhase(t *testing.T) {
+	want := map[projectstate.MethodTask]projectstate.ActivityMethodPhase{
+		projectstate.TaskIntegration: projectstate.MethodPhaseIntegration,
+		projectstate.TaskTesting:     projectstate.MethodPhaseIntegration,
+		projectstate.TaskSTP:         projectstate.MethodPhaseTestPlan,
+		projectstate.TaskSTPReview:   projectstate.MethodPhaseTestPlan,
+	}
+	for range 200 {
+		for task, phase := range want {
+			if got := projectstate.PhaseForTask(task); got != phase {
+				t.Fatalf("PhaseForTask(%s) = %q, want %q", task, got, phase)
+			}
+		}
+	}
+}
+
 func todomvcProject(t *testing.T) *projectstate.Project {
 	t.Helper()
 	raw, err := conformance.Fixture("todomvc")
