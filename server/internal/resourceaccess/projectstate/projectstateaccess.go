@@ -13439,8 +13439,14 @@ func generatorsOf(p *Project, command, componentID string) []SpecGenerator {
 		}
 	case "frontend-construction", "frontend-integration":
 		web := webDirFromModule(p)
+		// The surface kind seats the entry the surface's host needs: a web page, or an MCP Apps
+		// host-bridge seat. A Client with no stated surface passes none, so webgen refuses it.
+		bootstrap := []string{"go", "tool", "webgen", "bootstrap", "-C", web, "-surface", componentID}
+		if kind, ok := clientSurfaceKind(lookupSystemComponent(p, componentID)); ok {
+			bootstrap = append(bootstrap, "-kind", string(kind.Surface()))
+		}
 		out = append(out,
-			SpecGenerator{Title: "webgen bootstrap", Argv: []string{"go", "tool", "webgen", "bootstrap", "-C", web, "-surface", componentID}},
+			SpecGenerator{Title: "webgen bootstrap", Argv: bootstrap},
 			SpecGenerator{Title: "webgen generate", Argv: []string{"go", "tool", "webgen", "generate", "-C", web}},
 		)
 	case "service-integration":
@@ -13490,11 +13496,20 @@ func genModelsCheck(p *Project, contracts []string, dir string) SpecCheck {
 // bootstrap writes outside src/, and the lockfile npm writes from it.
 var webProjectSeats = []string{
 	".gitignore", ".tool-versions", "eslint.config.js", "eslint.platform.config.js", "package.json",
-	"package-lock.json", "tsconfig.app.json", "tsconfig.json", "vite.config.ts", "webgen.json",
+	"package-lock.json", "scripts/build-mcpapps.mjs", "tsconfig.app.json", "tsconfig.json", "vite.config.ts", "webgen.json",
 }
 
 // uitestsSeats is the Playwright project's own files.
 var uitestsSeats = []string{"uitests/.gitignore", "uitests/.tool-versions", "uitests/package.json", "uitests/package-lock.json"}
+
+// surfaceEntryFile is the root HTML entry webgen bootstrap seats for a browser surface: a web
+// page is <id>.html, an MCP Apps shell is <id>.mcpapp.html (the page build ignores it).
+func surfaceEntryFile(p *Project, componentID string) string {
+	if kind, ok := clientSurfaceKind(lookupSystemComponent(p, componentID)); ok && kind.Surface() == projectmodel.SurfaceMCPApp {
+		return componentID + ".mcpapp.html"
+	}
+	return componentID + ".html"
+}
 
 // frontendScopeAndChecks is a browser surface's construction. All surfaces share one web
 // project: each owns webApp/src/<id>/ and its entry, they share webApp/src/shared/, and the
@@ -13508,7 +13523,7 @@ func frontendScopeAndChecks(p *Project, integration bool, componentID string, co
 	scope := SpecEditScope{
 		Components: []SpecScopeComponent{{ID: componentID, Paths: surface}},
 		Extra: []string{
-			path.Join(webProjectDir, componentID+".html"),
+			path.Join(webProjectDir, surfaceEntryFile(p, componentID)),
 			path.Join(webProjectDir, "src", "api") + "/**",
 			path.Join(webProjectDir, "src", "contracts") + "/**",
 			path.Join(webProjectDir, "src", "vite-env.d.ts"),
