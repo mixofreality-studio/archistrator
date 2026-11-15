@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/appgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -95,6 +96,12 @@ func runValidate(args []string, out io.Writer) error {
 	return nil
 }
 
+// methodcheckOptions is what every in-loop and CI enforcement point tells methodcheck about the
+// platform: the Client surfaces its generators can build (GEN-SURFACE-SUPPORTED).
+func methodcheckOptions() methodcheck.ValidateOptions {
+	return methodcheck.ValidateOptions{SupportedSurfaces: appgen.SupportedSurfaces()}
+}
+
 // validateFindings runs the policy-aware Method gate over the checkout at root and
 // returns its findings: the committed .aiarch/state/project.json decoded through the
 // STRICT server codec (read-back parity), the identical methodcheck design rules
@@ -124,7 +131,7 @@ func validateFindings(root string, ambient projectstate.ArtifactKind, hasAmbient
 		return nil, nil
 	}
 
-	findings, ferr := methodcheck.ValidateProjectJSON(raw)
+	findings, ferr := methodcheck.ValidateProjectJSON(raw, methodcheckOptions())
 	if ferr != nil {
 		return nil, fmt.Errorf("the committed state is not a coherent artifact set: %w", ferr)
 	}

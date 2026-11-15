@@ -179,7 +179,7 @@ func TestRun010ManagerRecordKeepsTheLabelsResolved(t *testing.T) {
 			t.Errorf("%s's derived operations: %+v", client, ops)
 		}
 	}
-	findings, err := methodcheck.ValidateProjectJSON(stored)
+	findings, err := methodcheck.ValidateProjectJSON(stored, methodcheckOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

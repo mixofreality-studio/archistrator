@@ -35,7 +35,7 @@ func TestAdmit_PassesOwnProject(t *testing.T) {
 	if _, err := methodcheck.DeriveScenarios(mp); err != nil {
 		t.Fatalf("methodcheck.DeriveScenarios: %v", err)
 	}
-	findings, err := methodcheck.ValidateProjectJSON(raw)
+	findings, err := methodcheck.ValidateProjectJSON(raw, methodcheckOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

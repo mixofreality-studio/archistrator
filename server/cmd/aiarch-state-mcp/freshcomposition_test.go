@@ -838,12 +838,13 @@ func TestRecordingAUIDesignDerivesTheSurfaceContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	top["serviceContracts"] = raw
-	// The surface's design is recorded below, so the project starts without it.
+	// The surface's design is recorded below, so the project starts without it (the MCP App's design
+	// stays: its test plan targets it).
 	var artifacts map[string]map[string]json.RawMessage
 	if err := json.Unmarshal(top["phaseArtifacts"], &artifacts); err != nil {
 		t.Fatal(err)
 	}
-	delete(artifacts, "uiDesign")
+	delete(artifacts["uiDesign"], "todo-web-app")
 	if top["phaseArtifacts"], err = json.Marshal(artifacts); err != nil {
 		t.Fatal(err)
 	}

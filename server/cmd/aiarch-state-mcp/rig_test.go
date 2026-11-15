@@ -91,7 +91,7 @@ func TestRig_FullDraftCycleOverStdio(t *testing.T) {
 	if proj.Volatilities.Status != projectstate.ReviewCommitted || proj.Volatilities.Model == nil {
 		t.Fatalf("committed volatilities slot not populated: %+v", proj.Volatilities)
 	}
-	findings, _ := methodcheck.ValidateProjectJSON(raw)
+	findings, _ := methodcheck.ValidateProjectJSON(raw, methodcheckOptions())
 	if len(filterErrorFindings(findings)) != 0 {
 		t.Fatalf("committed state has methodcheck errors: %v", findings)
 	}

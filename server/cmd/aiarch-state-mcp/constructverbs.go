@@ -90,7 +90,7 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 		// code, so the whole list is shown to the agent at once, never just the first.
 		return fmt.Errorf("the %s change would leave a state no generator can load; fix every problem below and record again:\n%w", what, lerr)
 	}
-	findings, ferr := methodcheck.ValidateProjectJSON(newBytes)
+	findings, ferr := methodcheck.ValidateProjectJSON(newBytes, methodcheckOptions())
 	if ferr != nil {
 		return fmt.Errorf("the Method coherence check failed: %w", ferr)
 	}

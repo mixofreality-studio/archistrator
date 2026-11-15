@@ -123,7 +123,7 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 	// the AMBIENT kind (pre-existing errors on slots this session cannot write —
 	// grandfathered committed data — do not block; only ambient-slot and structural
 	// findings reject the draft).
-	findings, ferr := methodcheck.ValidateProjectJSON(newBytes)
+	findings, ferr := methodcheck.ValidateProjectJSON(newBytes, methodcheckOptions())
 	if ferr != nil {
 		return fmt.Errorf("the Method coherence check failed: %w", ferr)
 	}

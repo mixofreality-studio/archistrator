@@ -35691,6 +35691,18 @@
           ],
           "additionalProperties": false
         },
+        "Audience": {
+          "type": "string",
+          "enum": [
+            "human",
+            "machine"
+          ],
+          "x-enum-varnames": [
+            "AudienceHuman",
+            "AudienceMachine"
+          ],
+          "x-go-base": "string"
+        },
         "Axis": {
           "type": "integer",
           "enum": [
@@ -36215,6 +36227,31 @@
             "StyleBoth"
           ],
           "x-go-base": "int"
+        },
+        "DeliverySurface": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/Surface"
+            },
+            "audience": {
+              "$ref": "#/$defs/Audience"
+            },
+            "source": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "integer",
+              "x-go-type": "int"
+            }
+          },
+          "required": [
+            "kind",
+            "audience",
+            "source",
+            "objective"
+          ],
+          "additionalProperties": false
         },
         "DeployContainer": {
           "type": "object",
@@ -38398,6 +38435,23 @@
           ],
           "additionalProperties": false
         },
+        "Surface": {
+          "type": "string",
+          "enum": [
+            "web",
+            "rest",
+            "mcpTools",
+            "mcpApp"
+          ],
+          "x-enum-varnames": [
+            "SurfaceWeb",
+            "SurfaceREST",
+            "SurfaceMCPTools",
+            "SurfaceMCPApp"
+          ],
+          "x-go-base": "string",
+          "description": "How a Client reaches its users (FPC W6)."
+        },
         "System": {
           "type": "object",
           "properties": {
@@ -39882,60 +39936,6 @@
             "modelId",
             "megatokensInPerDay",
             "megatokensOutPerDay"
-          ],
-          "additionalProperties": false
-        },
-        "Surface": {
-          "type": "string",
-          "enum": [
-            "web",
-            "rest",
-            "mcpTools",
-            "mcpApp"
-          ],
-          "x-enum-varnames": [
-            "SurfaceWeb",
-            "SurfaceREST",
-            "SurfaceMCPTools",
-            "SurfaceMCPApp"
-          ],
-          "x-go-base": "string",
-          "description": "How a Client reaches its users (FPC W6)."
-        },
-        "Audience": {
-          "type": "string",
-          "enum": [
-            "human",
-            "machine"
-          ],
-          "x-enum-varnames": [
-            "AudienceHuman",
-            "AudienceMachine"
-          ],
-          "x-go-base": "string"
-        },
-        "DeliverySurface": {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "$ref": "#/$defs/Surface"
-            },
-            "audience": {
-              "$ref": "#/$defs/Audience"
-            },
-            "source": {
-              "type": "string"
-            },
-            "objective": {
-              "type": "integer",
-              "x-go-type": "int"
-            }
-          },
-          "required": [
-            "kind",
-            "audience",
-            "source",
-            "objective"
           ],
           "additionalProperties": false
         }

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/appgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -54,6 +55,7 @@ func TestMethodDesignArtifacts(t *testing.T) {
 		// conformance passes. Arch + EncapsulationAllowlist are the same helpers
 		// arch_test.go passes to arch.Check / arch.CheckGeneratedSurface.
 		Arch:                   appArchSpec(),
+		SupportedSurfaces:      appgen.SupportedSurfaces(),
 		EncapsulationAllowlist: encapAllowlist(),
 		// StereotypeSuffixNormalizer strips one trailing Method stereotype suffix
 		// (access|engine|manager|client) so the design's stereotyped component

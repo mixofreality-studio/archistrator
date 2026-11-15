@@ -86,6 +86,7 @@ func uiDesignSession(t *testing.T) *Session {
 		t.Fatal(err)
 	}
 	delete(artifacts["testPlan"], "todoWebApp")
+	delete(artifacts["testPlan"], "todoMcpApp")
 	delete(artifacts, "uiDesign")
 	delete(artifacts, "acceptancePlan")
 	if top["phaseArtifacts"], err = json.Marshal(artifacts); err != nil {

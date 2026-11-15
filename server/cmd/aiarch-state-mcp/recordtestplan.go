@@ -79,7 +79,7 @@ func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, strin
 	if err != nil {
 		return nil, "", err
 	}
-	baseline, err := methodcheck.ValidateProjectJSON(raw)
+	baseline, err := methodcheck.ValidateProjectJSON(raw, methodcheckOptions())
 	if err != nil {
 		return nil, "", fmt.Errorf("baseline coherence check: %w", err)
 	}
@@ -92,7 +92,7 @@ func gateTestPlanRecord(raw []byte, component string, rec []byte) ([]byte, strin
 	} else if !ok {
 		return nil, "", fmt.Errorf("read-back decode found no project document")
 	}
-	after, err := methodcheck.ValidateProjectJSON(out)
+	after, err := methodcheck.ValidateProjectJSON(out, methodcheckOptions())
 	if err != nil {
 		return nil, "", fmt.Errorf("coherence check: %w", err)
 	}

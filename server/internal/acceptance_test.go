@@ -121,11 +121,11 @@ func TestAcceptanceRoute_NamesPathComponentsAndClientActivity(t *testing.T) {
 		t.Fatalf("route = %+v, want the todoApi client activity C-todo-api", r)
 	}
 	// Every component a call of the steps on the variant's path nodes names, in path order: n1a's
-	// calls enter through the three clients (the surface is where the member's outcome is shown and
+	// calls enter through the four clients (the surface is where the member's outcome is shown and
 	// so where a failure of it is: the route names it though the stimulus enters through the REST
 	// client), n2 the manager and its engine, n4 the access and its store and the ruling engine.
 	// message-bus is called at n7, which this variant's path skips.
-	want := []string{"todo-web-app", "todo-mcp-server", "todo-api", "list-manager", "access-granting-engine", "todo-list-access", "todo-list-store", "list-ruling-engine"}
+	want := []string{"todo-web-app", "todo-mcp-app", "todo-mcp-server", "todo-api", "list-manager", "access-granting-engine", "todo-list-access", "todo-list-store", "list-ruling-engine"}
 	if !slices.Equal(r.Components, want) {
 		t.Errorf("components = %v, want %v (as the dynamic view's steps order them)", r.Components, want)
 	}

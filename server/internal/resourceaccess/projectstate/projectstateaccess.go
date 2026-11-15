@@ -12323,6 +12323,9 @@ var ruleSlotAttributionPrefixes = []struct {
 	// businessAlignment) is a later refinement; System is the dominant owner and the
 	// authoring-gate slot these run under.
 	{"DH-", KindSystem, AttribSlot},
+	// Generator-capability rules (GEN-SURFACE-SUPPORTED): the subject is the System's Clients, so
+	// a System amendment is the one that fixes them.
+	{"GEN-", KindSystem, AttribSlot},
 }
 
 // AttributeRule resolves a rule id to its owning slot (AttribSlot + kind), the testing
@@ -13865,7 +13868,7 @@ func RecordMachineClientContracts(p *Project) error {
 }
 
 func recordMachineClient(p *Project, in scenario.Input, c *Component) error {
-	reached := machineClientManagerOps(in, c.ID)
+	reached := scenario.ManagerOpsThrough(in, c.ID)
 	// A Client may call a Utility (a pub/sub subscription, say); that is no Manager operation to
 	// expose, so it is no part of the derived contract.
 	maps.DeleteFunc(reached, func(contract string, _ []scenario.ManagerOp) bool {
@@ -13906,32 +13909,6 @@ const derivedContractMark = " contract, derived from "
 // machineFamilyDerived reports whether a client's contract family is one this derivation wrote.
 func machineFamilyDerived(p *Project, key string) bool {
 	return strings.Contains(p.ServiceContracts[key].Title, derivedContractMark)
-}
-
-// machineClientManagerOps is what the views reach through a client, by Manager contract key: the
-// client's calls into a Manager in each view someone calls the client in. A view draws the actor's
-// request into the client and the client's call into the Manager as separate steps as often as in
-// one (the actor acts at one activity node, the Manager runs at the next), so the whole view is
-// read, never only the step that holds the call into the client.
-func machineClientManagerOps(in scenario.Input, clientID string) map[string][]scenario.ManagerOp {
-	out := map[string][]scenario.ManagerOp{}
-	seen := map[scenario.ManagerOp]bool{}
-	for _, v := range in.Views {
-		var calls []scenario.Call
-		for _, st := range v.Steps {
-			calls = append(calls, st.Calls...)
-		}
-		if !scenario.ReachesClient(clientID, calls) {
-			continue
-		}
-		for _, op := range scenario.ClientManagerOps(in, clientID, calls) {
-			if !seen[op] {
-				seen[op] = true
-				out[op.Contract] = append(out[op.Contract], op)
-			}
-		}
-	}
-	return out
 }
 
 // clientSurfaceKind parses a Client's stated surface; false for a component that is not a Client

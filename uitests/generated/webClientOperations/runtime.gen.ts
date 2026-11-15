@@ -21,7 +21,28 @@
 //     profile forwards to the host serving the run (go tool webscenarios);
 //   - assertNever: the exhaustiveness check of every switch over a sum type.
 import { expect } from '@playwright/test';
-import type { Page, TestInfo } from '@playwright/test';
+import type { FrameLocator, Page, TestInfo } from '@playwright/test';
+
+/** The iframe the harness MCP host (scenariohost's mcpapphost) renders an MCP App in. */
+export const APP_FRAME = 'iframe#mcp-app';
+
+/** The MCP App's own frame inside the host's page: what an MCP App spec locates its elements in. */
+export function appFrame(page: Page): FrameLocator {
+  return page.frameLocator(APP_FRAME);
+}
+
+/**
+ * Opens an MCP App's screen the way a host does: the harness host page loads the app's resource into
+ * its frame with route as the app's location, and the app has mounted once its root is there. An MCP
+ * App has no address bar, so this stands where a web spec's page.goto would. The host reaches the
+ * app's resource through several calls to the server (initialize, the tool list, the tool, the
+ * resource read), and installLatency holds each of them, so the wait is far longer than an
+ * assertion's default.
+ */
+export async function openApp(page: Page, route: string): Promise<void> {
+  await page.goto('/?route=' + encodeURIComponent(route));
+  await expect(appFrame(page).locator('#root')).toBeAttached({ timeout: 60_000 });
+}
 
 /** The timeout of an assertion about what the user sees the instant an action lands. */
 export const immediate = { timeout: Number(process.env.AIARCH_UI_IMMEDIATE_MS ?? 250) };
