@@ -16,20 +16,21 @@ import (
 
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // shCheck is a command check running script under sh.
-func shCheck(id, title, script string) projectstate.SpecCheck {
-	return projectstate.SpecCheck{ID: id, Kind: projectstate.CheckKindCommand, Title: title,
-		Source: projectstate.SpecCheckSource{Argv: []string{"sh", "-c", script}}, TimeoutSec: 30}
+func shCheck(id, title, script string) review.SpecCheck {
+	return review.SpecCheck{ID: id, Kind: projectstate.CheckKindCommand, Title: title,
+		Source: review.SpecCheckSource{Argv: []string{"sh", "-c", script}}, TimeoutSec: 30}
 }
 
 // writeChecksSpec writes a spec holding checks and returns its path.
-func writeChecksSpec(t *testing.T, checks ...projectstate.SpecCheck) string {
+func writeChecksSpec(t *testing.T, checks ...review.SpecCheck) string {
 	t.Helper()
-	s := projectstate.TaskSpec{Activity: "C-x", Task: "construction", Checks: checks}
-	s.Hash = s.ComputeHash()
+	s := review.TaskSpec{Activity: "C-x", Task: "construction", Checks: checks}
+	s.Hash = specHashMust(s)
 	return writeJSONFile(t, "spec.json", s)
 }
 
@@ -273,7 +274,7 @@ func TestRunChecksVerb_NotesASpecThatDriftedSinceDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := projectstate.TaskSpecFor(&p, "C-agentic-job-access", "construction")
+	spec, err := deriveTaskSpec(&p, "C-agentic-job-access", "construction")
 	if err != nil {
 		t.Fatal(err)
 	}

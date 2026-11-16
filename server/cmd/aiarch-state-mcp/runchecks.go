@@ -38,6 +38,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -58,7 +59,7 @@ type checkExecFunc = func(ctx context.Context, dir string, env []string, argv ..
 // runSpecChecks runs checks — only those prev did not pass when onlyFailed and prev is
 // non-nil — and returns one result per check in checks' order: a check that did not
 // re-run keeps its previous verdict.
-func runSpecChecks(ctx context.Context, r checkRunner, checks []projectstate.SpecCheck, prev []CheckResult, onlyFailed bool) []CheckResult {
+func runSpecChecks(ctx context.Context, r checkRunner, checks []review.SpecCheck, prev []CheckResult, onlyFailed bool) []CheckResult {
 	run := checks
 	if onlyFailed && prev != nil {
 		run = failedOnly(prev, checks)
@@ -187,7 +188,7 @@ func readPrevResults(dir string) ([]CheckResult, error) {
 // runChecksArgs are run-checks' flags, checked, with --out made absolute.
 type runChecksArgs struct {
 	gate, onlyFailed bool
-	spec             projectstate.TaskSpec
+	spec             review.TaskSpec
 	out              string
 }
 
@@ -312,7 +313,7 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	if err != nil {
 		return runChecksOutput{}, err
 	}
-	spec, err := projectstate.TaskSpecFor(&proj, s.ActivityID, s.TaskID)
+	spec, err := deriveTaskSpec(&proj, s.ActivityID, s.TaskID)
 	if err != nil {
 		return runChecksOutput{}, err
 	}
@@ -359,7 +360,7 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 // it. Only the verb tidies. The venue's gate never does: it checks `go mod tidy -diff` on the
 // committed tree, which would prove nothing if the gate could repair it first. A tidy failure
 // is reported rather than fatal: the checks still run, and the tidy check goes red with it.
-func (s *Session) tidyModuleGraph(ctx context.Context, spec projectstate.TaskSpec) string {
+func (s *Session) tidyModuleGraph(ctx context.Context, spec review.TaskSpec) string {
 	for _, c := range spec.Checks {
 		if c.ID != tidyCheckID {
 			continue
@@ -370,7 +371,7 @@ func (s *Session) tidyModuleGraph(ctx context.Context, spec projectstate.TaskSpe
 		if exec == nil {
 			exec = execCommand
 		}
-		dir := filepath.Join(s.StateRoot, c.Source.Dir)
+		dir := filepath.Join(s.StateRoot, strVal(c.Source.Dir))
 		argv := []string{"go", "mod", "tidy"}
 		out, err := exec(ctx, dir, commandEnv(argv[0], moduleGraphEnv(argv)...), argv...)
 		if err != nil {
@@ -392,7 +393,7 @@ const (
 // commits the lockfile and the types. Only the verb installs: the gate runs `npm ci` on the
 // committed lockfile, which would prove nothing if the gate could rewrite it. A failure is
 // reported rather than fatal, and the install check then goes red with it.
-func (s *Session) installWebProjects(ctx context.Context, spec projectstate.TaskSpec) string {
+func (s *Session) installWebProjects(ctx context.Context, spec review.TaskSpec) string {
 	exec := s.checkExec
 	if exec == nil {
 		exec = execCommand
@@ -406,13 +407,13 @@ func (s *Session) installWebProjects(ctx context.Context, spec projectstate.Task
 		if c.ID == webInstallCheckID {
 			steps = append(steps, []string{"npm", "run", "gen:api"})
 		}
-		dir := filepath.Join(s.StateRoot, c.Source.Dir)
+		dir := filepath.Join(s.StateRoot, strVal(c.Source.Dir))
 		for _, argv := range steps {
 			stepCtx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
 			out, err := exec(stepCtx, dir, commandEnv(argv[0]), argv...)
 			cancel()
 			if err != nil {
-				return joinNotes(note, strings.Join(argv, " ")+" failed in "+c.Source.Dir+": "+err.Error()+"\n"+checkLogTail(string(out)))
+				return joinNotes(note, strings.Join(argv, " ")+" failed in "+strVal(c.Source.Dir)+": "+err.Error()+"\n"+checkLogTail(string(out)))
 			}
 		}
 		note = "The web project was installed. Commit its package.json, package-lock.json and src/contracts/schema.ts with your code."

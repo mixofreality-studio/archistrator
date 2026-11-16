@@ -39,11 +39,23 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/devstack"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // CheckResult is one check's compact verdict.
 type CheckResult = projectstate.CheckResult
+
+// strVal is an optional string's value: "" when absent.
+func strVal(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// boolVal is an optional bool's value: false when absent.
+func boolVal(b *bool) bool { return b != nil && *b }
 
 // Check statuses.
 const (
@@ -87,7 +99,7 @@ type checkRunner struct {
 
 // Run runs the given checks; scenario checks are batched per contract into one process.
 // Results are in check order.
-func (r checkRunner) Run(ctx context.Context, checks []projectstate.SpecCheck) []CheckResult {
+func (r checkRunner) Run(ctx context.Context, checks []review.SpecCheck) []CheckResult {
 	if r.exec == nil {
 		r.exec = execCommand
 	}
@@ -105,18 +117,18 @@ func (r checkRunner) Run(ctx context.Context, checks []projectstate.SpecCheck) [
 		case projectstate.CheckKindSmoke:
 			results[i] = r.runSmoke(ctx, c)
 		case projectstate.CheckKindScenario:
-			contract := c.Source.Contract
+			contract := strVal(c.Source.Contract)
 			if batched[contract] {
 				continue
 			}
 			batched[contract] = true
 			var idx []int
 			for j, o := range checks {
-				if o.Kind == projectstate.CheckKindScenario && o.Source.Contract == contract {
+				if o.Kind == projectstate.CheckKindScenario && strVal(o.Source.Contract) == contract {
 					idx = append(idx, j)
 				}
 			}
-			batch := make([]projectstate.SpecCheck, len(idx))
+			batch := make([]review.SpecCheck, len(idx))
 			for k, j := range idx {
 				batch[k] = checks[j]
 			}
@@ -133,12 +145,12 @@ func (r checkRunner) Run(ctx context.Context, checks []projectstate.SpecCheck) [
 // failedOnly is the checks of all whose previous result was not a pass (fail, timeout,
 // skip, or no result at all), in all's order. A skip is not a pass anywhere (R24), so it
 // re-runs like any other red check.
-func failedOnly(prev []CheckResult, all []projectstate.SpecCheck) []projectstate.SpecCheck {
+func failedOnly(prev []CheckResult, all []review.SpecCheck) []review.SpecCheck {
 	status := make(map[string]string, len(prev))
 	for _, p := range prev {
 		status[p.CheckId] = p.Status
 	}
-	var out []projectstate.SpecCheck
+	var out []review.SpecCheck
 	for _, c := range all {
 		if status[c.ID] != checkPass {
 			out = append(out, c)
@@ -149,11 +161,11 @@ func failedOnly(prev []CheckResult, all []projectstate.SpecCheck) []projectstate
 
 // --- rule ---
 
-func (r checkRunner) runRule(ctx context.Context, c projectstate.SpecCheck) CheckResult {
+func (r checkRunner) runRule(ctx context.Context, c review.SpecCheck) CheckResult {
 	start := r.now()
 	var ambient projectstate.ArtifactKind
 	hasAmbient := false
-	if s := strings.TrimSpace(c.Source.RuleSlot); s != "" {
+	if s := strings.TrimSpace(strVal(c.Source.RuleSlot)); s != "" {
 		k, err := parseArtifactKind(s)
 		if err != nil {
 			return r.finish(c, checkFail, r.since(start), []byte("rule check: "+err.Error()+"\n"))
@@ -214,17 +226,17 @@ func hasRulePrefix(id string, prefixes []string) bool {
 
 // --- command ---
 
-func (r checkRunner) runCommand(ctx context.Context, c projectstate.SpecCheck) CheckResult {
+func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckResult {
 	start := r.now()
 	if len(c.Source.Argv) == 0 {
 		return r.finish(c, checkFail, 0, []byte("command check has no argv\n"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
 	defer cancel()
-	out, err := r.exec(ctx, filepath.Join(r.root, c.Source.Dir), commandEnv(c.Source.Argv[0], moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
+	out, err := r.exec(ctx, filepath.Join(r.root, strVal(c.Source.Dir)), commandEnv(c.Source.Argv[0], moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
 	status := checkPass
 	switch {
-	case err == nil && c.Source.RequireTests && !ranATest(out):
+	case err == nil && boolVal(c.Source.RequireTests) && !ranATest(out):
 		status = checkFail
 		out = append(out, []byte("\n[no test ran: this check names the tests it requires, and none of them exists here]\n")...)
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -272,12 +284,12 @@ const smokeTeardownSec = 60
 // /readyz, the SPA when the model has a built browser surface and every MCP tool the model
 // generates, stops it, and fails when the launch left a container or volume behind (the docker
 // inventory taken before and after). The log is the launcher's output tail and the verdict.
-func (r checkRunner) runSmoke(ctx context.Context, c projectstate.SpecCheck) CheckResult {
+func (r checkRunner) runSmoke(ctx context.Context, c review.SpecCheck) CheckResult {
 	start := r.now()
 	ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
 	defer cancel()
 	var log bytes.Buffer
-	err := r.smoke(ctx, filepath.Join(r.root, c.Source.Dir), &log)
+	err := r.smoke(ctx, filepath.Join(r.root, strVal(c.Source.Dir)), &log)
 	status := checkPass
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -395,7 +407,7 @@ type scenarioBatch struct {
 	env      []string
 	ctxSec   int // the process context's cap
 	// checks is the selected scenarios this batch runs; each batch reads its own index for them.
-	checks []projectstate.SpecCheck
+	checks []review.SpecCheck
 }
 
 // acceptanceGoPackage is the module-relative package testgen writes the machine-only acceptance
@@ -407,15 +419,15 @@ const acceptanceGoPackage = "internal/acceptance"
 // places and the generated file that holds a variant says which: the Go batch over the variants with
 // no generated Playwright spec (the machine-only ones, internal/acceptance), then the web batch over
 // the rest (under the scenario host). Each keeps its own index and its own ids.
-func scenarioBatches(r checkRunner, proj projectstate.Project, contract string, checks []projectstate.SpecCheck) []scenarioBatch {
+func scenarioBatches(r checkRunner, proj projectstate.Project, contract string, checks []review.SpecCheck) []scenarioBatch {
 	if contract != projectstate.AcceptanceContract {
 		b := newScenarioBatch(r, proj, contract, checks)
 		b.checks = checks
 		return []scenarioBatch{b}
 	}
-	var machine, browser []projectstate.SpecCheck
+	var machine, browser []review.SpecCheck
 	for _, c := range checks {
-		spec := filepath.Join(r.root, "uitests", "generated", contract, c.Source.Scenario+".spec.gen.ts")
+		spec := filepath.Join(r.root, "uitests", "generated", contract, strVal(c.Source.Scenario)+".spec.gen.ts")
 		if _, err := os.Stat(spec); err == nil {
 			browser = append(browser, c)
 			continue
@@ -439,10 +451,10 @@ func scenarioBatches(r checkRunner, proj projectstate.Project, contract string, 
 // batchTimes is the ids of checks' scenarios and their summed and largest timeouts. TimeoutSec
 // defaults to 900 (R8): each scenario gets the largest cap as its own, go test's -timeout is the
 // summed caps plus slack, and the process context a little more.
-func batchTimes(checks []projectstate.SpecCheck) (ids []string, sumSec, maxSec int) {
+func batchTimes(checks []review.SpecCheck) (ids []string, sumSec, maxSec int) {
 	ids = make([]string, len(checks))
 	for i, c := range checks {
-		ids[i] = c.Source.Scenario
+		ids[i] = strVal(c.Source.Scenario)
 		sec := int(timeoutOf(c, defaultScenarioTimeoutSec) / time.Second)
 		sumSec += sec
 		maxSec = max(maxSec, sec)
@@ -452,7 +464,7 @@ func batchTimes(checks []projectstate.SpecCheck) (ids []string, sumSec, maxSec i
 
 // goScenarioBatch is the Go batch of a contract's scenarios: go test over the package, selecting
 // them by name, the verdicts under test-results/<contract> of the module.
-func goScenarioBatch(r checkRunner, proj projectstate.Project, contract, pkg, iface string, checks []projectstate.SpecCheck) scenarioBatch {
+func goScenarioBatch(r checkRunner, proj projectstate.Project, contract, pkg, iface string, checks []review.SpecCheck) scenarioBatch {
 	ids, sumSec, maxSec := batchTimes(checks)
 	if iface == "" && contract != "" {
 		iface = strings.ToUpper(contract[:1]) + contract[1:]
@@ -468,7 +480,7 @@ func goScenarioBatch(r checkRunner, proj projectstate.Project, contract, pkg, if
 }
 
 // newScenarioBatch derives the batch for contract's scenarios ids.
-func newScenarioBatch(r checkRunner, proj projectstate.Project, contract string, checks []projectstate.SpecCheck) scenarioBatch {
+func newScenarioBatch(r checkRunner, proj projectstate.Project, contract string, checks []review.SpecCheck) scenarioBatch {
 	sc := proj.ServiceContracts[contract]
 	if sc.GoPackage != "" {
 		return goScenarioBatch(r, proj, contract, sc.GoPackage, sc.Interface.Name, checks)
@@ -478,7 +490,7 @@ func newScenarioBatch(r checkRunner, proj projectstate.Project, contract string,
 
 // webScenarioBatch is the batch of a web client's scenarios (or the acceptance variants that need a
 // browser), run by Playwright under the scenario host.
-func webScenarioBatch(r checkRunner, proj projectstate.Project, contract string, checks []projectstate.SpecCheck) scenarioBatch {
+func webScenarioBatch(r checkRunner, proj projectstate.Project, contract string, checks []review.SpecCheck) scenarioBatch {
 	ids, sumSec, maxSec := batchTimes(checks)
 	sc := proj.ServiceContracts[contract]
 	b := scenarioBatch{iface: sc.Interface.Name, ctxSec: sumSec + batchSlackSec}
@@ -500,7 +512,7 @@ func webScenarioBatch(r checkRunner, proj projectstate.Project, contract string,
 
 // runScenarios runs one contract's selected scenarios in one process and maps each to
 // its verdict in the contract's index.
-func (r checkRunner) runScenarios(ctx context.Context, contract string, checks []projectstate.SpecCheck) []CheckResult {
+func (r checkRunner) runScenarios(ctx context.Context, contract string, checks []review.SpecCheck) []CheckResult {
 	start := r.now()
 	failAll := func(msg string) []CheckResult {
 		out := make([]CheckResult, len(checks))
@@ -542,11 +554,11 @@ func (r checkRunner) runBatch(ctx context.Context, b scenarioBatch) []CheckResul
 	}
 	contract := ""
 	if len(checks) > 0 {
-		contract = checks[0].Source.Contract
+		contract = strVal(checks[0].Source.Contract)
 	}
 	ids := make([]string, len(checks))
 	for i, c := range checks {
-		ids[i] = c.Source.Scenario
+		ids[i] = strVal(c.Source.Scenario)
 	}
 
 	// A verdict an earlier run left for a scenario selected now must never count for
@@ -581,8 +593,8 @@ func (r checkRunner) runBatch(ctx context.Context, b scenarioBatch) []CheckResul
 
 // scenarioResult is one selected scenario's result out of its contract's index. A
 // scenario the run recorded nothing for fails: no verdict is never a pass.
-func (r checkRunner) scenarioResult(b scenarioBatch, c projectstate.SpecCheck, index map[string]scenarioVerdict, out []byte, runErr error) CheckResult {
-	v, ok := index[c.Source.Scenario]
+func (r checkRunner) scenarioResult(b scenarioBatch, c review.SpecCheck, index map[string]scenarioVerdict, out []byte, runErr error) CheckResult {
+	v, ok := index[strVal(c.Source.Scenario)]
 	if !ok {
 		msg := noVerdict + "\n"
 		if runErr != nil {
@@ -594,7 +606,7 @@ func (r checkRunner) scenarioResult(b scenarioBatch, c projectstate.SpecCheck, i
 	}
 	var log string
 	if b.goTest {
-		log = goTestOutputFor(out, goScenarioTestNames(b.iface, c.Source.Scenario))
+		log = goTestOutputFor(out, goScenarioTestNames(b.iface, strVal(c.Source.Scenario)))
 	}
 	if log == "" {
 		log = v.Stdout + v.Stderr
@@ -798,8 +810,8 @@ func copyTree(src, dst string) error {
 
 // finish writes c's log and builds its result. A log that cannot be written leaves the
 // result without an outputRef and says so in its place on stderr; the verdict stands.
-func (r checkRunner) finish(c projectstate.SpecCheck, status string, durationMs int, log []byte) CheckResult {
-	res := CheckResult{CheckId: c.ID, Kind: c.Kind, Status: status, DurationMs: durationMs}
+func (r checkRunner) finish(c review.SpecCheck, status string, durationMs int, log []byte) CheckResult {
+	res := CheckResult{CheckId: c.ID, Kind: c.Kind, Status: status, DurationMs: durationMs, Contract: c.Source.Contract}
 	path := filepath.Join(r.outDir, "checks", sanitizeCheckID(c.ID)+".log")
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "run-checks: %s: %v\n", c.ID, err)
@@ -838,7 +850,7 @@ func sanitizeCheckID(id string) string {
 }
 
 // timeoutOf is c's cap, def seconds when it names none.
-func timeoutOf(c projectstate.SpecCheck, def int) time.Duration {
+func timeoutOf(c review.SpecCheck, def int) time.Duration {
 	sec := c.TimeoutSec
 	if sec <= 0 {
 		sec = def

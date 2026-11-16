@@ -11,9 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/appgen"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/plan"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/testgen"
+	conformance "github.com/mixofreality-studio/archistrator-platform/framework-go-conformance"
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -24,7 +29,7 @@ import (
 
 func TestTaskSpecForServiceIntegration(t *testing.T) {
 	p := ownProject(t)
-	s, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
+	s, err := deriveSpecErr(p, "C-agentic-job-access", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +57,7 @@ func TestTaskSpecForServiceIntegration(t *testing.T) {
 			t.Errorf("integration lacks %s: %v", id, checkIDs(s))
 		}
 	}
-	if !slices.IsSortedFunc(s.Checks, func(a, b projectstate.SpecCheck) int {
+	if !slices.IsSortedFunc(s.Checks, func(a, b review.SpecCheck) int {
 		return strings.Compare(checkSortKey(a), checkSortKey(b))
 	}) {
 		t.Errorf("checks not sorted by kind then id: %v", checkIDs(s))
@@ -61,7 +66,7 @@ func TestTaskSpecForServiceIntegration(t *testing.T) {
 
 // scenarioCheckCount counts the spec's scenario checks, each of which must carry the
 // contract's id prefix and the 900s scenario cap.
-func scenarioCheckCount(t *testing.T, s projectstate.TaskSpec, idPrefix string) int {
+func scenarioCheckCount(t *testing.T, s review.TaskSpec, idPrefix string) int {
 	t.Helper()
 	n := 0
 	for _, c := range s.Checks {
@@ -80,7 +85,7 @@ func scenarioCheckCount(t *testing.T, s projectstate.TaskSpec, idPrefix string) 
 }
 
 func TestTaskSpecForServiceConstructionCommands(t *testing.T) {
-	s, err := projectstate.TaskSpecFor(ownProject(t), "C-agentic-job-access", "construction")
+	s, err := deriveSpecErr(ownProject(t), "C-agentic-job-access", "construction")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +93,7 @@ func TestTaskSpecForServiceConstructionCommands(t *testing.T) {
 		t.Fatalf("construction checks %v", checkIDs(s))
 	}
 	arch := checkByID(t, s, "command:arch")
-	if !arch.Source.RequireTests || !slices.Contains(arch.Source.Argv, "-v") {
+	if (arch.Source.RequireTests == nil || !*arch.Source.RequireTests) || !slices.Contains(arch.Source.Argv, "-v") {
 		t.Fatalf("a gate named after its tests must fail when none ran: %+v", arch)
 	}
 	models := checkByID(t, s, "command:gen-models-check")
@@ -109,11 +114,11 @@ func TestTaskSpecForServiceConstructionCommands(t *testing.T) {
 }
 
 // requireBuildAndLintChecks pins the construction build check's scope and both timeouts.
-func requireBuildAndLintChecks(t *testing.T, s projectstate.TaskSpec) {
+func requireBuildAndLintChecks(t *testing.T, s review.TaskSpec) {
 	t.Helper()
 	build := checkByID(t, s, "command:build")
 	if !slices.Equal(build.Source.Argv, []string{"go", "build", "./internal/resourceaccess/agenticjob/..."}) ||
-		build.Source.Dir != "server" || build.TimeoutSec != 300 {
+		specStr(build.Source.Dir) != "server" || build.TimeoutSec != 300 {
 		t.Fatalf("build check %+v", build)
 	}
 	if lint := checkByID(t, s, "command:lint"); lint.TimeoutSec != 600 {
@@ -124,7 +129,7 @@ func requireBuildAndLintChecks(t *testing.T, s projectstate.TaskSpec) {
 func TestTaskSpecForDesignDraftIsStateOnlyWithSlotRules(t *testing.T) {
 	p := ownProject(t)
 	act := firstActivityOfType(t, p, "requirements") // the design prefix activity
-	s, err := projectstate.TaskSpecFor(p, act, "glossaryDraft")
+	s, err := deriveSpecErr(p, act, "glossaryDraft")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +137,7 @@ func TestTaskSpecForDesignDraftIsStateOnlyWithSlotRules(t *testing.T) {
 		!slices.Equal(s.Checks[0].Source.RulePrefixes, []string{"GLOSS-"}) {
 		t.Fatalf("design spec: %+v %+v", s.EditScope, s.Checks)
 	}
-	if s.Checks[0].Source.RuleSlot != "glossary" || s.Checks[0].TimeoutSec != 120 {
+	if specStr(s.Checks[0].Source.RuleSlot) != "glossary" || s.Checks[0].TimeoutSec != 120 {
 		t.Fatalf("rule check source: %+v", s.Checks[0])
 	}
 	if strings.Contains(s.Prompt.Text, "$ARGUMENTS") {
@@ -142,7 +147,7 @@ func TestTaskSpecForDesignDraftIsStateOnlyWithSlotRules(t *testing.T) {
 
 func TestTaskSpecForStateTaskAndTestPlan(t *testing.T) {
 	p := ownProject(t)
-	srs, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "srs")
+	srs, err := deriveSpecErr(p, "C-agentic-job-access", "srs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +157,7 @@ func TestTaskSpecForStateTaskAndTestPlan(t *testing.T) {
 	if !strings.Contains(srs.Prompt.Text, "agentic-job-access C-agentic-job-access") {
 		t.Fatal("construction-style prompt does not carry <component> <activity>")
 	}
-	stp, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "stp")
+	stp, err := deriveSpecErr(p, "C-agentic-job-access", "stp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +168,7 @@ func TestTaskSpecForStateTaskAndTestPlan(t *testing.T) {
 }
 
 func TestTaskSpecForFrontendIntegration(t *testing.T) {
-	s, err := projectstate.TaskSpecFor(ownProject(t), "U-SPA-web-client", "integration")
+	s, err := deriveSpecErr(ownProject(t), "U-SPA-web-client", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +192,7 @@ func TestTaskSpecForFrontendIntegration(t *testing.T) {
 // the integration scope; construction may touch the package manifests.
 func TestTaskSpecFrontendScopeCarriesContractPackagesAndManifests(t *testing.T) {
 	p := ownProject(t)
-	cons, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "construction")
+	cons, err := deriveSpecErr(p, "U-SPA-web-client", "construction")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,9 +201,14 @@ func TestTaskSpecFrontendScopeCarriesContractPackagesAndManifests(t *testing.T) 
 	}
 	contracts := make(map[string]projectstate.ServiceContract, len(p.ServiceContracts)+1)
 	maps.Copy(contracts, p.ServiceContracts)
-	contracts["webClientMcp"] = projectstate.ServiceContract{Component: "webClient", GoPackage: "internal/client/mcp/webclient"}
+	contracts["webClientMcp"] = projectstate.ServiceContract{
+		Component: "webClient", Layer: "Client", GoPackage: "internal/client/mcp/webclient", Title: "webClientMcp contract",
+		Interface: projectstate.ContractInterface{Name: "WebClientMcp", Layer: "client", Operations: []projectstate.ContractOperation{
+			{Name: "WebOpen", Params: []projectstate.ContractParam{{Name: "id", Schema: json.RawMessage(`{"type":"string"}`)}}, Error: true},
+		}},
+	}
 	p.ServiceContracts = contracts
-	integ, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "integration")
+	integ, err := deriveSpecErr(p, "U-SPA-web-client", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +225,7 @@ func TestTaskSpecFrontendScopeCarriesContractPackagesAndManifests(t *testing.T) 
 // R18: a construct-mode task whose scope cannot be derived gets an explicit "any path",
 // never a stateOnly scope that would reject its legitimate output.
 func TestTaskSpecUnderivableScopeIsAnyPath(t *testing.T) {
-	s, err := projectstate.TaskSpecFor(ownProject(t), "R-github", "construction")
+	s, err := deriveSpecErr(ownProject(t), "R-github", "construction")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +256,7 @@ func TestTaskSpecCommandedSharesSumToTheActivity(t *testing.T) {
 			if task.Command == "" {
 				continue
 			}
-			s, err := projectstate.TaskSpecFor(p, a.id, task.ID)
+			s, err := deriveSpecErr(p, a.id, task.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -276,7 +286,7 @@ func everyPhaseCommanded(l methodassets.Lifecycle) bool {
 }
 
 func TestTaskSpecForHumanReviewHasNoPromptOrChecks(t *testing.T) {
-	s, err := projectstate.TaskSpecFor(ownProject(t), "C-agentic-job-access", "codeReview")
+	s, err := deriveSpecErr(ownProject(t), "C-agentic-job-access", "codeReview")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +296,7 @@ func TestTaskSpecForHumanReviewHasNoPromptOrChecks(t *testing.T) {
 }
 
 func TestTaskSpecSkillsGrantTheSkillTool(t *testing.T) {
-	s, err := projectstate.TaskSpecFor(ownProject(t), "C-agentic-job-access", "construction")
+	s, err := deriveSpecErr(ownProject(t), "C-agentic-job-access", "construction")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,13 +313,13 @@ func TestTaskSpecSkillsGrantTheSkillTool(t *testing.T) {
 
 func TestTaskSpecHashIsStableAndSensitive(t *testing.T) {
 	p := ownProject(t)
-	a, _ := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction")
-	b, _ := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction")
-	if a.Hash == "" || a.Hash != b.Hash || a.ComputeHash() != a.Hash {
+	a, _ := deriveSpecErr(p, "C-agentic-job-access", "construction")
+	b, _ := deriveSpecErr(p, "C-agentic-job-access", "construction")
+	if a.Hash == "" || a.Hash != b.Hash || specHashMust(a) != a.Hash {
 		t.Fatal("hash unstable")
 	}
 	b.Model.ID = "haiku"
-	if b.ComputeHash() == a.Hash {
+	if specHashMust(b) == a.Hash {
 		t.Fatal("hash ignores the model")
 	}
 }
@@ -331,11 +341,11 @@ func TestTaskSpecHashSurvivesJSONRoundTrips(t *testing.T) {
 		if task == "glossaryDraft" {
 			act = firstActivityOfType(t, p, "requirements")
 		}
-		a, err := projectstate.TaskSpecFor(p, act, task)
+		a, err := deriveSpecErr(p, act, task)
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, err := projectstate.TaskSpecFor(&q, act, task)
+		b, err := deriveSpecErr(&q, act, task)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -346,11 +356,11 @@ func TestTaskSpecHashSurvivesJSONRoundTrips(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var back projectstate.TaskSpec
+		var back review.TaskSpec
 		if err := json.Unmarshal(raw, &back); err != nil {
 			t.Fatal(err)
 		}
-		if back.ComputeHash() != a.Hash {
+		if specHashMust(back) != a.Hash {
 			t.Errorf("%s: hash changed across the spec's JSON round trip", task)
 		}
 	}
@@ -359,7 +369,7 @@ func TestTaskSpecHashSurvivesJSONRoundTrips(t *testing.T) {
 func TestTaskSpecModelOverride(t *testing.T) {
 	p := ownProject(t)
 	setRateCardModel(t, p, "junior-developer", "haiku") // mutate the decoded PlanningAssumptions model
-	s, _ := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction")
+	s, _ := deriveSpecErr(p, "C-agentic-job-access", "construction")
 	if s.Model.ID != "haiku" || s.Model.Source != "projectOverride" {
 		t.Fatalf("model = %+v", s.Model)
 	}
@@ -368,7 +378,7 @@ func TestTaskSpecModelOverride(t *testing.T) {
 func TestTaskSpecModelFallsBackToTheCharter(t *testing.T) {
 	p := ownProject(t)
 	setRateCardModel(t, p, "junior-developer", "")
-	s, _ := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction")
+	s, _ := deriveSpecErr(p, "C-agentic-job-access", "construction")
 	want, _ := methodassets.ModelForAgent("junior-developer")
 	if s.Model.ID != want || s.Model.Source != "charter" {
 		t.Fatalf("model = %+v, charter %q", s.Model, want)
@@ -387,7 +397,7 @@ func TestTaskSpecForEveryActivityTask(t *testing.T) {
 			t.Fatalf("%s: no lifecycle", a.id)
 		}
 		for _, task := range l.Tasks {
-			if _, err := projectstate.TaskSpecFor(p, a.id, task.ID); err != nil {
+			if _, err := deriveSpecErr(p, a.id, task.ID); err != nil {
 				t.Errorf("%s/%s: %v", a.id, task.ID, err)
 			}
 		}
@@ -415,7 +425,7 @@ func TestEditScope_ConstructionExcludesUitests(t *testing.T) {
 	checked := 0
 	for _, a := range allActivities(t, p) {
 		for _, task := range []string{"construction", "integration"} {
-			s, err := projectstate.TaskSpecFor(p, a.id, task)
+			s, err := deriveSpecErr(p, a.id, task)
 			if err != nil || s.EditScope.StateOnly {
 				continue
 			}
@@ -427,7 +437,7 @@ func TestEditScope_ConstructionExcludesUitests(t *testing.T) {
 		t.Fatal("no construction or integration task to check")
 	}
 	// The Playwright project's own manifests stay in a surface's scope: its dependencies are wiring.
-	s, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "integration")
+	s, err := deriveSpecErr(p, "U-SPA-web-client", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +450,7 @@ func TestEditScope_ConstructionExcludesUitests(t *testing.T) {
 
 // assertScopeExcludesTestCode reports every generated test file and every hand-written test
 // path the task's edit scope admits.
-func assertScopeExcludesTestCode(t *testing.T, s projectstate.TaskSpec, activity, task string, generated []string) {
+func assertScopeExcludesTestCode(t *testing.T, s review.TaskSpec, activity, task string, generated []string) {
 	t.Helper()
 	for _, g := range generated {
 		if scopeAdmits(s.EditScope, g) {
@@ -458,14 +468,14 @@ func assertScopeExcludesTestCode(t *testing.T, s projectstate.TaskSpec, activity
 // component, the surface check for a browser surface.
 func TestIntegrationChecksCarryDiscriminationAndSurfaceCheck(t *testing.T) {
 	p := ownProject(t)
-	svc, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
+	svc, err := deriveSpecErr(p, "C-agentic-job-access", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !hasCheck(svc, "command:test-discriminate") {
 		t.Errorf("a Go component's integration lacks command:test-discriminate: %v", checkIDs(svc))
 	}
-	web, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", "integration")
+	web, err := deriveSpecErr(p, "U-SPA-web-client", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,13 +487,13 @@ func TestIntegrationChecksCarryDiscriminationAndSurfaceCheck(t *testing.T) {
 	if got := strings.Join(surface.Source.Argv, " "); got != wantArgv {
 		t.Errorf("surface-check argv = %q, want %q", got, wantArgv)
 	}
-	if surface.Source.Dir != p.ModuleDir {
-		t.Errorf("surface-check runs in %q, want the module directory %q", surface.Source.Dir, p.ModuleDir)
+	if specStr(surface.Source.Dir) != p.ModuleDir {
+		t.Errorf("surface-check runs in %q, want the module directory %q", specStr(surface.Source.Dir), p.ModuleDir)
 	}
 	if got := strings.Join(projectstate.WebScenariosArgv("", "c", "-grep", "g"), " "); got != "go tool webscenarios -C uitests -config generated/c/playwright.config.gen.ts -grep g" {
 		t.Errorf("a module at the repo root reaches uitests as %q", got)
 	}
-	cons, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction")
+	cons, err := deriveSpecErr(p, "C-agentic-job-access", "construction")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,7 +524,7 @@ func testgenOutputPaths(t *testing.T, raw []byte, moduleDir string) []string {
 
 // scopeAdmits matches p against the edit-scope grammar ("**", "<dir>/**", literal) the
 // way the edit-scope gate does, over the spec's component paths and extras.
-func scopeAdmits(scope projectstate.SpecEditScope, p string) bool {
+func scopeAdmits(scope review.SpecEditScope, p string) bool {
 	globs := slices.Clone(scope.Extra)
 	for _, c := range scope.Components {
 		globs = append(globs, c.Paths...)
@@ -524,10 +534,10 @@ func scopeAdmits(scope projectstate.SpecEditScope, p string) bool {
 
 func TestTaskSpecForUnknownActivityOrTask(t *testing.T) {
 	p := ownProject(t)
-	if _, err := projectstate.TaskSpecFor(p, "no-such-activity", "construction"); err == nil {
+	if _, err := deriveSpecErr(p, "no-such-activity", "construction"); err == nil {
 		t.Error("an unknown activity resolved")
 	}
-	if _, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "no-such-task"); err == nil {
+	if _, err := deriveSpecErr(p, "C-agentic-job-access", "no-such-task"); err == nil {
 		t.Error("an unknown task resolved")
 	}
 }
@@ -541,7 +551,152 @@ func TestDefaultModelFollowsTheCharter(t *testing.T) {
 	}
 }
 
+// TestEditScope_EveryPlannedPathIsInSomeTaskScope (FIX-053): every path a generator's manifest says
+// it writes (appgen.AllConsumers, the emission of a fully built tree) that no test-code rule excludes
+// is admitted by the edit scope of at least one task of at least one committed activity, so no
+// generated file is outside every task's reach. All the unmatched paths are reported at once.
+func TestEditScope_EveryPlannedPathIsInSomeTaskScope(t *testing.T) {
+	p := todomvcProject(t)
+	raw, err := conformance.Fixture("todomvc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var globs []string
+	for _, it := range p.ActivityList.Model.(*projectstate.ActivityList).Activities {
+		lc, err := projectstate.ActivityLifecycle(p, it.Name)
+		if err != nil {
+			continue
+		}
+		for _, task := range lc.Tasks {
+			s, err := deriveSpecErr(p, it.Name, task.ID)
+			if err != nil {
+				continue
+			}
+			for _, c := range s.EditScope.Components {
+				globs = append(globs, c.Paths...)
+			}
+			globs = append(globs, s.EditScope.Extra...)
+		}
+	}
+	in := appgen.Input{Project: raw, ModulePath: "example.com/app", ModuleDir: p.ModuleDir, Config: appgen.DefaultConfig()}
+	var unmatched []string
+	for _, c := range appgen.AllConsumers() {
+		outs, err := c.Plan(in)
+		if err != nil {
+			t.Fatalf("%s: Plan: %v", c.Name, err)
+		}
+		for _, path := range plan.Paths(outs, plan.Generated{}) {
+			if projectstate.IsTestCodePath(path) {
+				continue
+			}
+			if !slices.ContainsFunc(globs, func(g string) bool { return projectstate.EditScopeGlobMatch(g, path) }) {
+				unmatched = append(unmatched, c.Name+": "+path)
+			}
+		}
+	}
+	if len(unmatched) > 0 {
+		t.Errorf("%d planned generated path(s) lie outside the edit scope of every task:\n  %s", len(unmatched), strings.Join(unmatched, "\n  "))
+	}
+}
+
+// TestTaskSpec_GeneratedIsThePlanOfItsConsumers (D6): an integrating Manager's spec names, as
+// generated, exactly the Generated paths of the consumers its task runs (modelgen over its contracts,
+// and the four composition consumers), and carries no generated-file glob any more.
+func TestTaskSpec_GeneratedIsThePlanOfItsConsumers(t *testing.T) {
+	p := todomvcProject(t)
+	raw, err := conformance.Fixture("todomvc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := deriveSpec(t, p, "C-list-manager", "integration")
+	in := appgen.Input{Project: raw, ModulePath: "example.com/app", ModuleDir: p.ModuleDir, Config: appgen.DefaultConfig()}
+	want := map[string]bool{}
+	add := func(name string, only []string) {
+		c, ok := appgen.ConsumerNamed(name)
+		if !ok {
+			t.Fatalf("no consumer %q", name)
+		}
+		in := in
+		in.Only = only
+		files, err := c.Emit(in)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, path := range plan.Paths(plan.Outputs(files), plan.Generated{}) {
+			want[path] = true
+		}
+	}
+	if len(s.Contracts) == 0 {
+		t.Fatal("an integrating Manager's spec names its contracts")
+	}
+	add("modelgen", s.Contracts)
+	for _, name := range []string{"appgen temporal", "appgen clients", "appgen config", "appgen compose"} {
+		add(name, nil)
+	}
+	got := slices.Clone(s.Generated)
+	if !slices.IsSorted(got) {
+		t.Errorf("Generated is not sorted: %v", got)
+	}
+	if wantSorted := slices.Sorted(maps.Keys(want)); !slices.Equal(got, wantSorted) {
+		t.Errorf("Generated differs from the plan of its consumers:\n got  %v\n want %v", got, wantSorted)
+	}
+	for _, g := range s.EditScope.Extra {
+		if strings.HasSuffix(g, generatedFilesGlobSuffix) {
+			t.Errorf("the scope still carries the glob %q: generated files are named by the manifest", g)
+		}
+	}
+}
+
+// generatedFilesGlobSuffix is the generated-file glob the manifests replaced.
+const generatedFilesGlobSuffix = "/**/*.gen.*"
+
 // ---- helpers ----
+
+// deriveSpecErr is TaskFactsFor + the review Engine, the path every caller of a task spec takes.
+func deriveSpecErr(p *projectstate.Project, activity, task string) (review.TaskSpec, error) {
+	facts, err := projectstate.TaskFactsFor(p, activity, task)
+	if err != nil {
+		return review.TaskSpec{}, err
+	}
+	raw, err := projectstate.EncodeProjectJSON(*p)
+	if err != nil {
+		return review.TaskSpec{}, err
+	}
+	return review.NewReviewEngine().DeriveTaskSpec(fweng.Context{}, string(raw), review.TaskFacts{
+		Activity: facts.Activity, Task: facts.Task, ComponentID: facts.ComponentID, LifecycleKey: facts.LifecycleKey,
+		Surface: string(facts.Surface),
+		Model: review.SpecModelFacts{ID: facts.Model.ID, Source: facts.Model.Source, TokensIn: facts.Model.TokensIn,
+			TokensOut: facts.Model.TokensOut, USD: facts.Model.USD},
+		SlotRules: review.SlotRules{Slot: facts.SlotRules.Slot, Prefixes: facts.SlotRules.Prefixes},
+	})
+}
+
+// deriveSpec is deriveSpecErr that fails the test on an error.
+func deriveSpec(t *testing.T, p *projectstate.Project, activity, task string) review.TaskSpec {
+	t.Helper()
+	s, err := deriveSpecErr(p, activity, task)
+	if err != nil {
+		t.Fatalf("DeriveTaskSpec(%s, %s): %v", activity, task, err)
+	}
+	return s
+}
+
+// specStr is an optional string of a spec's check source: "" when absent.
+func specStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// specHashMust is the canonical hash of a spec (the Engine's TaskSpecHash).
+func specHashMust(s review.TaskSpec) string {
+	h, err := review.NewReviewEngine().TaskSpecHash(fweng.Context{}, s)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}
 
 func ownProject(t *testing.T) *projectstate.Project {
 	t.Helper()
@@ -628,7 +783,7 @@ func setRateCardModel(t *testing.T, p *projectstate.Project, class, model string
 	p.PlanningAssumptions.Model = &cp
 }
 
-func checkIDs(s projectstate.TaskSpec) []string {
+func checkIDs(s review.TaskSpec) []string {
 	out := make([]string, len(s.Checks))
 	for i, c := range s.Checks {
 		out[i] = c.ID
@@ -637,11 +792,11 @@ func checkIDs(s projectstate.TaskSpec) []string {
 	return out
 }
 
-func hasCheck(s projectstate.TaskSpec, id string) bool {
-	return slices.ContainsFunc(s.Checks, func(c projectstate.SpecCheck) bool { return c.ID == id })
+func hasCheck(s review.TaskSpec, id string) bool {
+	return slices.ContainsFunc(s.Checks, func(c review.SpecCheck) bool { return c.ID == id })
 }
 
-func checkByID(t *testing.T, s projectstate.TaskSpec, id string) projectstate.SpecCheck {
+func checkByID(t *testing.T, s review.TaskSpec, id string) review.SpecCheck {
 	t.Helper()
 	for _, c := range s.Checks {
 		if c.ID == id {
@@ -649,10 +804,10 @@ func checkByID(t *testing.T, s projectstate.TaskSpec, id string) projectstate.Sp
 		}
 	}
 	t.Fatalf("no check %s in %v", id, checkIDs(s))
-	return projectstate.SpecCheck{}
+	return review.SpecCheck{}
 }
 
-func checkSortKey(c projectstate.SpecCheck) string {
+func checkSortKey(c review.SpecCheck) string {
 	order := map[string]string{projectstate.CheckKindRule: "0", projectstate.CheckKindCommand: "1", projectstate.CheckKindSmoke: "2", projectstate.CheckKindScenario: "3"}
 	return order[c.Kind] + c.ID
 }
@@ -682,7 +837,7 @@ func TestTaskSpecForRefusesAGlobOutsideTheGrammar(t *testing.T) {
 	}
 	sc.GoPackage = "internal/resourceaccess/agentic*"
 	p.ServiceContracts["agenticJobAccess"] = sc
-	if _, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "construction"); err == nil || !strings.Contains(err.Error(), "edit-scope glob") {
+	if _, err := deriveSpecErr(p, "C-agentic-job-access", "construction"); err == nil || !strings.Contains(err.Error(), "edit-scope glob") {
 		t.Fatalf("want an edit-scope glob error, got %v", err)
 	}
 }
@@ -697,9 +852,9 @@ func TestTaskSpecActivityEditScopeIsTheLifecycleUnion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var union projectstate.SpecEditScope
+	var union review.SpecEditScope
 	for i, task := range lc.Tasks {
-		s, err := projectstate.TaskSpecFor(p, "U-SPA-web-client", task.ID)
+		s, err := deriveSpecErr(p, "U-SPA-web-client", task.ID)
 		if err != nil {
 			t.Fatalf("%s: %v", task.ID, err)
 		}
@@ -720,7 +875,7 @@ func TestTaskSpecActivityEditScopeIsTheLifecycleUnion(t *testing.T) {
 	if !slices.IsSorted(union.Extra) {
 		t.Errorf("union extras are not sorted: %v", union.Extra)
 	}
-	design, err := projectstate.TaskSpecFor(p, "requirements", designPrefixTasks(t, "requirements")[0])
+	design, err := deriveSpecErr(p, "requirements", designPrefixTasks(t, "requirements")[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,7 +885,7 @@ func TestTaskSpecActivityEditScopeIsTheLifecycleUnion(t *testing.T) {
 }
 
 // scopeGlobs is every glob a scope admits, its components' and its extras'.
-func scopeGlobs(scope projectstate.SpecEditScope) []string {
+func scopeGlobs(scope review.SpecEditScope) []string {
 	out := slices.Clone(scope.Extra)
 	for _, c := range scope.Components {
 		out = append(out, c.Paths...)
@@ -739,9 +894,9 @@ func scopeGlobs(scope projectstate.SpecEditScope) []string {
 }
 
 // sameScope reports whether two scopes are identical.
-func sameScope(a, b projectstate.SpecEditScope) bool {
+func sameScope(a, b review.SpecEditScope) bool {
 	return a.StateOnly == b.StateOnly && slices.Equal(a.Extra, b.Extra) &&
-		slices.EqualFunc(a.Components, b.Components, func(x, y projectstate.SpecScopeComponent) bool {
+		slices.EqualFunc(a.Components, b.Components, func(x, y review.SpecScopeComponent) bool {
 			return x.ID == y.ID && slices.Equal(x.Paths, y.Paths)
 		})
 }
@@ -752,7 +907,7 @@ func sameScope(a, b projectstate.SpecEditScope) bool {
 // (a devstack boot per `go test`, or per web scenario), so each adds the boot allowance too.
 func TestDiscriminateBudgetScalesWithTheModulesRuns(t *testing.T) {
 	p := ownProject(t)
-	spec, err := projectstate.TaskSpecFor(p, "C-agentic-job-access", "integration")
+	spec, err := deriveSpecErr(p, "C-agentic-job-access", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}

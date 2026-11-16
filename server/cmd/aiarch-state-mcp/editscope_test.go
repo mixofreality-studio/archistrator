@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -70,17 +71,17 @@ func (r gitRepo) commit(msg string, files map[string]string) string {
 
 // writeSpec writes a spec carrying scope to a temp file and returns its path. scope is
 // also the activity's (a one-task lifecycle's union); writeActivitySpec sets them apart.
-func writeSpec(t *testing.T, scope projectstate.SpecEditScope) string {
+func writeSpec(t *testing.T, scope review.SpecEditScope) string {
 	t.Helper()
 	return writeActivitySpec(t, scope, scope)
 }
 
 // writeActivitySpec writes a spec whose task scope is scope and whose activity scope (the
 // union over its lifecycle) is activity.
-func writeActivitySpec(t *testing.T, scope, activity projectstate.SpecEditScope) string {
+func writeActivitySpec(t *testing.T, scope, activity review.SpecEditScope) string {
 	t.Helper()
-	s := projectstate.TaskSpec{Activity: "C-x", Task: "construction", EditScope: scope, ActivityEditScope: activity}
-	s.Hash = s.ComputeHash()
+	s := review.TaskSpec{Activity: "C-x", Task: "construction", EditScope: scope, ActivityEditScope: activity}
+	s.Hash = specHashMust(s)
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
@@ -134,8 +135,8 @@ func wantExit(t *testing.T, err error, code int, want ...string) {
 	}
 }
 
-var componentScope = projectstate.SpecEditScope{
-	Components: []projectstate.SpecScopeComponent{{ID: "billing", Paths: []string{"server/internal/billing/**"}}},
+var componentScope = review.SpecEditScope{
+	Components: []review.SpecScopeComponent{{ID: "billing", Paths: []string{"server/internal/billing/**"}}},
 	Extra:      []string{"server/go.mod"},
 }
 
@@ -168,7 +169,7 @@ func TestEditScope_StateOnly(t *testing.T) {
 		".aiarch/state/project.json": "{}\n",
 		"server/main.go":             "package main\n",
 	})
-	got := r.violations(writeSpec(t, projectstate.SpecEditScope{StateOnly: true, Extra: []string{"**"}}), base, head)
+	got := r.violations(writeSpec(t, review.SpecEditScope{StateOnly: true, Extra: []string{"**"}}), base, head)
 	if !slices.Equal(got, []string{"server/main.go"}) {
 		t.Fatalf("violations %v", got)
 	}
@@ -179,7 +180,7 @@ func TestEditScope_AnyPath(t *testing.T) {
 	r := newGitRepo(t)
 	base := r.git("rev-parse", "HEAD")
 	head := r.commit("infra", map[string]string{".github/workflows/x.yml": "on: push\n", "deploy/chart.yaml": "x\n"})
-	if got := r.violations(writeSpec(t, projectstate.SpecEditScope{Extra: []string{"**"}}), base, head); len(got) != 0 {
+	if got := r.violations(writeSpec(t, review.SpecEditScope{Extra: []string{"**"}}), base, head); len(got) != 0 {
 		t.Fatalf("violations %v", got)
 	}
 }
@@ -309,7 +310,7 @@ func TestEditScope_RenameJudgesBothEnds(t *testing.T) {
 func TestEditScope_RefusesAGlobOutsideTheGrammar(t *testing.T) {
 	r := newGitRepo(t)
 	base := r.git("rev-parse", "HEAD")
-	err := r.runGate(writeSpec(t, projectstate.SpecEditScope{Extra: []string{"server/*.go"}}), "--base", base, "--head", base, "--no-main")
+	err := r.runGate(writeSpec(t, review.SpecEditScope{Extra: []string{"server/*.go"}}), "--base", base, "--head", base, "--no-main")
 	wantExit(t, err, 2, "server/*.go")
 }
 
@@ -430,9 +431,9 @@ func TestScopeGlobMatch(t *testing.T) {
 func TestEditScope_AFailedAttemptsStrayEditFailsEveryLaterAttempt(t *testing.T) {
 	r := newGitRepo(t)
 	main := r.git("rev-parse", "main")
-	task := projectstate.SpecEditScope{Components: []projectstate.SpecScopeComponent{{ID: "todo-web-app", Paths: []string{"webApp/src/**"}}}}
-	union := projectstate.SpecEditScope{
-		Components: []projectstate.SpecScopeComponent{{ID: "todo-web-app", Paths: []string{"webApp/**"}}},
+	task := review.SpecEditScope{Components: []review.SpecScopeComponent{{ID: "todo-web-app", Paths: []string{"webApp/src/**"}}}}
+	union := review.SpecEditScope{
+		Components: []review.SpecScopeComponent{{ID: "todo-web-app", Paths: []string{"webApp/**"}}},
 		Extra:      []string{"uitests/**"},
 	}
 	spec := writeActivitySpec(t, task, union)
@@ -509,15 +510,15 @@ func TestActivityEditScope_FreshProjectUnion(t *testing.T) {
 // resolvedSpecs is the spec of every task of activityID that resolves on proj. A task that
 // does not resolve yet (integration needs the surface's recorded UI design) contributes
 // nothing to the union, so it is skipped here too.
-func resolvedSpecs(t *testing.T, proj *projectstate.Project, activityID string) []projectstate.TaskSpec {
+func resolvedSpecs(t *testing.T, proj *projectstate.Project, activityID string) []review.TaskSpec {
 	t.Helper()
 	lc, err := projectstate.ActivityLifecycle(proj, activityID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []projectstate.TaskSpec
+	var out []review.TaskSpec
 	for _, task := range lc.Tasks {
-		if s, err := projectstate.TaskSpecFor(proj, activityID, task.ID); err == nil {
+		if s, err := deriveTaskSpec(proj, activityID, task.ID); err == nil {
 			out = append(out, s)
 		}
 	}
@@ -525,7 +526,7 @@ func resolvedSpecs(t *testing.T, proj *projectstate.Project, activityID string) 
 }
 
 // scopeGlobsOf is every glob a scope admits, its components' and its extras'.
-func scopeGlobsOf(s projectstate.SpecEditScope) []string {
+func scopeGlobsOf(s review.SpecEditScope) []string {
 	out := slices.Clone(s.Extra)
 	for _, c := range s.Components {
 		out = append(out, c.Paths...)

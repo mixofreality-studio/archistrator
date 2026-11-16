@@ -8,7 +8,7 @@ package main
 //	aiarch-state-mcp task-spec --activity A --task T [--root DIR] --out FILE
 //
 // It writes the spec as indented JSON to FILE and prints its hash and a newline. The
-// hash is projectstate.TaskSpecFor's own, over the same decoded project.json the server
+// hash is the review Engine's (DeriveTaskSpec, TaskSpecHash), over the same decoded project.json the server
 // reads, so the two sides cannot compute different hashes (R13). Any failure exits 2.
 
 import (
@@ -20,6 +20,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -42,7 +45,7 @@ func runTaskSpec(args []string, stdout io.Writer) error {
 	if err != nil {
 		return exitError{2, err}
 	}
-	spec, err := projectstate.TaskSpecFor(&p, strings.TrimSpace(*activity), strings.TrimSpace(*task))
+	spec, err := deriveTaskSpec(&p, strings.TrimSpace(*activity), strings.TrimSpace(*task))
 	if err != nil {
 		return exitError{2, err}
 	}
@@ -91,17 +94,47 @@ func readCheckoutProject(root string) (projectstate.Project, error) {
 // readSpecFile reads a spec written by task-spec. Its hash must be its content's: a
 // spec edited after it was resolved is refused rather than run or recorded under a
 // hash the server would not compute.
-func readSpecFile(path string) (projectstate.TaskSpec, error) {
+func readSpecFile(path string) (review.TaskSpec, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return projectstate.TaskSpec{}, fmt.Errorf("read the spec: %w", err)
+		return review.TaskSpec{}, fmt.Errorf("read the spec: %w", err)
 	}
-	var spec projectstate.TaskSpec
+	var spec review.TaskSpec
 	if err := json.Unmarshal(raw, &spec); err != nil {
-		return projectstate.TaskSpec{}, fmt.Errorf("%s is not a task spec: %w", path, err)
+		return review.TaskSpec{}, fmt.Errorf("%s is not a task spec: %w", path, err)
 	}
-	if got := spec.ComputeHash(); spec.Hash != got {
-		return projectstate.TaskSpec{}, fmt.Errorf("%s carries hash %q but its content hashes to %q: the spec was changed after task-spec resolved it", path, spec.Hash, got)
+	got, err := specHashOf(spec)
+	if err != nil {
+		return review.TaskSpec{}, err
+	}
+	if spec.Hash != got {
+		return review.TaskSpec{}, fmt.Errorf("%s carries hash %q but its content hashes to %q: the spec was changed after task-spec resolved it", path, spec.Hash, got)
 	}
 	return spec, nil
+}
+
+// deriveTaskSpec resolves the task spec of one lifecycle task over p: the project state's facts
+// (projectstate.TaskFactsFor) handed with the project document to the review Engine, the one
+// derivation every reader of a spec goes through.
+func deriveTaskSpec(p *projectstate.Project, activityID, taskID string) (review.TaskSpec, error) {
+	facts, err := projectstate.TaskFactsFor(p, activityID, taskID)
+	if err != nil {
+		return review.TaskSpec{}, err
+	}
+	doc, err := projectstate.EncodeProjectJSON(*p)
+	if err != nil {
+		return review.TaskSpec{}, fmt.Errorf("encode the project: %w", err)
+	}
+	return review.NewReviewEngine().DeriveTaskSpec(fweng.Context{}, string(doc), review.TaskFacts{
+		Activity: facts.Activity, Task: facts.Task, ComponentID: facts.ComponentID, LifecycleKey: facts.LifecycleKey,
+		Surface: string(facts.Surface),
+		Model: review.SpecModelFacts{ID: facts.Model.ID, Source: facts.Model.Source, TokensIn: facts.Model.TokensIn,
+			TokensOut: facts.Model.TokensOut, USD: facts.Model.USD},
+		SlotRules: review.SlotRules{Slot: facts.SlotRules.Slot, Prefixes: facts.SlotRules.Prefixes},
+	})
+}
+
+// specHashOf is the canonical hash of a spec (the review Engine's TaskSpecHash).
+func specHashOf(spec review.TaskSpec) (string, error) {
+	return review.NewReviewEngine().TaskSpecHash(fweng.Context{}, spec)
 }

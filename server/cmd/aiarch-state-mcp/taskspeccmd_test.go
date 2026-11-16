@@ -10,8 +10,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
+
+// specHashMust is the canonical hash of a spec (the review Engine's TaskSpecHash).
+func specHashMust(s review.TaskSpec) string {
+	h, err := specHashOf(s)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}
 
 // seedOwnCheckout seats archistrator's own committed project.json in a fresh checkout
 // root and returns the root.
@@ -49,12 +59,12 @@ func TestTaskSpecCmd_HashRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var spec projectstate.TaskSpec
+	var spec review.TaskSpec
 	if err := json.Unmarshal(raw, &spec); err != nil {
 		t.Fatal(err)
 	}
-	if len(printed) != 64 || printed != spec.Hash || printed != spec.ComputeHash() {
-		t.Fatalf("printed %q, file hash %q, recomputed %q", printed, spec.Hash, spec.ComputeHash())
+	if len(printed) != 64 || printed != spec.Hash || printed != specHashMust(spec) {
+		t.Fatalf("printed %q, file hash %q, recomputed %q", printed, spec.Hash, specHashMust(spec))
 	}
 
 	assertServerHash(t, root, printed)
@@ -73,7 +83,7 @@ func assertServerHash(t *testing.T, root, printed string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := projectstate.TaskSpecFor(&p, "C-agentic-job-access", "integration")
+	server, err := deriveTaskSpec(&p, "C-agentic-job-access", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}

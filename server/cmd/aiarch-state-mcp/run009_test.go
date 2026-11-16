@@ -262,12 +262,12 @@ func TestMachineClientWithNothingToTestHasNoSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := projectstate.TaskSpecFor(&proj, "C-web-api", "integration"); err != nil {
+	if _, err := deriveTaskSpec(&proj, "C-web-api", "integration"); err != nil {
 		t.Fatalf("with its contract and its views it has a spec: %v", err)
 	}
 	contract := proj.ServiceContracts["webApi"]
 	delete(proj.ServiceContracts, "webApi")
-	if _, err := projectstate.TaskSpecFor(&proj, "C-web-api", "integration"); err == nil || !strings.Contains(err.Error(), "has no contract") {
+	if _, err := deriveTaskSpec(&proj, "C-web-api", "integration"); err == nil || !strings.Contains(err.Error(), "has no contract") {
 		t.Errorf("no contract: %v", err)
 	}
 	proj.ServiceContracts["webApi"] = contract
@@ -278,7 +278,7 @@ func TestMachineClientWithNothingToTestHasNoSpec(t *testing.T) {
 			st.Calls = slices.DeleteFunc(st.Calls, func(c projectstate.TraceCall) bool { return c.To == "web-api" })
 		}
 	}
-	if _, err := projectstate.TaskSpecFor(&proj, "C-web-api", "integration"); err == nil || !strings.Contains(err.Error(), "no scenario to integrate against") {
+	if _, err := deriveTaskSpec(&proj, "C-web-api", "integration"); err == nil || !strings.Contains(err.Error(), "no scenario to integrate against") {
 		t.Errorf("no scenario: %v", err)
 	}
 }

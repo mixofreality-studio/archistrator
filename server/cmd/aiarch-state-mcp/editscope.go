@@ -59,6 +59,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -100,7 +101,15 @@ func runEditScope(args []string) error {
 	if err != nil {
 		return exitError{2, err}
 	}
+	drift, err := generatedDriftViolations(wd, *spec, rng)
+	if err != nil {
+		return exitError{2, err}
+	}
 	var msgs []string
+	if len(drift) > 0 {
+		msgs = append(msgs, fmt.Sprintf("%d generated file(s) differ from what their generator writes — regenerate them, never edit them by hand:\n  %s",
+			len(drift), strings.Join(drift, "\n  ")))
+	}
 	if len(bad) > 0 {
 		msgs = append(msgs, fmt.Sprintf("%d changed path(s) lie outside the task's edit scope:\n  %s", len(bad), shownPaths(bad)))
 	}
@@ -205,7 +214,7 @@ func activityScopeViolations(root, specPath string, rng editScopeRange) ([]strin
 
 // outsideScope returns the paths of changed (sorted) that scope does not admit; the state
 // directory is always admitted.
-func outsideScope(scope projectstate.SpecEditScope, changed []string) ([]string, error) {
+func outsideScope(scope review.SpecEditScope, changed []string) ([]string, error) {
 	var globs []string
 	if !scope.StateOnly {
 		for _, c := range scope.Components {

@@ -12,6 +12,8 @@ import (
 // a test needs; calling a method whose Fn is unset panics.
 type FakeReviewEngine struct {
 	ProposeReviewsFn func(rc fweng.Context, change review.ReviewChange, activityType review.ActivityType, lifecyclePhase string, componentID string, policy review.ReviewPolicy, floorTouched bool, contracts []string) (review.ReviewSet, error)
+	DeriveTaskSpecFn func(rc fweng.Context, project string, facts review.TaskFacts) (review.TaskSpec, error)
+	TaskSpecHashFn   func(rc fweng.Context, spec review.TaskSpec) (string, error)
 }
 
 func (f *FakeReviewEngine) ProposeReviews(rc fweng.Context, change review.ReviewChange, activityType review.ActivityType, lifecyclePhase string, componentID string, policy review.ReviewPolicy, floorTouched bool, contracts []string) (review.ReviewSet, error) {
@@ -19,6 +21,20 @@ func (f *FakeReviewEngine) ProposeReviews(rc fweng.Context, change review.Review
 		panic("FakeReviewEngine.ProposeReviewsFn not set")
 	}
 	return f.ProposeReviewsFn(rc, change, activityType, lifecyclePhase, componentID, policy, floorTouched, contracts)
+}
+
+func (f *FakeReviewEngine) DeriveTaskSpec(rc fweng.Context, project string, facts review.TaskFacts) (review.TaskSpec, error) {
+	if f.DeriveTaskSpecFn == nil {
+		panic("FakeReviewEngine.DeriveTaskSpecFn not set")
+	}
+	return f.DeriveTaskSpecFn(rc, project, facts)
+}
+
+func (f *FakeReviewEngine) TaskSpecHash(rc fweng.Context, spec review.TaskSpec) (string, error) {
+	if f.TaskSpecHashFn == nil {
+		panic("FakeReviewEngine.TaskSpecHashFn not set")
+	}
+	return f.TaskSpecHashFn(rc, spec)
 }
 
 var _ review.ReviewEngine = (*FakeReviewEngine)(nil)

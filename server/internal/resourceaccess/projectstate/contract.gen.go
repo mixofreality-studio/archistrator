@@ -338,6 +338,7 @@ type CheckItem struct {
 
 type CheckResult struct {
 	CheckId    string  `json:"checkId"`
+	Contract   *string `json:"contract,omitempty"`
 	Kind       string  `json:"kind"`
 	Status     string  `json:"status"`
 	DurationMs int     `json:"durationMs"`

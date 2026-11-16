@@ -2438,7 +2438,7 @@ func scenarioCheckPrefix(contract string) string {
 // scenarioIDOf is the scenario id a scenario result names under contract, ok=false for a
 // result of another kind or another contract.
 func scenarioIDOf(res projectstate.CheckResult, contract string) (string, bool) {
-	if res.Kind != projectstate.CheckKindScenario {
+	if res.Kind != projectstate.CheckKindScenario || derefString(res.Contract, "") != contract {
 		return "", false
 	}
 	id, ok := strings.CutPrefix(res.CheckId, scenarioCheckPrefix(contract))
@@ -2449,14 +2449,7 @@ func scenarioIDOf(res projectstate.CheckResult, contract string) (string, bool) 
 func scenarioContractsOf(r projectstate.CheckRun) []string {
 	var out []string
 	for _, res := range r.Results {
-		if res.Kind != projectstate.CheckKindScenario {
-			continue
-		}
-		rest, ok := strings.CutPrefix(res.CheckId, projectstate.CheckKindScenario+":")
-		if !ok {
-			continue
-		}
-		if contract, _, ok := strings.Cut(rest, ":"); ok && contract != "" {
+		if contract := derefString(res.Contract, ""); res.Kind == projectstate.CheckKindScenario && contract != "" {
 			out = append(out, contract)
 		}
 	}
@@ -14480,7 +14473,7 @@ func (m *deliveryManager) queryTaskSpecView(rc fwmanager.Context, query ProjectV
 	if err != nil {
 		return out, err
 	}
-	spec, err := projectstate.TaskSpecFor(&proj, activityID, taskID)
+	spec, err := deriveTaskSpec(m.cs.review, &proj, activityID, taskID)
 	if err != nil {
 		return out, fwmanager.Wrap(fwmanager.FailedPrecondition, err,
 			fmt.Sprintf("the agent task spec of %s/%s does not resolve", activityID, taskID))
@@ -14517,7 +14510,7 @@ func (m *deliveryManager) revisionAttemptIDs(rc fwmanager.Context, projectID Pro
 }
 
 // taskSpecToContract maps a resolved task spec onto the wire. Slices are never nil.
-func taskSpecToContract(s projectstate.TaskSpec) DeliveryTaskSpecView {
+func taskSpecToContract(s review.TaskSpec) DeliveryTaskSpecView {
 	comps := make([]TaskSpecScopeComponentView, len(s.EditScope.Components))
 	for i, c := range s.EditScope.Components {
 		comps[i] = TaskSpecScopeComponentView{ID: c.ID, Paths: nonNilStrings(c.Paths)}
@@ -14527,9 +14520,9 @@ func taskSpecToContract(s projectstate.TaskSpec) DeliveryTaskSpecView {
 		checks[i] = TaskSpecCheckView{
 			ID: c.ID, Kind: c.Kind, Title: c.Title, TimeoutSec: c.TimeoutSec,
 			Source: TaskSpecCheckSourceView{
-				RulePrefixes: c.Source.RulePrefixes, RuleSlot: strPtrOrNil(c.Source.RuleSlot),
-				Argv: c.Source.Argv, Dir: strPtrOrNil(c.Source.Dir), Scenario: strPtrOrNil(c.Source.Scenario),
-				Contract: strPtrOrNil(c.Source.Contract), UseCase: strPtrOrNil(c.Source.UseCase),
+				RulePrefixes: c.Source.RulePrefixes, RuleSlot: c.Source.RuleSlot,
+				Argv: c.Source.Argv, Dir: c.Source.Dir, Scenario: c.Source.Scenario,
+				Contract: c.Source.Contract, UseCase: c.Source.UseCase,
 			},
 		}
 	}
@@ -14815,18 +14808,13 @@ func gateContracts(proj *projectstate.Project, componentID string) (contracts []
 	if !ok {
 		return nil, false
 	}
+	components := make(map[string]string, len(proj.ServiceContracts))
 	for name, sc := range proj.ServiceContracts {
-		if name == key || sc.Component == key {
-			contracts = append(contracts, name)
-		}
+		components[name] = sc.Component
 	}
-	if len(contracts) == 0 {
-		// The System names the key but no contract is recorded under it: judged under the
-		// key, whose empty projection holds the gate.
-		return []string{key}, true
-	}
-	slices.Sort(contracts)
-	return contracts, true
+	// The System names the key but no contract may be recorded under it: ContractsOf then names
+	// the key, whose empty projection holds the gate.
+	return methodcheck.ContractsOf(key, components), true
 }
 
 // runBefore reports whether a ended (or, failing that, started) strictly before b;
@@ -15051,4 +15039,26 @@ func nonNilStrings(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// deriveTaskSpec resolves the agent task spec of one lifecycle task over proj: the project
+// state's facts (projectstate.TaskFactsFor) handed with the encoded project document to the
+// review Engine, which derives what the task must change and prove. Pure and deterministic, so
+// it is safe in workflow code.
+func deriveTaskSpec(eng review.ReviewEngine, proj *projectstate.Project, activityID, taskID string) (review.TaskSpec, error) {
+	facts, err := projectstate.TaskFactsFor(proj, activityID, taskID)
+	if err != nil {
+		return review.TaskSpec{}, err
+	}
+	doc, err := projectstate.EncodeProjectJSON(*proj)
+	if err != nil {
+		return review.TaskSpec{}, fmt.Errorf("encode the project: %w", err)
+	}
+	return eng.DeriveTaskSpec(fweng.Context{Context: context.Background()}, string(doc), review.TaskFacts{
+		Activity: facts.Activity, Task: facts.Task, ComponentID: facts.ComponentID, LifecycleKey: facts.LifecycleKey,
+		Surface: string(facts.Surface),
+		Model: review.SpecModelFacts{ID: facts.Model.ID, Source: facts.Model.Source, TokensIn: facts.Model.TokensIn,
+			TokensOut: facts.Model.TokensOut, USD: facts.Model.USD},
+		SlotRules: review.SlotRules{Slot: facts.SlotRules.Slot, Prefixes: facts.SlotRules.Prefixes},
+	})
 }

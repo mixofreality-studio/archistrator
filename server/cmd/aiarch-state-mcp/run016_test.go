@@ -73,7 +73,7 @@ func TestRun016ContractGoPackageIsDerived(t *testing.T) {
 	if err := modelgen.ValidateContract("messageBus", raw); err != nil {
 		t.Fatalf("modelgen refuses the stored contract: %v", err)
 	}
-	spec, err := projectstate.TaskSpecFor(&proj, run016Activity, "construction")
+	spec, err := deriveTaskSpec(&proj, run016Activity, "construction")
 	if err != nil {
 		t.Fatal(err)
 	}

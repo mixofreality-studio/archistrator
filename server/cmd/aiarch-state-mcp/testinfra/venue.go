@@ -19,6 +19,9 @@ import (
 	"slices"
 	"strings"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -78,22 +81,26 @@ func WritePassingResults(specPath, out string) (string, error) {
 }
 
 // ReadSpec reads a spec file task-spec wrote.
-func ReadSpec(specPath string) (projectstate.TaskSpec, error) {
+func ReadSpec(specPath string) (review.TaskSpec, error) {
 	raw, err := os.ReadFile(specPath)
 	if err != nil {
-		return projectstate.TaskSpec{}, err
+		return review.TaskSpec{}, err
 	}
-	var spec projectstate.TaskSpec
+	var spec review.TaskSpec
 	if err := json.Unmarshal(raw, &spec); err != nil {
-		return projectstate.TaskSpec{}, err
+		return review.TaskSpec{}, err
 	}
 	return spec, nil
 }
 
 // WriteSpec writes spec to specPath re-hashed, so a hand-narrowed spec (a check removed to
 // stage a run that never ran it) is still one record-check-run accepts.
-func WriteSpec(specPath string, spec projectstate.TaskSpec) error {
-	spec.Hash = spec.ComputeHash()
+func WriteSpec(specPath string, spec review.TaskSpec) error {
+	hash, err := review.NewReviewEngine().TaskSpecHash(fweng.Context{}, spec)
+	if err != nil {
+		return err
+	}
+	spec.Hash = hash
 	b, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		return err
@@ -152,7 +159,7 @@ func RunMakeDouble(args []string) int {
 // scope, as a real agent's change is — under the first component directory the spec lets
 // it edit, anywhere for an any-path scope, and among the state files for a state-only task
 // (the one path every scope permits).
-func WorkPath(spec projectstate.TaskSpec, activity, command string) string {
+func WorkPath(spec review.TaskSpec, activity, command string) string {
 	name := "scripted-" + command + ".md"
 	for _, c := range spec.EditScope.Components {
 		for _, p := range c.Paths {

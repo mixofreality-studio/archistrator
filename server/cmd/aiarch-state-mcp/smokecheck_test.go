@@ -23,6 +23,7 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -76,7 +77,7 @@ func TestIntegrationChecks_IncludeSmokeForEveryType(t *testing.T) {
 	}
 	for _, activity := range []string{freshManagerActivity, freshSurfaceActivity, "C-todo-mcp-server", freshMachineActivity, smokeDeploymentActivity} {
 		t.Run(activity, func(t *testing.T) {
-			spec, err := projectstate.TaskSpecFor(&proj, activity, "integration")
+			spec, err := deriveTaskSpec(&proj, activity, "integration")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -84,11 +85,11 @@ func TestIntegrationChecks_IncludeSmokeForEveryType(t *testing.T) {
 		})
 	}
 	// Construction boots nothing: only an integration is the unit of integration.
-	spec, err := projectstate.TaskSpecFor(&proj, freshManagerActivity, "construction")
+	spec, err := deriveTaskSpec(&proj, freshManagerActivity, "construction")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slices.ContainsFunc(spec.Checks, func(c projectstate.SpecCheck) bool { return c.Kind == projectstate.CheckKindSmoke }) {
+	if slices.ContainsFunc(spec.Checks, func(c review.SpecCheck) bool { return c.Kind == projectstate.CheckKindSmoke }) {
 		t.Errorf("a construction task carries a smoke: %v", specCheckIDs(spec))
 	}
 }
@@ -96,9 +97,9 @@ func TestIntegrationChecks_IncludeSmokeForEveryType(t *testing.T) {
 // requireSmokeBetweenCommandsAndScenarios holds one integration spec to its smoke: present, the
 // kind and cap the runner expects, after every command check and before every scenario, with the
 // two builds it needs green first still there.
-func requireSmokeBetweenCommandsAndScenarios(t *testing.T, spec projectstate.TaskSpec) {
+func requireSmokeBetweenCommandsAndScenarios(t *testing.T, spec review.TaskSpec) {
 	t.Helper()
-	smoke := slices.IndexFunc(spec.Checks, func(c projectstate.SpecCheck) bool { return c.ID == "smoke:composition" })
+	smoke := slices.IndexFunc(spec.Checks, func(c review.SpecCheck) bool { return c.ID == "smoke:composition" })
 	if smoke < 0 {
 		t.Fatalf("%s's integration has no smoke:composition: %v", spec.Activity, specCheckIDs(spec))
 	}
@@ -114,7 +115,7 @@ func requireSmokeBetweenCommandsAndScenarios(t *testing.T, spec projectstate.Tas
 		}
 	}
 	for _, build := range []string{"command:build-server", "command:build-devstack"} {
-		if !slices.ContainsFunc(spec.Checks, func(c projectstate.SpecCheck) bool { return c.ID == build }) {
+		if !slices.ContainsFunc(spec.Checks, func(c review.SpecCheck) bool { return c.ID == build }) {
 			t.Errorf("%s's integration lost %s, which the smoke needs green first: %v", spec.Activity, build, specCheckIDs(spec))
 		}
 	}
@@ -122,7 +123,7 @@ func requireSmokeBetweenCommandsAndScenarios(t *testing.T, spec projectstate.Tas
 
 // withSmoke adds the full spec's smoke checks to a spec narrowed to its command checks: the
 // composed app's integration gate is the commands and the boot.
-func withSmoke(narrowed, full projectstate.TaskSpec) projectstate.TaskSpec {
+func withSmoke(narrowed, full review.TaskSpec) review.TaskSpec {
 	for _, c := range full.Checks {
 		if c.Kind == projectstate.CheckKindSmoke {
 			narrowed.Checks = append(narrowed.Checks, c)
@@ -131,7 +132,7 @@ func withSmoke(narrowed, full projectstate.TaskSpec) projectstate.TaskSpec {
 	return narrowed
 }
 
-func specCheckIDs(s projectstate.TaskSpec) []string {
+func specCheckIDs(s review.TaskSpec) []string {
 	ids := make([]string, len(s.Checks))
 	for i, c := range s.Checks {
 		ids[i] = c.ID
@@ -196,13 +197,13 @@ func smokeRunner(t *testing.T, leaked ...string) (checkRunner, *[]string) {
 	return r, &events
 }
 
-func smokeSpecCheck() projectstate.SpecCheck {
-	return projectstate.SpecCheck{ID: "smoke:composition", Kind: projectstate.CheckKindSmoke, TimeoutSec: 60}
+func smokeSpecCheck() review.SpecCheck {
+	return review.SpecCheck{ID: "smoke:composition", Kind: projectstate.CheckKindSmoke, TimeoutSec: 60}
 }
 
 func TestRunSmokePassesAfterALeakFreeBoot(t *testing.T) {
 	r, events := smokeRunner(t)
-	res := r.Run(context.Background(), []projectstate.SpecCheck{smokeSpecCheck()})
+	res := r.Run(context.Background(), []review.SpecCheck{smokeSpecCheck()})
 	if res[0].Status != checkPass {
 		b, _ := os.ReadFile(filepath.Join(r.outDir, "checks", "smoke_composition.log"))
 		t.Fatalf("smoke = %s:\n%s", res[0].Status, b)
@@ -219,7 +220,7 @@ func TestRunSmokePassesAfterALeakFreeBoot(t *testing.T) {
 // contract (a scenario run may not leave a process, container or volume).
 func TestRunSmokeFailsOnLeftovers(t *testing.T) {
 	r, _ := smokeRunner(t, "container:x")
-	res := r.Run(context.Background(), []projectstate.SpecCheck{smokeSpecCheck()})
+	res := r.Run(context.Background(), []review.SpecCheck{smokeSpecCheck()})
 	if res[0].Status != checkFail {
 		t.Fatalf("smoke over a leaking launch = %s, want fail", res[0].Status)
 	}
@@ -236,7 +237,7 @@ func TestRunSmokeFailsWhenTheToolTableIsShort(t *testing.T) {
 		app.Stop = func() error { return nil }
 		return app, nil
 	}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{smokeSpecCheck()})
+	res := r.Run(context.Background(), []review.SpecCheck{smokeSpecCheck()})
 	b, _ := os.ReadFile(filepath.Join(r.outDir, "checks", "smoke_composition.log"))
 	if res[0].Status != checkFail || !strings.Contains(string(b), "listOpenList") {
 		t.Fatalf("smoke over a short tool table = %s:\n%s", res[0].Status, b)
@@ -267,7 +268,7 @@ func TestRunSmokeBootsTheComposedFixture(t *testing.T) {
 		t.Fatalf("RunChain: %v", err)
 	}
 	r := checkRunner{root: dir, outDir: filepath.Join(dir, "check-results"), now: time.Now}
-	res := r.Run(ctx, []projectstate.SpecCheck{{ID: "smoke:composition", Kind: projectstate.CheckKindSmoke, TimeoutSec: 900}})
+	res := r.Run(ctx, []review.SpecCheck{{ID: "smoke:composition", Kind: projectstate.CheckKindSmoke, TimeoutSec: 900}})
 	log, _ := os.ReadFile(filepath.Join(r.outDir, "checks", "smoke_composition.log"))
 	if res[0].Status != checkPass {
 		t.Fatalf("smoke over the composed fixture = %s:\n%s", res[0].Status, log)

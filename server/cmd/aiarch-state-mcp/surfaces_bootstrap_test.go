@@ -18,7 +18,7 @@ func TestFrontendGenerators_BootstrapCarriesTheClientsSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	for activity, want := range map[string]string{"U-SPA-todo-web-app": "web", "U-SPA-todo-mcp-app": "mcpApp"} {
-		spec, err := projectstate.TaskSpecFor(&proj, activity, "construction")
+		spec, err := deriveTaskSpec(&proj, activity, "construction")
 		if err != nil {
 			t.Fatalf("%s: %v", activity, err)
 		}
@@ -46,7 +46,7 @@ func TestFrontendScope_AdmitsTheBootstrapSeats(t *testing.T) {
 		"U-SPA-todo-web-app": "webApp/todo-web-app.html",
 		"U-SPA-todo-mcp-app": "webApp/todo-mcp-app.mcpapp.html",
 	} {
-		spec, err := projectstate.TaskSpecFor(&proj, activity, "construction")
+		spec, err := deriveTaskSpec(&proj, activity, "construction")
 		if err != nil {
 			t.Fatalf("%s: %v", activity, err)
 		}

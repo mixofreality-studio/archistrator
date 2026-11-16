@@ -162,7 +162,7 @@ func TestATPActivityClassifiesAsTheAcceptancePlanLifecycle(t *testing.T) {
 }
 
 func TestTaskSpecForATPIsStateOnlyWithATPRules(t *testing.T) {
-	s, err := projectstate.TaskSpecFor(withATPActivity(t), "N-ATP", "stp")
+	s, err := deriveSpecErr(withATPActivity(t), "N-ATP", "stp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func acceptanceRun(t *testing.T, p *projectstate.Project, id, revision, failing 
 			status = "fail"
 		}
 		run.Results = append(run.Results, projectstate.CheckResult{
-			CheckId: "scenario:" + projectstate.AcceptanceContract + ":" + sc.ID, Kind: projectstate.CheckKindScenario, Status: status, DurationMs: 9})
+			CheckId: "scenario:" + projectstate.AcceptanceContract + ":" + sc.ID, Kind: projectstate.CheckKindScenario, Contract: ptr(projectstate.AcceptanceContract), Status: status, DurationMs: 9})
 	}
 	return run
 }

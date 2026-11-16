@@ -138,6 +138,202 @@ func TestScenario_commit_to_a_project_option_P3(t *testing.T) {
 	})
 }
 
+// inputExecuteAProjectActivityP1S1 is step 1's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S1 struct {
+	Project string           `json:"project"`
+	Facts   review.TaskFacts `json:"facts"`
+}
+
+// inputExecuteAProjectActivityP1S2 is step 2's parameters of TaskSpecHash, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S2 struct {
+	Spec review.TaskSpec `json:"spec"`
+}
+
+// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P1(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P1", func(t *testing.T) {
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// step 1: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
+		var out1 any
+		var err1 error
+		var in1 inputExecuteAProjectActivityP1S1
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
+                          "activity": "requirements",
+                          "task": "glossaryDraft",
+                          "componentId": "",
+                          "lifecycleKey": "requirements",
+                          "surface": "",
+                          "model": {
+                            "id": "",
+                            "source": "",
+                            "tokensIn": 0,
+                            "tokensOut": 0,
+                            "usd": 0
+                          },
+                          "slotRules": {
+                            "slot": "glossary",
+                            "prefixes": [
+                              "GLOSS-"
+                            ]
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
+		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
+		// step 2: TaskSpecHash (node dispatch-task; guards task-kind=dispatch, exit-met=yes)
+		var out2 any
+		var err2 error
+		var in2 inputExecuteAProjectActivityP1S2
+		mustUnmarshal(t, `{"spec":{
+                          "activity": "A-1",
+                          "task": "construction",
+                          "identity": {
+                            "kind": "dispatch",
+                            "title": "T",
+                            "phase": "construction",
+                            "command": "c",
+                            "agent": "a",
+                            "workerClass": "w",
+                            "artifactKind": "k",
+                            "exitCriterion": "e",
+                            "mode": "construct"
+                          },
+                          "model": {
+                            "id": "m",
+                            "source": "charter",
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            }
+                          },
+                          "prompt": {
+                            "text": "p",
+                            "tokens": 0,
+                            "charter": "c",
+                            "skills": []
+                          },
+                          "tools": {
+                            "mcp": [],
+                            "builtin": []
+                          },
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "activityEditScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "checks": [],
+                          "hash": ""
+                        }}`, &in2)
+		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP2S1 is step 1's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S1 struct {
+	Project string           `json:"project"`
+	Facts   review.TaskFacts `json:"facts"`
+}
+
+// inputExecuteAProjectActivityP2S2 is step 2's parameters of TaskSpecHash, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S2 struct {
+	Spec review.TaskSpec `json:"spec"`
+}
+
+// TestScenario_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P2(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P2", func(t *testing.T) {
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// step 1: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var out1 any
+		var err1 error
+		var in1 inputExecuteAProjectActivityP2S1
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
+                          "activity": "requirements",
+                          "task": "glossaryDraft",
+                          "componentId": "",
+                          "lifecycleKey": "requirements",
+                          "surface": "",
+                          "model": {
+                            "id": "",
+                            "source": "",
+                            "tokensIn": 0,
+                            "tokensOut": 0,
+                            "usd": 0
+                          },
+                          "slotRules": {
+                            "slot": "glossary",
+                            "prefixes": [
+                              "GLOSS-"
+                            ]
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
+		// step 2: TaskSpecHash (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var out2 any
+		var err2 error
+		var in2 inputExecuteAProjectActivityP2S2
+		mustUnmarshal(t, `{"spec":{
+                          "activity": "A-1",
+                          "task": "construction",
+                          "identity": {
+                            "kind": "dispatch",
+                            "title": "T",
+                            "phase": "construction",
+                            "command": "c",
+                            "agent": "a",
+                            "workerClass": "w",
+                            "artifactKind": "k",
+                            "exitCriterion": "e",
+                            "mode": "construct"
+                          },
+                          "model": {
+                            "id": "m",
+                            "source": "charter",
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            }
+                          },
+                          "prompt": {
+                            "text": "p",
+                            "tokens": 0,
+                            "charter": "c",
+                            "skills": []
+                          },
+                          "tools": {
+                            "mcp": [],
+                            "builtin": []
+                          },
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "activityEditScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "checks": [],
+                          "hash": ""
+                        }}`, &in2)
+		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+	})
+}
+
 // inputExecuteAProjectActivityP3S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP3S1 struct {
 	Change         review.ReviewChange `json:"change"`
@@ -280,6 +476,291 @@ func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	})
 }
 
+// inputExecuteAProjectActivityP5S1 is step 1's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S1 struct {
+	Project string           `json:"project"`
+	Facts   review.TaskFacts `json:"facts"`
+}
+
+// inputExecuteAProjectActivityP5S2 is step 2's parameters of TaskSpecHash, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S2 struct {
+	Spec review.TaskSpec `json:"spec"`
+}
+
+// inputExecuteAProjectActivityP5S3 is step 3's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S3 struct {
+	Project string           `json:"project"`
+	Facts   review.TaskFacts `json:"facts"`
+}
+
+// inputExecuteAProjectActivityP5S4 is step 4's parameters of TaskSpecHash, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S4 struct {
+	Spec review.TaskSpec `json:"spec"`
+}
+
+// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P5(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P5", func(t *testing.T) {
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// step 1: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var out1 any
+		var err1 error
+		var in1 inputExecuteAProjectActivityP5S1
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
+                          "activity": "requirements",
+                          "task": "glossaryDraft",
+                          "componentId": "",
+                          "lifecycleKey": "requirements",
+                          "surface": "",
+                          "model": {
+                            "id": "",
+                            "source": "",
+                            "tokensIn": 0,
+                            "tokensOut": 0,
+                            "usd": 0
+                          },
+                          "slotRules": {
+                            "slot": "glossary",
+                            "prefixes": [
+                              "GLOSS-"
+                            ]
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
+		// step 2: TaskSpecHash (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var out2 any
+		var err2 error
+		var in2 inputExecuteAProjectActivityP5S2
+		mustUnmarshal(t, `{"spec":{
+                          "activity": "A-1",
+                          "task": "construction",
+                          "identity": {
+                            "kind": "dispatch",
+                            "title": "T",
+                            "phase": "construction",
+                            "command": "c",
+                            "agent": "a",
+                            "workerClass": "w",
+                            "artifactKind": "k",
+                            "exitCriterion": "e",
+                            "mode": "construct"
+                          },
+                          "model": {
+                            "id": "m",
+                            "source": "charter",
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            }
+                          },
+                          "prompt": {
+                            "text": "p",
+                            "tokens": 0,
+                            "charter": "c",
+                            "skills": []
+                          },
+                          "tools": {
+                            "mcp": [],
+                            "builtin": []
+                          },
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "activityEditScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "checks": [],
+                          "hash": ""
+                        }}`, &in2)
+		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		// step 3: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var out3 any
+		var err3 error
+		var in3 inputExecuteAProjectActivityP5S3
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
+                          "activity": "requirements",
+                          "task": "glossaryDraft",
+                          "componentId": "",
+                          "lifecycleKey": "requirements",
+                          "surface": "",
+                          "model": {
+                            "id": "",
+                            "source": "",
+                            "tokensIn": 0,
+                            "tokensOut": 0,
+                            "usd": 0
+                          },
+                          "slotRules": {
+                            "slot": "glossary",
+                            "prefixes": [
+                              "GLOSS-"
+                            ]
+                          }
+                        }}`, &in3)
+		out3, err3 = subject.DeriveTaskSpec(h.EngineContext(t), in3.Project, in3.Facts)
+		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
+		// step 4: TaskSpecHash (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var out4 any
+		var err4 error
+		var in4 inputExecuteAProjectActivityP5S4
+		mustUnmarshal(t, `{"spec":{
+                          "activity": "A-1",
+                          "task": "construction",
+                          "identity": {
+                            "kind": "dispatch",
+                            "title": "T",
+                            "phase": "construction",
+                            "command": "c",
+                            "agent": "a",
+                            "workerClass": "w",
+                            "artifactKind": "k",
+                            "exitCriterion": "e",
+                            "mode": "construct"
+                          },
+                          "model": {
+                            "id": "m",
+                            "source": "charter",
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            }
+                          },
+                          "prompt": {
+                            "text": "p",
+                            "tokens": 0,
+                            "charter": "c",
+                            "skills": []
+                          },
+                          "tools": {
+                            "mcp": [],
+                            "builtin": []
+                          },
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "activityEditScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "checks": [],
+                          "hash": ""
+                        }}`, &in4)
+		out4, err4 = subject.TaskSpecHash(h.EngineContext(t), in4.Spec)
+		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+	})
+}
+
+// inputExecuteAProjectActivityP6S1 is step 1's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S1 struct {
+	Project string           `json:"project"`
+	Facts   review.TaskFacts `json:"facts"`
+}
+
+// inputExecuteAProjectActivityP6S2 is step 2's parameters of TaskSpecHash, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S2 struct {
+	Spec review.TaskSpec `json:"spec"`
+}
+
+// TestScenario_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+func TestScenario_execute_a_project_activity_P6(t *testing.T) {
+	h := scenariohost.Start(t)
+	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P6", func(t *testing.T) {
+		var subject review.ReviewEngine = scenariocompose.NewReviewEngine(t, h)
+		subject = nullSubjectReviewEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// step 1: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var out1 any
+		var err1 error
+		var in1 inputExecuteAProjectActivityP6S1
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
+                          "activity": "requirements",
+                          "task": "glossaryDraft",
+                          "componentId": "",
+                          "lifecycleKey": "requirements",
+                          "surface": "",
+                          "model": {
+                            "id": "",
+                            "source": "",
+                            "tokensIn": 0,
+                            "tokensOut": 0,
+                            "usd": 0
+                          },
+                          "slotRules": {
+                            "slot": "glossary",
+                            "prefixes": [
+                              "GLOSS-"
+                            ]
+                          }
+                        }}`, &in1)
+		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
+		// step 2: TaskSpecHash (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var out2 any
+		var err2 error
+		var in2 inputExecuteAProjectActivityP6S2
+		mustUnmarshal(t, `{"spec":{
+                          "activity": "A-1",
+                          "task": "construction",
+                          "identity": {
+                            "kind": "dispatch",
+                            "title": "T",
+                            "phase": "construction",
+                            "command": "c",
+                            "agent": "a",
+                            "workerClass": "w",
+                            "artifactKind": "k",
+                            "exitCriterion": "e",
+                            "mode": "construct"
+                          },
+                          "model": {
+                            "id": "m",
+                            "source": "charter",
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            }
+                          },
+                          "prompt": {
+                            "text": "p",
+                            "tokens": 0,
+                            "charter": "c",
+                            "skills": []
+                          },
+                          "tools": {
+                            "mcp": [],
+                            "builtin": []
+                          },
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "activityEditScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "checks": [],
+                          "hash": ""
+                        }}`, &in2)
+		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+	})
+}
+
 // inputExecuteAProjectActivityP7S1 is step 1's parameters of ProposeReviews, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP7S1 struct {
 	Change         review.ReviewChange `json:"change"`
@@ -300,6 +781,17 @@ type inputExecuteAProjectActivityP7S2 struct {
 	Policy         review.ReviewPolicy `json:"policy"`
 	FloorTouched   bool                `json:"floorTouched"`
 	Contracts      []string            `json:"contracts"`
+}
+
+// inputExecuteAProjectActivityP7S3 is step 3's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S3 struct {
+	Project string           `json:"project"`
+	Facts   review.TaskFacts `json:"facts"`
+}
+
+// inputExecuteAProjectActivityP7S4 is step 4's parameters of TaskSpecHash, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S4 struct {
+	Spec review.TaskSpec `json:"spec"`
 }
 
 // TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -356,6 +848,84 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
                         ]}`, &in2)
 		out2, err2 = subject.ProposeReviews(h.EngineContext(t), in2.Change, in2.ActivityType, in2.LifecyclePhase, in2.ComponentID, in2.Policy, in2.FloorTouched, in2.Contracts)
 		expect(t, "execute-a-project-activity-P7", 2, out2, err2, `{"result":"{\"RequiresHuman\": false, \"ArtifactKind\": \"DetailedDesign\"}","errorExpected":false}`)
+		// step 3: DeriveTaskSpec (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var out3 any
+		var err3 error
+		var in3 inputExecuteAProjectActivityP7S3
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
+                          "activity": "requirements",
+                          "task": "glossaryDraft",
+                          "componentId": "",
+                          "lifecycleKey": "requirements",
+                          "surface": "",
+                          "model": {
+                            "id": "",
+                            "source": "",
+                            "tokensIn": 0,
+                            "tokensOut": 0,
+                            "usd": 0
+                          },
+                          "slotRules": {
+                            "slot": "glossary",
+                            "prefixes": [
+                              "GLOSS-"
+                            ]
+                          }
+                        }}`, &in3)
+		out3, err3 = subject.DeriveTaskSpec(h.EngineContext(t), in3.Project, in3.Facts)
+		expect(t, "execute-a-project-activity-P7", 3, out3, err3, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
+		// step 4: TaskSpecHash (node dispatch-task; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var out4 any
+		var err4 error
+		var in4 inputExecuteAProjectActivityP7S4
+		mustUnmarshal(t, `{"spec":{
+                          "activity": "A-1",
+                          "task": "construction",
+                          "identity": {
+                            "kind": "dispatch",
+                            "title": "T",
+                            "phase": "construction",
+                            "command": "c",
+                            "agent": "a",
+                            "workerClass": "w",
+                            "artifactKind": "k",
+                            "exitCriterion": "e",
+                            "mode": "construct"
+                          },
+                          "model": {
+                            "id": "m",
+                            "source": "charter",
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            }
+                          },
+                          "prompt": {
+                            "text": "p",
+                            "tokens": 0,
+                            "charter": "c",
+                            "skills": []
+                          },
+                          "tools": {
+                            "mcp": [],
+                            "builtin": []
+                          },
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "activityEditScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "checks": [],
+                          "hash": ""
+                        }}`, &in4)
+		out4, err4 = subject.TaskSpecHash(h.EngineContext(t), in4.Spec)
+		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
 	})
 }
 

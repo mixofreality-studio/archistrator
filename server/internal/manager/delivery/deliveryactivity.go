@@ -1636,8 +1636,8 @@ func dispatchComponentID(tc taskContext) string {
 // and resolves the spec over again before it starts, refusing on a different hash.
 //
 // It is WORKFLOW CODE over one generated read (designSessionAccess.readProjectOnBranch) and
-// a pure function of what that read returned (projectstate.TaskSpecFor reads the project
-// and the embedded method assets only), so it replays deterministically — the testing
+// a pure function of what that read returned (the review Engine's DeriveTaskSpec reads the project
+// document, the facts and the embedded method assets only), so it replays deterministically — the testing
 // gate's own pattern; this package registers no handwritten activity. A spec that does not
 // resolve is a defect in the data no retry can change, so it is terminal.
 func (wf *csWorkflows) dispatchSpecHash(ctx workflow.Context, tc taskContext) (string, error) {
@@ -1645,7 +1645,7 @@ func (wf *csWorkflows) dispatchSpecHash(ctx workflow.Context, tc taskContext) (s
 	if err != nil {
 		return "", fmt.Errorf("resolving the task spec of %s/%s: %w", tc.In.ActivityID, tc.Task.ID, err)
 	}
-	spec, err := projectstate.TaskSpecFor(&proj, string(tc.In.ActivityID), tc.Task.ID)
+	spec, err := deriveTaskSpec(wf.Review, &proj, string(tc.In.ActivityID), tc.Task.ID)
 	if err != nil {
 		return "", temporal.NewNonRetryableApplicationError(
 			fmt.Sprintf("the agent task spec of %s/%s does not resolve: %s", tc.In.ActivityID, tc.Task.ID, err.Error()),
@@ -7428,7 +7428,7 @@ func planDefectAdmissible(reports, prior []projectstate.PlanDefectReport, run *p
 	green := map[string]bool{}
 	for _, res := range run.Results {
 		if res.Status == checkStatusPass {
-			if contract, ok := scenarioCheckContract(res.CheckId); ok {
+			if contract := derefString(res.Contract, ""); res.Kind == projectstate.CheckKindScenario && contract != "" {
 				green[contract] = true
 			}
 		}
@@ -7483,16 +7483,6 @@ func planDefectUpheld(reports, prior []projectstate.PlanDefectReport, current ma
 		}
 	}
 	return ""
-}
-
-// scenarioCheckContract is the contract a scenario check id names.
-func scenarioCheckContract(checkID string) (string, bool) {
-	rest, ok := strings.CutPrefix(checkID, projectstate.CheckKindScenario+":")
-	if !ok {
-		return "", false
-	}
-	contract, _, ok := strings.Cut(rest, ":")
-	return contract, ok
 }
 
 // checkStatusPass is a check's green status, in a run's results.

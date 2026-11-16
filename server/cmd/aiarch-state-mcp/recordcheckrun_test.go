@@ -13,19 +13,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
 // recordSpec is a two-check spec for activity C-BG's integration task.
-func recordSpec() projectstate.TaskSpec {
-	s := projectstate.TaskSpec{
+func recordSpec() review.TaskSpec {
+	s := review.TaskSpec{
 		Activity: "C-BG", Task: "integration",
-		Checks: []projectstate.SpecCheck{
+		Checks: []review.SpecCheck{
 			{ID: "rule:project", Kind: projectstate.CheckKindRule, Title: "Method rules"},
 			{ID: "scenario:billingManager:s1", Kind: projectstate.CheckKindScenario, Title: "s1"},
 		},
 	}
-	s.Hash = s.ComputeHash()
+	s.Hash = specHashMust(s)
 	return s
 }
 

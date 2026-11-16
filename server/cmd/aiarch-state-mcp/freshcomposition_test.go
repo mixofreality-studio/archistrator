@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -188,7 +189,7 @@ func withBrowserContracts(t *testing.T, state []byte) []byte {
 }
 
 // runGenerators runs the spec's generators exactly as the job does: `go tool` in the module.
-func runGenerators(t *testing.T, repo string, spec projectstate.TaskSpec) {
+func runGenerators(t *testing.T, repo string, spec review.TaskSpec) {
 	t.Helper()
 	if len(spec.Generate) == 0 {
 		t.Fatalf("%s/%s generates nothing", spec.Activity, spec.Task)
@@ -199,7 +200,7 @@ func runGenerators(t *testing.T, repo string, spec projectstate.TaskSpec) {
 }
 
 // requireInScope holds every path the task changed to the task's edit scope.
-func requireInScope(t *testing.T, repo string, spec projectstate.TaskSpec) {
+func requireInScope(t *testing.T, repo string, spec review.TaskSpec) {
 	t.Helper()
 	globs := slices.Clone(spec.EditScope.Extra)
 	for _, c := range spec.EditScope.Components {
@@ -299,7 +300,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	requirePolicyRedOnAMismatch(t, repo, spec)
 	// The machine client composes the server too, so it cannot pass a policy that fails only on
 	// the web transport.
-	if machine := activitySpec(t, repo, freshMachineActivity, "integration"); !slices.ContainsFunc(machine.Checks, func(c projectstate.SpecCheck) bool { return c.ID == freshPolicyCheck }) {
+	if machine := activitySpec(t, repo, freshMachineActivity, "integration"); !slices.ContainsFunc(machine.Checks, func(c review.SpecCheck) bool { return c.ID == freshPolicyCheck }) {
 		t.Errorf("the machine client's integration does not hold the policy to the generated requests: %+v", machine.Checks)
 	}
 
@@ -324,7 +325,7 @@ const freshPolicyCheck = "command:policy-admits-generated-requests"
 // the transports (cmd/server/policy.gen.go), so nobody writes one that disagrees with them. The
 // check that holds them together is still real: a policy missing a verb the transports send (what
 // RUN-015's hand-written one did) is red, naming the refused request, and the generated one is green.
-func requirePolicyRedOnAMismatch(t *testing.T, repo string, spec projectstate.TaskSpec) {
+func requirePolicyRedOnAMismatch(t *testing.T, repo string, spec review.TaskSpec) {
 	t.Helper()
 	statuses, logs := gate(t, repo, commandChecks(t, spec, freshPolicyCheck))
 	if statuses[freshPolicyCheck] != checkPass {
@@ -441,7 +442,7 @@ func requireClientScenarioVerdicts(t *testing.T, repo, activity, contract, pkg s
 	}
 
 	spec := activitySpec(t, repo, activity, "integration")
-	spec.Checks = slices.DeleteFunc(slices.Clone(spec.Checks), func(c projectstate.SpecCheck) bool {
+	spec.Checks = slices.DeleteFunc(slices.Clone(spec.Checks), func(c review.SpecCheck) bool {
 		return c.Kind != projectstate.CheckKindScenario
 	})
 	statuses, logs := gate(t, repo, spec)
@@ -506,7 +507,7 @@ func TestFreshResourceIntegrationGeneratesNoServer(t *testing.T) {
 	if len(spec.Generate) != 0 {
 		t.Errorf("a resource access must not generate the server: %+v", spec.Generate)
 	}
-	if slices.ContainsFunc(spec.Checks, func(c projectstate.SpecCheck) bool { return c.ID == "command:build-server" }) {
+	if slices.ContainsFunc(spec.Checks, func(c review.SpecCheck) bool { return c.ID == "command:build-server" }) {
 		t.Error("a resource access must not be held to a server that does not exist yet")
 	}
 }
@@ -643,7 +644,7 @@ func TestFreshBrowserContractIsDerivedFromItsLabels(t *testing.T) {
 	if err != nil || len(scenarios) == 0 {
 		t.Fatalf("the surface's scenarios: %d, %v", len(scenarios), err)
 	}
-	if _, err := projectstate.TaskSpecFor(&proj, freshSurfaceActivity, "integration"); err != nil {
+	if _, err := deriveTaskSpec(&proj, freshSurfaceActivity, "integration"); err != nil {
 		t.Errorf("a surface with a derived contract reaches its integration: %v", err)
 	}
 
@@ -702,10 +703,10 @@ func TestFreshBrowserSurfaceWithNoScenariosHasNoSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	delete(proj.ServiceContracts, "todoWebApp")
-	if _, err := projectstate.TaskSpecFor(&proj, freshSurfaceActivity, "integration"); err == nil || !strings.Contains(err.Error(), "no scenario to integrate against") {
+	if _, err := deriveTaskSpec(&proj, freshSurfaceActivity, "integration"); err == nil || !strings.Contains(err.Error(), "no scenario to integrate against") {
 		t.Errorf("got %v", err)
 	}
-	if _, err := projectstate.TaskSpecFor(&proj, freshSurfaceActivity, "construction"); err != nil {
+	if _, err := deriveTaskSpec(&proj, freshSurfaceActivity, "construction"); err != nil {
 		t.Errorf("only integration owes scenarios: %v", err)
 	}
 }
@@ -779,7 +780,7 @@ func TestFreshEveryPlannedTaskResolves(t *testing.T) {
 			continue
 		}
 		for _, task := range lc.Tasks {
-			if _, err := projectstate.TaskSpecFor(&proj, a.Name, task.ID); err != nil {
+			if _, err := deriveTaskSpec(&proj, a.Name, task.ID); err != nil {
 				t.Errorf("%s/%s: %v", a.Name, task.ID, err)
 			}
 		}

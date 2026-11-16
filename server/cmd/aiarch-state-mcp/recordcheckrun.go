@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -97,7 +98,7 @@ func runRecordCheckRun(args []string) error {
 // readCheckResults reads run-checks' results file and holds it to the spec: one result
 // per spec check, each with a known status. It also returns the file's modification
 // time, when the run ended.
-func readCheckResults(path string, spec projectstate.TaskSpec) ([]CheckResult, time.Time, error) {
+func readCheckResults(path string, spec review.TaskSpec) ([]CheckResult, time.Time, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, time.Time{}, fmt.Errorf("read the results: %w", err)

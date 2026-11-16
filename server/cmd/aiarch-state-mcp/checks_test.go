@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -30,10 +31,10 @@ func TestRunCommandCheckPassFailTimeout(t *testing.T) {
 				return nil, ctx.Err()
 			}
 		}}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "command:ok", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"ok"}}, TimeoutSec: 5},
-		{ID: "command:bad", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"bad"}}, TimeoutSec: 5},
-		{ID: "command:hang", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"hang"}}, TimeoutSec: 1},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "command:ok", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"ok"}}, TimeoutSec: 5},
+		{ID: "command:bad", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"bad"}}, TimeoutSec: 5},
+		{ID: "command:hang", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"hang"}}, TimeoutSec: 1},
 	})
 	got := []string{res[0].Status, res[1].Status, res[2].Status}
 	if !slices.Equal(got, []string{"pass", "fail", "timeout"}) {
@@ -49,9 +50,9 @@ func TestRunCommandCheckPassFailTimeout(t *testing.T) {
 func TestRunCommandCheckRealProcess(t *testing.T) {
 	r := checkRunner{root: t.TempDir(), outDir: t.TempDir()}
 	began := time.Now()
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "command:red", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"sh", "-c", "echo red-output; exit 3"}}, TimeoutSec: 10},
-		{ID: "command:hang", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"sleep", "30"}}, TimeoutSec: 1},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "command:red", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"sh", "-c", "echo red-output; exit 3"}}, TimeoutSec: 10},
+		{ID: "command:hang", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"sleep", "30"}}, TimeoutSec: 1},
 	})
 	if res[0].Status != "fail" || res[1].Status != "timeout" {
 		t.Fatalf("got %s %s", res[0].Status, res[1].Status)
@@ -79,10 +80,10 @@ func TestRunCommandCheckDirAndEnv(t *testing.T) {
 			calls = append(calls, call{dir, env})
 			return nil, nil
 		}}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "command:build", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"go", "build"}, Dir: "server"}, TimeoutSec: 5},
-		{ID: "command:gen", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"make", "gen-tests-check"}}, TimeoutSec: 5},
-		{ID: "command:typecheck", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"npm", "run", "typecheck"}, Dir: "webApp"}, TimeoutSec: 5},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "command:build", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"go", "build"}, Dir: ptr("server")}, TimeoutSec: 5},
+		{ID: "command:gen", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"make", "gen-tests-check"}}, TimeoutSec: 5},
+		{ID: "command:typecheck", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"npm", "run", "typecheck"}, Dir: ptr("webApp")}, TimeoutSec: 5},
 	})
 	if calls[0].dir != filepath.Join(root, "server") || calls[1].dir != root || calls[2].dir != filepath.Join(root, "webApp") {
 		t.Fatalf("dirs %q %q %q", calls[0].dir, calls[1].dir, calls[2].dir)
@@ -98,9 +99,9 @@ func TestRunCommandCheckDirAndEnv(t *testing.T) {
 func TestRuleCheckFiltersByPrefixAndFailsOnError(t *testing.T) {
 	root := repoWithProject(t, glossaryWithAnErrorFinding(t))
 	r := checkRunner{root: root, outDir: t.TempDir(), now: time.Now}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "rule:glossary", Kind: "rule", Source: projectstate.SpecCheckSource{RuleSlot: "Glossary", RulePrefixes: []string{"GLOSS-"}}, TimeoutSec: 60},
-		{ID: "rule:volatilities", Kind: "rule", Source: projectstate.SpecCheckSource{RuleSlot: "Volatilities", RulePrefixes: []string{"VOL-"}}, TimeoutSec: 60},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "rule:glossary", Kind: "rule", Source: review.SpecCheckSource{RuleSlot: ptr("Glossary"), RulePrefixes: []string{"GLOSS-"}}, TimeoutSec: 60},
+		{ID: "rule:volatilities", Kind: "rule", Source: review.SpecCheckSource{RuleSlot: ptr("Volatilities"), RulePrefixes: []string{"VOL-"}}, TimeoutSec: 60},
 	})
 	if res[0].Status != "fail" || res[1].Status != "pass" {
 		t.Fatalf("got %s %s", res[0].Status, res[1].Status)
@@ -115,9 +116,9 @@ func TestRuleCheckFiltersByPrefixAndFailsOnError(t *testing.T) {
 // is marked: the plan-defect route refuses a report on such a failure, because the plumbing is
 // what broke and no rewrite of a binding could mend it.
 func TestScenarioBatchThatRecordsNothingMarksEveryScenario(t *testing.T) {
-	checks := []projectstate.SpecCheck{
-		{ID: "scenario:billingStateAccess:bill-P1", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P1"}, TimeoutSec: 30},
-		{ID: "scenario:billingStateAccess:bill-P2", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P2"}, TimeoutSec: 30},
+	checks := []review.SpecCheck{
+		{ID: "scenario:billingStateAccess:bill-P1", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("bill-P1")}, TimeoutSec: 30},
+		{ID: "scenario:billingStateAccess:bill-P2", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("bill-P2")}, TimeoutSec: 30},
 	}
 	cases := map[string]func(t *testing.T) checkRunner{
 		"the project cannot be read": func(t *testing.T) checkRunner {
@@ -169,9 +170,9 @@ func TestScenarioCheckMissingVerdictFails(t *testing.T) {
 				`{"Action":"output","Test":"TestScenario_bill_P2","Output":"ran B\n"}` + "\n"
 			return []byte(stream), errors.New("exit status 1")
 		}}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "scenario:billingStateAccess:bill-P1", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P1"}, TimeoutSec: 30},
-		{ID: "scenario:billingStateAccess:bill-P2", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P2"}, TimeoutSec: 30},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "scenario:billingStateAccess:bill-P1", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("bill-P1")}, TimeoutSec: 30},
+		{ID: "scenario:billingStateAccess:bill-P2", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("bill-P2")}, TimeoutSec: 30},
 	})
 	if res[0].Status != "pass" || res[1].Status != "fail" {
 		t.Fatalf("got %s %s", res[0].Status, res[1].Status)
@@ -219,9 +220,9 @@ func TestScenarioCheckTimeoutAndStaleVerdict(t *testing.T) {
 			writeIndex(t, filepath.Join(dir, "test-results", "billingStateAccess"), append(got, scenarioVerdict{Scenario: "bill-P1", Status: "timeout"}))
 			return nil, errors.New("exit status 1")
 		}}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "scenario:billingStateAccess:bill-P1", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P1"}},
-		{ID: "scenario:billingStateAccess:bill-P2", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "bill-P2"}},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "scenario:billingStateAccess:bill-P1", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("bill-P1")}},
+		{ID: "scenario:billingStateAccess:bill-P2", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("bill-P2")}},
 	})
 	if res[0].Status != "timeout" || res[1].Status != "fail" {
 		t.Fatalf("got %s %s", res[0].Status, res[1].Status)
@@ -238,9 +239,9 @@ func TestScenarioCheckGoTimeoutFlags(t *testing.T) {
 			argvSeen, envSeen = argv, env
 			return nil, nil
 		}}
-	r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "scenario:billingStateAccess:a", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "a"}},
-		{ID: "scenario:billingStateAccess:b", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "b"}},
+	r.Run(context.Background(), []review.SpecCheck{
+		{ID: "scenario:billingStateAccess:a", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("a")}},
+		{ID: "scenario:billingStateAccess:b", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("b")}},
 	})
 	if i := slices.Index(argvSeen, "-timeout"); i < 0 || argvSeen[i+1] != "1860s" {
 		t.Fatalf("go test -timeout must be 2×900+60s, argv %q", argvSeen)
@@ -266,8 +267,8 @@ func TestScenarioCheckWebContract(t *testing.T) {
 			})
 			return []byte("1 failed"), errors.New("exit status 1")
 		}}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "scenario:webClient:s-P1", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "webClient", Scenario: "s-P1"}, TimeoutSec: 60},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "scenario:webClient:s-P1", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("webClient"), Scenario: ptr("s-P1")}, TimeoutSec: 60},
 	})
 	want := []string{"go", "tool", "webscenarios", "-C", "uitests", "-config", "generated/webClient/playwright.config.gen.ts", "-grep", `(?:^|\s)(s-P1) — `}
 	if !slices.Equal(argvSeen, want) || filepath.Clean(dirSeen) != filepath.Clean(root) {
@@ -290,7 +291,7 @@ func TestScenarioCheckWebContract(t *testing.T) {
 }
 
 func TestFailedOnlySelectsFailuresAndTimeouts(t *testing.T) {
-	all := []projectstate.SpecCheck{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}}
+	all := []review.SpecCheck{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"}}
 	prev := []CheckResult{{CheckId: "a", Status: "pass"}, {CheckId: "b", Status: "fail"}, {CheckId: "c", Status: "timeout"}, {CheckId: "d", Status: "skip"}}
 	var ids []string
 	for _, c := range failedOnly(prev, all) {
@@ -372,8 +373,8 @@ func TestScenarioFallbackLogCapped(t *testing.T) {
 		exec: func(context.Context, string, []string, ...string) ([]byte, error) {
 			return []byte(big), errors.New("exit status 2")
 		}}
-	r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "scenario:billingStateAccess:a", Kind: "scenario", Source: projectstate.SpecCheckSource{Contract: "billingStateAccess", Scenario: "a"}, TimeoutSec: 5},
+	r.Run(context.Background(), []review.SpecCheck{
+		{ID: "scenario:billingStateAccess:a", Kind: "scenario", Source: review.SpecCheckSource{Contract: ptr("billingStateAccess"), Scenario: ptr("a")}, TimeoutSec: 5},
 	})
 	b, err := os.ReadFile(filepath.Join(r.outDir, "checks", "scenario_billingStateAccess_a.log"))
 	if err != nil {
@@ -389,8 +390,8 @@ func TestRunCommandCheckKillsProcessGroup(t *testing.T) {
 	dir := t.TempDir()
 	pidfile := filepath.Join(dir, "pid")
 	r := checkRunner{root: dir, outDir: t.TempDir()}
-	res := r.Run(context.Background(), []projectstate.SpecCheck{
-		{ID: "command:tree", Kind: "command", Source: projectstate.SpecCheckSource{Argv: []string{"sh", "-c", "sleep 30 & echo $! > " + pidfile + "; wait"}}, TimeoutSec: 1},
+	res := r.Run(context.Background(), []review.SpecCheck{
+		{ID: "command:tree", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"sh", "-c", "sleep 30 & echo $! > " + pidfile + "; wait"}}, TimeoutSec: 1},
 	})
 	if res[0].Status != "timeout" {
 		t.Fatalf("status %s", res[0].Status)
@@ -489,7 +490,7 @@ func TestScenarioBatches_SplitAcceptanceByGeneratedFile(t *testing.T) {
 	proj := projectstate.Project{ServiceContracts: map[string]projectstate.ServiceContract{"orders": {GoPackage: "internal/manager/orders"}}}
 
 	batches := scenarioBatches(r, proj, projectstate.AcceptanceContract,
-		[]projectstate.SpecCheck{scenarioCheck("acceptance", "a@web"), scenarioCheck("acceptance", "b@api")})
+		[]review.SpecCheck{scenarioCheck("acceptance", "a@web"), scenarioCheck("acceptance", "b@api")})
 	if len(batches) != 2 {
 		t.Fatalf("batches = %d, want the Go batch and the web batch", len(batches))
 	}
@@ -497,16 +498,16 @@ func TestScenarioBatches_SplitAcceptanceByGeneratedFile(t *testing.T) {
 	requireAcceptanceWebBatch(t, root, batches[1])
 
 	// A plain contract is one batch, exactly the one newScenarioBatch derives.
-	plain := scenarioBatches(r, proj, "orders", []projectstate.SpecCheck{scenarioCheck("orders", "s1")})
-	want := newScenarioBatch(r, proj, "orders", []projectstate.SpecCheck{scenarioCheck("orders", "s1")})
+	plain := scenarioBatches(r, proj, "orders", []review.SpecCheck{scenarioCheck("orders", "s1")})
+	want := newScenarioBatch(r, proj, "orders", []review.SpecCheck{scenarioCheck("orders", "s1")})
 	if len(plain) != 1 || !plain[0].goTest || !slices.Equal(plain[0].argv, want.argv) {
 		t.Errorf("a plain contract must stay one batch: %+v", plain)
 	}
 }
 
-func scenarioCheck(contract, id string) projectstate.SpecCheck {
-	return projectstate.SpecCheck{ID: "scenario:" + contract + ":" + id, Kind: projectstate.CheckKindScenario,
-		Source: projectstate.SpecCheckSource{Scenario: id, Contract: contract}}
+func scenarioCheck(contract, id string) review.SpecCheck {
+	return review.SpecCheck{ID: "scenario:" + contract + ":" + id, Kind: projectstate.CheckKindScenario,
+		Source: review.SpecCheckSource{Scenario: ptr(id), Contract: ptr(contract)}}
 }
 
 // requireAcceptanceGoBatch holds the machine-only variants' batch: go test over internal/acceptance,

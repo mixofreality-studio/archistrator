@@ -596,14 +596,11 @@ func componentContracts(p *projectstate.Project, componentID string) ([]string, 
 	if !ok {
 		return nil, fmt.Errorf("the System gives component %q no contract key", componentID)
 	}
-	var out []string
+	components := make(map[string]string, len(p.ServiceContracts))
 	for name, sc := range p.ServiceContracts {
-		if name == key || scenario.Normalize(sc.Component) == scenario.Normalize(key) {
-			out = append(out, name)
-		}
+		components[name] = sc.Component
 	}
-	slices.Sort(out)
-	return out, nil
+	return methodcheck.ContractsOf(key, components), nil
 }
 
 // planBindsScenarios refuses a scenario the contract's plan does not bind, or names twice.

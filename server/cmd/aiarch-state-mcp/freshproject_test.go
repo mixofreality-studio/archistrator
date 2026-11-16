@@ -26,6 +26,7 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-conformance"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -153,12 +154,12 @@ func bornRepo(t *testing.T, state []byte) string {
 	return repo
 }
 
-func taskSpec(t *testing.T, repo, task string) projectstate.TaskSpec {
+func taskSpec(t *testing.T, repo, task string) review.TaskSpec {
 	t.Helper()
 	return activitySpec(t, repo, freshActivity, task)
 }
 
-func activitySpec(t *testing.T, repo, activity, task string) projectstate.TaskSpec {
+func activitySpec(t *testing.T, repo, activity, task string) review.TaskSpec {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(repo, ".aiarch/state/project.json"))
 	if err != nil {
@@ -169,7 +170,7 @@ func activitySpec(t *testing.T, repo, activity, task string) projectstate.TaskSp
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	spec, err := projectstate.TaskSpecFor(&proj, activity, task)
+	spec, err := deriveTaskSpec(&proj, activity, task)
 	if err != nil {
 		t.Fatalf("TaskSpecFor(%s, %s): %v", activity, task, err)
 	}
@@ -177,10 +178,10 @@ func activitySpec(t *testing.T, repo, activity, task string) projectstate.TaskSp
 }
 
 // gate runs the real binary's --gate over the checks, returning id → status and the logs.
-func gate(t *testing.T, repo string, spec projectstate.TaskSpec) (map[string]string, map[string]string) {
+func gate(t *testing.T, repo string, spec review.TaskSpec) (map[string]string, map[string]string) {
 	t.Helper()
 	out := t.TempDir()
-	spec.Hash = spec.ComputeHash()
+	spec.Hash = specHashMust(spec)
 	body, err := json.Marshal(spec)
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +218,7 @@ func gate(t *testing.T, repo string, spec projectstate.TaskSpec) (map[string]str
 
 // commandChecks keeps the spec's command checks with the given ids (all when none), dropping
 // golangci-lint when this machine has none: its absence says nothing about the project.
-func commandChecks(t *testing.T, spec projectstate.TaskSpec, ids ...string) projectstate.TaskSpec {
+func commandChecks(t *testing.T, spec review.TaskSpec, ids ...string) review.TaskSpec {
 	t.Helper()
 	_, lintErr := exec.LookPath("golangci-lint")
 	kept := spec.Checks[:0:0]
@@ -473,7 +474,7 @@ func TestFreshRedGateDigestsItsFailure(t *testing.T) {
 		inRepo(t, built, "git", "clone", "-q", built, repo)
 		spec := commandChecks(t, taskSpec(t, repo, "construction"), "command:arch")
 		writeRepoFile(t, repo, freshPackage+"/"+misnamed, []byte("package todolist\n"))
-		spec.Hash = spec.ComputeHash()
+		spec.Hash = specHashMust(spec)
 		body, err := json.Marshal(spec)
 		if err != nil {
 			t.Fatal(err)
@@ -570,7 +571,7 @@ func TestFreshRedScenarioRunDigestsAlike(t *testing.T) {
 		t.Fatal("the integration task has no scenario check")
 	}
 	spec.Checks = kept[:1]
-	spec.Hash = spec.ComputeHash()
+	spec.Hash = specHashMust(spec)
 	body, err := json.Marshal(spec)
 	if err != nil {
 		t.Fatal(err)
@@ -625,15 +626,15 @@ func TestModuleGraphRunsPinTheLocalToolchain(t *testing.T) {
 		envOf[strings.Join(argv, " ")] = env
 		return nil, nil
 	}
-	check := projectstate.SpecCheck{
+	check := review.SpecCheck{
 		ID: tidyCheckID, Kind: projectstate.CheckKindCommand, TimeoutSec: 5,
-		Source: projectstate.SpecCheckSource{Argv: []string{"go", "mod", "tidy", "-diff"}},
+		Source: review.SpecCheckSource{Argv: []string{"go", "mod", "tidy", "-diff"}},
 	}
 	root := t.TempDir()
 	r := checkRunner{root: root, outDir: t.TempDir(), now: time.Now, exec: exec}
 	r.runCommand(context.Background(), check)
 	s := &Session{StateRoot: root, checkExec: exec}
-	s.tidyModuleGraph(context.Background(), projectstate.TaskSpec{Checks: []projectstate.SpecCheck{check}})
+	s.tidyModuleGraph(context.Background(), review.TaskSpec{Checks: []review.SpecCheck{check}})
 	for _, run := range []string{"go mod tidy -diff", "go mod tidy"} {
 		env, ran := envOf[run]
 		if !ran {

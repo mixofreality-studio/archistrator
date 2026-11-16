@@ -20,9 +20,16 @@
 // in-workflow computation, mirroring handoff/intervention:
 //   - NO I/O, NO time.Now(), NO math/rand, NO goroutines, NO global mutable state.
 //   - NO outbound calls — no ResourceAccess, no other Engine, no Manager.
-//   - Imports ONLY pure stdlib (slices) and the framework-go Engine error model
-//     (fweng). It imports NO Temporal — its determinism is what makes the direct
-//     in-workflow ProposeReviews call replay-safe.
+//   - Imports ONLY pure stdlib, the framework-go Engine error model (fweng) and the platform's own
+//     pure readers of the design (methodcheck, scenario, method-assets, and the app-generator's
+//     manifests the task spec's generated paths come from). It imports NO Temporal — its
+//     determinism is what makes the direct in-workflow ProposeReviews and DeriveTaskSpec calls
+//     replay-safe.
+//
+// The second half of the contract is the TASK SPEC (FPC Task 6.2, ruling 5): DeriveTaskSpec turns
+// the project document and the facts the project state owns into what one lifecycle task must
+// change and prove — its edit scope, checks and generated paths — and TaskSpecHash is the one hash
+// every gate verifies a spec through. See the section below ProposeReviews' helpers.
 //
 // v1 ReviewPolicy (documented, minimal-but-honest — see implementation log
 // C-MCN-reconcile.md "reviewEngine policy"): the reviewer set is computed
@@ -65,9 +72,22 @@
 package review
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"path"
+	"path/filepath"
 	"slices"
+	"strings"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/appgen"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/plan"
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
 // Perspective names a reviewer's review lens (the "from what perspective" axis of
@@ -504,3 +524,1108 @@ type reviewEngineImpl struct{}
 
 // newReviewEngine is the hand-written builder the generated NewReviewEngine delegates to.
 func newReviewEngine() ReviewEngine { return reviewEngineImpl{} }
+
+// =====================================================================================
+// THE TASK SPEC (FPC Task 6.2, ruling 5) — what one lifecycle task must change and prove.
+//
+// DeriveTaskSpec is the ONE resolver of what an agent task is configured to do: who runs it
+// (identity), on which model at what estimated cost, with which prompt and tools, which files it
+// may change (edit scope), and which typed checks decide it. The web panel, the MCP run_checks
+// verb and the GitHub/local jobs all read it, and the hash proves they read the same thing.
+// method-assets owns the method half (MethodSpecFor: identity, model, prompt, tools); this
+// owns the project half (edit scope, checks, hash). What only the project state can know — the
+// activity's classification, the rate card and effort, the slot rule attribution — arrives as
+// TaskFacts; the design (System, service contracts, derived scenarios) is read from the project
+// document itself through the platform's own readers.
+//
+// It is a pure function of the embedded method assets, the project document and the facts: no
+// clock, no I/O, no map-order dependence, so the server and the job compute byte-identical
+// hashes from the same project.json.
+// =====================================================================================
+
+// The kinds of typed check (the same strings projectstate.CheckKind* carry; the gate side
+// reads those).
+const (
+	checkKindRule     = "rule"
+	checkKindCommand  = "command"
+	checkKindSmoke    = "smoke"
+	checkKindScenario = "scenario"
+)
+
+// acceptanceContract is the pseudo-contract the acceptance scenarios and their checks are filed
+// under (projectstate.AcceptanceContract): the acceptance plan belongs to no component.
+const acceptanceContract = "acceptance"
+
+// The task-spec bounds of the edit scope grammar and the check timeouts, in seconds.
+const (
+	// anyPath is the edit-scope glob that admits every repo path: the explicit scope of a task
+	// whose edit set cannot be derived.
+	anyPath = "**"
+	// generatedFilesGlobSuffix turns "<dir>" into the one non-trivial glob the grammar admits
+	// besides "<dir>/**": "<dir>/**/*.gen.*".
+	generatedFilesGlobSuffix = "/**/*.gen.*"
+
+	ruleCheckTimeoutSec     = 120
+	commandCheckTimeoutSec  = 300
+	lintCheckTimeoutSec     = 600
+	scenarioCheckTimeoutSec = 900
+	smokeCheckTimeoutSec    = 900
+	// discriminateRunTimeoutSec is the allowance of one `go test` run inside testgen's
+	// -discriminate; devstackBootSec the allowance of one boot of the composed app on top of it
+	// for a client's runs (projectstate.DiscriminateRunTimeoutSec / DevstackBootSec).
+	discriminateRunTimeoutSec = 15
+	devstackBootSec           = 120
+
+	// reviewCommittedStatus is the committed value of a slot's review status.
+	reviewCommittedStatus = 2
+	// systemSlotKind is the systemDesign slot's kind ordinal.
+	systemSlotKind = 5
+)
+
+// devstackDir is the package `appgen compose` writes the local run launcher to.
+const devstackDir = "cmd/devstack"
+
+// smokeCheckID names the boot smoke; policyCheckID the composition check that holds the policy to
+// the generated requests; installUITestsCheck and surfaceCheckID the web checks.
+const (
+	smokeCheckID        = checkKindSmoke + ":composition"
+	policyCheckID       = "policy-admits-generated-requests"
+	installUITestsCheck = "install-uitests"
+	surfaceCheckID      = "surface-check"
+)
+
+// webProjectDir is the one web project every browser surface of an app shares, at the repo
+// root whatever the module dir is.
+const webProjectDir = "webApp"
+
+// archGateRun is the -run pattern of the seated gate's tests (internal/aiarch_arch_test.go).
+const archGateRun = "^(TestFileLayout|TestGeneratedOnlyPublic|TestMethodLayering|TestMethod|TestProjectModel)$"
+
+// compositionGenerators are appgen's subcommands, in the order a composition root needs:
+// temporal and clients write what main.gen.go imports, config the Config it reads.
+var compositionGenerators = []string{"temporal", "clients", "config", "compose"}
+
+// webProjectSeats is the web project's own files, shared by every surface: what webgen
+// bootstrap writes outside src/, and the lockfile npm writes from it.
+var webProjectSeats = []string{
+	".gitignore", ".tool-versions", "eslint.config.js", "eslint.platform.config.js", "package.json",
+	"package-lock.json", "scripts/build-mcpapps.mjs", "tsconfig.app.json", "tsconfig.json", "vite.config.ts", "webgen.json",
+}
+
+// uitestsSeats is the Playwright project's own files.
+var uitestsSeats = []string{"uitests/.gitignore", "uitests/.tool-versions", "uitests/package.json", "uitests/package-lock.json"}
+
+// checkKindOrder ranks the check kinds: rule, command, smoke, scenario.
+var checkKindOrder = map[string]int{checkKindRule: 0, checkKindCommand: 1, checkKindSmoke: 2, checkKindScenario: 3}
+
+// taskItem is the committed activity item's two facts the scope derivation reads.
+type taskItem struct {
+	componentID string
+	surface     string
+}
+
+// taskProject is the project document as the task-spec derivation reads it: the module dir, the
+// service contracts, the System (committed, and as stated whatever its status) and the derived
+// scenarios, derived once and only when a check asks.
+type taskProject struct {
+	raw       string // the project document as given: the generators read it
+	moduleDir string
+	doc       methodcheck.Project
+	committed *methodcheck.System // the committed System; nil when slot 5 is not committed
+	stated    *methodcheck.System // slot 5's model whatever its status; nil when absent
+
+	derived   bool
+	scenarios []scenario.Scenario
+	deriveErr error
+
+	emitted map[string]emission // each consumer's emission over this project, by consumer and selection
+}
+
+// emission is one consumer's output over the project, or why it produced none.
+type emission struct {
+	outs []plan.Output
+	err  error
+}
+
+// decodeTaskProject reads the project document: the platform's own structural mirror for the
+// design (the same one methodcheck's rules and testgen derive from), and the System slot.
+func decodeTaskProject(project string) (*taskProject, error) {
+	if strings.TrimSpace(project) == "" {
+		return nil, fweng.New(fweng.ContractMisuse, "DeriveTaskSpec: empty project document")
+	}
+	doc, ok, err := methodcheck.DecodeProject([]byte(project))
+	if err != nil || !ok {
+		return nil, fweng.Wrap(fweng.ContractMisuse, err, "DeriveTaskSpec: the project document does not decode")
+	}
+	var top struct {
+		ModuleDir string `json:"moduleDir"`
+	}
+	if err := json.Unmarshal([]byte(project), &top); err != nil {
+		return nil, fweng.Wrap(fweng.ContractMisuse, err, "DeriveTaskSpec: the project document does not decode")
+	}
+	tp := &taskProject{raw: project, moduleDir: top.ModuleDir, doc: doc, emitted: map[string]emission{}}
+	for _, slot := range doc.Slots {
+		if slot.Kind != systemSlotKind || len(slot.Model) == 0 {
+			continue
+		}
+		var sys methodcheck.System
+		if err := json.Unmarshal(slot.Model, &sys); err != nil {
+			return nil, fweng.Wrap(fweng.ContractMisuse, err, "DeriveTaskSpec: the System slot does not decode")
+		}
+		tp.stated = &sys
+		if slot.Status == reviewCommittedStatus {
+			tp.committed = &sys
+		}
+	}
+	return tp, nil
+}
+
+// derive is the project's canonical scenario set (methodcheck.ScenarioInput, then
+// scenario.Derive), computed once.
+func (tp *taskProject) derive() ([]scenario.Scenario, error) {
+	if tp.derived {
+		return tp.scenarios, tp.deriveErr
+	}
+	tp.derived = true
+	in, err := methodcheck.ScenarioInput(tp.doc)
+	if err != nil {
+		tp.deriveErr = err
+		return nil, err
+	}
+	tp.scenarios, tp.deriveErr = scenario.Derive(in)
+	return tp.scenarios, tp.deriveErr
+}
+
+// contractKeyOf is the serviceContracts key of the committed System's component: false when the
+// System is not committed, does not name the component, or names a Resource (no contract).
+func (tp *taskProject) contractKeyOf(componentID string) (string, bool) {
+	if tp.committed == nil {
+		return "", false
+	}
+	for _, c := range tp.committed.Components {
+		if c.ID == componentID {
+			return c.ContractKey, c.ContractKey != ""
+		}
+	}
+	return "", false
+}
+
+// componentContracts names the contracts a component owns, in name order (the ONE join,
+// methodcheck.ContractsOf). None when the System gives no key.
+func (tp *taskProject) componentContracts(componentID string) []string {
+	key, ok := tp.contractKeyOf(componentID)
+	if !ok {
+		return nil
+	}
+	components := make(map[string]string, len(tp.doc.ServiceContracts))
+	for name, sc := range tp.doc.ServiceContracts {
+		components[name] = sc.Component
+	}
+	return methodcheck.ContractsOf(key, components)
+}
+
+// systemComponent finds a component of the System by id: the committed one, else the System as
+// the slot states it.
+func (tp *taskProject) systemComponent(id string) *methodcheck.Component {
+	sys := tp.committed
+	if sys == nil {
+		sys = tp.stated
+	}
+	if sys == nil {
+		return nil
+	}
+	for i := range sys.Components {
+		if sys.Components[i].ID == id {
+			return &sys.Components[i]
+		}
+	}
+	return nil
+}
+
+// isClientComponent reports whether a component of the System is a Client.
+func (tp *taskProject) isClientComponent(id string) bool {
+	c := tp.systemComponent(id)
+	return c != nil && strings.EqualFold(c.Kind, "client")
+}
+
+// clientSurfaceKind parses a Client's stated surface; false for a component that is not a
+// Client or states none.
+func clientSurfaceKind(c *methodcheck.Component) (methodcheck.SurfaceKind, bool) {
+	if c == nil || !strings.EqualFold(c.Kind, "client") {
+		return nil, false
+	}
+	kind, err := methodcheck.ParseSurface(string(c.Surface))
+	if err != nil {
+		return nil, false
+	}
+	return kind, true
+}
+
+// isMachineSurface reports a surface that is a generated machine client: rest or mcpTools.
+func isMachineSurface(s string) bool {
+	kind, err := methodcheck.ParseSurface(s)
+	if err != nil {
+		return false
+	}
+	switch kind.(type) {
+	case methodcheck.RESTSurface, methodcheck.MCPToolsSurface:
+		return true
+	case methodcheck.WebSurface, methodcheck.MCPAppSurface:
+		return false
+	}
+	return false
+}
+
+// contractLayer is a contract's Method layer, from either place a contract states it.
+func (tp *taskProject) contractLayer(contract string) string {
+	sc := tp.doc.ServiceContracts[contract]
+	if sc.Layer != "" {
+		return sc.Layer
+	}
+	return sc.Interface.Layer
+}
+
+// modelgenGenerates reports a contract modelgen writes Go for: one with a package, unless it is
+// a Client's, whose Go comes from appgen clients.
+func (tp *taskProject) modelgenGenerates(contract string) bool {
+	return tp.doc.ServiceContracts[contract].GoPackage != "" && !strings.EqualFold(tp.contractLayer(contract), "client")
+}
+
+// statePathFromModule is the state document's path from the module dir.
+func (tp *taskProject) statePathFromModule() string {
+	const doc = ".aiarch/state/project.json"
+	if tp.moduleDir == "" {
+		return doc
+	}
+	return strings.Repeat("../", strings.Count(strings.Trim(tp.moduleDir, "/"), "/")+1) + doc
+}
+
+// goPackagesOf is the contracts' Go packages (module-relative), sorted and unique.
+func (tp *taskProject) goPackagesOf(contracts []string) []string {
+	var out []string
+	for _, c := range contracts {
+		if pkg := tp.doc.ServiceContracts[c].GoPackage; pkg != "" {
+			out = append(out, pkg)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// inModule is a module-relative path as a repo-relative one.
+func (tp *taskProject) inModule(rel string) string {
+	if tp.moduleDir == "" {
+		return rel
+	}
+	return path.Join(tp.moduleDir, rel)
+}
+
+func (tp *taskProject) packageGlobs(pkgs []string) []string {
+	out := make([]string, len(pkgs))
+	for i, pkg := range pkgs {
+		out[i] = tp.inModule(pkg) + "/**"
+	}
+	return out
+}
+
+// webDirFromModule is the web project's path from the module dir.
+func (tp *taskProject) webDirFromModule() string {
+	if tp.moduleDir == "" {
+		return webProjectDir
+	}
+	return strings.Repeat("../", strings.Count(strings.Trim(tp.moduleDir, "/"), "/")+1) + webProjectDir
+}
+
+// appgenArgv is `go tool appgen <sub>` over this project's state document.
+func (tp *taskProject) appgenArgv(sub string, extra ...string) []string {
+	return append([]string{"go", "tool", "appgen", sub, "-project", tp.statePathFromModule(), "-root", "."}, extra...)
+}
+
+// isManagerComponent reports whether a component's contract is a Manager's. Its Temporal layer
+// is generated from construction on, because the hand-written Manager is built against it.
+func (tp *taskProject) isManagerComponent(componentID string) bool {
+	return slices.ContainsFunc(tp.componentContracts(componentID), func(c string) bool {
+		return strings.EqualFold(tp.contractLayer(c), "manager")
+	})
+}
+
+// composesServer reports whether integrating these contracts builds the composition root: a
+// Manager's or a Client's does, since either changes what the server wires or serves. A
+// ResourceAccess or Engine integrates against its callers and leaves the server alone.
+func (tp *taskProject) composesServer(contracts []string) bool {
+	return slices.ContainsFunc(contracts, func(c string) bool {
+		layer := tp.contractLayer(c)
+		return strings.EqualFold(layer, "manager") || strings.EqualFold(layer, "client")
+	})
+}
+
+// clientContractKeys is the serviceContracts key of every Client contract, sorted: the cover
+// clients scenario.ForAcceptance projects a path through.
+func (tp *taskProject) clientContractKeys() []string {
+	var keys []string
+	for key, sc := range tp.doc.ServiceContracts {
+		if strings.EqualFold(sc.Layer, "client") || strings.EqualFold(sc.Interface.Layer, "client") {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// acceptanceScenarios is the residual acceptance variants themselves, sorted by variant id: what
+// the acceptance plan binds. A variant covered by one client projection is not among them.
+func (tp *taskProject) acceptanceScenarios() ([]scenario.Scenario, error) {
+	all, err := tp.derive()
+	if err != nil {
+		return nil, err
+	}
+	clients := tp.clientContractKeys()
+	residual := scenario.AcceptanceResidual(all, clients)
+	var out []scenario.Scenario
+	for _, v := range scenario.ForAcceptance(all, clients) {
+		if scenario.IsResidual(residual, v.ID) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+// ---- the generator manifests (D6) ----
+
+// manifestModulePath stands for the app's go.mod module line, which the document does not carry: a
+// generator's output PATHS do not depend on it, only the imports inside the files do.
+const manifestModulePath = "example.com/app"
+
+// emit is the output of one consumer (appgen.ConsumerNamed) over the project as a fully built tree
+// (Tree nil) with the knobs at their defaults: the manifest of what it writes, with each path's role.
+// only restricts modelgen to the named contracts, as a construction task names its own. Memoized, so
+// the activity's union over every task of its lifecycle emits each consumer once.
+func (tp *taskProject) emit(name string, only []string) ([]plan.Output, error) {
+	key := name + "|" + strings.Join(only, ",")
+	if e, ok := tp.emitted[key]; ok {
+		return e.outs, e.err
+	}
+	c, ok := appgen.ConsumerNamed(name)
+	if !ok {
+		err := fmt.Errorf("the generator manifests have no consumer %q", name)
+		tp.emitted[key] = emission{err: err}
+		return nil, err
+	}
+	files, err := c.Emit(appgen.Input{Project: []byte(tp.raw), ModulePath: manifestModulePath, ModuleDir: tp.moduleDir, Config: appgen.DefaultConfig(), Only: only})
+	outs := plan.Outputs(files)
+	if err != nil {
+		err = fmt.Errorf("%s: %w", name, err)
+	}
+	tp.emitted[key] = emission{outs: outs, err: err}
+	return outs, err
+}
+
+// manifestOf is what the job's generators write for a task: modelgen over the contracts the task
+// generates, then each generator its spec runs (SpecGenerator.Title is the consumer's name). A
+// browser surface's bootstrap writes every surface's entry, so only the paths under this component's
+// own source directory are the task's.
+func (tp *taskProject) manifestOf(command, componentID string) ([]plan.Output, error) {
+	var out []plan.Output
+	if contracts := tp.generatedContractsOf(command, componentID); len(contracts) > 0 {
+		outs, err := tp.emit("modelgen", contracts)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, outs...)
+	}
+	for _, g := range tp.generatorsOf(command, componentID) {
+		outs, err := tp.emit(g.Title, nil)
+		if err != nil {
+			return nil, err
+		}
+		if g.Title == "webgen bootstrap" {
+			own := path.Join(webProjectDir, "src", componentID) + "/"
+			outs = slices.DeleteFunc(slices.Clone(outs), func(o plan.Output) bool { return !strings.HasPrefix(o.Path, own) })
+		}
+		out = append(out, outs...)
+	}
+	return out, nil
+}
+
+// compositionScope is what the composition root's consumers (appgen clients, config, compose) write
+// or seat once: the files an integrating task may commit, named by the manifests rather than by a
+// glob over generated names, so a generated file no glob covers is no longer possible (FIX-053).
+func (tp *taskProject) compositionScope() ([]string, error) {
+	var paths []string
+	for _, name := range []string{"appgen clients", "appgen config", "appgen compose"} {
+		outs, err := tp.emit(name, nil)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, plan.Paths(outs, plan.Generated{})...)
+		paths = append(paths, plan.Paths(outs, plan.Seam{})...)
+	}
+	slices.Sort(paths)
+	return slices.Compact(paths), nil
+}
+
+// ---- the glob grammar ----
+
+// validEditScopeGlob reports whether g is in the edit-scope glob grammar the gate matches:
+// exactly "**" (every path), "<dir>/**" (every path under a literal dir), "<dir>/**/*.gen.*"
+// (every generated file under a literal dir), or a literal repo-relative path
+// (projectstate.ValidEditScopeGlob, the gate-side matcher, holds the same grammar).
+func validEditScopeGlob(g string) bool {
+	if g == anyPath {
+		return true
+	}
+	lit, ok := strings.CutSuffix(g, "/**")
+	if !ok {
+		lit, _ = strings.CutSuffix(g, generatedFilesGlobSuffix)
+	}
+	return lit != "" && !strings.ContainsAny(lit, "*?[\\") && !strings.HasPrefix(lit, "/") &&
+		!strings.HasSuffix(lit, "/") && !slices.Contains(strings.Split(lit, "/"), "..")
+}
+
+// validateEditScope refuses a scope holding a glob outside the edit-scope grammar.
+func validateEditScope(scope SpecEditScope) error {
+	var globs []string
+	for _, c := range scope.Components {
+		globs = append(globs, c.Paths...)
+	}
+	globs = append(globs, scope.Extra...)
+	for _, g := range globs {
+		if !validEditScopeGlob(g) {
+			return fmt.Errorf("edit-scope glob %q is not \"**\", \"<dir>/**\", \"<dir>/**/*.gen.*\" or a literal path", g)
+		}
+	}
+	return nil
+}
+
+// ---- the operations ----
+
+// DeriveTaskSpec implements ReviewEngine. A project that is empty or does not decode is
+// ContractMisuse; facts naming no lifecycle or task are ContractMisuse; a task whose scope or
+// checks cannot be derived from the design (a machine client with no contract, a browser
+// surface with no scenario) is InvalidInput with the defect named.
+func (reviewEngineImpl) DeriveTaskSpec(_ fweng.Context, project string, facts TaskFacts) (TaskSpec, error) {
+	tp, err := decodeTaskProject(project)
+	if err != nil {
+		return TaskSpec{}, err
+	}
+	key := facts.LifecycleKey
+	lc, ok := methodassets.LifecycleFor(key)
+	if !ok {
+		return TaskSpec{}, fweng.New(fweng.ContractMisuse, fmt.Sprintf("DeriveTaskSpec: the method assets carry no lifecycle %q", key))
+	}
+	ms, err := methodassets.MethodSpecFor(key, facts.Task, commandArgs(lc, facts.Task, facts.ComponentID, facts.Activity))
+	if err != nil {
+		return TaskSpec{}, fweng.Wrap(fweng.ContractMisuse, err, "DeriveTaskSpec")
+	}
+	item := taskItem{componentID: facts.ComponentID, surface: facts.Surface}
+	s := TaskSpec{
+		Activity: facts.Activity,
+		Task:     facts.Task,
+		Identity: SpecIdentity{
+			Kind: ms.Kind, Title: ms.Title, Phase: ms.Phase, Command: ms.Command, Agent: ms.Agent,
+			WorkerClass: ms.WorkerClass, ArtifactKind: ms.ArtifactKind, ExitCriterion: ms.ExitCriterion, Mode: ms.Mode,
+		},
+		Prompt: SpecPrompt{Text: ms.Prompt, Tokens: len(ms.Prompt) / 4, Charter: ms.Charter, Skills: slices.Clone(ms.Skills)},
+		Tools:  SpecTools{MCP: slices.Clone(ms.MCPTools), Builtin: builtinTools(ms)},
+		Model: SpecModel{ID: facts.Model.ID, Source: facts.Model.Source, Estimate: SpecEstimate{
+			TokensIn: facts.Model.TokensIn, TokensOut: facts.Model.TokensOut, USD: facts.Model.USD,
+		}},
+	}
+	s.EditScope, s.Checks, err = tp.scopeAndChecks(ms, item, facts.SlotRules)
+	if err != nil {
+		return TaskSpec{}, fweng.New(fweng.InvalidInput, "DeriveTaskSpec: "+err.Error())
+	}
+	if err := validateEditScope(s.EditScope); err != nil {
+		return TaskSpec{}, fweng.New(fweng.InvalidInput, fmt.Sprintf("DeriveTaskSpec: %s/%s: %s", facts.Activity, facts.Task, err.Error()))
+	}
+	s.ActivityEditScope = tp.activityEditScope(key, lc, item, facts.Activity, facts.SlotRules)
+	s.Contracts = tp.generatedContractsOf(ms.Command, item.componentID)
+	s.Generate = tp.generatorsOf(ms.Command, item.componentID)
+	outs, err := tp.manifestOf(ms.Command, item.componentID)
+	if err != nil {
+		return TaskSpec{}, fweng.New(fweng.InvalidInput, fmt.Sprintf("DeriveTaskSpec: %s/%s: the generators' manifests: %s", facts.Activity, facts.Task, err.Error()))
+	}
+	s.Generated = plan.Paths(outs, plan.Generated{})
+	slices.Sort(s.Generated)
+	s.Generated = slices.Compact(s.Generated)
+	s = normalizedSpec(s)
+	s.Hash = specHash(s)
+	return s, nil
+}
+
+// TaskSpecHash implements ReviewEngine: the sha256 (hex) of the spec's canonical JSON with
+// Hash cleared. Field order is struct order, every slice is pre-sorted, and nil slices encode
+// as [], so the hash is a function of the spec's content alone and survives a JSON round trip.
+func (reviewEngineImpl) TaskSpecHash(_ fweng.Context, spec TaskSpec) (string, error) {
+	h := specHash(spec)
+	if h == "" {
+		return "", fweng.New(fweng.InternalInvariant, "TaskSpecHash: the spec does not encode")
+	}
+	return h, nil
+}
+
+func specHash(s TaskSpec) string {
+	c := normalizedSpec(s)
+	c.Hash = ""
+	raw, err := json.Marshal(c)
+	if err != nil {
+		// Unreachable: every field is a string, bool, integer, finite float or slice of them.
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// normalizedSpec returns a copy whose non-omitempty slices are non-nil, so a spec built here
+// and the same spec decoded from JSON encode identically.
+func normalizedSpec(s TaskSpec) TaskSpec {
+	s.Prompt.Skills = nonNil(s.Prompt.Skills)
+	s.Tools.MCP = nonNil(s.Tools.MCP)
+	s.Tools.Builtin = nonNil(s.Tools.Builtin)
+	s.EditScope = normalizedScope(s.EditScope)
+	s.ActivityEditScope = normalizedScope(s.ActivityEditScope)
+	if s.Checks == nil {
+		s.Checks = []SpecCheck{}
+	}
+	return s
+}
+
+func normalizedScope(sc SpecEditScope) SpecEditScope {
+	sc.Extra = nonNil(sc.Extra)
+	comps := make([]SpecScopeComponent, len(sc.Components))
+	for i, c := range sc.Components {
+		c.Paths = nonNil(c.Paths)
+		comps[i] = c
+	}
+	sc.Components = comps
+	return sc
+}
+
+func nonNil(xs []string) []string {
+	if xs == nil {
+		return []string{}
+	}
+	return xs
+}
+
+// strOrNil is the optional string a SpecCheckSource carries: nil when empty.
+func strOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// isDesignMode reports whether a manifest mode is a design-slot job mode.
+func isDesignMode(mode string) bool {
+	return mode == "draft" || mode == "critique" || mode == "answer"
+}
+
+// commandArgs is the task command's $ARGUMENTS, exactly as the jobs pass them: design
+// commands take none, construction-style commands take <component_id> <activity_id>, and a
+// command of an activity that builds no component (the acceptance test plan) takes <activity_id>.
+func commandArgs(lc methodassets.Lifecycle, taskID, componentID, activityID string) []string {
+	for _, t := range lc.Tasks {
+		if t.ID != taskID || t.Command == "" {
+			continue
+		}
+		if m, ok := methodassets.ManifestFor(t.Command); ok && isDesignMode(m.Mode) {
+			return nil
+		}
+		if componentID == "" {
+			return []string{activityID}
+		}
+		return []string{componentID, activityID}
+	}
+	return nil
+}
+
+// builtinTools is the manifest's built-in allowlist plus Skill whenever the step seats
+// skills: the --tools allowlist would otherwise block loading them. Sorted, unique.
+func builtinTools(ms methodassets.MethodSpec) []string {
+	out := slices.Clone(ms.BuiltinTools)
+	if len(ms.Skills) > 0 {
+		out = append(out, "Skill")
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// activityEditScope is the union of the edit scopes of every task of lc (FIX-040): each
+// component's paths and every extra glob any task may change, sorted and unique, and
+// StateOnly only when every task is state-only. It is a pure function of the project, the
+// activity and the embedded method assets, so the server and the job derive the same one.
+//
+// A task whose scope does not resolve YET contributes nothing rather than failing this task's
+// spec: a machine client's construction scope, for one, resolves only once its Manager's
+// contract is recorded, and its earlier tasks must still dispatch. Contributing nothing can
+// only make the union stricter, and a task that has not resolved has not run, so the branch
+// holds none of its edits.
+func (tp *taskProject) activityEditScope(key string, lc methodassets.Lifecycle, item taskItem, activityID string, slot SlotRules) SpecEditScope {
+	union := SpecEditScope{StateOnly: true}
+	paths := map[string]map[string]bool{}
+	extra := map[string]bool{}
+	for _, t := range lc.Tasks {
+		ms, err := methodassets.MethodSpecFor(key, t.ID, commandArgs(lc, t.ID, item.componentID, activityID))
+		if err != nil {
+			continue
+		}
+		scope, _, err := tp.scopeAndChecks(ms, item, slot)
+		if err != nil || scope.StateOnly || validateEditScope(scope) != nil {
+			continue
+		}
+		union.StateOnly = false
+		for _, c := range scope.Components {
+			if paths[c.ID] == nil {
+				paths[c.ID] = map[string]bool{}
+			}
+			for _, g := range c.Paths {
+				paths[c.ID][g] = true
+			}
+		}
+		for _, g := range scope.Extra {
+			extra[g] = true
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(paths)) {
+		union.Components = append(union.Components, SpecScopeComponent{ID: id, Paths: slices.Sorted(maps.Keys(paths[id]))})
+	}
+	union.Extra = slices.Sorted(maps.Keys(extra))
+	return union
+}
+
+// scopeAndChecks derives the task's edit scope and checks from its identity.
+func (tp *taskProject) scopeAndChecks(ms methodassets.MethodSpec, item taskItem, slot SlotRules) (SpecEditScope, []SpecCheck, error) {
+	stateOnly := SpecEditScope{StateOnly: true}
+	switch {
+	case ms.Command == "":
+		// A review a human decides: nothing to run, nothing to edit.
+		return stateOnly, nil, nil
+	case ms.Kind == methodassets.LifecycleTaskJob:
+		// A venue job edits no repo file and runs no agent: the venue runs its checks.
+		return stateOnly, tp.acceptanceJobChecks(), nil
+	case isDesignMode(ms.Mode):
+		return stateOnly, []SpecCheck{slotRuleCheck(ms.ArtifactKind, slot)}, nil
+	case ms.Phase == "test_plan":
+		return stateOnly, []SpecCheck{{
+			ID: "rule:tp", Kind: checkKindRule, Title: "Test plan rules (TP-*)",
+			Source: SpecCheckSource{RulePrefixes: []string{"TP-"}}, TimeoutSec: ruleCheckTimeoutSec,
+		}}, nil
+	case ms.Phase == "acceptance_plan":
+		return stateOnly, []SpecCheck{atpRuleCheck()}, nil
+	case ms.Phase == "requirements" || ms.Phase == "detailed_design" || ms.Kind == methodassets.LifecycleTaskReview:
+		return stateOnly, []SpecCheck{projectRuleCheck()}, nil
+	}
+	contracts := tp.componentContracts(item.componentID)
+	switch ms.Command {
+	case "service-construction", "service-integration":
+		pkgs := tp.goPackagesOf(contracts)
+		if len(pkgs) == 0 && isMachineSurface(item.surface) {
+			return SpecEditScope{}, nil, fmt.Errorf("machine client %q has no contract: it is derived when the contract of the Manager its views call is recorded, so that Manager must be designed first and the views must draw the call", item.componentID)
+		}
+		if len(pkgs) == 0 {
+			break // no Go package to scope or check: the underivable posture below
+		}
+		return tp.serviceScopeAndChecks(ms.Command == "service-integration", item.componentID, pkgs, contracts)
+	case "frontend-construction", "frontend-integration":
+		return tp.frontendScopeAndChecks(ms.Command == "frontend-integration", item.componentID, contracts)
+	case "deployment-integration":
+		// The rollout is the composed app's too: it boots through its run contract before it
+		// converges anywhere. Its scope stays explicit "any path", as every deployment task's.
+		checks := append([]SpecCheck{projectRuleCheck()}, bootChecks(tp.moduleDir)...)
+		sortChecks(checks)
+		return SpecEditScope{Extra: []string{anyPath}}, checks, nil
+	}
+	// A construct-mode task whose scope cannot be derived (deployment, documentation, the
+	// testing variants, a service with no Go package) changes repo files no rule names, so
+	// its scope is an explicit "any path" rather than a stateOnly that would reject its
+	// legitimate output.
+	return SpecEditScope{Extra: []string{anyPath}}, []SpecCheck{projectRuleCheck()}, nil
+}
+
+// atpRuleCheck is the acceptance plan's rule check (ATP-*, with TP-* over every bound step). The
+// plan's own task is gated by it, and the milestone's job runs it again at run time, where a skip
+// whose `until` activity has since landed is an Error.
+func atpRuleCheck() SpecCheck {
+	return SpecCheck{
+		ID: "rule:atp", Kind: checkKindRule, Title: "Acceptance plan rules (ATP-*, TP-*)",
+		Source: SpecCheckSource{RulePrefixes: []string{"ATP-", "TP-"}}, TimeoutSec: ruleCheckTimeoutSec,
+	}
+}
+
+// acceptanceJobChecks is the checks of the M-ACCEPT job: the acceptance plan's rules, the composed
+// app's boot (the composition root and the run contract build, and the app boots through it), the
+// generated tests' currency, and one scenario check per residual acceptance variant, filed under the
+// pseudo-contract acceptanceContract. A project whose derivation does not resolve has no scenario
+// to run: the rule check then names why.
+func (tp *taskProject) acceptanceJobChecks() []SpecCheck {
+	dir := tp.moduleDir
+	checks := []SpecCheck{atpRuleCheck()}
+	checks = append(checks, bootChecks(dir)...)
+	checks = append(checks, commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec))
+	scenarios, err := tp.acceptanceScenarios()
+	if err == nil {
+		for _, v := range scenarios {
+			checks = append(checks, SpecCheck{
+				ID: checkKindScenario + ":" + acceptanceContract + ":" + v.ID, Kind: checkKindScenario, Title: v.Title,
+				Source:     SpecCheckSource{Scenario: strOrNil(v.ID), Contract: strOrNil(acceptanceContract), UseCase: strOrNil(v.UseCase)},
+				TimeoutSec: scenarioCheckTimeoutSec,
+			})
+		}
+	}
+	sortChecks(checks)
+	return checks
+}
+
+// slotRuleCheck is a design task's rule check: the rule families attributed to the slot it
+// writes, under that slot's severity policy. A kind that names no slot falls back to the
+// whole-project check.
+func slotRuleCheck(artifactKind string, slot SlotRules) SpecCheck {
+	if artifactKind == "" || slot.Slot == "" {
+		return projectRuleCheck()
+	}
+	prefixes := slot.Prefixes
+	scope := "whole project"
+	if len(prefixes) > 0 {
+		globs := make([]string, len(prefixes))
+		for i, pre := range prefixes {
+			globs[i] = pre + "*"
+		}
+		scope = strings.Join(globs, ", ")
+	}
+	return SpecCheck{
+		ID: checkKindRule + ":" + slot.Slot, Kind: checkKindRule,
+		Title:      artifactKind + " rules (" + scope + ")",
+		Source:     SpecCheckSource{RulePrefixes: prefixes, RuleSlot: strOrNil(slot.Slot)},
+		TimeoutSec: ruleCheckTimeoutSec,
+	}
+}
+
+// projectRuleCheck is the whole-document rule check.
+func projectRuleCheck() SpecCheck {
+	return SpecCheck{ID: "rule:project", Kind: checkKindRule, Title: "Method rules (whole project)", TimeoutSec: ruleCheckTimeoutSec}
+}
+
+// generatedContractsOf is the contracts a service task's job generates, sorted: the
+// component's own recorded contracts that have a Go package to land in.
+func (tp *taskProject) generatedContractsOf(command, componentID string) []string {
+	if command != "service-construction" && command != "service-integration" {
+		return nil
+	}
+	var out []string
+	for _, c := range tp.componentContracts(componentID) {
+		if tp.modelgenGenerates(c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func commandCheck(id, title string, argv []string, dir string, timeout int) SpecCheck {
+	return SpecCheck{ID: checkKindCommand + ":" + id, Kind: checkKindCommand, Title: title,
+		Source: SpecCheckSource{Argv: argv, Dir: strOrNil(dir)}, TimeoutSec: timeout}
+}
+
+// serviceScopeAndChecks is a Go component's construction (integration adds the
+// composition root, the generated-tests drift check and the scenario checks).
+func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID string, pkgs, contracts []string) (SpecEditScope, []SpecCheck, error) {
+	scope := SpecEditScope{
+		Components: []SpecScopeComponent{{ID: componentID, Paths: tp.packageGlobs(pkgs)}},
+		Extra:      []string{tp.inModule("go.mod"), tp.inModule("go.sum")},
+	}
+	dir := tp.moduleDir
+	trees := make([]string, len(pkgs))
+	for i, pkg := range pkgs {
+		trees[i] = "./" + pkg + "/..."
+	}
+	checks := []SpecCheck{
+		commandCheck("gofmt", "gofmt", []string{"sh", "-c", `test -z "$(gofmt -l ` + strings.Join(pkgs, " ") + `)"`}, dir, commandCheckTimeoutSec),
+		commandCheck("build", "go build", append([]string{"go", "build"}, trees...), dir, commandCheckTimeoutSec),
+		commandCheck("vet", "go vet", append([]string{"go", "vet"}, trees...), dir, commandCheckTimeoutSec),
+		commandCheck("lint", "golangci-lint", append([]string{"golangci-lint", "run"}, trees...), dir, lintCheckTimeoutSec),
+		archCheck(dir),
+		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
+	}
+	if slices.ContainsFunc(contracts, tp.modelgenGenerates) {
+		checks = append(checks, tp.genModelsCheck(contracts, dir))
+	}
+	if tp.isManagerComponent(componentID) {
+		checks = append(checks, commandCheck("gen-temporal-check", "appgen temporal output is current", tp.appgenArgv("temporal", "-check"), dir, commandCheckTimeoutSec))
+	}
+	if integration {
+		// An agent writes no test code (GC-1, ARCH-TEST-COMPOSE): the scope holds the wiring
+		// (the composition root's seeded hooks.go and what appgen writes) and none of the
+		// generated scenario tests, which the job generates from the reviewed plan.
+		scope.Extra = append(scope.Extra, tp.inModule("cmd/server/hooks.go"))
+		checks = append(checks,
+			commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec),
+			// TP-DISCRIMINATE: every scenario must fail once its operation is nulled.
+			commandCheck("test-discriminate", "Every scenario fails against a null subject", []string{"make", "test-discriminate"}, dir, tp.discriminateTimeoutSec()))
+		if tp.composesServer(contracts) {
+			composed, err := tp.compositionScope()
+			if err != nil {
+				return SpecEditScope{}, nil, err
+			}
+			scope.Extra = append(scope.Extra, composed...)
+			checks = append(checks, tp.compositionChecks(dir)...)
+		}
+		scen, err := tp.scenarioChecks(contracts)
+		if err != nil {
+			return SpecEditScope{}, nil, err
+		}
+		if len(scen) == 0 && tp.isClientComponent(componentID) {
+			return SpecEditScope{}, nil, fmt.Errorf("machine client %q has no scenario to integrate against: check the System's dynamic views have an actor call it and it call its Manager in that step", componentID)
+		}
+		checks = append(checks, scen...)
+	}
+	slices.Sort(scope.Extra)
+	scope.Extra = slices.Compact(scope.Extra)
+	sortChecks(checks)
+	return scope, checks, nil
+}
+
+// compositionChecks hold the generated composition root to the design and require it to build.
+// The build discards its binary: `go build` of one main package writes it to the working
+// directory, where an agent's `git add -A` would commit it and fail its own edit scope.
+//
+// The policy check runs the framework's generated TestPolicyAdmitsEveryGeneratedRequest
+// (cmd/server/authz.gen_test.go): the composition root's policy must admit the local dev
+// principal every (verb, own scope) request the generated REST handlers and MCP tools send it.
+// Every task that composes the server runs it, so a policy refusing one of them is red in the
+// activity that owns hooks.go, and no machine client passes a policy that fails only on the
+// other transport (RUN-015: a catalog-only policy 403'd every per-todo call, first seen at the
+// SPA, which may not edit hooks.go).
+func (tp *taskProject) compositionChecks(dir string) []SpecCheck {
+	out := bootChecks(dir)
+	for _, sub := range compositionGenerators {
+		if sub == "temporal" {
+			continue // a Manager's task already checks it; a Client has no Temporal layer of its own
+		}
+		out = append(out, commandCheck("gen-"+sub+"-check", "appgen "+sub+" output is current", tp.appgenArgv(sub, "-check"), dir, commandCheckTimeoutSec))
+	}
+	return append(out, commandCheck(policyCheckID, "The composition root's policy admits every request its generated transports send",
+		[]string{"go", "test", "./cmd/server/", "-run", "^TestPolicyAdmitsEveryGeneratedRequest$"}, dir, commandCheckTimeoutSec))
+}
+
+// bootChecks are what makes an integration the integration of the composed app: the composition
+// root and the run contract build, and the app then boots through that run contract (the smoke:
+// /readyz, the SPA and the MCP tool table the model generates, then a teardown that leaves nothing
+// behind). The two builds stay as sub-steps the smoke needs green first; the launcher acceptance
+// boots is compiled in the activity that owns it, not first at acceptance.
+func bootChecks(dir string) []SpecCheck {
+	return []SpecCheck{
+		commandCheck("build-server", "The composition root builds", []string{"go", "build", "-o", "/dev/null", "./cmd/server/"}, dir, commandCheckTimeoutSec),
+		commandCheck("build-devstack", "The local run contract builds", []string{"go", "build", "-o", "/dev/null", "./" + devstackDir + "/"}, dir, commandCheckTimeoutSec),
+		{ID: smokeCheckID, Kind: checkKindSmoke, Title: "The composed app boots through its run contract and answers /readyz, the SPA and /mcp",
+			Source: SpecCheckSource{Dir: strOrNil(dir)}, TimeoutSec: smokeCheckTimeoutSec},
+	}
+}
+
+// generatorsOf is what the job generates before the agent runs a task, beyond its contracts.
+func (tp *taskProject) generatorsOf(command, componentID string) []SpecGenerator {
+	var out []SpecGenerator
+	switch command {
+	case "service-construction":
+		if tp.isManagerComponent(componentID) {
+			out = append(out, SpecGenerator{Title: "appgen temporal", Argv: tp.appgenArgv("temporal")})
+		}
+	case "frontend-construction", "frontend-integration":
+		web := tp.webDirFromModule()
+		// The surface kind seats the entry the surface's host needs: a web page, or an MCP Apps
+		// host-bridge seat. A Client with no stated surface passes none, so webgen refuses it.
+		bootstrap := []string{"go", "tool", "webgen", "bootstrap", "-C", web, "-surface", componentID}
+		if kind, ok := clientSurfaceKind(tp.systemComponent(componentID)); ok {
+			bootstrap = append(bootstrap, "-kind", string(kind.Surface()))
+		}
+		out = append(out,
+			SpecGenerator{Title: "webgen bootstrap", Argv: bootstrap},
+			SpecGenerator{Title: "webgen generate", Argv: []string{"go", "tool", "webgen", "generate", "-C", web}},
+		)
+	case "service-integration":
+		if tp.composesServer(tp.componentContracts(componentID)) {
+			out = append(out, tp.compositionGeneratorsSpec()...)
+		}
+	}
+	return out
+}
+
+// compositionGeneratorsSpec runs every generator the composition root needs.
+func (tp *taskProject) compositionGeneratorsSpec() []SpecGenerator {
+	out := make([]SpecGenerator, 0, len(compositionGenerators))
+	for _, sub := range compositionGenerators {
+		out = append(out, SpecGenerator{Title: "appgen " + sub, Argv: tp.appgenArgv(sub)})
+	}
+	return out
+}
+
+// archCheck is the seated gate, the same argv in every app (internal/aiarch_arch_test.go):
+// file layout, the generated-only public surface, layering and the dependency menu, the
+// design rules with design-to-code alignment, and a state every generator loads.
+func archCheck(dir string) SpecCheck {
+	c := commandCheck("arch", "Architecture gates (file layout, public surface, layering, design alignment, loadable state)",
+		[]string{"go", "test", "-count=1", "-v", "-run", archGateRun, "./internal/"}, dir, commandCheckTimeoutSec)
+	yes := true
+	c.Source.RequireTests = &yes
+	return c
+}
+
+// genModelsCheck holds the component's generated Go to its contract. The drift gate names
+// the component's own contracts, so a package with no contract.gen.go is red rather than
+// skipped by the surface gate.
+func (tp *taskProject) genModelsCheck(contracts []string, dir string) SpecCheck {
+	argv := []string{"go", "tool", "modelgen", "-project", tp.statePathFromModule(), "-root", ".", "-check"}
+	for _, c := range contracts {
+		if tp.modelgenGenerates(c) {
+			argv = append(argv, "-contract", c)
+		}
+	}
+	return commandCheck("gen-models-check", "Generated models are current", argv, dir, commandCheckTimeoutSec)
+}
+
+// surfaceEntryFile is the root HTML entry webgen bootstrap seats for a browser surface: a web
+// page is <id>.html, an MCP Apps shell is <id>.mcpapp.html (the page build ignores it).
+func (tp *taskProject) surfaceEntryFile(componentID string) string {
+	if kind, ok := clientSurfaceKind(tp.systemComponent(componentID)); ok {
+		if _, isApp := kind.(methodcheck.MCPAppSurface); isApp {
+			return componentID + ".mcpapp.html"
+		}
+	}
+	return componentID + ".html"
+}
+
+// frontendScopeAndChecks is a browser surface's construction. All surfaces share one web
+// project: each owns webApp/src/<id>/ and its entry, they share webApp/src/shared/, and the
+// transport seam under src/api and src/contracts is the generators'. Integration adds the UI
+// tests (the purge step deletes hand-written specs, so all of uitests/), the Go packages of any
+// of the component's contracts that has one, the generated-tests drift check and the scenario
+// checks.
+func (tp *taskProject) frontendScopeAndChecks(integration bool, componentID string, contracts []string) (SpecEditScope, []SpecCheck, error) {
+	surface := []string{path.Join(webProjectDir, "src", componentID) + "/**", path.Join(webProjectDir, "src", "shared") + "/**"}
+	slices.Sort(surface)
+	scope := SpecEditScope{
+		Components: []SpecScopeComponent{{ID: componentID, Paths: surface}},
+		Extra: []string{
+			path.Join(webProjectDir, tp.surfaceEntryFile(componentID)),
+			path.Join(webProjectDir, "src", "api") + "/**",
+			path.Join(webProjectDir, "src", "contracts") + "/**",
+			path.Join(webProjectDir, "src", "vite-env.d.ts"),
+		},
+	}
+	for _, seat := range webProjectSeats {
+		scope.Extra = append(scope.Extra, path.Join(webProjectDir, seat))
+	}
+	scope.Extra = append(scope.Extra, uitestsSeats...)
+	checks := []SpecCheck{
+		commandCheck("install", "The web project installs from its lockfile", []string{"npm", "ci", "--ignore-scripts"}, webProjectDir, commandCheckTimeoutSec),
+		commandCheck("gen-ops-check", "The generated transport is current", []string{"go", "tool", "webgen", "check", "-C", tp.webDirFromModule()}, tp.moduleDir, commandCheckTimeoutSec),
+		commandCheck("typecheck", "TypeScript typecheck", []string{"npm", "run", "typecheck"}, webProjectDir, commandCheckTimeoutSec),
+		commandCheck("lint", "ESLint", []string{"npx", "eslint", "src"}, webProjectDir, commandCheckTimeoutSec),
+	}
+	if integration {
+		paths := append(slices.Clone(surface), tp.packageGlobs(tp.goPackagesOf(contracts))...)
+		slices.Sort(paths)
+		scope.Components[0].Paths = paths
+		// The UI tests are generated from the typed UI design and the plan, never written
+		// (GC-1): the scope holds the surface's code and the Playwright project's manifests
+		// (uitestsSeats), and none of uitests/generated.
+		checks = append(checks,
+			commandCheck(installUITestsCheck, "The UI tests install", []string{"sh", "-c", "npm ci --ignore-scripts && npx playwright install chromium"}, "uitests", commandCheckTimeoutSec),
+			commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, tp.moduleDir, commandCheckTimeoutSec))
+		for _, c := range contracts {
+			if tp.doc.ServiceContracts[c].GoPackage != "" {
+				continue
+			}
+			// The generated surface check: every control the design names is on the page with
+			// the role and accessible name the design gives it. It runs under the scenario host
+			// (go tool webscenarios), which boots the composed app into the host's substrates and
+			// tears everything down itself: Playwright's own webServer would SIGKILL the app and
+			// leak its Postgres container.
+			checks = append(checks, commandCheck(surfaceCheckID, "The surface has every designed element",
+				webScenariosArgv(tp.moduleDir, c, "-project", "surface"),
+				tp.moduleDir, scenarioCheckTimeoutSec))
+		}
+		// The browser surface's integration is the app's too: its page is served by the composed
+		// server, so the smoke boots it and holds the page and the tool table.
+		checks = append(checks, tp.compositionChecks(tp.moduleDir)...)
+		scen, err := tp.scenarioChecks(contracts)
+		if err != nil {
+			return SpecEditScope{}, nil, err
+		}
+		if len(scen) == 0 {
+			// An empty gate must not pass silently: every operation of a browser surface is
+			// derived from a label a use case's view carries, so none means a design defect.
+			return SpecEditScope{}, nil, fmt.Errorf("browser surface %q has no scenario to integrate against: record its UI design, so its contract is derived from the actor calls into it, and check the System's dynamic views call it (SYS-CLIENT-OP-LABEL)", componentID)
+		}
+		checks = append(checks, scen...)
+	}
+	slices.Sort(scope.Extra)
+	scope.Extra = slices.Compact(scope.Extra)
+	sortChecks(checks)
+	return scope, checks, nil
+}
+
+// webScenariosArgv is the command that runs a browser surface's generated Playwright project under
+// the scenario host (`go tool webscenarios`), from the module directory (projectstate.WebScenariosArgv,
+// the gate side's, builds the same one): -C is the repo-root `uitests` project as that directory
+// reaches it, -config the contract's generated config, and the rest the Playwright selection.
+func webScenariosArgv(moduleDir, contract string, selection ...string) []string {
+	ui, err := filepath.Rel(moduleDir, "uitests")
+	if err != nil {
+		ui = "uitests"
+	}
+	argv := []string{"go", "tool", "webscenarios", "-C", filepath.ToSlash(ui), "-config", "generated/" + contract + "/playwright.config.gen.ts"}
+	return append(argv, selection...)
+}
+
+// discriminateTimeoutSec is the budget of the null-subject run. testgen's -discriminate runs every
+// scenario of the module once on its real subject and once per stimulus operation with that
+// operation nulled, each a separate `go test` (or, for a web scenario, a scenario-host run), so the
+// budget is that run count times discriminateRunTimeoutSec, never less than a scenario check's. A
+// client's runs launch the composed app and null the Manager operation a call reaches in it, so
+// each adds one devstackBootSec.
+func (tp *taskProject) discriminateTimeoutSec() int {
+	all, err := tp.derive()
+	if err != nil {
+		return scenarioCheckTimeoutSec
+	}
+	budget := 0
+	for key := range tp.doc.ServiceContracts {
+		perRun := discriminateRunTimeoutSec
+		if strings.EqualFold(tp.contractLayer(key), "client") {
+			perRun += devstackBootSec
+		}
+		for _, sc := range scenario.ForComponent(all, key) {
+			budget += (1 + len(sc.Stimuli)) * perRun
+		}
+	}
+	return max(scenarioCheckTimeoutSec, budget)
+}
+
+// scenarioChecks is one check per scenario projected onto each contract.
+func (tp *taskProject) scenarioChecks(contracts []string) ([]SpecCheck, error) {
+	var out []SpecCheck
+	for _, contract := range contracts {
+		all, err := tp.derive()
+		if err != nil {
+			return nil, fmt.Errorf("scenarios of %s: %w", contract, err)
+		}
+		for _, sc := range scenario.ForComponent(all, contract) {
+			out = append(out, SpecCheck{
+				ID: checkKindScenario + ":" + contract + ":" + sc.ID, Kind: checkKindScenario, Title: sc.Title,
+				Source:     SpecCheckSource{Scenario: strOrNil(sc.ID), Contract: strOrNil(contract), UseCase: strOrNil(sc.UseCase)},
+				TimeoutSec: scenarioCheckTimeoutSec,
+			})
+		}
+	}
+	return out, nil
+}
+
+// sortChecks orders checks by kind (rule, command, smoke, scenario), then id.
+func sortChecks(checks []SpecCheck) {
+	slices.SortStableFunc(checks, func(a, b SpecCheck) int {
+		if d := checkKindOrder[a.Kind] - checkKindOrder[b.Kind]; d != 0 {
+			return d
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+}

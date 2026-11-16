@@ -16,6 +16,7 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	artifactfake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact/fake"
@@ -52,7 +53,7 @@ func viewManager(proj projectstate.Project, files []string) delivery.DeliveryMan
 	eps := &episodefake.FakeEpisodeAccess{
 		ListEpisodesFn: func(fwra.Context, episode.EpisodeQuery) ([]episode.EpisodeRecord, error) { return nil, nil },
 	}
-	return delivery.NewDeliveryManager(noSessions{}, ps, art, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "")
+	return delivery.NewDeliveryManager(noSessions{}, ps, art, nil, review.NewReviewEngine(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "")
 }
 
 // noSessions is a Temporal client with no workflow running: the activity view asks a
@@ -95,7 +96,7 @@ func endedAt(year int) *time.Time {
 func TestTaskSpecViewOfANeverRunTaskHasNoCheckRun(t *testing.T) {
 	proj := *ownProject(t)
 	for _, task := range []string{"construction", "codeReview"} {
-		want, err := projectstate.TaskSpecFor(&proj, viewActivity, task)
+		want, err := deriveSpecErr(&proj, viewActivity, task)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +116,7 @@ func TestTaskSpecViewOfANeverRunTaskHasNoCheckRun(t *testing.T) {
 
 // assertSpecView holds the wire view to the resolved spec: same task, same hash, the same
 // identity, model and checks, and no nil list on the wire.
-func assertSpecView(t *testing.T, task string, s *delivery.DeliveryTaskSpecView, want projectstate.TaskSpec) {
+func assertSpecView(t *testing.T, task string, s *delivery.DeliveryTaskSpecView, want review.TaskSpec) {
 	t.Helper()
 	if s.Hash != want.Hash || len(s.Hash) != 64 || s.Activity != viewActivity || s.Task != task {
 		t.Fatalf("%s: spec %s/%s hash %q, want %q", task, s.Activity, s.Task, s.Hash, want.Hash)
@@ -130,7 +131,7 @@ func assertSpecView(t *testing.T, task string, s *delivery.DeliveryTaskSpecView,
 
 func TestTaskSpecViewFlagsARunRecordedAgainstAnotherSpec(t *testing.T) {
 	proj := *ownProject(t)
-	spec, err := projectstate.TaskSpecFor(&proj, viewActivity, "integration")
+	spec, err := deriveSpecErr(&proj, viewActivity, "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,15 +234,15 @@ func integrationResults(projected []scenario.Scenario, log string) []projectstat
 	prefix := projectstate.CheckKindScenario + ":" + viewContract + ":"
 	results := []projectstate.CheckResult{
 		{CheckId: "command:build", Kind: projectstate.CheckKindCommand, Status: "pass"},
-		{CheckId: projectstate.CheckKindScenario + ":otherContract:" + projected[0].ID, Kind: projectstate.CheckKindScenario, Status: "pass"},
-		{CheckId: prefix + "not-a-projected-scenario", Kind: projectstate.CheckKindScenario, Status: "pass"},
+		{CheckId: projectstate.CheckKindScenario + ":otherContract:" + projected[0].ID, Kind: projectstate.CheckKindScenario, Contract: ptr("otherContract"), Status: "pass"},
+		{CheckId: prefix + "not-a-projected-scenario", Kind: projectstate.CheckKindScenario, Contract: ptr(viewContract), Status: "pass"},
 	}
 	for i, sc := range projected[1:] {
 		status := "pass"
 		if i == 0 {
 			status = "timeout"
 		}
-		results = append(results, projectstate.CheckResult{CheckId: prefix + sc.ID, Kind: projectstate.CheckKindScenario,
+		results = append(results, projectstate.CheckResult{CheckId: prefix + sc.ID, Kind: projectstate.CheckKindScenario, Contract: ptr(viewContract),
 			Status: status, DurationMs: 7, OutputRef: &log})
 	}
 	return results
@@ -332,14 +333,14 @@ func TestTaskSpecForDesignPrefixWithoutACommittedPlan(t *testing.T) {
 	for _, id := range []string{"requirements", "architecture", "projectDesign"} {
 		tasks := designPrefixTasks(t, id)
 		for _, task := range tasks {
-			s, err := projectstate.TaskSpecFor(&proj, id, task)
+			s, err := deriveSpecErr(&proj, id, task)
 			if err != nil {
 				t.Fatalf("%s/%s with no committed plan: %v", id, task, err)
 			}
-			if s.Model.Estimate != (projectstate.SpecEstimate{}) {
+			if s.Model.Estimate != (review.SpecEstimate{}) {
 				t.Fatalf("%s/%s estimate %+v, want unestimated (zero)", id, task, s.Model.Estimate)
 			}
-			viaEnvelope, err := projectstate.TaskSpecFor(&decoded, id, task)
+			viaEnvelope, err := deriveSpecErr(&decoded, id, task)
 			if err != nil || viaEnvelope.Hash != s.Hash {
 				t.Fatalf("%s/%s over the envelope: hash %q (%v), want %q", id, task, viaEnvelope.Hash, err, s.Hash)
 			}
@@ -349,7 +350,7 @@ func TestTaskSpecForDesignPrefixWithoutACommittedPlan(t *testing.T) {
 			t.Fatalf("taskSpec view of %s/%s with no committed plan: %v", id, tasks[0], err)
 		}
 	}
-	if _, err := projectstate.TaskSpecFor(&proj, viewActivity, "construction"); err == nil {
+	if _, err := deriveSpecErr(&proj, viewActivity, "construction"); err == nil {
 		t.Fatal("a non-design activity resolved with no committed plan")
 	}
 }
@@ -386,11 +387,11 @@ func TestTaskSpecHashSurvivesTheProjectEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, task := range []string{"construction", "integration", "codeReview"} {
-		want, err := projectstate.TaskSpecFor(&proj, viewActivity, task)
+		want, err := deriveSpecErr(&proj, viewActivity, task)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := projectstate.TaskSpecFor(&decoded, viewActivity, task)
+		got, err := deriveSpecErr(&decoded, viewActivity, task)
 		if err != nil || got.Hash != want.Hash {
 			t.Fatalf("%s over the envelope: %q (%v), want %q", task, got.Hash, err, want.Hash)
 		}
@@ -439,3 +440,6 @@ func ownedContracts(p *projectstate.Project, component string) []string {
 	slices.Sort(out)
 	return out
 }
+
+// ptr is the optional field a value fills.
+func ptr[T any](v T) *T { return &v }

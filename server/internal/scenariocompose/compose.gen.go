@@ -1548,7 +1548,7 @@ type nullReviewEngine struct {
 // the zero result and a nil error: the null-subject run proving a scenario can fail. A name
 // of this interface that it has no operation for panics, so a typo cannot stub nothing.
 func NullReviewEngine(inner review.ReviewEngine, ops ...string) review.ReviewEngine {
-	return nullReviewEngine{inner: inner, ops: nullOps("ReviewEngine", []string{"ProposeReviews"}, ops)}
+	return nullReviewEngine{inner: inner, ops: nullOps("ReviewEngine", []string{"ProposeReviews", "DeriveTaskSpec", "TaskSpecHash"}, ops)}
 }
 
 func (n nullReviewEngine) ProposeReviews(rc fweng.Context, p0 review.ReviewChange, p1 review.ActivityType, p2 string, p3 string, p4 review.ReviewPolicy, p5 bool, p6 []string) (review.ReviewSet, error) {
@@ -1556,6 +1556,22 @@ func (n nullReviewEngine) ProposeReviews(rc fweng.Context, p0 review.ReviewChang
 		return n.inner.ProposeReviews(rc, p0, p1, p2, p3, p4, p5, p6)
 	}
 	var zero review.ReviewSet
+	return zero, nil
+}
+
+func (n nullReviewEngine) DeriveTaskSpec(rc fweng.Context, p0 string, p1 review.TaskFacts) (review.TaskSpec, error) {
+	if !n.ops["DeriveTaskSpec"] {
+		return n.inner.DeriveTaskSpec(rc, p0, p1)
+	}
+	var zero review.TaskSpec
+	return zero, nil
+}
+
+func (n nullReviewEngine) TaskSpecHash(rc fweng.Context, p0 review.TaskSpec) (string, error) {
+	if !n.ops["TaskSpecHash"] {
+		return n.inner.TaskSpecHash(rc, p0)
+	}
+	var zero string
 	return zero, nil
 }
 

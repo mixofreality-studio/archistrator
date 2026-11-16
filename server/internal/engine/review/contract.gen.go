@@ -60,9 +60,121 @@ type Reviewer struct {
 	Role              string `json:"Role"`
 }
 
+type SlotRules struct {
+	Slot     string   `json:"slot"`
+	Prefixes []string `json:"prefixes"`
+}
+
+type SpecCheck struct {
+	ID         string          `json:"id"`
+	Kind       string          `json:"kind"`
+	Title      string          `json:"title"`
+	Source     SpecCheckSource `json:"source"`
+	TimeoutSec int             `json:"timeoutSec"`
+}
+
+type SpecCheckSource struct {
+	RulePrefixes []string `json:"rulePrefixes,omitempty"`
+	RuleSlot     *string  `json:"ruleSlot,omitempty"`
+	Argv         []string `json:"argv,omitempty"`
+	Dir          *string  `json:"dir,omitempty"`
+	Scenario     *string  `json:"scenario,omitempty"`
+	Contract     *string  `json:"contract,omitempty"`
+	UseCase      *string  `json:"useCase,omitempty"`
+	RequireTests *bool    `json:"requireTests,omitempty"`
+}
+
+type SpecEditScope struct {
+	Components []SpecScopeComponent `json:"components"`
+	Extra      []string             `json:"extra"`
+	StateOnly  bool                 `json:"stateOnly"`
+}
+
+type SpecEstimate struct {
+	TokensIn  int64   `json:"tokensIn"`
+	TokensOut int64   `json:"tokensOut"`
+	USD       float64 `json:"usd"`
+}
+
+type SpecGenerator struct {
+	Title string   `json:"title"`
+	Argv  []string `json:"argv"`
+}
+
+type SpecIdentity struct {
+	Kind          string `json:"kind"`
+	Title         string `json:"title"`
+	Phase         string `json:"phase"`
+	Command       string `json:"command"`
+	Agent         string `json:"agent"`
+	WorkerClass   string `json:"workerClass"`
+	ArtifactKind  string `json:"artifactKind"`
+	ExitCriterion string `json:"exitCriterion"`
+	Mode          string `json:"mode"`
+}
+
+type SpecModel struct {
+	ID       string       `json:"id"`
+	Source   string       `json:"source"`
+	Estimate SpecEstimate `json:"estimate"`
+}
+
+type SpecModelFacts struct {
+	ID        string  `json:"id"`
+	Source    string  `json:"source"`
+	TokensIn  int64   `json:"tokensIn"`
+	TokensOut int64   `json:"tokensOut"`
+	USD       float64 `json:"usd"`
+}
+
+type SpecPrompt struct {
+	Text    string   `json:"text"`
+	Tokens  int      `json:"tokens"`
+	Charter string   `json:"charter"`
+	Skills  []string `json:"skills"`
+}
+
+type SpecScopeComponent struct {
+	ID    string   `json:"id"`
+	Paths []string `json:"paths"`
+}
+
+type SpecTools struct {
+	MCP     []string `json:"mcp"`
+	Builtin []string `json:"builtin"`
+}
+
+type TaskFacts struct {
+	Activity     string         `json:"activity"`
+	Task         string         `json:"task"`
+	ComponentID  string         `json:"componentId"`
+	LifecycleKey string         `json:"lifecycleKey"`
+	Surface      string         `json:"surface"`
+	Model        SpecModelFacts `json:"model"`
+	SlotRules    SlotRules      `json:"slotRules"`
+}
+
+type TaskSpec struct {
+	Activity          string          `json:"activity"`
+	Task              string          `json:"task"`
+	Identity          SpecIdentity    `json:"identity"`
+	Model             SpecModel       `json:"model"`
+	Prompt            SpecPrompt      `json:"prompt"`
+	Tools             SpecTools       `json:"tools"`
+	EditScope         SpecEditScope   `json:"editScope"`
+	ActivityEditScope SpecEditScope   `json:"activityEditScope"`
+	Checks            []SpecCheck     `json:"checks"`
+	Contracts         []string        `json:"contracts,omitempty"`
+	Generate          []SpecGenerator `json:"generate,omitempty"`
+	Generated         []string        `json:"generated,omitempty"`
+	Hash              string          `json:"hash"`
+}
+
 // ReviewEngine is the generated service-contract interface for this component.
 type ReviewEngine interface {
 	ProposeReviews(rc fweng.Context, change ReviewChange, activityType ActivityType, lifecyclePhase string, componentID string, policy ReviewPolicy, floorTouched bool, contracts []string) (ReviewSet, error)
+	DeriveTaskSpec(rc fweng.Context, project string, facts TaskFacts) (TaskSpec, error)
+	TaskSpecHash(rc fweng.Context, spec TaskSpec) (string, error)
 }
 
 // NewReviewEngine constructs the ReviewEngine, delegating to the hand-written, unexported

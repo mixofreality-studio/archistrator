@@ -1033,17 +1033,19 @@ var encapsulationAllowlistData = map[string][]string{
 		"AcceptanceRoute",
 		"AcceptanceRouteInfo",
 		"AcceptanceRouteLine",
-		// AGENT TASK SPEC (2026-10-11 spec §4, Task B2). TaskSpecFor is the ONE resolver of
-		// a lifecycle task's agent configuration (identity, model + estimate, prompt, tools,
-		// edit scope, typed checks, hash) — a total, side-effect-free function of the
-		// embedded method assets and the given *Project, the same category as
-		// ComponentScenarios above. The delivery Manager (taskSpec view, B5) and
-		// cmd/aiarch-state-mcp (task-spec / run_checks, B4) both call it, so the panel and
-		// the job hash the identical spec. The Spec* value types and CheckKind* consts are
-		// its result shape.
-		"TaskSpecFor",
-		"TaskSpec",
-		"TaskSpec.ComputeHash",
+		// AGENT TASK SPEC (FPC Task 6.2, ruling 5). The review Engine derives a lifecycle task's
+		// agent configuration (identity, prompt, tools, edit scope, typed checks, generated
+		// paths, hash); what only the project state knows crosses as TaskFacts — the activity's
+		// classification, the model and estimate from the rate card and effort, the slot rule
+		// attribution — a total, side-effect-free function of the embedded method assets and the
+		// given *Project, the same category as ComponentScenarios above. The delivery Manager
+		// (taskSpec view, dispatch hash) and cmd/aiarch-state-mcp (task-spec / run_checks) both
+		// resolve facts here and hand them to the Engine, so the panel and the job hash the
+		// identical spec. The CheckKind* consts are the check kinds the Engine's specs carry.
+		"TaskFactsFor",
+		"TaskFacts",
+		"SpecModelFacts",
+		"SlotRuleFacts",
 		// R56: the task-spec generation the server and the aiarch-state-mcp binary must
 		// agree on — `aiarch-state-mcp version` prints it, and the composition root hands
 		// it to the local rail, which refuses a stale binary before gating.
@@ -1053,22 +1055,12 @@ var encapsulationAllowlistData = map[string][]string{
 		// internal taskspec test holds the derived budget to it.
 		"DiscriminateRunTimeoutSec",
 		"DevstackBootSec",
-		"SpecIdentity",
-		"SpecModel",
-		"SpecEstimate",
-		"SpecPrompt",
-		"SpecTools",
-		"SpecEditScope",
-		"SpecScopeComponent",
-		"SpecCheck",
-		"SpecCheckSource",
-		"SpecGenerator",
 		"CheckKindRule",
 		"CheckKindCommand",
 		"CheckKindSmoke",
 		"CheckKindScenario",
 		// ValidEditScopeGlob: the ONE edit-scope glob grammar ("**", "<dir>/**", literal)
-		// TaskSpecFor validates its scope against and cmd/aiarch-state-mcp's edit-scope gate
+		// the Engine validates its scopes against and cmd/aiarch-state-mcp's edit-scope gate
 		// matches by, so the scope the panel shows and the gate enforces cannot diverge. A
 		// pure predicate, same category as the result shape above.
 		"ValidEditScopeGlob",
@@ -1081,7 +1073,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"WebScenariosArgv",
 		// RULE ATTRIBUTION REGISTRY (moved from cmd/aiarch-state-mcp/staleness.go, Task B2):
 		// the rule-id-prefix → owning-slot table. cmd/aiarch-state-mcp's slot-scoped severity
-		// policy reads AttributeRule; TaskSpecFor's slot rule checks read RulePrefixesFor —
+		// policy reads AttributeRule; TaskFactsFor's slot rule attribution reads RulePrefixesFor —
 		// one registry, two consumers. Pure lookups over projectstate's own ArtifactKind.
 		"RuleAttribution",
 		"AttribNone",

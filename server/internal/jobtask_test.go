@@ -6,6 +6,7 @@ import (
 
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -37,18 +38,18 @@ func withMAccept(t *testing.T) *projectstate.Project {
 // variant, filed under the pseudo-contract "acceptance".
 func TestTaskSpecForJobHasNoAgent(t *testing.T) {
 	p := withMAccept(t)
-	s, err := projectstate.TaskSpecFor(p, mAcceptActivity, "integration")
+	s, err := deriveSpecErr(p, mAcceptActivity, "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projectstate.TaskSpecSchemaVersion != 6 {
-		t.Errorf("TaskSpecSchemaVersion = %d, want 6: the job kind changes the spec's shape", projectstate.TaskSpecSchemaVersion)
+	if projectstate.TaskSpecSchemaVersion != 7 {
+		t.Errorf("TaskSpecSchemaVersion = %d, want 7: the job kind changes the spec's shape", projectstate.TaskSpecSchemaVersion)
 	}
 	requireNoAgent(t, s)
 	requireAcceptanceChecks(t, p, s)
 
 	// The milestone's review is a human gate: nothing to run, nothing to edit.
-	review, err := projectstate.TaskSpecFor(p, mAcceptActivity, "testing")
+	review, err := deriveSpecErr(p, mAcceptActivity, "testing")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,7 @@ func TestTaskSpecForJobHasNoAgent(t *testing.T) {
 }
 
 // requireNoAgent holds a job's spec to naming a venue command and configuring no agent.
-func requireNoAgent(t *testing.T, s projectstate.TaskSpec) {
+func requireNoAgent(t *testing.T, s review.TaskSpec) {
 	t.Helper()
 	if s.Identity.Kind != methodassets.LifecycleTaskJob || s.Identity.Command != "acceptance-run" || s.Identity.ArtifactKind != "AcceptanceRun" {
 		t.Fatalf("identity = %+v, want a job of command acceptance-run producing an AcceptanceRun", s.Identity)
@@ -74,7 +75,7 @@ func requireNoAgent(t *testing.T, s projectstate.TaskSpec) {
 // requireAcceptanceChecks holds a job's checks to the rule, the boot, the generated tests' currency and
 // one scenario per residual variant, in the order sortChecks gives (rule, command, smoke, scenario, each
 // kind by id).
-func requireAcceptanceChecks(t *testing.T, p *projectstate.Project, s projectstate.TaskSpec) {
+func requireAcceptanceChecks(t *testing.T, p *projectstate.Project, s review.TaskSpec) {
 	t.Helper()
 	scenarios, err := projectstate.AcceptanceScenarios(p)
 	if err != nil || len(scenarios) == 0 {
@@ -92,7 +93,7 @@ func requireAcceptanceChecks(t *testing.T, p *projectstate.Project, s projectsta
 		t.Fatalf("checks = %v\nwant     %v", got, want)
 	}
 	for _, c := range s.Checks[len(s.Checks)-len(scenarios):] {
-		if c.Kind != projectstate.CheckKindScenario || c.Source.Contract != projectstate.AcceptanceContract || c.Source.Scenario == "" || c.Source.UseCase == "" {
+		if c.Kind != projectstate.CheckKindScenario || specStr(c.Source.Contract) != projectstate.AcceptanceContract || specStr(c.Source.Scenario) == "" || specStr(c.Source.UseCase) == "" {
 			t.Errorf("scenario check %+v must name its variant, its use case and the acceptance contract", c)
 		}
 	}
