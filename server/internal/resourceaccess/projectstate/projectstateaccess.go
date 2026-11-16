@@ -12753,6 +12753,10 @@ const (
 	CheckKindCommand  = "command"  // a shell command run in the checkout
 	CheckKindSmoke    = "smoke"    // the composed app boots through its run contract and answers /readyz, the SPA and /mcp
 	CheckKindScenario = "scenario" // one generated scenario test
+	// CheckKindAdmission is Tier 2 admission: the project document builds through the whole
+	// generator chain (scaffold, every generator, go build, go vet) over a scratch module. The
+	// venue runs it at the tasks whose merge COMMITS an artifact; no record verb does.
+	CheckKindAdmission = "admission"
 )
 
 // Model sources: where a task's model came from.
@@ -12787,7 +12791,7 @@ const (
 // encoding — so a stale state tool is named as stale, not reported as "task spec
 // drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
 // charters and lifecycles.
-const TaskSpecSchemaVersion = 7
+const TaskSpecSchemaVersion = 8
 
 // StateToolVersion is the generation of the task-spec code a binary carries: the
 // method-assets module version it was built with (from its own build info; a workspace

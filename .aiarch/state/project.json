@@ -10849,6 +10849,12 @@
                   },
                   {
                     "from": "delivery-manager",
+                    "to": "review-engine",
+                    "mode": "sync",
+                    "label": "AdmitArtifact(project, kind) → problems — Tier 1: every generator that reads the artifact emits and typechecks it, before the staging write; a local problem refuses the output"
+                  },
+                  {
+                    "from": "delivery-manager",
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "StageTaskOutput(projectId, activityId, taskId, activityBranch, model, cred) → StagedRef — the task's validated model output is staged on the activity branch, never on main, pending its review round"
@@ -40558,6 +40564,63 @@
           ],
           "x-go-base": "string"
         },
+        "AdmissionProblem": {
+          "type": "object",
+          "description": "One thing the generators did wrong, or could not do, over a recorded artifact.",
+          "properties": {
+            "consumer": {
+              "type": "string",
+              "description": "The generator invocation that wrote the file or failed (modelgen, appgen temporal, testgen, ...)."
+            },
+            "path": {
+              "type": "string",
+              "description": "The repo-relative path of the emitted file; empty for a consumer whose emission failed outright."
+            },
+            "message": {
+              "type": "string"
+            },
+            "severity": {
+              "$ref": "#/$defs/AdmissionSeverity"
+            },
+            "tier": {
+              "$ref": "#/$defs/AdmissionTier"
+            }
+          },
+          "required": [
+            "consumer",
+            "path",
+            "message",
+            "severity",
+            "tier"
+          ],
+          "additionalProperties": false
+        },
+        "AdmissionSeverity": {
+          "type": "string",
+          "description": "How a finding is handled: local refuses the write; incomplete is accepted with a warning and Tier 2 enforces it.",
+          "enum": [
+            "local",
+            "incomplete"
+          ],
+          "x-enum-varnames": [
+            "AdmissionLocal",
+            "AdmissionIncomplete"
+          ],
+          "x-go-base": "string"
+        },
+        "AdmissionTier": {
+          "type": "string",
+          "description": "tier1 is the in-process check on record (every generator that reads the artifact emits, and the siblings typecheck); tier2 is the full build chain at commit.",
+          "enum": [
+            "tier1",
+            "tier2"
+          ],
+          "x-enum-varnames": [
+            "AdmissionTier1",
+            "AdmissionTier2"
+          ],
+          "x-go-base": "string"
+        },
         "ReviewArtifactKind": {
           "type": "string",
           "enum": [
@@ -40711,7 +40774,7 @@
             },
             "kind": {
               "type": "string",
-              "description": "rule | command | smoke | scenario"
+              "description": "rule | command | smoke | scenario | admission"
             },
             "title": {
               "type": "string"
@@ -41266,6 +41329,32 @@
             ],
             "result": {
               "type": "string"
+            },
+            "error": true
+          },
+          {
+            "name": "AdmitArtifact",
+            "params": [
+              {
+                "name": "project",
+                "schema": {
+                  "type": "string",
+                  "description": "The project.json document with the artifact recorded in it."
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "type": "string",
+                  "description": "The artifact kind that was recorded: serviceContract, testPlan, uiDesign, acceptancePlan, system, operationalConcepts or coreUseCases. Any other kind has no consumer and admits with no problems."
+                }
+              }
+            ],
+            "result": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AdmissionProblem"
+              }
             },
             "error": true
           }
@@ -94803,6 +94892,38 @@
                   "errorCode": ""
                 },
                 "probes": []
+              },
+              {
+                "seq": 3,
+                "operation": "AdmitArtifact",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "{\"id\": \"stp-review-admit\"}"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
               }
             ]
           },
@@ -94923,6 +95044,38 @@
                 ],
                 "expect": {
                   "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 3,
+                "operation": "AdmitArtifact",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "{\"id\": \"stp-review-admit\"}"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -95446,6 +95599,38 @@
               },
               {
                 "seq": 3,
+                "operation": "AdmitArtifact",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "{\"id\": \"stp-review-admit\"}"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 4,
                 "operation": "DeriveTaskSpec",
                 "inputs": [
                   {
@@ -95496,7 +95681,7 @@
                 "probes": []
               },
               {
-                "seq": 4,
+                "seq": 5,
                 "operation": "TaskSpecHash",
                 "inputs": [
                   {
@@ -95557,6 +95742,38 @@
                 ],
                 "expect": {
                   "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 6,
+                "operation": "AdmitArtifact",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "{\"id\": \"stp-review-admit\"}"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -95681,6 +95898,38 @@
                 ],
                 "expect": {
                   "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 3,
+                "operation": "AdmitArtifact",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "{\"id\": \"stp-review-admit\"}"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -96003,6 +96252,38 @@
                 ],
                 "expect": {
                   "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "errorExpected": false,
+                  "errorCode": ""
+                },
+                "probes": []
+              },
+              {
+                "seq": 5,
+                "operation": "AdmitArtifact",
+                "inputs": [
+                  {
+                    "name": "project",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "{\"id\": \"stp-review-admit\"}"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "kind",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  }
+                ],
+                "expect": {
+                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },

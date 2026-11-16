@@ -42,8 +42,8 @@ func TestTaskSpecForJobHasNoAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projectstate.TaskSpecSchemaVersion != 7 {
-		t.Errorf("TaskSpecSchemaVersion = %d, want 7: the job kind changes the spec's shape", projectstate.TaskSpecSchemaVersion)
+	if projectstate.TaskSpecSchemaVersion < 7 {
+		t.Errorf("TaskSpecSchemaVersion = %d, want at least 7: the job kind changes the spec's shape", projectstate.TaskSpecSchemaVersion)
 	}
 	requireNoAgent(t, s)
 	requireAcceptanceChecks(t, p, s)

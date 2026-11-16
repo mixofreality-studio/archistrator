@@ -14,6 +14,7 @@ type FakeReviewEngine struct {
 	ProposeReviewsFn func(rc fweng.Context, change review.ReviewChange, activityType review.ActivityType, lifecyclePhase string, componentID string, policy review.ReviewPolicy, floorTouched bool, contracts []string) (review.ReviewSet, error)
 	DeriveTaskSpecFn func(rc fweng.Context, project string, facts review.TaskFacts) (review.TaskSpec, error)
 	TaskSpecHashFn   func(rc fweng.Context, spec review.TaskSpec) (string, error)
+	AdmitArtifactFn  func(rc fweng.Context, project string, kind string) ([]review.AdmissionProblem, error)
 }
 
 func (f *FakeReviewEngine) ProposeReviews(rc fweng.Context, change review.ReviewChange, activityType review.ActivityType, lifecyclePhase string, componentID string, policy review.ReviewPolicy, floorTouched bool, contracts []string) (review.ReviewSet, error) {
@@ -35,6 +36,13 @@ func (f *FakeReviewEngine) TaskSpecHash(rc fweng.Context, spec review.TaskSpec) 
 		panic("FakeReviewEngine.TaskSpecHashFn not set")
 	}
 	return f.TaskSpecHashFn(rc, spec)
+}
+
+func (f *FakeReviewEngine) AdmitArtifact(rc fweng.Context, project string, kind string) ([]review.AdmissionProblem, error) {
+	if f.AdmitArtifactFn == nil {
+		panic("FakeReviewEngine.AdmitArtifactFn not set")
+	}
+	return f.AdmitArtifactFn(rc, project, kind)
 }
 
 var _ review.ReviewEngine = (*FakeReviewEngine)(nil)

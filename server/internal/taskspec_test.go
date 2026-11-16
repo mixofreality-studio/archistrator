@@ -161,7 +161,8 @@ func TestTaskSpecForStateTaskAndTestPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !stp.EditScope.StateOnly || !slices.Equal(checkIDs(stp), []string{"rule:tp"}) ||
+	// The merge commits the plan testgen reads: Tier 2 admission rides beside the rule check.
+	if !stp.EditScope.StateOnly || !slices.Equal(checkIDs(stp), []string{"admission:tier2", "rule:tp"}) ||
 		!slices.Equal(stp.Checks[0].Source.RulePrefixes, []string{"TP-"}) {
 		t.Fatalf("stp spec: %+v %+v", stp.EditScope, stp.Checks)
 	}
@@ -808,7 +809,7 @@ func checkByID(t *testing.T, s review.TaskSpec, id string) review.SpecCheck {
 }
 
 func checkSortKey(c review.SpecCheck) string {
-	order := map[string]string{projectstate.CheckKindRule: "0", projectstate.CheckKindCommand: "1", projectstate.CheckKindSmoke: "2", projectstate.CheckKindScenario: "3"}
+	order := map[string]string{projectstate.CheckKindRule: "0", projectstate.CheckKindCommand: "1", projectstate.CheckKindSmoke: "2", projectstate.CheckKindAdmission: "2", projectstate.CheckKindScenario: "3"}
 	return order[c.Kind] + c.ID
 }
 

@@ -270,7 +270,7 @@ func composedVerbs(s *Session) []composedVerb {
 				if err := s.putDraftModel(modelJSON); err != nil {
 					return "", err
 				}
-				return "The draft passed the server codec and the Method CI rules and was written. Respond to any open review comments, then call publishDraft.", nil
+				return s.withAdmissionNotes("The draft passed the server codec and the Method CI rules and was written. Respond to any open review comments, then call publishDraft."), nil
 			}))
 		}},
 		{name: "reportUpstreamDefect", modes: []string{jobModeDraft}, register: func(srv *mcp.Server) {
@@ -321,7 +321,7 @@ func composedVerbs(s *Session) []composedVerb {
 				if err := s.recordServiceContract(in.Contract); err != nil {
 					return "", err
 				}
-				return "The service contract passed the server codec and the Method CI rules and was written. Call publishDraft to commit it.", nil
+				return s.withAdmissionNotes("The service contract passed the server codec, the Method CI rules and Tier 1 admission and was written. Call publishDraft to commit it."), nil
 			}))
 		}},
 		{name: "recordPhaseArtifact", modes: construct, register: func(srv *mcp.Server) {
@@ -333,7 +333,7 @@ func composedVerbs(s *Session) []composedVerb {
 				if err := s.recordPhaseArtifact(in.MapKey, in.Payload); err != nil {
 					return "", err
 				}
-				return "The phase artifact passed validation and was written. Call publishDraft to commit it.", nil
+				return s.withAdmissionNotes("The phase artifact passed validation and was written. Call publishDraft to commit it."), nil
 			}))
 		}},
 		{name: "recordTestingState", modes: construct, register: func(srv *mcp.Server) {

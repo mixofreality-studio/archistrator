@@ -1059,6 +1059,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"CheckKindCommand",
 		"CheckKindSmoke",
 		"CheckKindScenario",
+		"CheckKindAdmission",
 		// ValidEditScopeGlob: the ONE edit-scope glob grammar ("**", "<dir>/**", literal)
 		// the Engine validates its scopes against and cmd/aiarch-state-mcp's edit-scope gate
 		// matches by, so the scope the panel shows and the gate enforces cannot diverge. A

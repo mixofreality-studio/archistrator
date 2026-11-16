@@ -134,6 +134,9 @@ type Session struct {
 	// respondToReviewComment) so publishDraft can refuse a no-op publish (nothing drafted
 	// AND a clean tree) — the F17c "job went green having committed nothing" guard.
 	wroteState bool
+	// admissionNotes are the Tier 1 problems of the last record that wait for Tier 2 (admission.go):
+	// the tool result carries them as a warning.
+	admissionNotes []string
 	// published latches after the first successful publishDraft so a second call is a
 	// clear no-op rather than a duplicate commit (exactly-once semantics).
 	published bool

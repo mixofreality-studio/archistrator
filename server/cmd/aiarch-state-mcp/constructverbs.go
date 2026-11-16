@@ -32,6 +32,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/appgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
 	projectmodel "github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
@@ -68,7 +69,7 @@ type recordTestingStateInput struct {
 // through the strict server codec (read-back parity) AND methodcheck (the CI gate),
 // writing only if BOTH pass. On any failure NOTHING is written and a typed error is
 // returned (surfaced to the agent as a self-correctable IsError result).
-func (s *Session) applyConstructionMutation(what string, mutate func(*projectstate.Project) error) error {
+func (s *Session) applyConstructionMutation(what string, mutate func(*projectstate.Project) error, admitKinds ...string) error {
 	proj, _, err := s.readProject()
 	if err != nil {
 		return err
@@ -104,6 +105,13 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 	if errs := filterErrorFindings(findings); len(errs) > 0 {
 		return fmt.Errorf("the %s change violates %d Method rule(s) that the required CI check enforces — fix them and record again:\n%s",
 			what, len(errs), formatFindings(errs))
+	}
+	// Tier 1: every generator that reads what was just recorded emits it, and the siblings
+	// typecheck (admission.go). Last, so the cheaper refusals above come first.
+	if len(admitKinds) > 0 {
+		if err := s.admitTier1(what, newBytes, admitKinds...); err != nil {
+			return err
+		}
 	}
 	if err := s.writeProjectBytes(newBytes); err != nil {
 		return fmt.Errorf("write project state: %w", err)
@@ -192,7 +200,7 @@ func (s *Session) recordServiceContract(contract map[string]any) error {
 			return projectstate.RecordMachineClientContracts(p)
 		}
 		return nil
-	})
+	}, string(appgen.KindServiceContract))
 }
 
 // markReadOnlyOperations sets each operation's readOnly flag from its name and layer, the one
@@ -455,7 +463,24 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 			return projectstate.RecordBrowserContract(p, s.ComponentID)
 		}
 		return nil
-	})
+	}, phaseArtifactKinds(pl)...)
+}
+
+// phaseArtifactKinds are the artifact kinds a payload records that a generator reads (Tier 1):
+// the test plan, the UI design and the acceptance plan. The other phase artifacts (an SRS, an
+// integration note) feed no generator.
+func phaseArtifactKinds(pl projectstate.PhaseArtifactPayload) []string {
+	var kinds []string
+	if pl.TestPlan != nil {
+		kinds = append(kinds, string(appgen.KindTestPlan))
+	}
+	if pl.UIDesign != nil {
+		kinds = append(kinds, string(appgen.KindUIDesign))
+	}
+	if pl.AcceptancePlan != nil {
+		kinds = append(kinds, string(appgen.KindAcceptancePlan))
+	}
+	return kinds
 }
 
 // testPlanKey resolves what a caller named a test plan by to the serviceContracts key the plan

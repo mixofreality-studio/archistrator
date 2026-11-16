@@ -172,10 +172,14 @@ func TestTaskSpecForATPIsStateOnlyWithATPRules(t *testing.T) {
 	if !s.EditScope.StateOnly {
 		t.Errorf("the acceptance plan is a record: its scope is state only, got %+v", s.EditScope)
 	}
-	if got := checkIDs(s); !slices.Equal(got, []string{"rule:atp"}) {
-		t.Fatalf("checks = %v, want [rule:atp]", got)
+	// The merge commits the acceptance plan, which testgen reads: Tier 2 admission holds it (FPC Task 6.3).
+	if got := checkIDs(s); !slices.Equal(got, []string{"admission:tier2", "rule:atp"}) {
+		t.Fatalf("checks = %v, want [admission:tier2 rule:atp]", got)
 	}
 	for _, c := range s.Checks {
+		if c.Kind == projectstate.CheckKindAdmission {
+			continue
+		}
 		if !slices.Equal(c.Source.RulePrefixes, []string{"ATP-", "TP-"}) {
 			t.Errorf("rule prefixes = %v, want ATP- and TP-", c.Source.RulePrefixes)
 		}

@@ -24,6 +24,28 @@ const (
 	ActivityTypeMilestone     ActivityType = "milestone"
 )
 
+type AdmissionProblem struct {
+	Consumer string            `json:"consumer"`
+	Path     string            `json:"path"`
+	Message  string            `json:"message"`
+	Severity AdmissionSeverity `json:"severity"`
+	Tier     AdmissionTier     `json:"tier"`
+}
+
+type AdmissionSeverity string
+
+const (
+	AdmissionLocal      AdmissionSeverity = "local"
+	AdmissionIncomplete AdmissionSeverity = "incomplete"
+)
+
+type AdmissionTier string
+
+const (
+	AdmissionTier1 AdmissionTier = "tier1"
+	AdmissionTier2 AdmissionTier = "tier2"
+)
+
 type ReviewArtifactKind string
 
 const (
@@ -175,6 +197,7 @@ type ReviewEngine interface {
 	ProposeReviews(rc fweng.Context, change ReviewChange, activityType ActivityType, lifecyclePhase string, componentID string, policy ReviewPolicy, floorTouched bool, contracts []string) (ReviewSet, error)
 	DeriveTaskSpec(rc fweng.Context, project string, facts TaskFacts) (TaskSpec, error)
 	TaskSpecHash(rc fweng.Context, spec TaskSpec) (string, error)
+	AdmitArtifact(rc fweng.Context, project string, kind string) ([]AdmissionProblem, error)
 }
 
 // NewReviewEngine constructs the ReviewEngine, delegating to the hand-written, unexported

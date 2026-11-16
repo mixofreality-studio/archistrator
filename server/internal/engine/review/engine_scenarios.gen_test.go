@@ -149,6 +149,12 @@ type inputExecuteAProjectActivityP1S2 struct {
 	Spec review.TaskSpec `json:"spec"`
 }
 
+// inputExecuteAProjectActivityP1S3 is step 3's parameters of AdmitArtifact, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP1S3 struct {
+	Project string `json:"project"`
+	Kind    string `json:"kind"`
+}
+
 // TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
@@ -233,6 +239,13 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
 		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=yes)
+		var out3 any
+		var err3 error
+		var in3 inputExecuteAProjectActivityP1S3
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract"}`, &in3)
+		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind)
+		expect(t, "execute-a-project-activity-P1", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 	})
 }
 
@@ -245,6 +258,12 @@ type inputExecuteAProjectActivityP2S1 struct {
 // inputExecuteAProjectActivityP2S2 is step 2's parameters of TaskSpecHash, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP2S2 struct {
 	Spec review.TaskSpec `json:"spec"`
+}
+
+// inputExecuteAProjectActivityP2S3 is step 3's parameters of AdmitArtifact, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP2S3 struct {
+	Project string `json:"project"`
+	Kind    string `json:"kind"`
 }
 
 // TestScenario_execute_a_project_activity_P2 — Execute a Project Activity — dispatch · no · no: exhausted · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -331,6 +350,13 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
 		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
+		var out3 any
+		var err3 error
+		var in3 inputExecuteAProjectActivityP2S3
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract"}`, &in3)
+		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind)
+		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 	})
 }
 
@@ -487,15 +513,27 @@ type inputExecuteAProjectActivityP5S2 struct {
 	Spec review.TaskSpec `json:"spec"`
 }
 
-// inputExecuteAProjectActivityP5S3 is step 3's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+// inputExecuteAProjectActivityP5S3 is step 3's parameters of AdmitArtifact, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP5S3 struct {
+	Project string `json:"project"`
+	Kind    string `json:"kind"`
+}
+
+// inputExecuteAProjectActivityP5S4 is step 4's parameters of DeriveTaskSpec, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S4 struct {
 	Project string           `json:"project"`
 	Facts   review.TaskFacts `json:"facts"`
 }
 
-// inputExecuteAProjectActivityP5S4 is step 4's parameters of TaskSpecHash, decoded from the binding's inputs.
-type inputExecuteAProjectActivityP5S4 struct {
+// inputExecuteAProjectActivityP5S5 is step 5's parameters of TaskSpecHash, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S5 struct {
 	Spec review.TaskSpec `json:"spec"`
+}
+
+// inputExecuteAProjectActivityP5S6 is step 6's parameters of AdmitArtifact, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP5S6 struct {
+	Project string `json:"project"`
+	Kind    string `json:"kind"`
 }
 
 // TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -582,10 +620,17 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
 		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
-		// step 3: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var out3 any
 		var err3 error
 		var in3 inputExecuteAProjectActivityP5S3
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract"}`, &in3)
+		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind)
+		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
+		// step 4: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var out4 any
+		var err4 error
+		var in4 inputExecuteAProjectActivityP5S4
 		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
                           "activity": "requirements",
                           "task": "glossaryDraft",
@@ -605,13 +650,13 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                               "GLOSS-"
                             ]
                           }
-                        }}`, &in3)
-		out3, err3 = subject.DeriveTaskSpec(h.EngineContext(t), in3.Project, in3.Facts)
-		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
-		// step 4: TaskSpecHash (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
-		var out4 any
-		var err4 error
-		var in4 inputExecuteAProjectActivityP5S4
+                        }}`, &in4)
+		out4, err4 = subject.DeriveTaskSpec(h.EngineContext(t), in4.Project, in4.Facts)
+		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
+		// step 5: TaskSpecHash (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var out5 any
+		var err5 error
+		var in5 inputExecuteAProjectActivityP5S5
 		mustUnmarshal(t, `{"spec":{
                           "activity": "A-1",
                           "task": "construction",
@@ -657,9 +702,16 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                           },
                           "checks": [],
                           "hash": ""
-                        }}`, &in4)
-		out4, err4 = subject.TaskSpecHash(h.EngineContext(t), in4.Spec)
-		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+                        }}`, &in5)
+		out5, err5 = subject.TaskSpecHash(h.EngineContext(t), in5.Spec)
+		expect(t, "execute-a-project-activity-P5", 5, out5, err5, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		// step 6: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
+		var out6 any
+		var err6 error
+		var in6 inputExecuteAProjectActivityP5S6
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract"}`, &in6)
+		out6, err6 = subject.AdmitArtifact(h.EngineContext(t), in6.Project, in6.Kind)
+		expect(t, "execute-a-project-activity-P5", 6, out6, err6, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 	})
 }
 
@@ -672,6 +724,12 @@ type inputExecuteAProjectActivityP6S1 struct {
 // inputExecuteAProjectActivityP6S2 is step 2's parameters of TaskSpecHash, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP6S2 struct {
 	Spec review.TaskSpec `json:"spec"`
+}
+
+// inputExecuteAProjectActivityP6S3 is step 3's parameters of AdmitArtifact, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP6S3 struct {
+	Project string `json:"project"`
+	Kind    string `json:"kind"`
 }
 
 // TestScenario_execute_a_project_activity_P6 — Execute a Project Activity — dispatch · no · no: exhausted · no · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → escalate-operator → operator-steers → operator-note-recorded → operator-intervened → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -758,6 +816,13 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
 		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
+		var out3 any
+		var err3 error
+		var in3 inputExecuteAProjectActivityP6S3
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract"}`, &in3)
+		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind)
+		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 	})
 }
 
@@ -792,6 +857,12 @@ type inputExecuteAProjectActivityP7S3 struct {
 // inputExecuteAProjectActivityP7S4 is step 4's parameters of TaskSpecHash, decoded from the binding's inputs.
 type inputExecuteAProjectActivityP7S4 struct {
 	Spec review.TaskSpec `json:"spec"`
+}
+
+// inputExecuteAProjectActivityP7S5 is step 5's parameters of AdmitArtifact, decoded from the binding's inputs.
+type inputExecuteAProjectActivityP7S5 struct {
+	Project string `json:"project"`
+	Kind    string `json:"kind"`
 }
 
 // TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
@@ -926,6 +997,13 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
                         }}`, &in4)
 		out4, err4 = subject.TaskSpecHash(h.EngineContext(t), in4.Spec)
 		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		// step 5: AdmitArtifact (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
+		var out5 any
+		var err5 error
+		var in5 inputExecuteAProjectActivityP7S5
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract"}`, &in5)
+		out5, err5 = subject.AdmitArtifact(h.EngineContext(t), in5.Project, in5.Kind)
+		expect(t, "execute-a-project-activity-P7", 5, out5, err5, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 	})
 }
 

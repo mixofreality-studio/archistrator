@@ -550,6 +550,15 @@ const (
 	checkKindCommand  = "command"
 	checkKindSmoke    = "smoke"
 	checkKindScenario = "scenario"
+	// checkKindAdmission is Tier 2 admission (projectstate.CheckKindAdmission).
+	checkKindAdmission = "admission"
+)
+
+// admissionCheckID names the Tier 2 admission check; admissionCheckTimeoutSec is its cap (a scaffold,
+// every generator and two builds over a cold module cache).
+const (
+	admissionCheckID         = "admission:tier2"
+	admissionCheckTimeoutSec = 1800
 )
 
 // acceptanceContract is the pseudo-contract the acceptance scenarios and their checks are filed
@@ -616,7 +625,7 @@ var webProjectSeats = []string{
 var uitestsSeats = []string{"uitests/.gitignore", "uitests/.tool-versions", "uitests/package.json", "uitests/package-lock.json"}
 
 // checkKindOrder ranks the check kinds: rule, command, smoke, scenario.
-var checkKindOrder = map[string]int{checkKindRule: 0, checkKindCommand: 1, checkKindSmoke: 2, checkKindScenario: 3}
+var checkKindOrder = map[string]int{checkKindRule: 0, checkKindCommand: 1, checkKindSmoke: 2, checkKindAdmission: 2, checkKindScenario: 3}
 
 // taskItem is the committed activity item's two facts the scope derivation reads.
 type taskItem struct {
@@ -1064,6 +1073,85 @@ func (reviewEngineImpl) TaskSpecHash(_ fweng.Context, spec TaskSpec) (string, er
 	return h, nil
 }
 
+// =====================================================================================
+// TIER 1 ADMISSION (FPC Task 6.3, ruling 6) — what the generators make of a recorded artifact.
+//
+// AdmitArtifact runs, in process and over the project document alone, every generator that reads
+// the artifact's kind and typechecks what they emit against one another (appgen.AdmitTier1): a
+// contract the recorder accepts and a generator cannot load, or two generators that disagree
+// about a name, is found when it is recorded, not three tasks later in a paid run. It is pure
+// (no clock, no I/O, no toolchain), so the server rail calls it in-workflow; the full build is
+// Tier 2, a venue check at commit.
+// =====================================================================================
+
+// AdmitArtifact implements ReviewEngine. An empty or undecodable project is ContractMisuse; a kind
+// no generator reads admits with no problems.
+func (reviewEngineImpl) AdmitArtifact(_ fweng.Context, project string, kind string) ([]AdmissionProblem, error) {
+	k := appgen.ArtifactKind(kind)
+	if len(appgen.Consumers(k)) == 0 {
+		return nil, nil
+	}
+	if strings.TrimSpace(project) == "" {
+		return nil, fweng.New(fweng.ContractMisuse, "AdmitArtifact: empty project document")
+	}
+	var top struct {
+		ModuleDir        string                   `json:"moduleDir"`
+		ServiceContracts map[string]admitContract `json:"serviceContracts"`
+	}
+	if err := json.Unmarshal([]byte(project), &top); err != nil {
+		return nil, fweng.Wrap(fweng.ContractMisuse, err, "AdmitArtifact: the project document does not decode")
+	}
+	in := appgen.Input{Project: []byte(project), ModulePath: inferModulePath(top.ServiceContracts), ModuleDir: top.ModuleDir, Config: appgen.DefaultConfig()}
+	var out []AdmissionProblem
+	for _, p := range appgen.AdmitTier1(in, k) {
+		out = append(out, AdmissionProblem{Consumer: p.Consumer, Path: p.Path, Message: p.Message, Severity: admissionSeverity(p.Severity), Tier: AdmissionTier1})
+	}
+	return out, nil
+}
+
+// admitContract is the part of a service contract the module path is read from.
+type admitContract struct {
+	GoPackage string `json:"goPackage"`
+	Deps      []struct {
+		GoImport string `json:"goImport"`
+	} `json:"deps"`
+}
+
+// admissionSeverity maps the generator library's sum type onto the contract's enum. The switch
+// has no default: a new Severity cannot fall silently into the branch of the old two.
+func admissionSeverity(s appgen.Severity) AdmissionSeverity {
+	switch s.(type) {
+	case appgen.Local:
+		return AdmissionLocal
+	case appgen.Incomplete:
+		return AdmissionIncomplete
+	}
+	panic("unreachable: sealed appgen.Severity")
+}
+
+// inferModulePath is the app's go.mod module line as far as the project document says it: the
+// document does not carry it, but a dependency's goImport of a sibling contract's package is
+// "<module>/<goPackage>". The generators write the module into every import they emit, so a
+// wrong one makes a sibling a stranger to the contract that imports it by its real name. A
+// document that names no sibling import falls back to the placeholder the manifests use.
+func inferModulePath(contracts map[string]admitContract) string {
+	keys := slices.Sorted(maps.Keys(contracts))
+	for _, key := range keys {
+		for _, dep := range contracts[key].Deps {
+			for _, other := range keys {
+				pkg := contracts[other].GoPackage
+				if pkg == "" || dep.GoImport == "" {
+					continue
+				}
+				if module, ok := strings.CutSuffix(dep.GoImport, "/"+pkg); ok && module != "" {
+					return module
+				}
+			}
+		}
+	}
+	return manifestModulePath
+}
+
 func specHash(s TaskSpec) string {
 	c := normalizedSpec(s)
 	c.Hash = ""
@@ -1194,8 +1282,36 @@ func (tp *taskProject) activityEditScope(key string, lc methodassets.Lifecycle, 
 	return union
 }
 
-// scopeAndChecks derives the task's edit scope and checks from its identity.
+// scopeAndChecks derives the task's edit scope and checks from its identity, then adds the Tier 2
+// admission check to the tasks whose merge commits an artifact the generators read.
 func (tp *taskProject) scopeAndChecks(ms methodassets.MethodSpec, item taskItem, slot SlotRules) (SpecEditScope, []SpecCheck, error) {
+	scope, checks, err := tp.scopeAndChecksBase(ms, item, slot)
+	if err != nil || !commitsAdmittedArtifact(ms) {
+		return scope, checks, err
+	}
+	checks = append(slices.Clone(checks), SpecCheck{
+		ID: admissionCheckID, Kind: checkKindAdmission, Title: "The project builds through the conformance chain (Tier 2)",
+		TimeoutSec: admissionCheckTimeoutSec,
+	})
+	sortChecks(checks)
+	return scope, checks, nil
+}
+
+// commitsAdmittedArtifact reports whether a task is one whose merge commits an artifact the
+// generators read: a component's or surface's detailed design (its service contract, or its UI
+// design), its test plan and the acceptance plan. Its record verbs ran Tier 1 each time the
+// artifact was written; the merge is where the full build chain (Tier 2) holds it. A review
+// decides and edits nothing, a job runs no agent, and construction and integration tasks build
+// code the checks they already carry run.
+func commitsAdmittedArtifact(ms methodassets.MethodSpec) bool {
+	if ms.Command == "" || ms.Kind != methodassets.LifecycleTaskDispatch || isDesignMode(ms.Mode) {
+		return false
+	}
+	return ms.Phase == "detailed_design" || ms.Phase == "test_plan" || ms.Phase == "acceptance_plan"
+}
+
+// scopeAndChecksBase is the scope and checks a task's own identity gives it.
+func (tp *taskProject) scopeAndChecksBase(ms methodassets.MethodSpec, item taskItem, slot SlotRules) (SpecEditScope, []SpecCheck, error) {
 	stateOnly := SpecEditScope{StateOnly: true}
 	switch {
 	case ms.Command == "":

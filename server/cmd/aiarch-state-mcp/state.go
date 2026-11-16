@@ -133,7 +133,14 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 			s.Kind.WireName(), len(errs), formatFindings(errs))
 	}
 
-	// Both gates passed — write the validated draft to the checkout.
+	// GATE 3 — TIER 1 ADMISSION (FPC Task 6.3). A kind a generator reads (the System, the
+	// operational concepts, the core use cases) is emitted in process and typechecked before it is
+	// written, so a design the generators cannot build is refused here, with every problem at once.
+	if err := s.admitTier1("draft", newBytes, s.Kind.WireName()); err != nil {
+		return err
+	}
+
+	// All gates passed — write the validated draft to the checkout.
 	if err := s.writeProjectBytes(newBytes); err != nil {
 		return fmt.Errorf("write project state: %w", err)
 	}

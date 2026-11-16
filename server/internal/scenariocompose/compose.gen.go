@@ -1548,7 +1548,7 @@ type nullReviewEngine struct {
 // the zero result and a nil error: the null-subject run proving a scenario can fail. A name
 // of this interface that it has no operation for panics, so a typo cannot stub nothing.
 func NullReviewEngine(inner review.ReviewEngine, ops ...string) review.ReviewEngine {
-	return nullReviewEngine{inner: inner, ops: nullOps("ReviewEngine", []string{"ProposeReviews", "DeriveTaskSpec", "TaskSpecHash"}, ops)}
+	return nullReviewEngine{inner: inner, ops: nullOps("ReviewEngine", []string{"ProposeReviews", "DeriveTaskSpec", "TaskSpecHash", "AdmitArtifact"}, ops)}
 }
 
 func (n nullReviewEngine) ProposeReviews(rc fweng.Context, p0 review.ReviewChange, p1 review.ActivityType, p2 string, p3 string, p4 review.ReviewPolicy, p5 bool, p6 []string) (review.ReviewSet, error) {
@@ -1572,6 +1572,14 @@ func (n nullReviewEngine) TaskSpecHash(rc fweng.Context, p0 review.TaskSpec) (st
 		return n.inner.TaskSpecHash(rc, p0)
 	}
 	var zero string
+	return zero, nil
+}
+
+func (n nullReviewEngine) AdmitArtifact(rc fweng.Context, p0 string, p1 string) ([]review.AdmissionProblem, error) {
+	if !n.ops["AdmitArtifact"] {
+		return n.inner.AdmitArtifact(rc, p0, p1)
+	}
+	var zero []review.AdmissionProblem
 	return zero, nil
 }
 

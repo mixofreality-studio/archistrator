@@ -20,6 +20,7 @@ import (
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
@@ -978,7 +979,50 @@ func (wf *csWorkflows) readBackDesignModelOn(
 			"the design job reported success but committed no "+kind.WireName()+" model to read back on "+
 				designBranchLabel(branch), "ReadBackEmpty", nil)
 	}
+	if err := wf.admitDesignDraft(ctx, proj, kind, branch); err != nil {
+		return nil, 0, err
+	}
 	return slot.Model, proj.Version, nil
+}
+
+// changeTier1Admission versions the Tier 1 admission of a design draft (FPC Task 6.3): a workflow
+// that started before it keeps replaying without the call.
+const changeTier1Admission = "fpc6-tier1-admission"
+
+// admitDesignDraft holds the draft the job committed to Tier 1 before it is staged: the review
+// Engine emits every generator that reads the artifact's kind over the branch's document and
+// typechecks the siblings, and a local problem fails the task's staging as a task-output refusal
+// naming every problem. The job's own putDraftModel ran the same check in-loop; this is the rail's
+// copy, over the document as it was actually committed. A kind no generator reads (the computed
+// plan slots, the mission, the glossary) admits with no problems, so the computed-slot staging
+// writes need no call of their own.
+func (wf *csWorkflows) admitDesignDraft(
+	ctx workflow.Context, proj projectstate.Project, kind projectstate.ArtifactKind, branch string,
+) error {
+	if workflow.GetVersion(ctx, changeTier1Admission, workflow.DefaultVersion, 1) < 1 {
+		return nil
+	}
+	doc, err := projectstate.EncodeProjectJSON(proj)
+	if err != nil {
+		return fwmanager.MapError(err)
+	}
+	problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: context.Background()}, string(doc), kind.WireName())
+	if err != nil {
+		return fwmanager.MapError(err)
+	}
+	var local []string
+	for _, p := range problems {
+		if p.Severity == review.AdmissionLocal {
+			local = append(local, strings.TrimSpace(p.Consumer+" "+p.Path+": "+p.Message))
+		}
+	}
+	if len(local) == 0 {
+		return nil
+	}
+	return temporal.NewNonRetryableApplicationError(
+		fmt.Sprintf("the %s draft on %s is refused by Tier 1 admission: the generators that read it cannot build it (%d):\n  - %s",
+			kind.WireName(), designBranchLabel(branch), len(local), strings.Join(local, "\n  - ")),
+		"AdmissionRefused", nil)
 }
 
 // readProjectOnBranch is the child's branch-aware whole-aggregate read. wf.readProject is the

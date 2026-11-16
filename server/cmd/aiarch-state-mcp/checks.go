@@ -116,6 +116,8 @@ func (r checkRunner) Run(ctx context.Context, checks []review.SpecCheck) []Check
 			results[i] = r.runCommand(ctx, c)
 		case projectstate.CheckKindSmoke:
 			results[i] = r.runSmoke(ctx, c)
+		case projectstate.CheckKindAdmission:
+			results[i] = r.runAdmission(ctx, c)
 		case projectstate.CheckKindScenario:
 			contract := strVal(c.Source.Contract)
 			if batched[contract] {
