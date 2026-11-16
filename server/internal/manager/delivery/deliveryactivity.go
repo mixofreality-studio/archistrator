@@ -2728,11 +2728,7 @@ func (wf *csWorkflows) runGate(
 		// Task 2.14): the roster the reviewer strip shows is asked again with the floor flag, so it
 		// says a human is required and why — under `vibes` too, where the set computed before the
 		// critique ran said nobody had to look. A refusal keeps the set already computed.
-		if pmCoverageFloor(in.Activity.activityTypeName(), tc.Phase.ID, t.WorkerClass, criticVerdict, criticJudged) {
-			if floored, ferr := wf.proposeReviewSetFloor(in.csIn(), tc.Phase, policy, state, true); ferr == nil {
-				set = floored
-			}
-		}
+		set = wf.withPMFloor(in, tc, t, policy, state, set, criticVerdict, criticJudged)
 		state.surfaceReviewSet(t.ID, &set)
 		state.stage = StageAwaitingApproval
 		// A HUMAN gate, not a held autogate: neither of the two holds is released by a resolve.
@@ -2802,6 +2798,22 @@ func (wf *csWorkflows) runGate(
 	state.surfaceReviewSet(t.ID, &set)
 	state.stage = StageAwaitingApproval
 	return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
+}
+
+// withPMFloor is the roster the held gate shows once the critic has answered: the set already
+// computed, or, for the PM's coverage send-back, the set asked again with the floor flag so it says a
+// human is required and why. A refusal keeps the set already computed.
+func (wf *csWorkflows) withPMFloor(
+	in deliveryActivityInput, tc taskContext, t methodassets.LifecycleTask, policy projectstate.ReviewPolicy,
+	state *constructState, set ReviewSet, verdict projectstate.VerdictKind, judged bool,
+) ReviewSet {
+	if !pmCoverageFloor(in.Activity.activityTypeName(), tc.Phase.ID, t.WorkerClass, verdict, judged) {
+		return set
+	}
+	if floored, err := wf.proposeReviewSetFloor(in.csIn(), tc.Phase, policy, state, true); err == nil {
+		return floored
+	}
+	return set
 }
 
 // evidenceHoldsTheGate is the holds that judge what the venue left behind rather than who decides:
@@ -3632,25 +3644,7 @@ func (wf *csWorkflows) decideTaskGate(
 		// millisecond after that check would otherwise be approved over. The retired rail re-checked
 		// in the same place and for the same reason. Open QUESTIONS deliberately do NOT block — a
 		// human is looking at them (ReviewCommentBlocksApprove).
-		if open, err := wf.roundBlockingComments(ctx, in, state, gate.roundID); err != nil {
-			workflow.GetLogger(ctx).Error("the round's thread could not be read; the approve is not applied and the gate keeps awaiting",
-				"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error())
-			return walkTaskFailed, false, nil
-		} else if len(open) > 0 {
-			workflow.GetLogger(ctx).Warn("delivery.gate.approveRefusedOnOpenComments",
-				"activityId", in.ActivityID, "taskId", t.ID, "open", len(open))
-			return walkTaskFailed, false, nil
-		}
-		// AN APPROVE OVER THE PM'S COVERAGE SEND-BACK IS AN OVERRIDE, and an override is on the record
-		// with a reason (FPC Task 2.14). The façade refuses it with the sentence the reviewer reads;
-		// this is the same check where the signal lands, for the same fire-and-forget window.
-		if refusal, err := wf.pmCoverageApproveRefusal(ctx, in, state, gate, sig.Feedback); err != nil {
-			workflow.GetLogger(ctx).Error("the round's thread could not be read; the approve is not applied and the gate keeps awaiting",
-				"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error())
-			return walkTaskFailed, false, nil
-		} else if refusal != "" {
-			workflow.GetLogger(ctx).Warn("delivery.gate.approveRefusedOverPMSendBack",
-				"activityId", in.ActivityID, "taskId", t.ID, "reason", refusal)
+		if wf.threadRefusesApprove(ctx, in, t, state, gate, sig) {
 			return walkTaskFailed, false, nil
 		}
 		if refused, err := wf.testingGateRefusesApprove(ctx, in, lc, t, ws, state, gate); err != nil || refused {
@@ -3699,6 +3693,43 @@ func (wf *csWorkflows) decideTaskGate(
 		return walkTaskFailed, false, nil
 	}
 	return walkTaskFailed, false, nil
+}
+
+// threadRefusesApprove is decideTaskGate's two reads of the round's thread, which a human approve
+// must clear before it is applied: no change request open, and no approve over the PM's coverage
+// send-back without a recorded reason (FPC Task 2.14). The façade refuses both with the sentence the
+// reviewer reads; this is the same check where the signal lands, for the same fire-and-forget window.
+// A thread that could not be read refuses too: the approve is not applied and the gate keeps awaiting.
+func (wf *csWorkflows) threadRefusesApprove(
+	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask, state *constructState,
+	gate *gateLedger, sig *taskDecisionSignal,
+) bool {
+	log := workflow.GetLogger(ctx)
+	open, err := wf.roundBlockingComments(ctx, in, state, gate.roundID)
+	if err != nil {
+		log.Error("the round's thread could not be read; the approve is not applied and the gate keeps awaiting",
+			"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error())
+		return true
+	}
+	if len(open) > 0 {
+		log.Warn("delivery.gate.approveRefusedOnOpenComments",
+			"activityId", in.ActivityID, "taskId", t.ID, "open", len(open))
+		return true
+	}
+	// AN APPROVE OVER THE PM'S COVERAGE SEND-BACK IS AN OVERRIDE, and an override is on the record
+	// with a reason.
+	refusal, err := wf.pmCoverageApproveRefusal(ctx, in, state, gate, sig.Feedback)
+	if err != nil {
+		log.Error("the round's thread could not be read; the approve is not applied and the gate keeps awaiting",
+			"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error())
+		return true
+	}
+	if refusal != "" {
+		log.Warn("delivery.gate.approveRefusedOverPMSendBack",
+			"activityId", in.ActivityID, "taskId", t.ID, "reason", refusal)
+		return true
+	}
+	return false
 }
 
 // changeM0Reject fences the M0 reject (rejectAtM0): an execution recorded before it refused

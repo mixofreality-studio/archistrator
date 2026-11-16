@@ -152,26 +152,33 @@ func TestCoverageView_ManagerServesTheDerivationOfTheCommittedDesign(t *testing.
 	for _, uc := range v.UseCaseCoverage.UseCases {
 		for _, p := range uc.Paths {
 			paths++
-			s, ok := scenarios[p.Scenario]
-			if !ok || s.UseCase != uc.UseCase {
-				t.Fatalf("row %s/%s is no derived scenario", uc.UseCase, p.Scenario)
-			}
-			var want []string
-			for _, pr := range report.Problems {
-				if pr.Scenario == p.Scenario {
-					want = append(want, pr.Code)
-				}
-			}
-			if !slices.Equal(p.Problems, want) {
-				t.Errorf("%s problems %v, want the report's %v", p.Scenario, p.Problems, want)
-			}
-			if p.Guards == nil || p.OutcomeNodes == nil || p.Problems == nil {
-				t.Errorf("%s: a nil list reaches the wire: %+v", p.Scenario, p)
-			}
+			assertCoverageRow(t, uc.UseCase, p, scenarios, report)
 		}
 	}
 	if paths != len(report.Scenarios) {
 		t.Fatalf("view lists %d paths, DeriveReport has %d scenarios", paths, len(report.Scenarios))
+	}
+}
+
+// assertCoverageRow holds one served row to the derivation: a derived scenario of its use case, the
+// report's own defect codes, and no nil list on the wire.
+func assertCoverageRow(t *testing.T, useCase string, p delivery.PathCoverage, scenarios map[string]scenario.Scenario, report scenario.Report) {
+	t.Helper()
+	s, ok := scenarios[p.Scenario]
+	if !ok || s.UseCase != useCase {
+		t.Fatalf("row %s/%s is no derived scenario", useCase, p.Scenario)
+	}
+	var want []string
+	for _, pr := range report.Problems {
+		if pr.Scenario == p.Scenario {
+			want = append(want, pr.Code)
+		}
+	}
+	if !slices.Equal(p.Problems, want) {
+		t.Errorf("%s problems %v, want the report's %v", p.Scenario, p.Problems, want)
+	}
+	if p.Guards == nil || p.OutcomeNodes == nil || p.Problems == nil {
+		t.Errorf("%s: a nil list reaches the wire: %+v", p.Scenario, p)
 	}
 }
 
