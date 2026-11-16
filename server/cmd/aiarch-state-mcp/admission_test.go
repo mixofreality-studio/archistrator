@@ -229,6 +229,9 @@ func TestAdmitTier2_RunsAtCommitOnly(t *testing.T) {
 	requireAdmissionCheckRunsTheChain(t, &chains)
 }
 
+// freshAcceptanceActivity is the fixture's acceptance-plan activity (the testing:acceptancePlan lifecycle).
+const freshAcceptanceActivity = "N-ATP"
+
 // requireTier2OnCommittingTasksOnly is (a): which specs carry the check.
 func requireTier2OnCommittingTasksOnly(t *testing.T) {
 	t.Helper()
@@ -244,6 +247,7 @@ func requireTier2OnCommittingTasksOnly(t *testing.T) {
 		{freshManagerActivity, "detailedDesign", true},
 		{freshManagerActivity, "stp", true},
 		{freshSurfaceActivity, "detailedDesign", true}, // the UI design
+		{freshAcceptanceActivity, "stp", true},         // the acceptance plan (phase acceptance_plan)
 		{freshManagerActivity, "construction", false},
 		{freshManagerActivity, "integration", false},
 		{freshSurfaceActivity, "integration", false},

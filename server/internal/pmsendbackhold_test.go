@@ -57,6 +57,13 @@ const (
 // begins at the core use cases and nothing else of the requirements lifecycle runs.
 func holdArrangement(t *testing.T) []byte {
 	t.Helper()
+	return holdArrangementAt(t, projectstate.ReviewAwaitingReview)
+}
+
+// holdArrangementAt is holdArrangement with the core use cases' slot at the given review status
+// (the Tier 1 rail test arranges a slot whose draft the walk has still to read back and stage).
+func holdArrangementAt(t *testing.T, status projectstate.ArtifactReviewStatus) []byte {
+	t.Helper()
 	_, raw := ownProjectJSON(t)
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &top); err != nil {
@@ -78,7 +85,7 @@ func holdArrangement(t *testing.T) []byte {
 		}
 		m[k] = b
 	}
-	set(slot, "status", int(projectstate.ReviewAwaitingReview))
+	set(slot, "status", int(status))
 	set(slots, key, slot)
 	set(top, "slots", slots)
 	var rows map[string]json.RawMessage

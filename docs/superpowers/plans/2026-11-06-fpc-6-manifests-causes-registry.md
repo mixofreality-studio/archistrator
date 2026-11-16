@@ -682,6 +682,7 @@ func TestConformance_Manifests(t *testing.T)
 - E21 step-granular failure attribution; E22 null-subject run over acceptance variants; E23 dead `derived-plan-check`/`derived-plan-write` targets and no sanctioned slot-9 writer; E24 one browser identity per launch (Plan 4).
 - E25 the UI dialect's missing type-and-submit act and multi-act steps; E26 the fixture SPA's owner-less open-list (conformance `testdata/todomvc/README.md:232-235`).
 - E28 acceptance variants through an MCP Apps host; E29 the own hand-written MCP Apps shell (Plan 5).
+- E31 the system-kind Tier 1 is effectively advisory until contracts are recorded (Task 6.3): while the design is incomplete (a Phase-1 System draft has no contracts recorded) `appgen.AdmitTier1` holds every composition finding (appgen compose/config/clients, webgen bootstrap/generate, and every `scenariocompose.` finding) as Incomplete, so only testgen's other findings can refuse a `system` draft on either rail; Tier 2 at the venue's commit backs it. The lead rules whether a draft's own findings (those not caused by an unrecorded contract) should refuse earlier.
 - FIX-055's rule (no IdP Resource): waived in the registry until a SYS rule exists.
 - The bench's `classify.ts` reads `attempts[].cause.kind` (bench repo; Task 6.4 notes it).
 
