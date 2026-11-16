@@ -759,6 +759,7 @@ export const PROJECT_VIEW_KIND_VALUES = [
   'testRun',
   'scenarios',
   'taskSpec',
+  'useCaseCoverage',
 ] as const;
 
 export type ProjectViewKind = (typeof PROJECT_VIEW_KIND_VALUES)[number];
@@ -774,6 +775,7 @@ export const PROJECT_VIEW_KIND_GO_VARNAMES = [
   'ProjectViewTestRun',
   'ProjectViewScenarios',
   'ProjectViewTaskSpec',
+  'ProjectViewUseCaseCoverage',
 ] as const;
 
 // --- ReviewDecision ------------------------------------------------------

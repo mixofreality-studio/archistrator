@@ -438,6 +438,11 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"recordedAt":           "When the store recorded the note (server clock).",
 		"text":                 "The operator's note, verbatim.",
 	},
+	reflect.TypeFor[mgr.PathCoverage](): {
+		"client":   "The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT).",
+		"door":     "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none.",
+		"scenario": "The derived scenario's id (<useCase>-P<n>), the id every test of the path binds.",
+	},
 	reflect.TypeFor[mgr.PendingDependency](): {
 		"id":     "The dependency id as the network authors it: an activity id or a milestone id.",
 		"reason": "Why it is unsatisfied. notBuilt: an activity that is not Done. builtNotIntegrated: an activity that is itself integration-pending. milestoneNotReached: a milestone whose own dependencies are not all satisfied. unresolved: an id naming neither an activity nor a milestone, or a milestone cycle (a plan defect).",

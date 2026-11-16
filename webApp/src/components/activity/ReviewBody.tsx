@@ -89,6 +89,7 @@ import type {
   ArtifactModelEnvelope,
   ArtifactSlotView,
   ProjectStateWithGit,
+  UseCaseCoverageView,
 } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -112,6 +113,7 @@ export function ReviewBody({
   systemEnvelope,
   contractJoin,
   testing,
+  coverage,
   sdp,
   revoke,
   sdpDecisionError,
@@ -159,6 +161,8 @@ export function ReviewBody({
   contractJoin: ContractJoin | undefined;
   /** The scenario plan / test run reads a component's testing phases render. */
   testing?: TestingArtifactData | undefined;
+  /** The core-use-cases review only: the PM's coverage table, fetched by the container. */
+  coverage?: AsyncArtifactData<UseCaseCoverageView> | undefined;
   /**
    * Project Design M0 only: how the chosen option reaches the bar, and the gate's
    * reject-all while a decision is owed. OMITTED on a read-only history, where the
@@ -334,6 +338,7 @@ export function ReviewBody({
       <ArtifactPanel
         artifact={artifact}
         contractJoin={contractJoin}
+        coverage={coverage}
         project={project}
         // Read-only on a past revision AND on a gate no decision is owed on: the
         // M0 option rows are a chooser only while the gate is live.

@@ -1003,6 +1003,24 @@ var encapsulationAllowlistData = map[string][]string{
 		// side-effect-free function the MCP binary shares with the server read path).
 		"ScenarioInputOf",
 		"ComponentScenarios",
+		// THE PM COVERAGE VIEW (FPC Task 2.14), render-on-read over the same derivation: the
+		// per-path door / outcomes / defect codes the core-use-cases critique reads, consumed by
+		// the delivery Manager's useCaseCoverage view and cmd/aiarch-state-mcp's
+		// getUseCaseCoverage, so the PM and the reviewer read one table. The PMCoverage* helpers
+		// are the pure recognition of the system comment a PM send-back lands on a round and of
+		// the reason an approve over it must carry, shared by the Manager's façade check and the
+		// child's re-check. Total, side-effect-free functions of the given *Project / thread,
+		// the same category as ComponentScenarios.
+		"CoverageClient",
+		"PathCoverage",
+		"UseCaseCoverage",
+		"UseCaseCoverageOf",
+		"UseCaseCoverageFor",
+		"RenderCoverageTable",
+		"PMCoverageHoldAnchor",
+		"PMCoverageHoldComment",
+		"PMCoverageHoldIn",
+		"ApproveOverPMCoverageRefusal",
 		// ACCEPTANCE (FPC plan 4, Amendment C). The acceptance projection of the same derived set
 		// (the variants no single client plan covers, and the route a failing one takes), read by
 		// cmd/aiarch-state-mcp (listAcceptanceScenarios), the estimation/delivery path of the

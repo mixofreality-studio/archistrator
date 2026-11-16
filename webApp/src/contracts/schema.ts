@@ -865,6 +865,18 @@ export interface components {
     /** @enum {integer} */
     DeliveryOverrideKind: 0 | 1 | 2 | 3 | 4;
     DeliveryOwnerScope: string;
+    /** @description One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor's first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored. */
+    DeliveryPathCoverage: {
+      /** @description The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT). */
+      client: string;
+      /** @description That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none. */
+      door: string;
+      guards: null | string[];
+      outcomeNodes: null | string[];
+      problems: null | string[];
+      /** @description The derived scenario's id (<useCase>-P<n>), the id every test of the path binds. */
+      scenario: string;
+    };
     /** @description One unsatisfied direct dependency of an integration-pending row. */
     DeliveryPendingDependency: {
       /** @description The dependency id as the network authors it: an activity id or a milestone id. */
@@ -973,6 +985,7 @@ export interface components {
       testRun?: components['schemas']['DeliveryDeliveryTestRunView'];
       testRuns?: null | components['schemas']['DeliveryDeliveryTestRunView'][];
       timeline?: components['schemas']['DeliveryEpisodeTimeline'];
+      useCaseCoverage?: components['schemas']['DeliveryUseCaseCoverageView'];
     };
     /** @enum {string} */
     DeliveryProjectViewKind:
@@ -985,7 +998,8 @@ export interface components {
       | 'timeline'
       | 'testRun'
       | 'scenarios'
-      | 'taskSpec';
+      | 'taskSpec'
+      | 'useCaseCoverage';
     DeliveryProjectViewQuery: {
       activityId?: null | string;
       artifactKind?: components['schemas']['DeliveryArtifactKind'];
@@ -1442,6 +1456,15 @@ export interface components {
       eventType: string;
       raw?: null;
       seq: number;
+    };
+    /** @description One use case's derived paths, in scenario-id order. */
+    DeliveryUseCaseCoverage: {
+      paths: null | components['schemas']['DeliveryPathCoverage'][];
+      useCase: string;
+    };
+    /** @description The product manager's coverage view of the core use cases (QueryProjectView kind useCaseCoverage): per use case and per derived path, the door, the outcomes the actor sees and the derivation's defect codes. Render-on-read from scenario.DeriveReport over the committed design; nothing is stored. */
+    DeliveryUseCaseCoverageView: {
+      useCases: null | components['schemas']['DeliveryUseCaseCoverage'][];
     };
     DeliveryVersion: number;
     ModelActivityDiagram: {

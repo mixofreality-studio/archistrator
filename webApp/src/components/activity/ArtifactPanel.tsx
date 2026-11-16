@@ -58,8 +58,10 @@ import { ArtifactRenderer } from '../ArtifactRenderer';
 import {
   artifactRenderers,
   type ArtifactActivityVM,
+  type AsyncArtifactData,
   type TestingArtifactData,
 } from '../construction/artifactRenderers';
+import { UseCaseCoveragePanel } from './UseCaseCoveragePanel.tsx';
 import { ServiceContractView } from '../construction/ServiceContractView';
 import { ActivityListView } from '../project/ActivityListView';
 import { NetworkView } from '../project/NetworkView';
@@ -71,6 +73,7 @@ import type {
   ArtifactSlotView,
   ProjectArtifactModelEnvelope,
   ProjectStateWithGit,
+  UseCaseCoverageView,
 } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -186,6 +189,7 @@ export function ArtifactPanel({
   systemEnvelope,
   contractJoin,
   testing,
+  coverage,
   sdp,
   readOnly = false,
 }: {
@@ -200,6 +204,8 @@ export function ArtifactPanel({
   contractJoin: ContractJoin | undefined;
   /** For the `classified` branch on a testing phase: the scenario plan / test run reads. */
   testing?: TestingArtifactData | undefined;
+  /** The core-use-cases review only: the PM's coverage table (derived on read, never stored). */
+  coverage?: AsyncArtifactData<UseCaseCoverageView> | undefined;
   /** Project Design M0 only: the option the bar will approve, and the gate's reject-all. */
   sdp?: SdpDecisionProps | undefined;
   /**
@@ -217,15 +223,23 @@ export function ArtifactPanel({
         // `SLOT_KIND` yields exactly one Phase-2 kind, `sdpReview`, and it is
         // the M0 body; every other slot it names is a Phase-1 artifact, which
         // is what `ArtifactRenderer` dispatches.
-        return artifact.artifactKind === 'sdpReview' ? (
-          <ProjectDesignBody readOnly={readOnly} sdp={sdp} slots={slots} />
-        ) : (
-          <ArtifactRenderer
-            envelope={slotEnvelope(slots, artifact.artifactKind)}
-            serviceContracts={project?.serviceContracts}
-            systemEnvelope={systemEnvelope}
-            useCasesEnvelope={slotEnvelope(slots, 'coreUseCases')}
-          />
+        if (artifact.artifactKind === 'sdpReview') {
+          return <ProjectDesignBody readOnly={readOnly} sdp={sdp} slots={slots} />;
+        }
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+            <ArtifactRenderer
+              envelope={slotEnvelope(slots, artifact.artifactKind)}
+              serviceContracts={project?.serviceContracts}
+              systemEnvelope={systemEnvelope}
+              useCasesEnvelope={slotEnvelope(slots, 'coreUseCases')}
+            />
+            {/* The PM's coverage table sits with the core use cases only: the container reads
+                it for that one task (FPC Task 2.14) and hands it down as data. */}
+            {artifact.artifactKind === 'coreUseCases' && coverage !== undefined ? (
+              <UseCaseCoveragePanel coverage={coverage} />
+            ) : null}
+          </Box>
         );
 
       case 'serviceContract':

@@ -22473,6 +22473,60 @@
         "OwnerScope": {
           "type": "string"
         },
+        "PathCoverage": {
+          "type": "object",
+          "description": "One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor's first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored.",
+          "properties": {
+            "scenario": {
+              "type": "string",
+              "description": "The derived scenario's id (\u003cuseCase\u003e-P\u003cn\u003e), the id every test of the path binds."
+            },
+            "guards": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "client": {
+              "type": "string",
+              "description": "The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT)."
+            },
+            "door": {
+              "type": "string",
+              "description": "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none."
+            },
+            "outcomeNodes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "problems": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "scenario",
+            "guards",
+            "client",
+            "door",
+            "outcomeNodes",
+            "problems"
+          ],
+          "additionalProperties": false
+        },
         "PendingDependency": {
           "type": "object",
           "description": "One unsatisfied direct dependency of an integration-pending row.",
@@ -22925,6 +22979,12 @@
                 "null"
               ],
               "$ref": "#/$defs/DeliveryTaskSpecView"
+            },
+            "useCaseCoverage": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/UseCaseCoverageView"
             }
           },
           "required": [
@@ -22944,7 +23004,8 @@
             "timeline",
             "testRun",
             "scenarios",
-            "taskSpec"
+            "taskSpec",
+            "useCaseCoverage"
           ],
           "x-enum-varnames": [
             "ProjectViewSummary",
@@ -22956,7 +23017,8 @@
             "ProjectViewTimeline",
             "ProjectViewTestRun",
             "ProjectViewScenarios",
-            "ProjectViewTaskSpec"
+            "ProjectViewTaskSpec",
+            "ProjectViewUseCaseCoverage"
           ],
           "x-go-base": "string"
         },
@@ -24827,6 +24889,48 @@
           "required": [
             "seq",
             "eventType"
+          ],
+          "additionalProperties": false
+        },
+        "UseCaseCoverage": {
+          "type": "object",
+          "description": "One use case's derived paths, in scenario-id order.",
+          "properties": {
+            "useCase": {
+              "type": "string"
+            },
+            "paths": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/PathCoverage"
+              }
+            }
+          },
+          "required": [
+            "useCase",
+            "paths"
+          ],
+          "additionalProperties": false
+        },
+        "UseCaseCoverageView": {
+          "type": "object",
+          "description": "The product manager's coverage view of the core use cases (QueryProjectView kind useCaseCoverage): per use case and per derived path, the door, the outcomes the actor sees and the derivation's defect codes. Render-on-read from scenario.DeriveReport over the committed design; nothing is stored.",
+          "properties": {
+            "useCases": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/UseCaseCoverage"
+              }
+            }
+          },
+          "required": [
+            "useCases"
           ],
           "additionalProperties": false
         },
@@ -29329,6 +29433,60 @@
         "OwnerScope": {
           "type": "string"
         },
+        "PathCoverage": {
+          "type": "object",
+          "description": "One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor's first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored.",
+          "properties": {
+            "scenario": {
+              "type": "string",
+              "description": "The derived scenario's id (\u003cuseCase\u003e-P\u003cn\u003e), the id every test of the path binds."
+            },
+            "guards": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "client": {
+              "type": "string",
+              "description": "The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT)."
+            },
+            "door": {
+              "type": "string",
+              "description": "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none."
+            },
+            "outcomeNodes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "problems": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "scenario",
+            "guards",
+            "client",
+            "door",
+            "outcomeNodes",
+            "problems"
+          ],
+          "additionalProperties": false
+        },
         "PendingDependency": {
           "type": "object",
           "description": "One unsatisfied direct dependency of an integration-pending row.",
@@ -29745,6 +29903,12 @@
                 "null"
               ],
               "$ref": "#/$defs/DeliveryTaskSpecView"
+            },
+            "useCaseCoverage": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/UseCaseCoverageView"
             }
           },
           "required": [
@@ -29764,7 +29928,8 @@
             "timeline",
             "testRun",
             "scenarios",
-            "taskSpec"
+            "taskSpec",
+            "useCaseCoverage"
           ],
           "x-enum-varnames": [
             "ProjectViewSummary",
@@ -29776,7 +29941,8 @@
             "ProjectViewTimeline",
             "ProjectViewTestRun",
             "ProjectViewScenarios",
-            "ProjectViewTaskSpec"
+            "ProjectViewTaskSpec",
+            "ProjectViewUseCaseCoverage"
           ],
           "x-go-base": "string"
         },
@@ -31633,6 +31799,48 @@
           "required": [
             "seq",
             "eventType"
+          ],
+          "additionalProperties": false
+        },
+        "UseCaseCoverage": {
+          "type": "object",
+          "description": "One use case's derived paths, in scenario-id order.",
+          "properties": {
+            "useCase": {
+              "type": "string"
+            },
+            "paths": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/PathCoverage"
+              }
+            }
+          },
+          "required": [
+            "useCase",
+            "paths"
+          ],
+          "additionalProperties": false
+        },
+        "UseCaseCoverageView": {
+          "type": "object",
+          "description": "The product manager's coverage view of the core use cases (QueryProjectView kind useCaseCoverage): per use case and per derived path, the door, the outcomes the actor sees and the derivation's defect codes. Render-on-read from scenario.DeriveReport over the committed design; nothing is stored.",
+          "properties": {
+            "useCases": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/UseCaseCoverage"
+              }
+            }
+          },
+          "required": [
+            "useCases"
           ],
           "additionalProperties": false
         },

@@ -77,6 +77,27 @@ func reasonOf(r scenario.ResidualReason) acceptanceReason {
 	return acceptanceReason{}
 }
 
+// getUseCaseCoverage is the PM's coverage read (FPC Task 2.14): for the core use cases the critique is
+// judging, one table row per derived path — the door the actor enters through, the outcome nodes the
+// actor is shown (verbatim) and the derivation's defect codes. It is derived on read from the DRAFT
+// slot (the critique judges a draft that is not committed yet) over the committed System, through the
+// same projectstate derivation the delivery Manager's useCaseCoverage view serves the webApp, so the PM
+// and the reviewer read one table. Nothing is stored.
+func (s *Session) getUseCaseCoverage() (string, error) {
+	p, _, err := s.readProject()
+	if err != nil {
+		return "", err
+	}
+	cov, err := projectstate.UseCaseCoverageOf(&p, true)
+	if err != nil {
+		return "", err
+	}
+	if len(cov) == 0 {
+		return "No use case on this branch derives a path yet: the core use cases carry no activity diagram, so there is no coverage to judge.", nil
+	}
+	return projectstate.RenderCoverageTable(cov), nil
+}
+
 // listAcceptanceScenarios returns the acceptance variants no single client plan covers (the
 // residual the acceptance test plan binds, and nothing else), as canonical scenarios, with each
 // variant's reason. An empty residual is an empty list, not an error: a project whose paths every

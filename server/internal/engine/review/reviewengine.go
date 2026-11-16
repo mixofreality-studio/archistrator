@@ -117,6 +117,10 @@ const (
 	// coreUseCases, and the architecture step) all take the rail's default row, so
 	// naming them would add constants no branch reads.
 	phaseVolatilities = "volatilities"
+	// phaseCoreUseCases is the requirements step whose PM critique carries a floor of its own
+	// (requiresHuman's pmCoverageSendBack row): every test of a surface derives from these
+	// diagrams, so the PM's send-back is never auto-approved over.
+	phaseCoreUseCases = "coreUseCases"
 	// phaseSDP is the projectDesign lifecycle's M0 gate — the SDP review that approves
 	// the plan AND the spend it commits.
 	phaseSDP = "sdp"
@@ -423,6 +427,13 @@ func designReviewersFor(t ActivityType, p string) []Reviewer {
 // approves the plan AND the spend it commits (spec §6/§5.4), so M0 always holds for a
 // human.
 //
+// Row 2b is the floor FPC Task 2.14 adds: at the core use cases' review the floor flag means the
+// PM's critique sent the draft back (pmCoverageSendBack), and the gate holds for a human under every
+// preset, "vibes" included — the one preset that would otherwise auto-approve a design draft. The flag
+// is the caller's "this gate's floor condition holds"; which condition it names is read off the gate
+// (construction: the contract touches deploy/spend/schema; coreUseCases: the PM's send-back), so no
+// contract surface changes.
+//
 // Rows 3 and 4 then split by rail, and their legacy ("") arms genuinely differ —
 // construction falls back to the committed explicit map, design falls back to "a human
 // decides". That is what the two code paths did before they were one, and preserving
@@ -433,6 +444,9 @@ func requiresHuman(t ActivityType, p string, policy ReviewPolicy, floorTouched b
 	}
 	if t == ActivityTypeProjectDesign && p == phaseSDP {
 		return true, "the non-overridable spend floor: the SDP review approves the plan and its cost, so M0 always holds for a human"
+	}
+	if t == ActivityTypeRequirements && p == phaseCoreUseCases && floorTouched {
+		return true, "the non-overridable floor pmCoverageSendBack: the product manager sent the core use cases back for coverage, so the gate holds for a human under every preset and an approve over it is an override recorded with a reason"
 	}
 	if designActivityType(t) {
 		if policy.Preset == presetVibes {

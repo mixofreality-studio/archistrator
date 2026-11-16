@@ -566,6 +566,15 @@ const (
 
 type OwnerScope string
 
+type PathCoverage struct {
+	Scenario     string   `json:"scenario"`
+	Guards       []string `json:"guards"`
+	Client       string   `json:"client"`
+	Door         string   `json:"door"`
+	OutcomeNodes []string `json:"outcomeNodes"`
+	Problems     []string `json:"problems"`
+}
+
 type PendingDependency struct {
 	Id     string `json:"id"`
 	Reason string `json:"reason"`
@@ -684,21 +693,23 @@ type ProjectView struct {
 	TestRuns            []DeliveryTestRunView      `json:"testRuns,omitempty"`
 	Scenarios           []ScenarioView             `json:"scenarios,omitempty"`
 	TaskSpec            *DeliveryTaskSpecView      `json:"taskSpec,omitempty"`
+	UseCaseCoverage     *UseCaseCoverageView       `json:"useCaseCoverage,omitempty"`
 }
 
 type ProjectViewKind string
 
 const (
-	ProjectViewSummary      ProjectViewKind = "summary"
-	ProjectViewProjects     ProjectViewKind = "projects"
-	ProjectViewSession      ProjectViewKind = "session"
-	ProjectViewPump         ProjectViewKind = "pump"
-	ProjectViewDesignHealth ProjectViewKind = "designHealth"
-	ProjectViewEpisodes     ProjectViewKind = "episodes"
-	ProjectViewTimeline     ProjectViewKind = "timeline"
-	ProjectViewTestRun      ProjectViewKind = "testRun"
-	ProjectViewScenarios    ProjectViewKind = "scenarios"
-	ProjectViewTaskSpec     ProjectViewKind = "taskSpec"
+	ProjectViewSummary         ProjectViewKind = "summary"
+	ProjectViewProjects        ProjectViewKind = "projects"
+	ProjectViewSession         ProjectViewKind = "session"
+	ProjectViewPump            ProjectViewKind = "pump"
+	ProjectViewDesignHealth    ProjectViewKind = "designHealth"
+	ProjectViewEpisodes        ProjectViewKind = "episodes"
+	ProjectViewTimeline        ProjectViewKind = "timeline"
+	ProjectViewTestRun         ProjectViewKind = "testRun"
+	ProjectViewScenarios       ProjectViewKind = "scenarios"
+	ProjectViewTaskSpec        ProjectViewKind = "taskSpec"
+	ProjectViewUseCaseCoverage ProjectViewKind = "useCaseCoverage"
 )
 
 type ProjectViewQuery struct {
@@ -1164,6 +1175,15 @@ type TimelineEvent struct {
 	Seq       int64            `json:"seq"`
 	EventType string           `json:"eventType"`
 	Raw       *json.RawMessage `json:"raw,omitempty"`
+}
+
+type UseCaseCoverage struct {
+	UseCase string         `json:"useCase"`
+	Paths   []PathCoverage `json:"paths"`
+}
+
+type UseCaseCoverageView struct {
+	UseCases []UseCaseCoverage `json:"useCases"`
 }
 
 type Version int64

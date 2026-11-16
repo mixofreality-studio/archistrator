@@ -11940,11 +11940,21 @@ func (a *activityExecutionAccess) ReadActivityExecution(rc fwra.Context, project
 // project without committed use cases yields an empty input, not an error: there is
 // nothing to derive yet, which ForComponent reports as an empty set.
 func ScenarioInputOf(p *Project) (scenario.Input, error) {
+	return scenarioInputOf(p, false)
+}
+
+// scenarioInputOf is ScenarioInputOf with one switch: draftCoreUseCases reads slot 4's model
+// whatever its status. The PM's coverage view needs it, because the critique judges a draft that is
+// not committed yet; every other reader keeps the committed gate (see ScenarioInputOf).
+func scenarioInputOf(p *Project, draftCoreUseCases bool) (scenario.Input, error) {
 	in := scenario.Input{Actors: map[string]bool{}, Contracts: map[string]scenario.Contract{}}
 	if p == nil {
 		return in, errors.New("projectstate.ScenarioInputOf: nil project")
 	}
 	cu, ok := scenarioCommittedModel[*CoreUseCases](p, KindCoreUseCases)
+	if draftCoreUseCases {
+		cu, ok = draftCoreUseCasesModel(p)
+	}
 	if !ok {
 		return in, nil
 	}
@@ -11980,6 +11990,263 @@ func ComponentScenarios(p *Project, component string) ([]scenario.Scenario, erro
 		return nil, fmt.Errorf("projectstate.ComponentScenarios: %w", err)
 	}
 	return scenario.ForComponent(all, component), nil
+}
+
+// =====================================================================================
+// THE PM COVERAGE VIEW (FPC Task 2.14) — render-on-read, nothing stored.
+//
+// Every test of a surface is derived from the core use cases' activity diagrams, so the product
+// manager's critique has one question the rules cannot answer for it: does each path the customer's
+// raw use case promises reach a surface the actor uses, and end in an outcome the actor sees? The
+// view lays the derivation's answer out per use case and per path — the door (the Client the actor's
+// first stimulus enters through), the outcome nodes verbatim, and the derivation's own defect codes —
+// so the PM judges the customer-facing half and the rules keep the structural half.
+// =====================================================================================
+
+// CoverageClient is a Client component as the coverage view names its door.
+type CoverageClient struct {
+	// ID is the component id as the System spells it (the derivation carries it normalized).
+	ID string
+	// Surface is the Client's stated surface (web, rest, mcpTools, mcpApp), "" when it states none.
+	Surface string
+}
+
+// PathCoverage is one derived path of a use case as the PM reads it.
+type PathCoverage struct {
+	// Scenario is the derived scenario's id (<useCase>-P<n>), the same id every test binds.
+	Scenario string
+	// Guards are the guards taken on the path, in order, as the diagram spells them.
+	Guards []string
+	// Client is the Client component the actor's first stimulus enters through; "" when no
+	// actor-originated stimulus reaches a contracted Client (the SCN-ACTOR-PATH-CLIENT case).
+	Client string
+	// Door is that Client's surface: the way in. "" with Client "" or when the Client states none.
+	Door string
+	// OutcomeNodes are the labels of the sendSignal and objectNode nodes on the path, verbatim (an
+	// objectNode reads "<object> <state>"): what the actor is told or sees.
+	OutcomeNodes []string
+	// Problems are the derivation's defect codes (SCN-*) against this path.
+	Problems []string
+}
+
+// UseCaseCoverage is one use case's paths.
+type UseCaseCoverage struct {
+	UseCase string
+	Paths   []PathCoverage
+}
+
+// UseCaseCoverageOf is the coverage of p's core use cases over its COMMITTED System. With
+// draftCoreUseCases the core use cases are the slot's model whatever its status — the draft a critique
+// is judging — and the System stays the committed one: the architecture a draft is judged against is the
+// one that stands.
+func UseCaseCoverageOf(p *Project, draftCoreUseCases bool) ([]UseCaseCoverage, error) {
+	in, err := scenarioInputOf(p, draftCoreUseCases)
+	if err != nil {
+		return nil, err
+	}
+	return UseCaseCoverageFor(in, coverageClientsOf(p))
+}
+
+// draftCoreUseCasesModel is slot 4's model whatever its status, false when none is drafted.
+func draftCoreUseCasesModel(p *Project) (*CoreUseCases, bool) {
+	slot, ok := slotPtr(p, KindCoreUseCases)
+	if !ok || slot.Model == nil {
+		return nil, false
+	}
+	cu, ok := slot.Model.(*CoreUseCases)
+	return cu, ok && cu != nil
+}
+
+// coverageClientsOf is the System's Clients by normalized id, with the surface each states.
+func coverageClientsOf(p *Project) map[string]CoverageClient {
+	out := map[string]CoverageClient{}
+	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
+	if !ok {
+		return out
+	}
+	for _, c := range sys.Components {
+		if c.Kind != CompClient {
+			continue
+		}
+		cc := CoverageClient{ID: c.ID}
+		if c.Surface != nil {
+			cc.Surface = string(*c.Surface)
+		}
+		out[scenario.Normalize(c.ID)] = cc
+	}
+	return out
+}
+
+// UseCaseCoverageFor is the derivation's coverage over in, sorted as the derivation is (use case id,
+// then scenario id). clients names the doors by normalized component id; a Client the contracts mark but
+// the map does not know is named by its normalized id and states no surface.
+func UseCaseCoverageFor(in scenario.Input, clients map[string]CoverageClient) ([]UseCaseCoverage, error) {
+	report, err := scenario.DeriveReport(in)
+	if err != nil {
+		return nil, fmt.Errorf("projectstate.UseCaseCoverageFor: %w", err)
+	}
+	// A stimulus lands on the contract that declares its op, so a Client's FACET (webClientPlan of
+	// webClient) is the key a stimulus names; the door is the component the facet belongs to.
+	clientKeys := map[string]string{}
+	for key, ct := range in.Contracts {
+		if !ct.Client {
+			continue
+		}
+		base := scenario.Normalize(key)
+		if ct.FacetOf != "" {
+			base = scenario.Normalize(ct.FacetOf)
+		}
+		clientKeys[scenario.Normalize(key)] = base
+		clientKeys[base] = base
+	}
+	diagrams := map[string]scenario.Diagram{}
+	for _, d := range in.Diagrams {
+		diagrams[d.UseCaseID] = d
+	}
+	problems := map[string][]string{}
+	for _, pr := range report.Problems {
+		problems[pr.Scenario] = append(problems[pr.Scenario], pr.Code)
+	}
+	var out []UseCaseCoverage
+	for _, s := range report.Scenarios {
+		if len(out) == 0 || out[len(out)-1].UseCase != s.UseCase {
+			out = append(out, UseCaseCoverage{UseCase: s.UseCase})
+		}
+		uc := &out[len(out)-1]
+		pc := PathCoverage{
+			Scenario:     s.ID,
+			Guards:       make([]string, 0, len(s.Guards)),
+			OutcomeNodes: outcomeNodesOf(diagrams[s.UseCase], s.Path),
+			Problems:     append([]string{}, problems[s.ID]...),
+		}
+		for _, g := range s.Guards {
+			pc.Guards = append(pc.Guards, g.Guard)
+		}
+		pc.Client, pc.Door = coverageDoor(s, clientKeys, clients)
+		uc.Paths = append(uc.Paths, pc)
+	}
+	return out, nil
+}
+
+// coverageDoor is the Client the path's first actor-originated stimulus enters through, and its surface.
+func coverageDoor(s scenario.Scenario, clientKeys map[string]string, clients map[string]CoverageClient) (string, string) {
+	for _, st := range s.Stimuli {
+		if st.Input.Kind == "call" {
+			continue
+		}
+		base, ok := clientKeys[scenario.Normalize(st.Input.To)]
+		if !ok {
+			continue
+		}
+		if c, ok := clients[base]; ok {
+			return c.ID, c.Surface
+		}
+		return base, ""
+	}
+	return "", ""
+}
+
+// outcomeNodesOf is the labels of the sendSignal and objectNode nodes along path, in path order.
+func outcomeNodesOf(d scenario.Diagram, path []string) []string {
+	byID := map[string]scenario.Node{}
+	for _, n := range d.Nodes {
+		byID[n.ID] = n
+	}
+	out := []string{}
+	for _, id := range path {
+		n := byID[id]
+		// The label is the diagram's own, verbatim; an objectNode is the object in the state the diagram
+		// spells (the state is what the actor sees), so a reader never has to open the diagram for it.
+		switch {
+		case n.Kind == "sendSignal":
+			out = append(out, n.Label)
+		case n.Kind == "objectNode" && n.InState != "":
+			out = append(out, n.Label+" "+n.InState)
+		case n.Kind == "objectNode":
+			out = append(out, n.Label)
+		}
+	}
+	return out
+}
+
+// RenderCoverageTable is the coverage as the markdown table the PM reads: one row per path. An empty door
+// or outcome cell reads NONE, because that absence is exactly what the PM is there to send back.
+func RenderCoverageTable(cov []UseCaseCoverage) string {
+	cell := func(items []string, none string) string {
+		if len(items) == 0 {
+			return none
+		}
+		esc := make([]string, len(items))
+		for i, it := range items {
+			esc[i] = strings.ReplaceAll(it, "|", `\|`)
+		}
+		return strings.Join(esc, "; ")
+	}
+	var b strings.Builder
+	b.WriteString("| Use case | Path | Guards | Door | Outcomes the actor sees | Problems |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	for _, uc := range cov {
+		for _, p := range uc.Paths {
+			door := "NONE"
+			if p.Client != "" {
+				door = p.Client
+				if p.Door != "" {
+					door += " (" + p.Door + ")"
+				}
+			}
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n", uc.UseCase, p.Scenario,
+				cell(p.Guards, "—"), door, cell(p.OutcomeNodes, "NONE"), cell(p.Problems, "—"))
+		}
+	}
+	return b.String()
+}
+
+// The PM's send-back at the core use cases is a floor under every review preset, and approving over it is
+// an override that is on the record with a reason. The record is a blocking system comment on the round
+// (the reviewer resolves it, so the override is a deliberate act) and the reason is the approve's own
+// feedback notes, which closeGateRound writes as the approve verdict's summary.
+
+// PMCoverageHoldAnchor is where the hold comment is anchored: the draft the PM sent back.
+const PMCoverageHoldAnchor = "$.coreUseCases"
+
+// pmCoverageHoldMarker opens the hold comment's text, and with the anchor and the system author is what
+// makes it recognisable in a thread.
+const pmCoverageHoldMarker = "pmCoverageSendBack: "
+
+// PMCoverageHoldComment is the system comment the PM's send-back lands on the round: a change request, so
+// the autogate cannot pass over it and a human approve must resolve it first. detail is the PM's own
+// account of what is uncovered.
+func PMCoverageHoldComment(detail string) ReviewComment {
+	return ReviewComment{
+		Anchor:     PMCoverageHoldAnchor,
+		AnchorText: "core use cases",
+		Text: pmCoverageHoldMarker + "the product manager sent this draft back for coverage, which holds the gate for a human under every review preset. " +
+			"Resolve this thread and approve with a reason to override it: " + detail,
+		AuthorRole: "system",
+		Type:       ReviewCommentTypeChangeRequest,
+		Addressee:  ReviewAddresseeArchitect,
+	}
+}
+
+// PMCoverageHoldIn reports whether the thread carries the PM-coverage hold comment, whatever its status.
+func PMCoverageHoldIn(thread []ReviewComment) bool {
+	for _, c := range thread {
+		if c.AuthorRole == "system" && c.Anchor == PMCoverageHoldAnchor && strings.HasPrefix(c.Text, pmCoverageHoldMarker) {
+			return true
+		}
+	}
+	return false
+}
+
+// ApproveOverPMCoverageRefusal is the sentence refusing an approve over the PM's send-back that carries no
+// reason, "" when the approve may proceed: the thread has no PM-coverage hold, or the notes say why the
+// reviewer is overriding it. The open hold itself is refused by the ordinary open-change-request rule.
+func ApproveOverPMCoverageRefusal(thread []ReviewComment, notes string) string {
+	if !PMCoverageHoldIn(thread) || strings.TrimSpace(notes) != "" {
+		return ""
+	}
+	return "cannot approve over the product manager's coverage send-back without a reason: an approve here is an override, and the override " +
+		"is recorded with the reason in the approve's feedback notes"
 }
 
 // The acceptance projection of the committed design (FPC plan 4, Amendment C):

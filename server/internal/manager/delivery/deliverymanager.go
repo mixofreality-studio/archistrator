@@ -7388,7 +7388,7 @@ func (m *constructionManager) SubmitTaskDecision(
 	// The child re-checks the refusal before it decides the round: this is a fire-and-forget
 	// signal, so the window between the two is closed there (decideTaskGate) and not here.
 	if decision == ReviewApprove {
-		if err := m.settleThreadsBeforeApprove(ctx, projectID, activityID, taskID, kind); err != nil {
+		if err := m.settleThreadsBeforeApprove(ctx, projectID, activityID, taskID, kind, feedback); err != nil {
 			return err
 		}
 	}
@@ -7438,6 +7438,7 @@ func (m *constructionManager) SubmitTaskDecision(
 // than a refactor — see roundToSettle for the divergence it closes.
 func (m *constructionManager) settleThreadsBeforeApprove(
 	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
+	feedback *ReviewFeedback,
 ) error {
 	row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), string(activityID))
 	if err != nil {
@@ -7454,6 +7455,13 @@ func (m *constructionManager) settleThreadsBeforeApprove(
 		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 			"cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first",
 			len(open), strings.Join(open, ", ")))
+	}
+	// AN APPROVE OVER THE PM'S COVERAGE SEND-BACK IS AN OVERRIDE (FPC Task 2.14): the hold comment is
+	// resolved by now (an open one refused above), and the approve must say why it overrides the PM.
+	// The reason is the approve's own feedback notes, which the round records as the approve verdict's
+	// summary — the override on the record. The child re-checks it where the signal lands.
+	if why := projectstate.ApproveOverPMCoverageRefusal(round.Thread, feedbackText(feedback).text); why != "" {
+		return newError(fwmanager.FailedPrecondition, why)
 	}
 	// APPROVE RESOLVES EVERY ANSWERED THREAD IN ONE GESTURE (design §3.4, restored on BOTH rails
 	// by stage 4b1 Task 13's review fix round 1, finding 3). The retired design rail did this at
@@ -11845,8 +11853,56 @@ func (m *deliveryManager) QueryProjectView(rc fwmanager.Context, query ProjectVi
 		return m.queryScenariosView(rc, query, out)
 	case ProjectViewTaskSpec:
 		return m.queryTaskSpecView(rc, query, out)
+	case ProjectViewUseCaseCoverage:
+		return m.queryUseCaseCoverageView(rc, query, out)
 	}
 	return out, nil
+}
+
+// queryUseCaseCoverageView answers the `useCaseCoverage` kind: the product manager's coverage view of
+// the core use cases (FPC Task 2.14), derived on read from scenario.DeriveReport and stored nowhere.
+//
+// Without an activityId it is the committed design on main. With one it is the design as that
+// activity's branch holds it, and the core use cases are then the slot's model whatever its status —
+// the draft the review gate is about, which reaches main only when the gate approves.
+func (m *deliveryManager) queryUseCaseCoverageView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
+	id, err := requireProjectID(query, "useCaseCoverage")
+	if err != nil {
+		return out, err
+	}
+	draft := query.ActivityID != nil && *query.ActivityID != ""
+	var proj projectstate.Project
+	if draft {
+		proj, err = m.readProjectForActivityView(rc, id, *query.ActivityID)
+	} else {
+		proj, err = m.readProjectForView(rc, id)
+	}
+	if err != nil {
+		return out, err
+	}
+	cov, err := projectstate.UseCaseCoverageOf(&proj, draft)
+	if err != nil {
+		return out, fwmanager.Wrap(fwmanager.FailedPrecondition, err, "deriving the use-case coverage")
+	}
+	out.UseCaseCoverage = useCaseCoverageToContract(cov)
+	return out, nil
+}
+
+// useCaseCoverageToContract is the wire view of the derived coverage: no list is nil, so a path with no
+// guard, outcome or defect reads as an empty list on the wire and never as an absent one.
+func useCaseCoverageToContract(cov []projectstate.UseCaseCoverage) *UseCaseCoverageView {
+	view := &UseCaseCoverageView{UseCases: make([]UseCaseCoverage, 0, len(cov))}
+	for _, uc := range cov {
+		out := UseCaseCoverage{UseCase: uc.UseCase, Paths: make([]PathCoverage, 0, len(uc.Paths))}
+		for _, p := range uc.Paths {
+			out.Paths = append(out.Paths, PathCoverage{
+				Scenario: p.Scenario, Guards: nonNilStrings(p.Guards), Client: p.Client, Door: p.Door,
+				OutcomeNodes: nonNilStrings(p.OutcomeNodes), Problems: nonNilStrings(p.Problems),
+			})
+		}
+		view.UseCases = append(view.UseCases, out)
+	}
+	return view
 }
 
 // queryProjectSummary answers the `summary` kind: one project's head state.
@@ -13478,10 +13534,18 @@ func operatorNoteKindName(k projectstate.OperatorNoteKind) string {
 // this component's generated façade ReviewSet (contract.gen.go) — a real divergence,
 // not an identity mirror.
 func (wf *csWorkflows) proposeReviewSet(in constructActivityInput, lifecyclePhase methodassets.LifecyclePhase, policy projectstate.ReviewPolicy, state *constructState) (ReviewSet, error) {
+	return wf.proposeReviewSetFloor(in, lifecyclePhase, policy, state, state.floorTouched)
+}
+
+// proposeReviewSetFloor is proposeReviewSet with the engine's floor flag given rather than read off the
+// walk: the same call asked again once a floor condition that only exists after the gate opened holds —
+// the PM's coverage send-back at the core use cases (FPC Task 2.14) — so the roster the reviewer strip
+// shows carries the floor's verdict and its reason.
+func (wf *csWorkflows) proposeReviewSetFloor(in constructActivityInput, lifecyclePhase methodassets.LifecyclePhase, policy projectstate.ReviewPolicy, state *constructState, floorTouched bool) (ReviewSet, error) {
 	change := review.ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
 	set, err := wf.Review.ProposeReviews(fweng.Context{Context: context.Background()},
 		change, review.ActivityType(in.Activity.activityTypeName()), lifecyclePhase.ID,
-		in.Activity.ComponentID, engineReviewPolicy(policy), state.floorTouched, state.reviewContracts)
+		in.Activity.ComponentID, engineReviewPolicy(policy), floorTouched, state.reviewContracts)
 	if err != nil {
 		return ReviewSet{}, err
 	}

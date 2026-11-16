@@ -119,6 +119,7 @@ import type {
   TestRunScenarioView,
   TestRunView,
   TestingStateView,
+  UseCaseCoverageView,
 } from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
@@ -788,6 +789,23 @@ export function mapProjectState(w: Schemas['DeliveryProjectState']): ProjectStat
 
 function arr<T>(v: readonly T[] | null | undefined): T[] {
   return v === null || v === undefined ? [] : [...v];
+}
+
+/** The PM coverage view (FPC Task 2.14): every list is never-null on the app side. */
+export function mapUseCaseCoverage(w: Schemas['DeliveryUseCaseCoverageView']): UseCaseCoverageView {
+  return {
+    useCases: arr(w.useCases).map((uc) => ({
+      useCase: uc.useCase,
+      paths: arr(uc.paths).map((p) => ({
+        scenario: p.scenario,
+        guards: arr(p.guards),
+        client: p.client,
+        door: p.door,
+        outcomeNodes: arr(p.outcomeNodes),
+        problems: arr(p.problems),
+      })),
+    })),
+  };
 }
 
 function mapTestArg(w: Schemas['DeliveryTestArgView']): TestArgView {

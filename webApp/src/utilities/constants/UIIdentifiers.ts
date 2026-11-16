@@ -705,6 +705,9 @@ export const UI_IDENTIFIERS = {
     ADVANCE_ANYWAY: 'activity-advance-anyway',
     ARTIFACT_PANEL: 'activity-artifact-panel',
     ARTIFACT_UNAVAILABLE: 'activity-artifact-unavailable',
+    // The PM coverage table on the core-use-cases review task (FPC Task 2.14) and one row per path.
+    COVERAGE_PANEL: 'activity-coverage-panel',
+    COVERAGE_ROW: 'activity-coverage-row',
     AMEND_ARCHITECTURE: 'activity-amend-architecture',
     // The AMEND exit on a COMMITTED design slot (use case add-a-use-case-to-an-in-flight-
     // project/capture-uc): this opens the composer, which reuses the DesignExperience

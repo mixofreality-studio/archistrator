@@ -1483,6 +1483,45 @@ components:
             x-go-base: int
         DeliveryOwnerScope:
             type: string
+        DeliveryPathCoverage:
+            additionalProperties: false
+            description: 'One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor''s first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation''s own defect codes (SCN-*). Derived on read; nothing of it is stored.'
+            properties:
+                client:
+                    description: The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT).
+                    type: string
+                door:
+                    description: 'That Client''s surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none.'
+                    type: string
+                guards:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                outcomeNodes:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                problems:
+                    items:
+                        type: string
+                    type:
+                        - "null"
+                        - array
+                scenario:
+                    description: The derived scenario's id (<useCase>-P<n>), the id every test of the path binds.
+                    type: string
+            required:
+                - scenario
+                - guards
+                - client
+                - door
+                - outcomeNodes
+                - problems
+            type: object
         DeliveryPendingDependency:
             additionalProperties: false
             description: One unsatisfied direct dependency of an integration-pending row.
@@ -1813,6 +1852,10 @@ components:
                     $ref: '#/components/schemas/DeliveryEpisodeTimeline'
                     type:
                         - "null"
+                useCaseCoverage:
+                    $ref: '#/components/schemas/DeliveryUseCaseCoverageView'
+                    type:
+                        - "null"
             required:
                 - kind
             type: object
@@ -1828,6 +1871,7 @@ components:
                 - testRun
                 - scenarios
                 - taskSpec
+                - useCaseCoverage
             type: string
             x-enum-varnames:
                 - ProjectViewSummary
@@ -1840,6 +1884,7 @@ components:
                 - ProjectViewTestRun
                 - ProjectViewScenarios
                 - ProjectViewTaskSpec
+                - ProjectViewUseCaseCoverage
             x-go-base: string
         DeliveryProjectViewQuery:
             additionalProperties: false
@@ -3191,6 +3236,35 @@ components:
             required:
                 - seq
                 - eventType
+            type: object
+        DeliveryUseCaseCoverage:
+            additionalProperties: false
+            description: One use case's derived paths, in scenario-id order.
+            properties:
+                paths:
+                    items:
+                        $ref: '#/components/schemas/DeliveryPathCoverage'
+                    type:
+                        - "null"
+                        - array
+                useCase:
+                    type: string
+            required:
+                - useCase
+                - paths
+            type: object
+        DeliveryUseCaseCoverageView:
+            additionalProperties: false
+            description: 'The product manager''s coverage view of the core use cases (QueryProjectView kind useCaseCoverage): per use case and per derived path, the door, the outcomes the actor sees and the derivation''s defect codes. Render-on-read from scenario.DeriveReport over the committed design; nothing is stored.'
+            properties:
+                useCases:
+                    items:
+                        $ref: '#/components/schemas/DeliveryUseCaseCoverage'
+                    type:
+                        - "null"
+                        - array
+            required:
+                - useCases
             type: object
         DeliveryVersion:
             type: integer

@@ -1130,6 +1130,33 @@ export interface ScenarioStimulusView {
 }
 
 /**
+ * One derived path of a use case as the product manager reads it at the core-use-cases
+ * critique (FPC Task 2.14): the guards taken, the Client the actor's first stimulus enters
+ * through and its surface (the door), the sendSignal / objectNode labels the actor is shown
+ * (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; never stored.
+ */
+export interface PathCoverageView {
+  scenario: string;
+  guards: string[];
+  /** The Client component the first actor stimulus enters through; '' when none does. */
+  client: string;
+  /** That Client's surface (web, rest, mcpTools, mcpApp); '' when there is no Client. */
+  door: string;
+  outcomeNodes: string[];
+  problems: string[];
+}
+
+export interface UseCaseCoverageRow {
+  useCase: string;
+  paths: PathCoverageView[];
+}
+
+/** The `useCaseCoverage` project view: per use case, per derived path. */
+export interface UseCaseCoverageView {
+  useCases: UseCaseCoverageRow[];
+}
+
+/**
  * One deterministic scenario projected onto a component
  * (framework-go/scenario.ForComponent): the stimuli into it, what is observed
  * after each, and the committed binding for it when the test plan has one.

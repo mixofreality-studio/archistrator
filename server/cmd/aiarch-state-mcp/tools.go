@@ -202,6 +202,16 @@ func composedVerbs(s *Session) []composedVerb {
 				return s.listComponentScenarios(in.Component)
 			}))
 		}},
+		{name: "getUseCaseCoverage", modes: []string{jobModeCritique}, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: "getUseCaseCoverage",
+				Description: "The coverage table for the core use cases you are critiquing: one row per derived path with its guards, its door (the Client the actor's first " +
+					"stimulus enters through, and that Client's surface), the outcome nodes the actor is shown (verbatim) and the derivation's defect codes (SCN-*). " +
+					"A path with door NONE or outcomes NONE is a path the customer's raw use case promises that no surface reaches or ends in nothing the actor sees: " +
+					"that is a revise. Derived on read from the draft; nothing is stored.",
+				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.getUseCaseCoverage() }))
+		}},
 		{name: "listAcceptanceScenarios", modes: shared, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "listAcceptanceScenarios",

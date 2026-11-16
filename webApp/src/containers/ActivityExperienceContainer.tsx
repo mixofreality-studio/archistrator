@@ -164,7 +164,12 @@ import {
   useTaskSpecRefresh,
 } from '../hooks/useTaskSpec';
 import { ACTIVITY_LIVE_POLL_MS } from '../hooks/activityViewPolling';
-import type { TestingArtifactData } from '../components/construction/artifactRenderers';
+import type {
+  AsyncArtifactData,
+  TestingArtifactData,
+} from '../components/construction/artifactRenderers';
+import { useUseCaseCoverage } from '../hooks/useUseCaseCoverage';
+import type { UseCaseCoverageView } from '../contracts/types';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { isNoSessionError } from '../hooks/sessionPolling';
 import {
@@ -541,6 +546,21 @@ export function ActivityExperienceContainer({
           },
           outputs: testRunOutputs,
           wantOutput,
+        }
+      : undefined;
+
+  // The PM's coverage table (FPC Task 2.14): read for the core-use-cases review task alone,
+  // derived server-side from the activity's branch and handed down as data.
+  const coverageQuery = useUseCaseCoverage(
+    projectId,
+    artifact.kind === 'slot' && artifact.artifactKind === 'coreUseCases' ? activityId : undefined
+  );
+  const coverage: AsyncArtifactData<UseCaseCoverageView> | undefined =
+    artifact.kind === 'slot' && artifact.artifactKind === 'coreUseCases'
+      ? {
+          data: coverageQuery.data,
+          error: coverageQuery.error,
+          isLoading: coverageQuery.isLoading,
         }
       : undefined;
 
@@ -1063,6 +1083,7 @@ export function ActivityExperienceContainer({
             checkEvidence={checkEvidence}
             contractJoin={contractJoin}
             costBasis={costBasis.length > 0 ? costBasis : undefined}
+            coverage={coverage}
             decisionPending={decisionPending}
             // What is rendered is the CURRENT artifact, not the one this revision
             // judged: there is no op that reads an artifact as of `subjectRef.ref`
