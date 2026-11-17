@@ -622,6 +622,7 @@ jobs:
           done
 
       - name: Run construction step (claude-code-action)
+        id: agent
         if: ${{ steps.spec.outputs.kind != 'job' }}
         # The agent's bound — claude must implement + publish within this window or
         # the step is killed (no silent multi-hour grinds). 12 min was observed
@@ -658,6 +659,18 @@ jobs:
           # which the first step validated. The operator note never rides here.
           prompt: |
             /${{ inputs.command }} ${{ inputs.component_id }} ${{ inputs.activity_id }}
+
+      # The agent's own transcript, kept as an artifact, is how the server tells a run that
+      # never reached the model (a host fault: the network, a rate limit) from one the agent
+      # failed: its assistant turns, or their absence. Uploaded whatever the agent's outcome,
+      # and only when claude-code-action wrote one.
+      - name: Upload the agent's execution log
+        if: ${{ always() && steps.agent.outputs.execution_file != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-log-${{ inputs.activity_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.agent.outputs.execution_file }}
+          retention-days: 90
 
       # -----------------------------------------------------------------------
       # THE GATES (spec 2026-10-11 §5.2 steps 5-8). They run after the agent on

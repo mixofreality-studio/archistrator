@@ -17377,6 +17377,19 @@
           ],
           "x-go-base": "int"
         },
+        "AgentGaveUp": {
+          "type": "object",
+          "description": "The model was reached and the agent exited non-zero or committed nothing.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
         "ArtifactKind": {
           "type": "integer",
           "enum": [
@@ -17419,6 +17432,233 @@
           ],
           "x-go-base": "int"
         },
+        "FailureCause": {
+          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy), the gate (gateRed) or nobody known (unknown).",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "modelUnreachable"
+                },
+                "model": {
+                  "$ref": "#/$defs/ModelUnreachable"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "rateLimited"
+                },
+                "model": {
+                  "$ref": "#/$defs/RateLimited"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "runnerLost"
+                },
+                "model": {
+                  "$ref": "#/$defs/RunnerLost"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "infraTimeout"
+                },
+                "model": {
+                  "$ref": "#/$defs/InfraTimeout"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "agentGaveUp"
+                },
+                "model": {
+                  "$ref": "#/$defs/AgentGaveUp"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "noProgress"
+                },
+                "model": {
+                  "$ref": "#/$defs/NoProgressCause"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "toolRefusedByPolicy"
+                },
+                "model": {
+                  "$ref": "#/$defs/ToolRefusedByPolicy"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "gateRed"
+                },
+                "model": {
+                  "$ref": "#/$defs/GateRed"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "unknown"
+                },
+                "model": {
+                  "$ref": "#/$defs/UnknownCause"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "x-go-sumtype": {
+            "iface": "FailureCause",
+            "marker": "isFailureCause",
+            "discriminatorKey": "kind",
+            "kindEnum": "FailureCauseKind",
+            "variants": [
+              {
+                "kind": "modelUnreachable",
+                "type": "ModelUnreachable",
+                "kindConst": "FailureModelUnreachable"
+              },
+              {
+                "kind": "rateLimited",
+                "type": "RateLimited",
+                "kindConst": "FailureRateLimited"
+              },
+              {
+                "kind": "runnerLost",
+                "type": "RunnerLost",
+                "kindConst": "FailureRunnerLost"
+              },
+              {
+                "kind": "infraTimeout",
+                "type": "InfraTimeout",
+                "kindConst": "FailureInfraTimeout"
+              },
+              {
+                "kind": "agentGaveUp",
+                "type": "AgentGaveUp",
+                "kindConst": "FailureAgentGaveUp"
+              },
+              {
+                "kind": "noProgress",
+                "type": "NoProgressCause",
+                "kindConst": "FailureNoProgress"
+              },
+              {
+                "kind": "toolRefusedByPolicy",
+                "type": "ToolRefusedByPolicy",
+                "kindConst": "FailureToolRefusedByPolicy"
+              },
+              {
+                "kind": "gateRed",
+                "type": "GateRed",
+                "kindConst": "FailureGateRed"
+              },
+              {
+                "kind": "unknown",
+                "type": "UnknownCause",
+                "kindConst": "FailureUnknown"
+              }
+            ]
+          }
+        },
+        "FailureCauseKind": {
+          "type": "string",
+          "enum": [
+            "modelUnreachable",
+            "rateLimited",
+            "runnerLost",
+            "infraTimeout",
+            "agentGaveUp",
+            "noProgress",
+            "toolRefusedByPolicy",
+            "gateRed",
+            "unknown"
+          ],
+          "x-enum-varnames": [
+            "FailureModelUnreachable",
+            "FailureRateLimited",
+            "FailureRunnerLost",
+            "FailureInfraTimeout",
+            "FailureAgentGaveUp",
+            "FailureNoProgress",
+            "FailureToolRefusedByPolicy",
+            "FailureGateRed",
+            "FailureUnknown"
+          ]
+        },
         "FailureReason": {
           "type": "integer",
           "enum": [
@@ -17449,6 +17689,38 @@
           ],
           "x-go-base": "int"
         },
+        "GateRed": {
+          "type": "object",
+          "description": "The agent reached the model and its checks went red; checks names every check that did not pass.",
+          "properties": {
+            "checks": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "checks"
+          ],
+          "additionalProperties": false
+        },
+        "InfraTimeout": {
+          "type": "object",
+          "description": "The run timed out before the model was reached: a host fault.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
         "LifecyclePin": {
           "type": "object",
           "properties": {
@@ -17467,6 +17739,32 @@
           ],
           "additionalProperties": false,
           "description": "What an activity's task DAG was pinned to when it opened."
+        },
+        "ModelUnreachable": {
+          "type": "object",
+          "description": "The model was never reached: the venue could not connect to it, so nothing the agent produced is evidence about the work.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
+        "NoProgressCause": {
+          "type": "object",
+          "description": "Two consecutive attempts that reached the model left the same tree and failed the same way. Set by the Manager, which alone sees two attempts; the agentic-job RA never emits it.",
+          "properties": {
+            "fingerprint": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "fingerprint"
+          ],
+          "additionalProperties": false
         },
         "NoteComment": {
           "type": "object",
@@ -17551,6 +17849,19 @@
         },
         "ProjectID": {
           "type": "string"
+        },
+        "RateLimited": {
+          "type": "object",
+          "description": "The model refused the run for rate or quota (a 429 or a rate-limit error): a host fault, the work was never judged.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
         },
         "RepoCredential": {
           "type": "object",
@@ -17907,6 +18218,19 @@
           "additionalProperties": false,
           "description": "One seat on a round's reviewer roster, as the reviewEngine computed it."
         },
+        "RunnerLost": {
+          "type": "object",
+          "description": "The runner that held the run is gone (a server restart, a lost runner): a host fault.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
         "StagedRef": {
           "type": "object",
           "properties": {
@@ -18012,6 +18336,10 @@
             "detail": {
               "type": "string",
               "description": "The attempt's own render-ready sentence, verbatim, or empty where the attempt has nothing to say beyond its outcome. NOT required: an empty detail is the honest answer for an attempt that did exactly what its task says. Recorded on the append and carried unchanged on the resolve."
+            },
+            "cause": {
+              "$ref": "#/$defs/FailureCause",
+              "description": "Why the attempt failed, when it did: the cause the agentic job reported, the gate's truth from the recorded check run, or noProgress. NOT required: a passing attempt has none."
             }
           },
           "required": [
@@ -18047,6 +18375,38 @@
             "TestVariantAcceptance"
           ],
           "x-go-base": "int"
+        },
+        "ToolRefusedByPolicy": {
+          "type": "object",
+          "description": "The agent reached the model and changed paths outside its edit scope; the edit-scope gate refused them.",
+          "properties": {
+            "paths": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "paths"
+          ],
+          "additionalProperties": false
+        },
+        "UnknownCause": {
+          "type": "object",
+          "description": "A failure the classification cannot name, or a missing execution log on the GitHub arm.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
         },
         "VerdictKind": {
           "type": "string",
@@ -18617,6 +18977,19 @@
       ],
       "title": "agenticjob contract",
       "$defs": {
+        "AgentGaveUp": {
+          "type": "object",
+          "description": "The model was reached and the agent exited non-zero or committed nothing.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
         "ArtifactRef": {
           "type": "string"
         },
@@ -18724,6 +19097,307 @@
           ],
           "additionalProperties": false
         },
+        "FailureCause": {
+          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy), the gate (gateRed) or nobody known (unknown).",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "modelUnreachable"
+                },
+                "model": {
+                  "$ref": "#/$defs/ModelUnreachable"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "rateLimited"
+                },
+                "model": {
+                  "$ref": "#/$defs/RateLimited"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "runnerLost"
+                },
+                "model": {
+                  "$ref": "#/$defs/RunnerLost"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "infraTimeout"
+                },
+                "model": {
+                  "$ref": "#/$defs/InfraTimeout"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "agentGaveUp"
+                },
+                "model": {
+                  "$ref": "#/$defs/AgentGaveUp"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "noProgress"
+                },
+                "model": {
+                  "$ref": "#/$defs/NoProgressCause"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "toolRefusedByPolicy"
+                },
+                "model": {
+                  "$ref": "#/$defs/ToolRefusedByPolicy"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "gateRed"
+                },
+                "model": {
+                  "$ref": "#/$defs/GateRed"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "unknown"
+                },
+                "model": {
+                  "$ref": "#/$defs/UnknownCause"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "x-go-sumtype": {
+            "iface": "FailureCause",
+            "marker": "isFailureCause",
+            "discriminatorKey": "kind",
+            "kindEnum": "FailureCauseKind",
+            "variants": [
+              {
+                "kind": "modelUnreachable",
+                "type": "ModelUnreachable",
+                "kindConst": "FailureModelUnreachable"
+              },
+              {
+                "kind": "rateLimited",
+                "type": "RateLimited",
+                "kindConst": "FailureRateLimited"
+              },
+              {
+                "kind": "runnerLost",
+                "type": "RunnerLost",
+                "kindConst": "FailureRunnerLost"
+              },
+              {
+                "kind": "infraTimeout",
+                "type": "InfraTimeout",
+                "kindConst": "FailureInfraTimeout"
+              },
+              {
+                "kind": "agentGaveUp",
+                "type": "AgentGaveUp",
+                "kindConst": "FailureAgentGaveUp"
+              },
+              {
+                "kind": "noProgress",
+                "type": "NoProgressCause",
+                "kindConst": "FailureNoProgress"
+              },
+              {
+                "kind": "toolRefusedByPolicy",
+                "type": "ToolRefusedByPolicy",
+                "kindConst": "FailureToolRefusedByPolicy"
+              },
+              {
+                "kind": "gateRed",
+                "type": "GateRed",
+                "kindConst": "FailureGateRed"
+              },
+              {
+                "kind": "unknown",
+                "type": "UnknownCause",
+                "kindConst": "FailureUnknown"
+              }
+            ]
+          }
+        },
+        "FailureCauseKind": {
+          "type": "string",
+          "enum": [
+            "modelUnreachable",
+            "rateLimited",
+            "runnerLost",
+            "infraTimeout",
+            "agentGaveUp",
+            "noProgress",
+            "toolRefusedByPolicy",
+            "gateRed",
+            "unknown"
+          ],
+          "x-enum-varnames": [
+            "FailureModelUnreachable",
+            "FailureRateLimited",
+            "FailureRunnerLost",
+            "FailureInfraTimeout",
+            "FailureAgentGaveUp",
+            "FailureNoProgress",
+            "FailureToolRefusedByPolicy",
+            "FailureGateRed",
+            "FailureUnknown"
+          ]
+        },
+        "FaultClass": {
+          "type": "string",
+          "description": "Whose fault a failure is, so a host fault never consumes the variance budget: host (the venue, the network or the model's own availability), agent (the model was reached and the agent did not deliver), gate (the checks are red), unknown.",
+          "enum": [
+            "host",
+            "agent",
+            "gate",
+            "unknown"
+          ],
+          "x-enum-varnames": [
+            "FaultHost",
+            "FaultAgent",
+            "FaultGate",
+            "FaultUnknown"
+          ]
+        },
+        "GateRed": {
+          "type": "object",
+          "description": "The agent reached the model and its checks went red; checks names every check that did not pass.",
+          "properties": {
+            "checks": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "checks"
+          ],
+          "additionalProperties": false
+        },
+        "InfraTimeout": {
+          "type": "object",
+          "description": "The run timed out before the model was reached: a host fault.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
+        "ModelUnreachable": {
+          "type": "object",
+          "description": "The model was never reached: the venue could not connect to it, so nothing the agent produced is evidence about the work.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
+        "NoProgressCause": {
+          "type": "object",
+          "description": "Two consecutive attempts that reached the model left the same tree and failed the same way. Set by the Manager, which alone sees two attempts; the agentic-job RA never emits it.",
+          "properties": {
+            "fingerprint": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "fingerprint"
+          ],
+          "additionalProperties": false
+        },
         "PipelineHandle": {
           "type": "string"
         },
@@ -18774,6 +19448,28 @@
             },
             "Episode": {
               "$ref": "#/$defs/EpisodeSummary"
+            },
+            "ReachedModel": {
+              "type": "boolean",
+              "description": "Whether the run reached the model: at least one assistant turn from a real model (not the synthetic stand-in) with output tokens. A run that never reached the model proves nothing about the work, so it carries no progress fingerprint and its failure is a host fault."
+            },
+            "Cause": {
+              "$ref": "#/$defs/FailureCause",
+              "description": "Why a failed run failed. Absent on a run that has not failed."
+            },
+            "FaultClass": {
+              "$ref": "#/$defs/FaultClass",
+              "description": "Whose fault the failure is. Meaningful only on a failed run: a run that has not failed carries the zero value (unknown)."
+            },
+            "GateFailures": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "description": "The check ids that did not pass, when the failure is a red gate."
             }
           },
           "required": [
@@ -18783,7 +19479,9 @@
             "FailedStep",
             "Diagnostic",
             "RunURL",
-            "StartedAt"
+            "StartedAt",
+            "ReachedModel",
+            "FaultClass"
           ],
           "additionalProperties": false
         },
@@ -18903,6 +19601,19 @@
         "ProjectID": {
           "type": "string"
         },
+        "RateLimited": {
+          "type": "object",
+          "description": "The model refused the run for rate or quota (a 429 or a rate-limit error): a host fault, the work was never judged.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
+        },
         "RepoTarget": {
           "type": "object",
           "properties": {
@@ -18936,6 +19647,19 @@
             "CPUMillis",
             "MemMiB",
             "GPUs"
+          ],
+          "additionalProperties": false
+        },
+        "RunnerLost": {
+          "type": "object",
+          "description": "The runner that held the run is gone (a server restart, a lost runner): a host fault.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
           ],
           "additionalProperties": false
         },
@@ -19013,8 +19737,40 @@
           ],
           "additionalProperties": false
         },
+        "ToolRefusedByPolicy": {
+          "type": "object",
+          "description": "The agent reached the model and changed paths outside its edit scope; the edit-scope gate refused them.",
+          "properties": {
+            "paths": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "paths"
+          ],
+          "additionalProperties": false
+        },
         "ToolchainRef": {
           "type": "string"
+        },
+        "UnknownCause": {
+          "type": "object",
+          "description": "A failure the classification cannot name, or a missing execution log on the GitHub arm.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {

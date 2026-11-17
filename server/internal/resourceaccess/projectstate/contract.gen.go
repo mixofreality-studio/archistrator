@@ -143,6 +143,10 @@ type AdvanceClock struct {
 	Duration string `json:"duration"`
 }
 
+type AgentGaveUp struct {
+	Detail string `json:"detail"`
+}
+
 // ArrangeCall is the generated sealed sum interface for this contract.
 //
 //sumtype:decl
@@ -612,6 +616,152 @@ type FailNext struct {
 	ErrorCode string `json:"errorCode"`
 }
 
+// FailureCause is the generated sealed sum interface for this contract.
+//
+//sumtype:decl
+type FailureCause interface {
+	Kind() FailureCauseKind
+	isFailureCause() // unexported marker: seals the sum to this package's variants
+}
+
+func (*ModelUnreachable) isFailureCause()        {}
+func (*ModelUnreachable) Kind() FailureCauseKind { return FailureModelUnreachable }
+
+func (*RateLimited) isFailureCause()        {}
+func (*RateLimited) Kind() FailureCauseKind { return FailureRateLimited }
+
+func (*RunnerLost) isFailureCause()        {}
+func (*RunnerLost) Kind() FailureCauseKind { return FailureRunnerLost }
+
+func (*InfraTimeout) isFailureCause()        {}
+func (*InfraTimeout) Kind() FailureCauseKind { return FailureInfraTimeout }
+
+func (*AgentGaveUp) isFailureCause()        {}
+func (*AgentGaveUp) Kind() FailureCauseKind { return FailureAgentGaveUp }
+
+func (*NoProgressCause) isFailureCause()        {}
+func (*NoProgressCause) Kind() FailureCauseKind { return FailureNoProgress }
+
+func (*ToolRefusedByPolicy) isFailureCause()        {}
+func (*ToolRefusedByPolicy) Kind() FailureCauseKind { return FailureToolRefusedByPolicy }
+
+func (*GateRed) isFailureCause()        {}
+func (*GateRed) Kind() FailureCauseKind { return FailureGateRed }
+
+func (*UnknownCause) isFailureCause()        {}
+func (*UnknownCause) Kind() FailureCauseKind { return FailureUnknown }
+
+// FailureCauseEnvelope is the wire form of a FailureCause: the string kind discriminator + the
+// concrete variant's own JSON under "model".
+type FailureCauseEnvelope struct {
+	Kind  string          `json:"kind"`
+	Model json.RawMessage `json:"model,omitempty"`
+}
+
+// kindStringFailureCause maps a variant's discriminator value to its wire kind string.
+func kindStringFailureCause(k FailureCauseKind) (string, bool) {
+	switch k {
+	case FailureModelUnreachable:
+		return "modelUnreachable", true
+	case FailureRateLimited:
+		return "rateLimited", true
+	case FailureRunnerLost:
+		return "runnerLost", true
+	case FailureInfraTimeout:
+		return "infraTimeout", true
+	case FailureAgentGaveUp:
+		return "agentGaveUp", true
+	case FailureNoProgress:
+		return "noProgress", true
+	case FailureToolRefusedByPolicy:
+		return "toolRefusedByPolicy", true
+	case FailureGateRed:
+		return "gateRed", true
+	case FailureUnknown:
+		return "unknown", true
+	default:
+		return "", false
+	}
+}
+
+// MarshalFailureCause encodes a FailureCause to its {"kind","model"} envelope, byte-identical to
+// the hand-written wire form. A nil value encodes as the zero envelope.
+func MarshalFailureCause(v FailureCause) ([]byte, error) {
+	if v == nil {
+		return json.Marshal(FailureCauseEnvelope{})
+	}
+	kind, ok := kindStringFailureCause(v.Kind())
+	if !ok {
+		return nil, fmt.Errorf("marshal FailureCause: no wire kind for %v", v.Kind())
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal FailureCause %v: %w", v.Kind(), err)
+	}
+	return json.Marshal(FailureCauseEnvelope{Kind: kind, Model: raw})
+}
+
+// newFailureCauseForKind returns a freshly-allocated zero-value concrete variant for
+// the wire kind string, suitable for json.Unmarshal, or (nil,false) if unknown.
+func newFailureCauseForKind(kind string) (FailureCause, bool) {
+	switch kind {
+	case "modelUnreachable":
+		return &ModelUnreachable{}, true
+	case "rateLimited":
+		return &RateLimited{}, true
+	case "runnerLost":
+		return &RunnerLost{}, true
+	case "infraTimeout":
+		return &InfraTimeout{}, true
+	case "agentGaveUp":
+		return &AgentGaveUp{}, true
+	case "noProgress":
+		return &NoProgressCause{}, true
+	case "toolRefusedByPolicy":
+		return &ToolRefusedByPolicy{}, true
+	case "gateRed":
+		return &GateRed{}, true
+	case "unknown":
+		return &UnknownCause{}, true
+	default:
+		return nil, false
+	}
+}
+
+// UnmarshalFailureCause decodes a {"kind","model"} envelope back into the concrete
+// variant selected by its kind. An empty model payload decodes to a nil value.
+func UnmarshalFailureCause(data []byte) (FailureCause, error) {
+	var env FailureCauseEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	if len(env.Model) == 0 {
+		return nil, nil
+	}
+	v, ok := newFailureCauseForKind(env.Kind)
+	if !ok {
+		return nil, fmt.Errorf("unknown kind %q for FailureCause", env.Kind)
+	}
+	if err := json.Unmarshal(env.Model, v); err != nil {
+		return nil, fmt.Errorf("unmarshal FailureCause %q: %w", env.Kind, err)
+	}
+	return v, nil
+}
+
+type FailureCauseKind string
+
+const (
+	FailureModelUnreachable    FailureCauseKind = "modelUnreachable"
+	FailureRateLimited         FailureCauseKind = "rateLimited"
+	FailureRunnerLost          FailureCauseKind = "runnerLost"
+	FailureInfraTimeout        FailureCauseKind = "infraTimeout"
+	FailureAgentGaveUp         FailureCauseKind = "agentGaveUp"
+	FailureNoProgress          FailureCauseKind = "noProgress"
+	FailureToolRefusedByPolicy FailureCauseKind = "toolRefusedByPolicy"
+	FailureGateRed             FailureCauseKind = "gateRed"
+	FailureUnknown             FailureCauseKind = "unknown"
+)
+
 type FailureReason int
 
 const (
@@ -628,6 +778,10 @@ const (
 	NoProgress             FailureReason = 10
 )
 
+type GateRed struct {
+	Checks []string `json:"checks"`
+}
+
 type Glossary struct {
 	Items []GlossaryItem `json:"items"`
 }
@@ -642,6 +796,10 @@ type InfraBlock struct {
 	Name     string `json:"name"`
 	Category string `json:"category"`
 	Status   string `json:"status"`
+}
+
+type InfraTimeout struct {
+	Detail string `json:"detail"`
 }
 
 type InfrastructureKind int
@@ -693,6 +851,10 @@ type MissionStatement struct {
 	DeliverySurfaces []DeliverySurface `json:"deliverySurfaces"`
 }
 
+type ModelUnreachable struct {
+	Detail string `json:"detail"`
+}
+
 type Money struct {
 	MinorUnits int64  `json:"minorUnits"`
 	Currency   string `json:"currency"`
@@ -722,6 +884,10 @@ type NetworkSummary struct {
 	CriticalPathDays          float64 `json:"criticalPathDays"`
 	MaxFloat                  float64 `json:"maxFloat"`
 	NearCriticalCount         int     `json:"nearCriticalCount"`
+}
+
+type NoProgressCause struct {
+	Fingerprint string `json:"fingerprint"`
 }
 
 type NoteComment struct {
@@ -870,6 +1036,10 @@ type QualityGate struct {
 	Phase        string `json:"phase"`
 	When         string `json:"when"`
 	Mode         string `json:"mode"`
+}
+
+type RateLimited struct {
+	Detail string `json:"detail"`
 }
 
 type RefValue struct {
@@ -1031,6 +1201,10 @@ type RuleWaiver struct {
 	Expires string `json:"expires"`
 }
 
+type RunnerLost struct {
+	Detail string `json:"detail"`
+}
+
 type SRSRecord struct {
 	Component  string     `json:"component"`
 	Content    string     `json:"content"`
@@ -1168,14 +1342,15 @@ type System struct {
 }
 
 type TaskAttemptInput struct {
-	AttemptID    string       `json:"attemptId"`
-	TaskID       MethodTask   `json:"taskId"`
-	Attempt      int64        `json:"attempt"`
-	Actor        TaskActor    `json:"actor"`
-	Outcome      TaskOutcome  `json:"outcome"`
-	EvidenceKind EvidenceKind `json:"evidenceKind"`
-	EvidenceRef  string       `json:"evidenceRef"`
-	Detail       string       `json:"detail"`
+	AttemptID    string        `json:"attemptId"`
+	TaskID       MethodTask    `json:"taskId"`
+	Attempt      int64         `json:"attempt"`
+	Actor        TaskActor     `json:"actor"`
+	Outcome      TaskOutcome   `json:"outcome"`
+	EvidenceKind EvidenceKind  `json:"evidenceKind"`
+	EvidenceRef  string        `json:"evidenceRef"`
+	Detail       string        `json:"detail"`
+	Cause        *FailureCause `json:"cause,omitempty"`
 }
 
 type TestArg struct {
@@ -1312,6 +1487,10 @@ const (
 	TestVariantAcceptancePlan TestingVariant = 5
 	TestVariantAcceptance     TestingVariant = 6
 )
+
+type ToolRefusedByPolicy struct {
+	Paths []string `json:"paths"`
+}
 
 type TraceCall struct {
 	From  string   `json:"from"`
@@ -1799,6 +1978,10 @@ type UXRequirementsRecord struct {
 	Surface    string     `json:"surface"`
 	Content    string     `json:"content"`
 	AuthoredAt *time.Time `json:"authoredAt,omitempty"`
+}
+
+type UnknownCause struct {
+	Detail string `json:"detail"`
 }
 
 type UsageAssumption struct {

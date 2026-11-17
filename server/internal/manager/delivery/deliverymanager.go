@@ -12651,6 +12651,13 @@ type csPipelineObservation struct {
 	// conflicting paths. No retry can change that, so the variance loop holds it for a human
 	// instead of asking the intervention Engine.
 	RefreshRefused bool
+	// ReachedModel is whether the run reached the model at all (see agenticjob.PipelineObservation):
+	// a run that did not proves nothing about the work.
+	ReachedModel bool
+	// Cause is why a failed run failed, as the venue classified it; nil on a run that has not failed
+	// and on a failure no venue classified. GateFailures are the checks that did not pass.
+	Cause        agenticjob.FailureCause
+	GateFailures []string
 }
 
 // constructWorkflowFileName is the per-project CONSTRUCTION workflow file the agentic
@@ -12958,8 +12965,43 @@ func reviewSetFromEngine(set review.ReviewSet) ReviewSet {
 }
 
 // maxVarianceAttempts bounds the dispatch→review→variance supervision loop
-// before the Engine's Escalate/Takeover must terminate it.
+// before the Engine's Escalate/Takeover must terminate it. Only an attempt the work is to blame for
+// is counted against it: a HOST fault (the venue, the network, the model's availability) never is.
 const maxVarianceAttempts = 10
+
+// The host-fault ladder (FPC plan 6, Task 6.4). A dispatch that failed for want of a model, a runner
+// or a network says nothing about the work, so the walk waits and dispatches again without spending
+// the variance budget: the wait doubles from hostFaultBackoffStart to hostFaultBackoffMax, and a
+// streak of host faults that has outlived hostFaultWindow is a human's to decide, not the loop's.
+const (
+	hostFaultBackoffStart = time.Minute
+	hostFaultBackoffMax   = 15 * time.Minute
+	hostFaultWindow       = 2 * time.Hour
+)
+
+// changeFailureCause versions the typed-failure-cause decisions of the construction loop: the
+// host-fault wait and the gate's recorded truth are new commands in an existing history.
+const changeFailureCause = "fpc6-failure-cause"
+
+// faultClassOf is whose fault a failed dispatch is, by the cause the venue reported: the host's
+// (the model was never reached), the agent's (it was and did not deliver), the gate's (its checks are
+// red) or nobody known. A failure no venue classified (nil) is unknown. The switch is over a sealed
+// sum and has no default, so a new cause must be classified here before it compiles through the lint.
+func faultClassOf(c agenticjob.FailureCause) agenticjob.FaultClass {
+	switch c.(type) {
+	case *agenticjob.ModelUnreachable, *agenticjob.RateLimited, *agenticjob.RunnerLost, *agenticjob.InfraTimeout:
+		return agenticjob.FaultHost
+	case *agenticjob.AgentGaveUp, *agenticjob.NoProgressCause, *agenticjob.ToolRefusedByPolicy:
+		return agenticjob.FaultAgent
+	case *agenticjob.GateRed:
+		return agenticjob.FaultGate
+	case *agenticjob.UnknownCause:
+		return agenticjob.FaultUnknown
+	case nil:
+		return agenticjob.FaultUnknown
+	}
+	return agenticjob.FaultUnknown
+}
 
 // maxPhaseRedrafts bounds a gated phase's human-paced SendBack redraft budget —
 // SEPARATE from maxVarianceAttempts. SendBack is NOT a variance: it redrafts THIS

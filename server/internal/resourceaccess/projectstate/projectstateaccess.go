@@ -8602,6 +8602,93 @@ type TaskAttempt struct {
 	Detail string `json:"detail,omitempty"`
 	// Provenance is REQUIRED and never omitempty — see AttemptProvenance.
 	Provenance AttemptProvenance `json:"provenance"`
+	// Cause is why the attempt failed, when it did: the cause the agentic job reported, the gate's
+	// truth from the recorded check run, or noProgress. Nil on a passing attempt and on every
+	// attempt recorded before causes were typed. The bench classifies failed runs by its kind.
+	Cause *FailureCause `json:"cause,omitempty"`
+}
+
+// taskAttemptFields is TaskAttempt without its sum-typed member's codec.
+type taskAttemptFields TaskAttempt
+
+// taskAttemptWire is TaskAttempt's wire form: the cause is the sum's {"kind","model"} envelope.
+type taskAttemptWire struct {
+	taskAttemptFields
+	Cause json.RawMessage `json:"cause,omitempty"`
+}
+
+// MarshalJSON writes the attempt with its cause as the sum's envelope.
+func (a TaskAttempt) MarshalJSON() ([]byte, error) {
+	w := taskAttemptWire{taskAttemptFields: taskAttemptFields(a)}
+	w.taskAttemptFields.Cause = nil
+	if a.Cause != nil && *a.Cause != nil {
+		raw, err := MarshalFailureCause(*a.Cause)
+		if err != nil {
+			return nil, err
+		}
+		w.Cause = raw
+	}
+	return json.Marshal(w)
+}
+
+// UnmarshalJSON strictly decodes an attempt: a field it does not declare is refused, and its cause
+// must be one of the sum's kinds.
+func (a *TaskAttempt) UnmarshalJSON(raw []byte) error {
+	var w taskAttemptWire
+	if err := decodeStrictJSON(raw, &w); err != nil {
+		return err
+	}
+	*a = TaskAttempt(w.taskAttemptFields)
+	a.Cause = nil
+	if len(w.Cause) > 0 {
+		cause, err := decodeSum(w.Cause, "attempt cause", newFailureCauseForKind)
+		if err != nil {
+			return err
+		}
+		a.Cause = &cause
+	}
+	return nil
+}
+
+// taskAttemptInputFields is TaskAttemptInput without its sum-typed member's codec.
+type taskAttemptInputFields TaskAttemptInput
+
+// taskAttemptInputWire is TaskAttemptInput's wire form: the cause is the sum's envelope.
+type taskAttemptInputWire struct {
+	taskAttemptInputFields
+	Cause json.RawMessage `json:"cause,omitempty"`
+}
+
+// MarshalJSON writes the input with its cause as the sum's envelope.
+func (a TaskAttemptInput) MarshalJSON() ([]byte, error) {
+	w := taskAttemptInputWire{taskAttemptInputFields: taskAttemptInputFields(a)}
+	w.taskAttemptInputFields.Cause = nil
+	if a.Cause != nil && *a.Cause != nil {
+		raw, err := MarshalFailureCause(*a.Cause)
+		if err != nil {
+			return nil, err
+		}
+		w.Cause = raw
+	}
+	return json.Marshal(w)
+}
+
+// UnmarshalJSON decodes an input; its cause, when present, must be one of the sum's kinds.
+func (a *TaskAttemptInput) UnmarshalJSON(raw []byte) error {
+	var w taskAttemptInputWire
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return err
+	}
+	*a = TaskAttemptInput(w.taskAttemptInputFields)
+	a.Cause = nil
+	if len(w.Cause) > 0 && string(w.Cause) != "null" {
+		cause, err := decodeSum(w.Cause, "attempt cause", newFailureCauseForKind)
+		if err != nil {
+			return err
+		}
+		a.Cause = &cause
+	}
+	return nil
 }
 
 // latestAttempt returns the highest-numbered attempt at a task.
@@ -11343,6 +11430,9 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 			if attempt.Detail != "" {
 				held.Detail = attempt.Detail
 			}
+			if attempt.Cause != nil {
+				held.Cause = attempt.Cause
+			}
 			t := now
 			held.EndedAt = &t
 			return nil
@@ -11356,6 +11446,7 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 			Outcome:    attempt.Outcome,
 			Evidence:   EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef},
 			Detail:     attempt.Detail,
+			Cause:      attempt.Cause,
 			Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &now},
 		}
 		t := now

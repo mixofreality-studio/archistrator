@@ -1210,15 +1210,23 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 	// carrySendBackFeedback appends a note per call, and the pending-note queue is what carries
 	// it into every retry that follows.
 	carryWalkFeedback(ctx, tc)
+	typed := workflow.GetVersion(ctx, changeFailureCause, workflow.DefaultVersion, 1) >= 1
 	var deferred []routedSignal
-	for attempt := 0; ; attempt++ {
+	// dispatches numbers every dispatch; attempt counts only those the work is to blame for, and is
+	// what the budget and the Engine's AttemptCount read. A host fault is a dispatch and no attempt:
+	// the walk waits (holdHostFault) and dispatches again, and a streak of them that outlives
+	// hostFaultWindow goes to the operator instead.
+	dispatches, attempt := 0, 0
+	streak := hostFaultStreak{wait: hostFaultBackoffStart}
+	for {
 		if attempt >= maxVarianceAttempts {
 			// Terminal: the supervision budget is spent. failVarianceExhausted's own record.
 			return wf.constructionGaveUp(ctx, tc, deferred,
 				projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted,
 				"construction supervision exceeded max attempts")
 		}
-		tc.State.attempt = attempt + 1
+		dispatches++
+		tc.State.attempt = dispatches
 		attemptID, obs, err := wf.dispatchConstructionOnce(ctx, tc)
 		if err != nil {
 			// A REJECTED DISPATCH fails the walk, and that is the retired rail's behaviour too:
@@ -1239,7 +1247,13 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 				Detail: "dispatched " + tc.Task.Command + " for " + tc.Phase.ID,
 			}, nil
 		}
-		verdict, held, verr := wf.runTaskVariance(ctx, tc, obs, attempt, deferred)
+		verdict, held, waited, spent, verr := wf.judgeFailedDispatch(ctx, tc, obs, attempt, dispatches, deferred, typed, &streak)
+		if waited {
+			continue // a host fault, waited out: dispatch again
+		}
+		if spent {
+			attempt++
+		}
 		deferred = held
 		switch {
 		case verr != nil:
@@ -1318,6 +1332,9 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 	}
 	unlock()
 	obs = wf.judgePlanDefectReport(ctx, tc, attemptID, obs)
+	if workflow.GetVersion(ctx, changeFailureCause, workflow.DefaultVersion, 1) >= 1 {
+		obs = wf.settleFailureCause(ctx, tc, attemptID, obs)
+	}
 	// A scaffold-sync refusal dispatched NOTHING, so there is no episode to capture and no run
 	// to observe — but the attempt still resolves, as a failure, because an attempt left pending
 	// is indistinguishable from a run that died.
@@ -1326,6 +1343,114 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 		return attemptID, obs, rerr
 	}
 	return attemptID, obs, nil
+}
+
+// judgeFailedDispatch is what the construction loop does with a dispatch that did not succeed. A host
+// fault (when causes are typed) is waited out and spends nothing (waited); anything else goes to the
+// variance machinery, and spent says a redispatch it chose is an attempt the work is to blame for.
+func (wf *csWorkflows) judgeFailedDispatch(
+	ctx workflow.Context, tc taskContext, obs csPipelineObservation, attempt, dispatches int,
+	deferred []routedSignal, typed bool, streak *hostFaultStreak,
+) (verdict varianceVerdict, held []routedSignal, waited, spent bool, err error) {
+	if typed && faultClassOf(obs.Cause) == agenticjob.FaultHost && !obs.RefreshRefused {
+		var escalated bool
+		verdict, held, escalated, err = wf.holdHostFault(ctx, tc, obs, dispatches, deferred, streak)
+		return verdict, held, !escalated && err == nil, false, err
+	}
+	streak.reset()
+	verdict, held, err = wf.runTaskVariance(ctx, tc, obs, attempt, deferred)
+	return verdict, held, false, verdict == varianceRedispatch && err == nil, err
+}
+
+// hostFaultStreak is the run of consecutive host faults the construction loop is waiting out: when the
+// first of them was seen, and how long to wait before the next dispatch.
+type hostFaultStreak struct {
+	since time.Time
+	wait  time.Duration
+}
+
+// reset ends the streak: the next host fault starts a new one.
+func (h *hostFaultStreak) reset() { *h = hostFaultStreak{wait: hostFaultBackoffStart} }
+
+// holdHostFault is what the loop does with a dispatch that failed for the host's fault: it asks
+// nobody and spends no attempt. It waits the streak's backoff (doubling, up to hostFaultBackoffMax) and
+// returns with escalated false and no error, for the loop to dispatch again; once the streak has
+// outlived hostFaultWindow it hands the operator the decision instead (escalated true, the verdict the
+// operator's answer reached), and the streak starts over. An error is the wait's own (the workflow was
+// cancelled) or the escalation's.
+func (wf *csWorkflows) holdHostFault(
+	ctx workflow.Context, tc taskContext, obs csPipelineObservation, dispatch int,
+	deferred []routedSignal, streak *hostFaultStreak,
+) (verdict varianceVerdict, held []routedSignal, escalated bool, err error) {
+	detail := dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs)
+	if streak.since.IsZero() {
+		streak.since = workflow.Now(ctx)
+	}
+	if workflow.Now(ctx).Sub(streak.since) > hostFaultWindow {
+		verdict, held, err = wf.escalateTaskVariance(ctx, tc, detail, deferred)
+		streak.reset()
+		return verdict, held, true, err
+	}
+	workflow.GetLogger(ctx).Warn("delivery.construction.hostFault",
+		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "dispatch", dispatch,
+		"wait", streak.wait.String(), "detail", detail)
+	if err := workflow.Sleep(ctx, streak.wait); err != nil {
+		return varianceRedispatch, deferred, false, err
+	}
+	streak.wait = min(streak.wait*2, hostFaultBackoffMax)
+	return varianceRedispatch, deferred, false, nil
+}
+
+// settleFailureCause is what the walk records as an attempt's cause, which is not always what the
+// venue reported:
+//
+//   - a red gate is the RECORDED check run's truth, never the agent's word or the venue's summary
+//     (FIX-054/018): the checks named are the ones the run the venue recorded on the branch for this
+//     attempt holds as not passing, and a gate said to be red with no such run is unknown;
+//   - a red attempt that left the tree and the failures of the attempt before it, having reached the
+//     model, is noProgress.
+func (wf *csWorkflows) settleFailureCause(
+	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation,
+) csPipelineObservation {
+	if obs.Phase == PipelineSucceeded {
+		return obs
+	}
+	if _, ok := obs.Cause.(*agenticjob.GateRed); ok {
+		failed, recorded := wf.gateTruth(ctx, tc, attemptID)
+		if recorded && len(failed) > 0 {
+			obs.Cause, obs.GateFailures = &agenticjob.GateRed{Checks: failed}, failed
+		} else {
+			obs.Cause = &agenticjob.UnknownCause{Detail: "the gate reported red checks but no check run on the branch holds them for attempt " + attemptID}
+		}
+	}
+	if obs.ReachedModel && obs.ProgressFingerprint != "" && len(tc.State.pendingNotes) == 0 &&
+		obs.ProgressFingerprint == tc.State.lastFingerprint[tc.Task.ID] {
+		obs.Cause = &agenticjob.NoProgressCause{Fingerprint: obs.ProgressFingerprint}
+	}
+	return obs
+}
+
+// gateTruth is the checks that did not pass in the CheckRun the venue recorded on the activity branch
+// for this attempt, and whether one was recorded. It is read, never inferred: the branch holds the
+// runner's own results (record-check-run writes them), which the agent that was judged by them could
+// not have written.
+func (wf *csWorkflows) gateTruth(ctx workflow.Context, tc taskContext, attemptID string) (failed []string, recorded bool) {
+	proj, err := wf.readActivityBranchProject(ctx, tc.In)
+	if err != nil {
+		workflow.GetLogger(ctx).Warn("the recorded check run of a red gate could not be read",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "attemptId", attemptID, "err", err.Error())
+		return nil, false
+	}
+	run, ok := selectCheckRun(&proj, string(tc.In.ActivityID), tc.Task.ID, "", []string{attemptID}, true)
+	if !ok {
+		return nil, false
+	}
+	for _, r := range run.Results {
+		if r.Status != "pass" {
+			failed = append(failed, r.CheckId)
+		}
+	}
+	return failed, true
 }
 
 // changeBranchJobMutex versions lockBranchJobs: a new Lock would be a new coroutine block in
@@ -5175,13 +5300,19 @@ func (wf *csWorkflows) observePipeline(ctx workflow.Context, handle pipelineHand
 	if err != nil {
 		return csPipelineObservation{}, err
 	}
-	return csPipelineObservation{
+	out := csPipelineObservation{
 		Phase:               managerPipelinePhase(obs.Phase),
 		Diagnostic:          obs.Diagnostic,
 		RunURL:              obs.RunURL,
 		ProgressFingerprint: derefString(obs.ProgressFingerprint, ""),
 		Episode:             obs.Episode,
-	}, nil
+		ReachedModel:        obs.ReachedModel,
+		GateFailures:        obs.GateFailures,
+	}
+	if obs.Cause != nil {
+		out.Cause = *obs.Cause
+	}
+	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -6132,8 +6263,27 @@ func (wf *csWorkflows) resolveWorkAttempt(
 	// other path, so a refused plan-defect report would otherwise say nothing about why.
 	if rec.Outcome == projectstate.OutcomeFailed {
 		rec.Detail = dispatchJobFailedDetail(jobLabelConstruction, string(task), obs)
+		rec.Cause = attemptCauseOf(obs.Cause)
 	}
 	return wf.recordAttempt(ctx, in, state, headVersion, cred, rec)
+}
+
+// attemptCauseOf is the cause the attempt ledger records for the cause the venue reported: the same
+// sum in the ledger's own package, carried across by its wire envelope (the two packages share no
+// type). Nil for no cause, and for one that does not round-trip, which no venue produces.
+func attemptCauseOf(c agenticjob.FailureCause) *projectstate.FailureCause {
+	if c == nil {
+		return nil
+	}
+	raw, err := agenticjob.MarshalFailureCause(c)
+	if err != nil {
+		return nil
+	}
+	out, err := projectstate.UnmarshalFailureCause(raw)
+	if err != nil || out == nil {
+		return nil
+	}
+	return &out
 }
 
 // appendVerdict lands one reviewer's judgement and the comments it cites in ONE commit.

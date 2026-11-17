@@ -54,6 +54,7 @@ package agenticjob
 // double-run. The hard exit gate TestSubmitIdempotencyConvergence proves it.
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
@@ -164,6 +165,18 @@ type ghActionsClient interface {
 	// cancelRun requests cancellation of runID in the targeted repo. Cancelling an
 	// already-terminal / absent run is success (the seam maps GitHub's 409/404 to nil).
 	cancelRun(ctx context.Context, tgt ghTarget, runID int64) error
+	// listArtifacts lists the artifacts runID uploaded in the targeted repo. An empty result is not
+	// an error (the run uploaded nothing).
+	listArtifacts(ctx context.Context, tgt ghTarget, runID int64) ([]ghArtifact, error)
+	// downloadArtifact streams one artifact's zip; the caller closes it.
+	downloadArtifact(ctx context.Context, tgt ghTarget, artifactID int64) (io.ReadCloser, error)
+}
+
+// ghArtifact is one artifact a run uploaded, as the seam reports it.
+type ghArtifact struct {
+	id      int64
+	name    string
+	expired bool
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +421,176 @@ func (a *access) ObserveAgenticJob(rc fwra.Context, handle PipelineHandle) (Pipe
 	if err != nil {
 		return PipelineObservation{}, err
 	}
-	return observationFrom(handle, run), nil
+	obs := observationFrom(handle, run)
+	if obs.Phase == PhaseFailed {
+		a.classifyRemote(ctx, tgt, runID, run, &obs)
+	}
+	return obs, nil
+}
+
+// The artifact name prefixes the construct workflow uploads (the activity, run and attempt follow):
+// the agent's transcript, and the gate's check results.
+const (
+	executionLogArtifactPrefix = "execution-log-"
+	checkResultsArtifactPrefix = "check-results-"
+	// artifactReadLimit bounds what is read of one artifact: a transcript runs to tens of megabytes
+	// and anything past this is not one.
+	artifactReadLimit = 256 << 20
+)
+
+// classifyRemote says why a terminally failed cloud run failed, from the two artifacts its workflow
+// uploads. The agent's execution log tells whether the model was reached (the same miner as the local
+// stream); the check results name the checks that did not pass. A log that is missing, expired or
+// unreadable is not evidence of anything: the cause is unknown and the model is reported unreached.
+func (a *access) classifyRemote(ctx context.Context, tgt ghTarget, runID int64, run ghRun, obs *PipelineObservation) {
+	cause := a.remoteCause(ctx, tgt, runID, run, obs)
+	obs.Cause, obs.FaultClass = &cause, faultClassFor(cause)
+}
+
+// remoteCause is classifyRemote's judgement; it also sets the observation's ReachedModel and
+// GateFailures, which it learned on the way.
+func (a *access) remoteCause(ctx context.Context, tgt ghTarget, runID int64, run ghRun, obs *PipelineObservation) FailureCause {
+	arts, err := a.client.listArtifacts(ctx, tgt, runID)
+	if err != nil {
+		return &UnknownCause{Detail: "the run's artifacts could not be listed: " + err.Error()}
+	}
+	logArt, checksArt := runArtifacts(arts)
+	if checksArt != nil {
+		if raw, rerr := a.readArtifactFile(ctx, tgt, checksArt.id, "check-results/results.json"); rerr == nil {
+			obs.GateFailures = redCheckIDs(raw)
+		}
+	}
+	if logArt == nil {
+		return &UnknownCause{Detail: "the run uploaded no execution log, so whether the agent reached the model is not known"}
+	}
+	reached, rerr := a.executionLogReachedModel(ctx, tgt, logArt.id)
+	if rerr != nil {
+		return &UnknownCause{Detail: "the run's execution log could not be read: " + rerr.Error()}
+	}
+	obs.ReachedModel = reached
+	switch {
+	case !reached && run.conclusion == "timed_out":
+		return &InfraTimeout{Detail: obs.Diagnostic}
+	case !reached:
+		return &ModelUnreachable{Detail: obs.Diagnostic}
+	case len(obs.GateFailures) > 0:
+		return &GateRed{Checks: slices.Clone(obs.GateFailures)}
+	default:
+		return &AgentGaveUp{Detail: obs.Diagnostic}
+	}
+}
+
+// runArtifacts picks the two artifacts the construct workflow uploads out of a run's: the first
+// unexpired execution log and the first unexpired check results, nil for one the run did not upload.
+func runArtifacts(arts []ghArtifact) (logArt, checksArt *ghArtifact) {
+	for i := range arts {
+		switch {
+		case arts[i].expired:
+		case strings.HasPrefix(arts[i].name, executionLogArtifactPrefix) && logArt == nil:
+			logArt = &arts[i]
+		case strings.HasPrefix(arts[i].name, checkResultsArtifactPrefix) && checksArt == nil:
+			checksArt = &arts[i]
+		}
+	}
+	return logArt, checksArt
+}
+
+// redCheckIDs is the ids of the checks of a results.json that did not pass.
+func redCheckIDs(raw []byte) []string {
+	var results []struct {
+		CheckID string `json:"checkId"`
+		Status  string `json:"status"`
+	}
+	if json.Unmarshal(raw, &results) != nil {
+		return nil
+	}
+	var ids []string
+	for _, r := range results {
+		if r.Status != "pass" {
+			ids = append(ids, r.CheckID)
+		}
+	}
+	return ids
+}
+
+// executionLogReachedModel reads the agent's execution log artifact and says whether the model was
+// reached. claude-code-action writes the transcript as ONE JSON array of events, the local stream as
+// one event per line; both are read.
+func (a *access) executionLogReachedModel(ctx context.Context, tgt ghTarget, artifactID int64) (bool, error) {
+	files, err := a.readArtifact(ctx, tgt, artifactID)
+	if err != nil {
+		return false, err
+	}
+	for _, body := range files {
+		var events []json.RawMessage
+		trimmed := bytes.TrimSpace(body)
+		if len(trimmed) > 0 && trimmed[0] == '[' {
+			if err := json.Unmarshal(trimmed, &events); err != nil {
+				return false, fmt.Errorf("the execution log is not a JSON array of events: %w", err)
+			}
+			var lines bytes.Buffer
+			for _, ev := range events {
+				lines.Write(ev)
+				lines.WriteByte('\n')
+			}
+			body = lines.Bytes()
+		}
+		_, reached, _, perr := parseEpisodeStream(bytes.NewReader(body), "", "", time.Time{}, time.Time{})
+		if perr != nil {
+			return false, perr
+		}
+		if reached {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// readArtifact returns every regular file of one artifact's zip, each bounded by artifactReadLimit.
+func (a *access) readArtifact(ctx context.Context, tgt ghTarget, artifactID int64) (map[string][]byte, error) {
+	rc, err := a.client.downloadArtifact(ctx, tgt, artifactID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	buf, err := io.ReadAll(io.LimitReader(rc, artifactReadLimit))
+	if err != nil {
+		return nil, err
+	}
+	zr, err := zip.NewReader(bytes.NewReader(buf), int64(len(buf)))
+	if err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		fr, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		body, err := io.ReadAll(io.LimitReader(fr, artifactReadLimit))
+		_ = fr.Close()
+		if err != nil {
+			return nil, err
+		}
+		files[f.Name] = body
+	}
+	return files, nil
+}
+
+// readArtifactFile is one named file of an artifact's zip, or an error when it holds none.
+func (a *access) readArtifactFile(ctx context.Context, tgt ghTarget, artifactID int64, name string) ([]byte, error) {
+	files, err := a.readArtifact(ctx, tgt, artifactID)
+	if err != nil {
+		return nil, err
+	}
+	body, ok := files[name]
+	if !ok {
+		return nil, fmt.Errorf("the artifact holds no %s", name)
+	}
+	return body, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -643,6 +825,8 @@ type appClient interface {
 	ListRunsByName(ctx context.Context, owner, repo, workflowFile, runName, instToken string) ([]fwgithub.WorkflowRun, error)
 	GetRun(ctx context.Context, owner, repo string, runID int64, instToken string) (fwgithub.WorkflowRun, error)
 	CancelRun(ctx context.Context, owner, repo string, runID int64, instToken string) error
+	ListArtifacts(ctx context.Context, owner, repo string, runID int64, instToken string) ([]fwgithub.Artifact, error)
+	DownloadArtifact(ctx context.Context, owner, repo string, artifactID int64, instToken string) (io.ReadCloser, error)
 }
 
 // ghActionsRESTClient is the concrete ghActionsClient over the github satellite.
@@ -821,6 +1005,32 @@ func (c *ghActionsRESTClient) cancelRun(ctx context.Context, tgt ghTarget, runID
 	}
 	owner, repo, _ := c.resolveTarget(tgt)
 	return c.app.CancelRun(ctx, owner, repo, runID, tok)
+}
+
+func (c *ghActionsRESTClient) listArtifacts(ctx context.Context, tgt ghTarget, runID int64) ([]ghArtifact, error) {
+	tok, err := c.installationToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	owner, repo, _ := c.resolveTarget(tgt)
+	arts, err := c.app.ListArtifacts(ctx, owner, repo, runID, tok)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ghArtifact, 0, len(arts))
+	for _, a := range arts {
+		out = append(out, ghArtifact{id: a.ID, name: a.Name, expired: a.Expired})
+	}
+	return out, nil
+}
+
+func (c *ghActionsRESTClient) downloadArtifact(ctx context.Context, tgt ghTarget, artifactID int64) (io.ReadCloser, error) {
+	tok, err := c.installationToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	owner, repo, _ := c.resolveTarget(tgt)
+	return c.app.DownloadArtifact(ctx, owner, repo, artifactID, tok)
 }
 
 // toGHRun bridges the satellite's WorkflowRun to the seam's package-internal ghRun.
@@ -1169,8 +1379,17 @@ type localRun struct {
 	mu         sync.Mutex
 	status     localRunStatus
 	diagnostic string
-	// fingerprint is the gated run's progress fingerprint, "" unless its checks went red.
+	// fingerprint is the gated run's progress fingerprint, "" unless its checks went red AND the
+	// run reached the model: a run that never reached it proves nothing about the work, so it can
+	// never compare equal to the attempt before it.
 	fingerprint string
+	// reachedModel is whether the run reached the model (see classifyLocal); a venue job, which
+	// runs no agent, has nothing to reach and reports true. cause and faultClass classify a failed
+	// run, gateFailures name the checks that did not pass; all set with the terminal status.
+	reachedModel bool
+	cause        FailureCause
+	faultClass   FaultClass
+	gateFailures []string
 
 	// traceTruncated records that this run's per-episode trace file is
 	// INCOMPLETE — a write to it failed part-way through (see traceSink), so the
@@ -2189,8 +2408,10 @@ func (a *localExecAccess) gateWithoutAgent(run *localRun, scope completionScope)
 	headSHA, revErr := revParseBranch(a.repoPath, scope.branch)
 	a.gitMu.Unlock()
 	diagnostic := scope.gate.genFailure
+	var verdict gateVerdict
 	if revErr == nil {
-		if why := runGates(scope.gate, scope.workDir, headSHA); why != "" {
+		verdict = runGates(scope.gate, scope.workDir, headSHA)
+		if why := verdict.failure(); why != "" {
 			diagnostic += "; " + why
 		}
 	}
@@ -2198,9 +2419,14 @@ func (a *localExecAccess) gateWithoutAgent(run *localRun, scope completionScope)
 	_ = removeWorktree(a.repoPath, scope.workDir)
 	a.gitMu.Unlock()
 	_ = os.RemoveAll(scope.parentDir)
+	// No agent started, so there is no model to have reached and no host fault to blame: the
+	// scenario tests could not be generated, a failure of the work the run was dispatched to judge.
 	run.mu.Lock()
 	run.status = localRunFailed
 	run.diagnostic = diagnostic
+	run.reachedModel = true
+	run.cause, run.faultClass = &UnknownCause{Detail: diagnostic}, FaultUnknown
+	run.gateFailures = verdict.redChecks
 	run.mu.Unlock()
 }
 
@@ -2222,13 +2448,14 @@ func (a *localExecAccess) runJob(run *localRun, scope completionScope) {
 	headSHA, revErr := revParseBranch(a.repoPath, scope.branch)
 	a.gitMu.Unlock()
 	var failures []string
+	var verdict gateVerdict
 	if scope.gate.genFailure != "" {
 		failures = append(failures, scope.gate.genFailure)
 	}
 	if revErr != nil {
 		failures = append(failures, "the branch could not be read: "+revErr.Error())
-	} else if why := runGates(scope.gate, scope.workDir, headSHA); why != "" {
-		failures = append(failures, why)
+	} else if verdict = runGates(scope.gate, scope.workDir, headSHA); verdict.failure() != "" {
+		failures = append(failures, verdict.failure())
 	}
 	a.gitMu.Lock()
 	_ = removeWorktree(a.repoPath, scope.workDir)
@@ -2237,10 +2464,14 @@ func (a *localExecAccess) runJob(run *localRun, scope completionScope) {
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	run.status, run.diagnostic = localRunSucceeded, ""
+	// A job runs no agent: there is no model to fail to reach, so its failures are the gates' own.
+	run.reachedModel = true
+	run.fingerprint = scope.gate.fingerprint
 	if len(failures) > 0 {
 		run.status, run.diagnostic = localRunFailed, strings.Join(failures, "; ")
+		run.cause, run.faultClass = classifyLocal(localOutcome{reachedModel: true, gate: verdict, detail: run.diagnostic})
+		run.gateFailures = verdict.redChecks
 	}
-	run.fingerprint = scope.gate.fingerprint
 }
 
 // agentBarred reports whether the gate bars the agent from starting (its scenario tests
@@ -2662,14 +2893,33 @@ func (g *localGate) run(timeout time.Duration, dir string, args ...string) gateT
 	return res
 }
 
+// gateVerdict is what the gates found, kept structured so a failed run can be classified
+// (classifyLocal) rather than read back out of a sentence: why they fail the run, whether the
+// edit scope refused paths (and which), and which checks did not pass.
+type gateVerdict struct {
+	// failures are the reasons the gates fail the run, in the order they ran.
+	failures []string
+	// scopeRed is whether the edit-scope gate refused the agent's change; scopePaths are the paths it
+	// named (drift, outside the task's scope, outside every task of the activity).
+	scopeRed   bool
+	scopePaths []string
+	// checksRed is whether the check gate ran to completion with checks that did not pass, and
+	// redChecks their ids.
+	checksRed bool
+	redChecks []string
+}
+
+// failure is why the gates fail the run: every reason, joined, or "" when every gate is green.
+func (v gateVerdict) failure() string { return strings.Join(v.failures, "; ") }
+
 // runGates is steps 5–7 of the local sequence, over the gated branch's tip (headSHA):
 // the edit-scope gate, the check gate over exactly what the branch holds, and the
-// CheckRun record (evidence red or green, committed onto that branch). It returns why the
-// gates fail the run — the edit scope, then the FIRST check that did not pass — or ""
-// when every gate is green. Each gate runs whatever the one before it found, as the
+// CheckRun record (evidence red or green, committed onto that branch). Its verdict says why the
+// gates fail the run — the edit scope, then every check that did not pass — and is empty when
+// every gate is green. Each gate runs whatever the one before it found, as the
 // templates' always() steps do.
-func runGates(g *localGate, workDir, headSHA string) string {
-	var failures []string
+func runGates(g *localGate, workDir, headSHA string) gateVerdict {
+	var v gateVerdict
 	scope := []string{"edit-scope", "--spec", g.specPath, "--base", g.baseSHA, "--head", headSHA}
 	if g.mainSHA != "" {
 		scope = append(scope, "--main", g.mainSHA)
@@ -2679,36 +2929,63 @@ func runGates(g *localGate, workDir, headSHA string) string {
 	switch res := g.run(gateStepTimeout, workDir, scope...); res.code {
 	case 0:
 	case 1:
-		failures = append(failures, "the edit scope gate failed: "+res.detail())
+		v.failures = append(v.failures, "the edit scope gate failed: "+res.detail())
+		v.scopeRed, v.scopePaths = true, editScopePaths(res.stderr)
 	default:
-		failures = append(failures, "the edit scope gate could not run: "+res.detail())
+		v.failures = append(v.failures, "the edit scope gate could not run: "+res.detail())
 	}
 
 	// The check gate judges exactly what the gated branch holds: the worktree back on that
 	// branch — whatever the agent left checked out — with nothing the agent left
 	// uncommitted, and no stale results from the agent's own run_checks calls.
 	if err := resetToBranchTip(workDir, g.branch); err != nil {
-		return strings.Join(append(failures, "the checks could not run: "+err.Error()), "; ")
+		v.failures = append(v.failures, "the checks could not run: "+err.Error())
+		return v
 	}
 	for _, dir := range []string{testResultsDir, checkResultsDir} {
 		if err := os.RemoveAll(filepath.Join(workDir, dir)); err != nil {
-			return strings.Join(append(failures, "the checks could not run: "+err.Error()), "; ")
+			v.failures = append(v.failures, "the checks could not run: "+err.Error())
+			return v
 		}
 	}
 	res := g.run(checkGateTimeout, workDir, "run-checks", "--gate", "--spec", g.specPath, "--out", checkResultsDir)
 	switch res.code {
 	case 0:
 	case 1:
-		failures = append(failures, failingChecks(workDir, res))
+		why, red := failingChecks(workDir, res)
+		v.failures = append(v.failures, why)
+		v.checksRed, v.redChecks = true, red
 		g.fingerprint = progressFingerprint(g, workDir, headSHA)
 	default:
 		// An internal error (or a killed run) leaves no results to record.
-		return strings.Join(append(failures, "the checks could not run: "+res.detail()), "; ")
+		v.failures = append(v.failures, "the checks could not run: "+res.detail())
+		return v
 	}
 	if why := recordCheckRun(g, workDir); why != "" {
-		failures = append(failures, why)
+		v.failures = append(v.failures, why)
 	}
-	return strings.Join(failures, "; ")
+	return v
+}
+
+// editScopePaths reads the paths the edit-scope gate named off its stderr: every message lists
+// its paths one per line, indented two spaces, quoted when a path holds a space or a
+// non-printing character (displayPath). A path the gate quoted is unquoted; a line that is not a
+// path list entry is not read.
+func editScopePaths(stderr string) []string {
+	var paths []string
+	for line := range strings.Lines(stderr) {
+		rest, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), "  ")
+		if !ok || strings.TrimSpace(rest) == "" || strings.HasPrefix(rest, " ") {
+			continue
+		}
+		if strings.HasPrefix(rest, `"`) {
+			if p, err := strconv.Unquote(rest); err == nil {
+				rest = p
+			}
+		}
+		paths = append(paths, rest)
+	}
+	return paths
 }
 
 // resetToBranchTip points the worktree's HEAD at branch — the gated branch, by name, as
@@ -2731,8 +3008,8 @@ func resetToBranchTip(workDir, branch string) error {
 }
 
 // failingChecks names every check in run-checks' results that did not pass: the red run's
-// reason. Naming only the first would hide what changed between two attempts.
-func failingChecks(workDir string, res gateToolResult) string {
+// reason, and the ids alone. Naming only the first would hide what changed between two attempts.
+func failingChecks(workDir string, res gateToolResult) (string, []string) {
 	raw, err := readFileInDir(filepath.Join(workDir, checkResultsDir), "results.json")
 	if err == nil {
 		var results []struct {
@@ -2740,23 +3017,24 @@ func failingChecks(workDir string, res gateToolResult) string {
 			Status  string `json:"status"`
 		}
 		if json.Unmarshal(raw, &results) == nil {
-			var red []string
+			var red, ids []string
 			for _, r := range results {
 				if r.Status != "pass" {
 					red = append(red, r.CheckID+" ("+r.Status+")")
+					ids = append(ids, r.CheckID)
 				}
 			}
 			switch len(red) {
 			case 0:
 			case 1:
 				id, status, _ := strings.Cut(red[0], " ")
-				return "check " + id + " did not pass " + status
+				return "check " + id + " did not pass " + status, ids
 			default:
-				return "checks did not pass: " + strings.Join(red, ", ")
+				return "checks did not pass: " + strings.Join(red, ", "), ids
 			}
 		}
 	}
-	return "the checks did not pass: " + res.detail()
+	return "the checks did not pass: " + res.detail(), nil
 }
 
 // progressFingerprint says what this red attempt amounted to: the tree it left (excluding the
@@ -3292,6 +3570,10 @@ func closeEpisodeTrace(traceFile traceWriteCloser, tracePath string) {
 // observation — which never had access to a run-record field anyway.
 // ---------------------------------------------------------------------------
 
+// syntheticModel is the model name the CLI writes on an assistant event it fabricated itself (an
+// API error, a refusal to start): there is no model behind it.
+const syntheticModel = "<synthetic>"
+
 // episodeStreamMaxLineBytes bounds ONE stream-json event line. A single tool
 // result can be large, so a 64KB limit is far too small; 1MB spans every event
 // shape observed while still refusing to buffer a pathological line into memory
@@ -3383,9 +3665,11 @@ type streamEvent struct {
 // READ fault; the summary accumulated up to that point is still returned
 // alongside it, and reads as a gap.
 //
-// Returns (summary, gapReason, err). gapReason is non-empty exactly when the
-// outcome is a gap, and explains what is missing.
-func parseEpisodeStream(r io.Reader, episodeID, tracePath string, started, ended time.Time) (EpisodeSummary, string, error) {
+// Returns (summary, reachedModel, gapReason, err). gapReason is non-empty exactly when the
+// outcome is a gap, and explains what is missing. reachedModel is whether the stream holds an
+// assistant turn from a real model (not the synthetic stand-in the CLI writes for a request it
+// could not make) with output tokens: the one fact that says the work was judged by a model at all.
+func parseEpisodeStream(r io.Reader, episodeID, tracePath string, started, ended time.Time) (EpisodeSummary, bool, string, error) {
 	sum := EpisodeSummary{EpisodeID: episodeID, StartedAt: started, EndedAt: ended}
 	if tracePath != "" {
 		p := tracePath
@@ -3419,10 +3703,10 @@ func parseEpisodeStream(r io.Reader, episodeID, tracePath string, started, ended
 		if scanErr != nil {
 			reason += "; reading it stopped early: " + scanErr.Error()
 		}
-		return sum, reason, scanErr
+		return sum, acc.reachedModel, reason, scanErr
 	}
 	applyTerminalEvent(&sum, *acc.terminal)
-	return sum, "", scanErr
+	return sum, acc.reachedModel, "", scanErr
 }
 
 // scanEpisodeLines calls fn for every complete line in r, SKIPPING any line
@@ -3504,6 +3788,9 @@ type episodeAccumulator struct {
 	terminal        *streamEvent
 	initModel       string
 	assistantModel  string
+	// reachedModel is whether any assistant event came from a real model and produced output
+	// tokens (see parseEpisodeStream).
+	reachedModel bool
 }
 
 func newEpisodeAccumulator() *episodeAccumulator {
@@ -3578,6 +3865,9 @@ func (acc *episodeAccumulator) extendSpan(toolUseID string, at time.Time) {
 func (acc *episodeAccumulator) observeAssistant(ev streamEvent) {
 	if acc.assistantModel == "" {
 		acc.assistantModel = ev.Message.Model
+	}
+	if m := ev.Message.Model; m != "" && m != syntheticModel && ev.Message.Usage != nil && ev.Message.Usage.OutputTokens > 0 {
+		acc.reachedModel = true
 	}
 	if u := ev.Message.Usage; u != nil {
 		acc.sawStreamedTurn = true
@@ -3721,11 +4011,11 @@ const episodeTraceTruncatedGapNote = "the per-episode trace is INCOMPLETE, writi
 // artifact is missing an unknown suffix. It is folded into the gap reason and
 // does NOT change the outcome — a truncated trace that still contains its
 // terminal result event told us how the episode ended.
-func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt time.Time, truncation error) *EpisodeSummary {
+func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt time.Time, truncation error) (*EpisodeSummary, bool) {
 	if run.episodeID == "" {
-		return nil // not an agentic episode (the merge job) — nothing to summarise
+		return nil, false // not an agentic episode (the merge job) — nothing to summarise
 	}
-	sum, gapReason := a.readEpisodeTrace(run, tracePath, endedAt)
+	sum, reached, gapReason := a.readEpisodeTrace(run, tracePath, endedAt)
 	if truncation != nil {
 		gapReason = strings.TrimSpace(gapReason + " " + episodeTraceTruncatedGapNote + truncation.Error())
 	}
@@ -3733,11 +4023,11 @@ func (a *localExecAccess) mineEpisode(run *localRun, tracePath string, endedAt t
 		slog.Warn("localexec: the episode summary is incomplete",
 			"episodeId", run.episodeID, "tracePath", tracePath, "reason", gapReason)
 	}
-	return &sum
+	return &sum, reached
 }
 
 // readEpisodeTrace is mineEpisode's IO half: open, parse, or degrade to a gap.
-func (a *localExecAccess) readEpisodeTrace(run *localRun, tracePath string, endedAt time.Time) (EpisodeSummary, string) {
+func (a *localExecAccess) readEpisodeTrace(run *localRun, tracePath string, endedAt time.Time) (EpisodeSummary, bool, string) {
 	f, err := openInDir(episodeTracesDir(a.repoPath), run.episodeID+".jsonl")
 	if err != nil {
 		return EpisodeSummary{
@@ -3745,14 +4035,14 @@ func (a *localExecAccess) readEpisodeTrace(run *localRun, tracePath string, ende
 			StartedAt: run.startedAt,
 			EndedAt:   endedAt,
 			Outcome:   EpisodeGap,
-		}, "the per-episode trace could not be reopened: " + err.Error()
+		}, false, "the per-episode trace could not be reopened: " + err.Error()
 	}
 	defer func() { _ = f.Close() }()
-	sum, gapReason, err := parseEpisodeStream(f, run.episodeID, tracePath, run.startedAt, endedAt)
+	sum, reached, gapReason, err := parseEpisodeStream(f, run.episodeID, tracePath, run.startedAt, endedAt)
 	if err != nil && gapReason == "" {
 		gapReason = "the per-episode trace could not be read in full: " + err.Error()
 	}
-	return sum, gapReason
+	return sum, reached, gapReason
 }
 
 // orphanedTraceEpisode recovers what can be recovered for a RESTART-LOST run:
@@ -3778,7 +4068,7 @@ func (a *localExecAccess) orphanedTraceEpisode(token string) *EpisodeSummary {
 	defer func() { _ = f.Close() }()
 	// Zero bounds: nothing dates this run any more, so the stream's own first/last
 	// event timestamps are the only honest interval available.
-	sum, gapReason, err := parseEpisodeStream(f, token, path, time.Time{}, time.Time{})
+	sum, _, gapReason, err := parseEpisodeStream(f, token, path, time.Time{}, time.Time{})
 	if err != nil {
 		slog.Warn("localexec: could not fully read the orphaned trace of a restart-lost run",
 			"episodeId", token, "tracePath", path, "cause", err.Error())
@@ -3828,7 +4118,7 @@ func (a *localExecAccess) awaitCompletion(
 	// ObserveAgenticJob poll never waits on IO. The summary is published below on
 	// whichever completion path this run turns out to be on.
 	endedAt := time.Now().UTC()
-	episode := a.mineEpisode(run, tracePath, endedAt, traceTruncation)
+	episode, reachedModel := a.mineEpisode(run, tracePath, endedAt, traceTruncation)
 
 	a.gitMu.Lock()
 	afterSHA, revErr := revParseBranch(a.repoPath, branch)
@@ -3839,10 +4129,11 @@ func (a *localExecAccess) awaitCompletion(
 	// left, and BEFORE the worktree comes down. afterSHA stays the AGENT's tip: the
 	// ref-advanced check below judges what the agent committed, not the record commit
 	// the gates add on top of it.
-	var gateFailure string
+	var verdict gateVerdict
 	if scope.gate != nil && revErr == nil {
-		gateFailure = runGates(scope.gate, workDir, afterSHA)
+		verdict = runGates(scope.gate, workDir, afterSHA)
 	}
+	gateFailure := verdict.failure()
 
 	a.gitMu.Lock()
 	removeErr := removeWorktree(a.repoPath, workDir)
@@ -3861,6 +4152,7 @@ func (a *localExecAccess) awaitCompletion(
 
 	timedOut := waitErr != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	status, diagnostic, stderrShown := localRunOutcome(waitErr, revErr, removeErr, timedOut, beforeSHA, afterSHA, stderr.String())
+	agentFailed := status == localRunFailed
 	switch {
 	case gateFailure == "":
 	case status == localRunSucceeded:
@@ -3901,8 +4193,18 @@ func (a *localExecAccess) awaitCompletion(
 	run.status = status
 	run.diagnostic = diagnostic
 	run.episode = episode
-	if scope.gate != nil {
+	run.reachedModel = reachedModel
+	// A run that never reached the model proves nothing about the work, so its red checks must not
+	// make two attempts look alike (FIX-065: a network outage was counted as no progress).
+	if scope.gate != nil && reachedModel {
 		run.fingerprint = scope.gate.fingerprint
+	}
+	if status == localRunFailed {
+		run.cause, run.faultClass = classifyLocal(localOutcome{
+			timedOut: timedOut, reachedModel: reachedModel, agentFailed: agentFailed,
+			stderr: stderr.String(), detail: diagnostic, gate: verdict,
+		})
+		run.gateFailures = verdict.redChecks
 	}
 	run.mu.Unlock()
 }
@@ -4002,26 +4304,166 @@ func (a *localExecAccess) ObserveAgenticJob(_ fwra.Context, handle PipelineHandl
 		// failure. On this path localRunLostDiagnostic IS the gap's explanation —
 		// EpisodeSummary carries no reason field, and the observation already has
 		// one place to say why.
+		var cause FailureCause = &RunnerLost{Detail: localRunLostDiagnostic}
 		return PipelineObservation{
 			Handle:     handle,
 			Phase:      PhaseFailed,
 			Diagnostic: localRunLostDiagnostic,
 			Episode:    a.orphanedTraceEpisode(token),
+			Cause:      &cause,
+			FaultClass: faultClassFor(cause),
 		}, nil
 	}
 
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	obs := PipelineObservation{Handle: run.handle, Phase: localPhase(run.status)}
+	if run.status == localRunSucceeded || run.status == localRunFailed {
+		obs.ReachedModel = run.reachedModel
+	}
 	if run.status == localRunFailed {
 		obs.Diagnostic = run.diagnostic
 		obs.FailedStep = run.agentStep
 		if run.fingerprint != "" {
 			obs.ProgressFingerprint = &run.fingerprint
 		}
+		// A failure no classification named (a refused dispatch, a merge or refresh job) is unknown,
+		// never silently a host fault.
+		cause, class := run.cause, run.faultClass
+		if cause == nil {
+			cause, class = &UnknownCause{Detail: run.diagnostic}, FaultUnknown
+		}
+		obs.Cause, obs.FaultClass = &cause, class
+		obs.GateFailures = slices.Clone(run.gateFailures)
 	}
 	obs.Episode = copyEpisodeSummary(run.episode)
 	return obs, nil
+}
+
+// localOutcome is what classifyLocal reads of one finished local run.
+type localOutcome struct {
+	// timedOut is whether the run hit its time limit.
+	timedOut bool
+	// reachedModel is whether the run reached the model (a venue job, which runs no agent, reports
+	// true: there is nothing to reach).
+	reachedModel bool
+	// agentFailed is whether the agent itself failed: it exited non-zero, committed nothing, or its
+	// work could not be verified.
+	agentFailed bool
+	// stderr is the agent process's stderr and detail the run's diagnostic.
+	stderr, detail string
+	// gate is what the gates found.
+	gate gateVerdict
+}
+
+// classifyLocal says why a failed local run failed, and whose fault it is. The model not having been
+// reached comes first, and is the venue's: nothing the agent or the gates then said is evidence
+// about the work.
+//
+//	timed out, model unreached            infraTimeout     host
+//	model unreached, 429 / rate limit     rateLimited      host
+//	model unreached                       modelUnreachable host
+//	edit-scope gate red                   toolRefusedByPolicy{paths}  agent
+//	checks red                            gateRed{checks}  gate
+//	agent exit non-zero or no commits     agentGaveUp      agent
+//	anything else                         unknown
+//
+// (A lost run, whose record the server no longer holds, is runnerLost and never reaches here.)
+func classifyLocal(o localOutcome) (FailureCause, FaultClass) {
+	var cause FailureCause
+	switch {
+	case !o.reachedModel && o.timedOut:
+		cause = &InfraTimeout{Detail: o.detail}
+	case !o.reachedModel && rateLimitedText(o.stderr, o.detail):
+		cause = &RateLimited{Detail: o.detail}
+	case !o.reachedModel:
+		cause = &ModelUnreachable{Detail: o.detail}
+	case o.gate.scopeRed:
+		cause = &ToolRefusedByPolicy{Paths: slices.Clone(o.gate.scopePaths)}
+	case o.gate.checksRed:
+		cause = &GateRed{Checks: slices.Clone(o.gate.redChecks)}
+	case o.agentFailed:
+		cause = &AgentGaveUp{Detail: o.detail}
+	default:
+		cause = &UnknownCause{Detail: o.detail}
+	}
+	return cause, faultClassFor(cause)
+}
+
+// rateLimitedText is whether the run's own output says the model refused it for rate or quota.
+func rateLimitedText(texts ...string) bool {
+	for _, t := range texts {
+		t = strings.ToLower(t)
+		if strings.Contains(t, "429") || strings.Contains(t, "rate limit") || strings.Contains(t, "rate_limit") ||
+			strings.Contains(t, "rate-limit") || strings.Contains(t, "overloaded") {
+			return true
+		}
+	}
+	return false
+}
+
+// faultClassFor is whose fault a failure is, by its cause: the host's (the model was never reached),
+// the agent's (it was, and the agent did not deliver), the gate's (the checks are red) or nobody
+// known. A switch over a sealed sum, exhaustive by the lint.
+func faultClassFor(cause FailureCause) FaultClass {
+	switch cause.(type) {
+	case *ModelUnreachable, *RateLimited, *RunnerLost, *InfraTimeout:
+		return FaultHost
+	case *AgentGaveUp, *NoProgressCause, *ToolRefusedByPolicy:
+		return FaultAgent
+	case *GateRed:
+		return FaultGate
+	case *UnknownCause:
+		return FaultUnknown
+	case nil:
+		return FaultUnknown
+	}
+	return FaultUnknown
+}
+
+// observationWire is PipelineObservation's wire form: the cause is the sum's own
+// {"kind","model"} envelope, which the plain struct tags cannot write.
+type observationWire struct {
+	pipelineObservationFields
+	Cause json.RawMessage `json:"Cause,omitempty"`
+}
+
+// pipelineObservationFields is PipelineObservation without its sum-typed member.
+type pipelineObservationFields PipelineObservation
+
+// MarshalJSON writes the observation with its cause as the sum's envelope, so the observation
+// survives the Temporal boundary (a plain interface would decode into nothing).
+func (o PipelineObservation) MarshalJSON() ([]byte, error) {
+	w := observationWire{pipelineObservationFields: pipelineObservationFields(o)}
+	w.pipelineObservationFields.Cause = nil
+	if o.Cause != nil && *o.Cause != nil {
+		raw, err := MarshalFailureCause(*o.Cause)
+		if err != nil {
+			return nil, err
+		}
+		w.Cause = raw
+	}
+	return json.Marshal(w)
+}
+
+// UnmarshalJSON reads what MarshalJSON wrote; an unknown cause kind is refused.
+func (o *PipelineObservation) UnmarshalJSON(data []byte) error {
+	var w observationWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	*o = PipelineObservation(w.pipelineObservationFields)
+	o.Cause = nil
+	if len(w.Cause) > 0 {
+		cause, err := UnmarshalFailureCause(w.Cause)
+		if err != nil {
+			return err
+		}
+		if cause != nil {
+			o.Cause = &cause
+		}
+	}
+	return nil
 }
 
 // localPhase maps the in-memory run status onto the port's PipelinePhase.
