@@ -902,17 +902,20 @@ func sameScope(a, b review.SpecEditScope) bool {
 		})
 }
 
-// The null-subject run is one `go test` per scenario and one per stimulus operation, so its budget
-// is the module's run count times a per-run allowance, never a constant (a todomvc-sized module
-// outlasted the flat 900 s cap of a scenario check). A client's runs launch the composed app each
-// (a devstack boot per `go test`, or per web scenario), so each adds the boot allowance too.
+// The null-subject run is one `go test` process per Go package and phase (testgen's generated
+// TestDiscriminate runs a package's runs as subtests, D13), so its budget is each Go package's
+// process allowance plus its runs times the in-process allowance, never a constant (a todomvc-sized
+// module outlasted the flat 900 s cap of a scenario check). A machine client's runs launch the
+// composed app each (a devstack boot per run), and a web scenario is still one scenario-host run per
+// scenario, so those add the boot allowance (and, for a web run, the whole per-process allowance).
 func TestDiscriminateBudgetScalesWithTheModulesRuns(t *testing.T) {
 	p := ownProject(t)
 	spec, err := deriveSpecErr(p, "C-agentic-job-access", "integration")
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs, clientRuns := 0, 0
+	pkgRuns := map[string]int{} // Go package -> runs batched into it (a client's are counted apart)
+	runs, clientRuns, webRuns := 0, 0, 0
 	for key, c := range p.ServiceContracts {
 		layer := c.Layer
 		if layer == "" {
@@ -922,22 +925,41 @@ func TestDiscriminateBudgetScalesWithTheModulesRuns(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		n := 0
 		for _, s := range scs {
-			runs += 1 + len(s.Stimuli)
-			if strings.EqualFold(layer, "client") {
-				clientRuns += 1 + len(s.Stimuli)
-			}
+			n += 1 + len(s.Stimuli)
+		}
+		runs += n
+		switch client := strings.EqualFold(layer, "client"); {
+		case client && c.GoPackage == "":
+			webRuns += n
+		case client:
+			clientRuns += n
+			pkgRuns[c.GoPackage] += 0 // the package still costs its process
+		default:
+			pkgRuns[c.GoPackage] += n
 		}
 	}
 	if runs < 100 {
 		t.Fatalf("the own project has %d discriminate runs; the test needs a module big enough to outgrow the flat budget", runs)
 	}
-	if clientRuns == 0 {
+	if clientRuns+webRuns == 0 {
 		t.Fatal("the own project has no client scenario runs; the test needs one to hold the boot allowance")
 	}
+	want := clientRuns*(projectstate.DiscriminateInProcessRunSec+projectstate.DevstackBootSec) +
+		webRuns*(projectstate.DiscriminateRunTimeoutSec+projectstate.DevstackBootSec)
+	for pkg, n := range pkgRuns {
+		if pkg != "" {
+			want += projectstate.DiscriminatePackageSec + n*projectstate.DiscriminateInProcessRunSec
+		}
+	}
 	got := checkByID(t, spec, "command:test-discriminate").TimeoutSec
-	if want := runs*projectstate.DiscriminateRunTimeoutSec + clientRuns*projectstate.DevstackBootSec; got < want {
-		t.Errorf("test-discriminate budget = %ds, want at least %d runs x %ds + %d client runs x %ds boot = %ds",
-			got, runs, projectstate.DiscriminateRunTimeoutSec, clientRuns, projectstate.DevstackBootSec, want)
+	if got < want {
+		t.Errorf("test-discriminate budget = %ds, want at least %ds (per-package process + in-process runs + client boots)", got, want)
+	}
+	// The speed-up is the point: one process per package, not one per run, so the budget is no
+	// longer the per-process one (runs x DiscriminateRunTimeoutSec + client boots).
+	if perProcess := runs*projectstate.DiscriminateRunTimeoutSec + (clientRuns+webRuns)*projectstate.DevstackBootSec; got >= perProcess {
+		t.Errorf("test-discriminate budget = %ds, not below the one-process-per-run budget of %ds", got, perProcess)
 	}
 }

@@ -12861,13 +12861,25 @@ const (
 const anyPath = "**"
 
 // The allowances the null-subject run's budget is made of, in seconds (the review Engine derives
-// each check's timeout from the same two).
+// each check's timeout from the same four).
 const (
-	// DiscriminateRunTimeoutSec is the allowance of one `go test` run inside testgen's
-	// -discriminate: the real subject once per scenario, then once per stimulus operation with
-	// that operation nulled. A run builds the scenario's package and boots its substrate (about
-	// 5 s on a developer machine); the allowance is three times that, for a slower runner.
+	// DiscriminateRunTimeoutSec is the allowance of one scenario-host run of a WEB scenario inside
+	// testgen's -discriminate (`go tool webscenarios`, one process per run: the real subject once
+	// per scenario, then once per stimulus operation with that operation nulled). A run boots its
+	// substrate (about 5 s on a developer machine); the allowance is three times that, for a
+	// slower runner. A Go scenario's runs are not separate processes: they are subtests of one
+	// `go test` per package and phase (DiscriminatePackageSec, DiscriminateInProcessRunSec).
 	DiscriminateRunTimeoutSec = 15
+
+	// DiscriminateInProcessRunSec is the allowance of one Go scenario run as a subtest of its
+	// package's generated TestDiscriminate: the scenario's own work, about 5 s on a developer
+	// machine, with the package build and the substrate boot paid once per process.
+	DiscriminateInProcessRunSec = 5
+
+	// DiscriminatePackageSec is the allowance of one Go package's `go test` processes in the
+	// null-subject run (the baselines, then the nulled runs): the package build-and-link and
+	// the scenario host's boot, twice, and the retry of a host that did not come up.
+	DiscriminatePackageSec = 30
 
 	// DevstackBootSec is the allowance of one boot of the composed app through its run contract,
 	// on top of a run's own: every client scenario of the null-subject run launches the app (a

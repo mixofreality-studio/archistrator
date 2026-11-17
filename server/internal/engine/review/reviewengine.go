@@ -579,11 +579,15 @@ const (
 	lintCheckTimeoutSec     = 600
 	scenarioCheckTimeoutSec = 900
 	smokeCheckTimeoutSec    = 900
-	// discriminateRunTimeoutSec is the allowance of one `go test` run inside testgen's
-	// -discriminate; devstackBootSec the allowance of one boot of the composed app on top of it
-	// for a client's runs (projectstate.DiscriminateRunTimeoutSec / DevstackBootSec).
-	discriminateRunTimeoutSec = 15
-	devstackBootSec           = 120
+	// The null-subject run's allowances (projectstate.Discriminate*Sec / DevstackBootSec):
+	// discriminateRunTimeoutSec is one web scenario's scenario-host run; a Go package's runs are
+	// subtests of one `go test` per phase, so a package costs discriminatePackageSec and each of
+	// its runs discriminateInProcessRunSec; devstackBootSec is one boot of the composed app on top
+	// of a client's run.
+	discriminateRunTimeoutSec   = 15
+	discriminateInProcessRunSec = 5
+	discriminatePackageSec      = 30
+	devstackBootSec             = 120
 
 	// reviewCommittedStatus is the committed value of a slot's review status.
 	reviewCommittedStatus = 2
@@ -1695,24 +1699,37 @@ func webScenariosArgv(moduleDir, contract string, selection ...string) []string 
 
 // discriminateTimeoutSec is the budget of the null-subject run. testgen's -discriminate runs every
 // scenario of the module once on its real subject and once per stimulus operation with that
-// operation nulled, each a separate `go test` (or, for a web scenario, a scenario-host run), so the
-// budget is that run count times discriminateRunTimeoutSec, never less than a scenario check's. A
-// client's runs launch the composed app and null the Manager operation a call reaches in it, so
-// each adds one devstackBootSec.
+// operation nulled. A Go scenario's runs are subtests of one `go test` process per package and
+// phase, so each Go package costs discriminatePackageSec and each of its runs
+// discriminateInProcessRunSec; a machine client's run also launches the composed app and nulls the
+// Manager operation a call reaches in it, so it adds one devstackBootSec; a web scenario's run is
+// still one scenario-host process (discriminateRunTimeoutSec plus a boot). Never less than a
+// scenario check's.
 func (tp *taskProject) discriminateTimeoutSec() int {
 	all, err := tp.derive()
 	if err != nil {
 		return scenarioCheckTimeoutSec
 	}
+	pkgRuns := map[string]int{} // Go package -> runs it holds, before a client's boot allowance
 	budget := 0
-	for key := range tp.doc.ServiceContracts {
-		perRun := discriminateRunTimeoutSec
-		if strings.EqualFold(tp.contractLayer(key), "client") {
-			perRun += devstackBootSec
+	for key, sc := range tp.doc.ServiceContracts {
+		runs := 0
+		for _, s := range scenario.ForComponent(all, key) {
+			runs += 1 + len(s.Stimuli)
 		}
-		for _, sc := range scenario.ForComponent(all, key) {
-			budget += (1 + len(sc.Stimuli)) * perRun
+		client := strings.EqualFold(tp.contractLayer(key), "client")
+		switch {
+		case client && sc.GoPackage == "": // a web scenario: one scenario-host process per run
+			budget += runs * (discriminateRunTimeoutSec + devstackBootSec)
+		case client: // a machine client: in-process runs, each launching the app
+			pkgRuns[sc.GoPackage] += runs
+			budget += runs * devstackBootSec
+		case sc.GoPackage != "":
+			pkgRuns[sc.GoPackage] += runs
 		}
+	}
+	for _, runs := range pkgRuns {
+		budget += discriminatePackageSec + runs*discriminateInProcessRunSec
 	}
 	return max(scenarioCheckTimeoutSec, budget)
 }

@@ -1054,6 +1054,8 @@ var encapsulationAllowlistData = map[string][]string{
 		// The per-run allowance the null-subject check's budget is derived from; the
 		// internal taskspec test holds the derived budget to it.
 		"DiscriminateRunTimeoutSec",
+		"DiscriminateInProcessRunSec",
+		"DiscriminatePackageSec",
 		"DevstackBootSec",
 		"CheckKindRule",
 		"CheckKindCommand",
