@@ -1,6 +1,7 @@
 package internal_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,7 +31,9 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	messagebusfake "github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus/fake"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 )
 
 // The server rail's Tier 1 admission (FPC Task 6.3), end to end. The REAL delivery Manager's worker
@@ -228,6 +231,41 @@ func TestTier1AdmissionRail_LocalProblemRefusesTheDraftBeforeStaging(t *testing.
 	}
 }
 
+// A workflow that recorded Tier 1 admission before the local activity existed carries no
+// admission-local-activity marker, and on replay GetVersion answers DefaultVersion for it: the
+// admission stays in the body, as in its recorded history (that call left no command, so a local
+// activity scheduled there would be a non-determinism error). The repo holds no recorded-history
+// fixture of a delivery walk, so the old arm is pinned the way the SDK's test environment allows:
+// by answering the marker's GetVersion with DefaultVersion. The outcome is the same refusal.
+func TestTier1AdmissionRail_ARecordedHistoryWithoutTheMarkerKeepsTheCallInTheBody(t *testing.T) {
+	r := newAdmissionRun(t, []review.AdmissionProblem{
+		{Consumer: "testgen", Path: "testPlan.todoListAccess", Message: "the scenario names an operation the contract lacks",
+			Severity: review.AdmissionLocal, Tier: review.AdmissionTier1},
+	})
+	r.env.OnGetVersion("admission-local-activity", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	var localActivities []string
+	r.env.SetOnLocalActivityStartedListener(func(info *activity.Info, _ context.Context, _ []any) {
+		localActivities = append(localActivities, info.ActivityType.Name)
+	})
+	r.start(t, func() {})
+	if !r.env.IsWorkflowCompleted() {
+		t.Fatal("the walk did not finish")
+	}
+	if len(localActivities) != 0 {
+		t.Errorf("the pre-marker arm scheduled local activities %v: a replay of a recorded history would not match", localActivities)
+	}
+	if r.asked.Load() != 1 {
+		t.Errorf("the review Engine was asked %d times, want 1", r.asked.Load())
+	}
+	err := r.env.GetWorkflowError()
+	if err == nil || !strings.Contains(err.Error(), "refused by Tier 1 admission") {
+		t.Fatalf("the pre-marker arm did not refuse the draft: %v", err)
+	}
+	if n := r.stages.staged.Load(); n != 0 {
+		t.Errorf("a refused draft was staged %d times", n)
+	}
+}
+
 // An incomplete-only answer is not a refusal: the draft is staged and the walk runs on to its
 // closed gate.
 func TestTier1AdmissionRail_IncompleteOnlyStagesNormally(t *testing.T) {
@@ -247,5 +285,51 @@ func TestTier1AdmissionRail_IncompleteOnlyStagesNormally(t *testing.T) {
 	}
 	if n := r.stages.staged.Load(); n == 0 {
 		t.Error("the admitted draft was never staged")
+	}
+}
+
+// Tier 1 emits every generator that reads the artifact and typechecks the result: hundreds of
+// milliseconds of CPU, which a workflow task must never spend (Temporal's deadlock detector kills
+// a task past one second, and generators in workflow code endanger determinism). The rail's
+// admission is therefore an ACTIVITY, and this proves it from the engine's side: the review
+// Engine answers AdmitArtifact on a local activity, never in the workflow body. The refusal is a
+// RESULT of that activity, not its error, so the walk's outcome is the same as when the call was
+// in the body.
+func TestTier1AdmissionRail_RunsAsALocalActivityNotInTheWorkflowBody(t *testing.T) {
+	r := newAdmissionRun(t, []review.AdmissionProblem{
+		{Consumer: "testgen", Path: "testPlan.todoListAccess", Message: "the scenario names an operation the contract lacks",
+			Severity: review.AdmissionLocal, Tier: review.AdmissionTier1},
+	})
+	var localActivities []string
+	r.env.SetOnLocalActivityStartedListener(func(info *activity.Info, _ context.Context, _ []any) {
+		localActivities = append(localActivities, info.ActivityType.Name)
+	})
+	r.start(t, func() {})
+	if !r.env.IsWorkflowCompleted() {
+		t.Fatal("the walk did not finish")
+	}
+	admitted := 0
+	for _, name := range localActivities {
+		if strings.Contains(name, "admit") {
+			admitted++
+		}
+	}
+	if admitted != 1 {
+		t.Fatalf("the admission ran as %d local activities (%v), want exactly 1: the Engine call is in the workflow body", admitted, localActivities)
+	}
+	if r.asked.Load() != 1 {
+		t.Errorf("the review Engine was asked %d times, want 1", r.asked.Load())
+	}
+	err := r.env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("the walk ended clean: a draft with a local problem was admitted")
+	}
+	for _, want := range []string{"AdmissionRefused", "refused by Tier 1 admission", "testgen", "testPlan.todoListAccess"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the walk's error lacks %q: %v", want, err)
+		}
+	}
+	if n := r.stages.staged.Load(); n != 0 {
+		t.Errorf("a refused draft was staged %d times", n)
 	}
 }

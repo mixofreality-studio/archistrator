@@ -1006,9 +1006,9 @@ func (wf *csWorkflows) admitDesignDraft(
 	if err != nil {
 		return fwmanager.MapError(err)
 	}
-	problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: context.Background()}, string(doc), kind.WireName())
+	problems, err := wf.admissionProblems(ctx, string(doc), kind.WireName())
 	if err != nil {
-		return fwmanager.MapError(err)
+		return err
 	}
 	var local []string
 	for _, p := range problems {
@@ -1023,6 +1023,55 @@ func (wf *csWorkflows) admitDesignDraft(
 		fmt.Sprintf("the %s draft on %s is refused by Tier 1 admission: the generators that read it cannot build it (%d):\n  - %s",
 			kind.WireName(), designBranchLabel(branch), len(local), strings.Join(local, "\n  - ")),
 		"AdmissionRefused", nil)
+}
+
+// changeAdmissionLocalActivity versions WHERE Tier 1 runs: a workflow that recorded
+// fpc6-tier1-admission before it asked the review Engine from the workflow body, and keeps doing
+// so on replay (that call left no command in its history, so the marker's absence IS the old
+// shape); every new execution asks through admitTier1Local.
+const changeAdmissionLocalActivity = "admission-local-activity"
+
+// tier1AdmissionTimeout bounds one Tier 1 pass. The pass emits every generator that reads the
+// artifact and typechecks the siblings: 0.25-0.35 s of CPU measured locally, a multiple of that
+// on CI-class hardware and for a large document. Thirty seconds is two orders of magnitude of
+// headroom over the measurement, and still short enough that a wedged pass is a visible failure
+// rather than a silent stall.
+const tier1AdmissionTimeout = 30 * time.Second
+
+// admissionProblems asks the review Engine what Tier 1 says of the document. The call is CPU work
+// (generators plus a typecheck) and a workflow task past Temporal's one-second deadline is killed,
+// and generators in workflow code endanger determinism besides, so a new execution runs it as a
+// LOCAL activity (the Engine is in-process; the activity is the workflow's own seam, not a
+// network hop, and there is no worker-side registration to keep in step with a generated
+// surface). A refusal is a RESULT of that activity (the problem list), never its error: the
+// retry policy is bounded and applies only to a faulted Engine, so a draft that cannot build is
+// not retried into the same answer three times.
+func (wf *csWorkflows) admissionProblems(ctx workflow.Context, doc, kind string) ([]review.AdmissionProblem, error) {
+	if workflow.GetVersion(ctx, changeAdmissionLocalActivity, workflow.DefaultVersion, 1) < 1 {
+		problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: context.Background()}, doc, kind)
+		return problems, fwmanager.MapError(err)
+	}
+	lctx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: tier1AdmissionTimeout,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    3,
+		},
+	})
+	var problems []review.AdmissionProblem
+	if err := workflow.ExecuteLocalActivity(lctx, wf.admitTier1Local, doc, kind).Get(ctx, &problems); err != nil {
+		return nil, err
+	}
+	return problems, nil
+}
+
+// admitTier1Local is the local activity body of admissionProblems. Its error is the Engine's own,
+// mapped to the canonical Temporal type so a non-retryable Engine fault stops the retry policy at
+// the first attempt; the problems, refusals included, come back as the result.
+func (wf *csWorkflows) admitTier1Local(ctx context.Context, doc, kind string) ([]review.AdmissionProblem, error) {
+	problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: ctx}, doc, kind)
+	return problems, fwmanager.MapError(err)
 }
 
 // readProjectOnBranch is the child's branch-aware whole-aggregate read. wf.readProject is the
