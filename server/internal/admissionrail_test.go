@@ -164,11 +164,11 @@ func newAdmissionRun(t *testing.T, answer []review.AdmissionProblem) *admissionR
 		},
 	}
 	r := &admissionRun{stages: stages}
-	real := review.NewReviewEngine()
+	realEngine := review.NewReviewEngine()
 	engine := &reviewfake.FakeReviewEngine{
-		ProposeReviewsFn: real.ProposeReviews,
-		DeriveTaskSpecFn: real.DeriveTaskSpec,
-		TaskSpecHashFn:   real.TaskSpecHash,
+		ProposeReviewsFn: realEngine.ProposeReviews,
+		DeriveTaskSpecFn: realEngine.DeriveTaskSpec,
+		TaskSpecHashFn:   realEngine.TaskSpecHash,
 		AdmitArtifactFn: func(_ fweng.Context, _ string, kind string) ([]review.AdmissionProblem, error) {
 			r.asked.Add(1)
 			r.kind.Store(kind)

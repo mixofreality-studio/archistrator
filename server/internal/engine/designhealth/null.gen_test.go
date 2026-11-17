@@ -4,6 +4,7 @@
 package designhealth_test
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -30,4 +31,52 @@ func nullSubjectDesignHealthEngine(inner designhealth.DesignHealthEngine) design
 		return inner
 	}
 	return scenariocompose.NullDesignHealthEngine(inner, nullOps...)
+}
+
+// scenarioTests are the package's scenario tests by name, for the null-subject run's in-process driver.
+var scenarioTests = map[string]func(*testing.T){
+	"TestScenario_add_a_use_case_to_an_in_flight_project_P3": TestScenario_add_a_use_case_to_an_in_flight_project_P3,
+	"TestScenario_add_a_use_case_to_an_in_flight_project_P4": TestScenario_add_a_use_case_to_an_in_flight_project_P4,
+	"TestScenario_execute_a_project_activity_P3":             TestScenario_execute_a_project_activity_P3,
+	"TestScenario_execute_a_project_activity_P4":             TestScenario_execute_a_project_activity_P4,
+}
+
+// discriminateEntry is one null-subject run of the list AIARCH_DISCRIMINATE names.
+type discriminateEntry struct {
+	ID      string `json:"id"`
+	Test    string `json:"test"`
+	NullOps string `json:"nullOps"`
+}
+
+// TestDiscriminate runs the null-subject run's list (AIARCH_DISCRIMINATE: a JSON file of entries) as
+// sequential subtests in this one process, each with its operations nulled (testgen -discriminate).
+func TestDiscriminate(t *testing.T) {
+	file := os.Getenv("AIARCH_DISCRIMINATE")
+	if file == "" {
+		t.Skip("AIARCH_DISCRIMINATE names no run list")
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("reading the run list: %v", err)
+	}
+	var entries []discriminateEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		t.Fatalf("decoding the run list: %v", err)
+	}
+	for _, e := range entries {
+		t.Run(e.ID, func(t *testing.T) {
+			scenario, ok := scenarioTests[e.Test]
+			if !ok {
+				t.Skipf("no scenario test %s in this package", e.Test)
+			}
+			t.Setenv("AIARCH_NULL_OPS", e.NullOps)
+			prev := nullOps
+			t.Cleanup(func() { nullOps = prev })
+			nullOps = nil
+			if e.NullOps != "" {
+				nullOps = strings.Split(e.NullOps, ",")
+			}
+			scenario(t)
+		})
+	}
 }

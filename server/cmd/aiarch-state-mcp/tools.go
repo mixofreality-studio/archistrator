@@ -202,7 +202,7 @@ func composedVerbs(s *Session) []composedVerb {
 				return s.listComponentScenarios(in.Component)
 			}))
 		}},
-		{name: "getUseCaseCoverage", modes: []string{jobModeCritique}, register: func(srv *mcp.Server) {
+		{name: "getUseCaseCoverage", modes: []string{jobModeCritique, jobModeAnswer}, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "getUseCaseCoverage",
 				Description: "The coverage table for the core use cases you are critiquing: one row per derived path with its guards, its door (the Client the actor's first " +
