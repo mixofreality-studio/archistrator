@@ -862,140 +862,140 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the intended change on the caller's surface, whichever host or protocol it arrives through",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List the change is for and on whose authority the caller acts",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "decision",
                     "label": "May this caller work this List?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "note",
                     "label": "The caller is told the request was refused; no Todo changes",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Recall the List and resolve what the intended change means for it under the TodoMVC Behavior",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "decision",
                     "label": "Does the change have any effect?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "note",
                     "label": "Nothing changes: a Blank Title on add, no Completed Todos to clear, or the Todo was already removed by another caller",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "action",
                     "label": "Record the resolved change in the List Record as one action",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "decision",
                     "label": "Is the change safely on record?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n11",
                     "kind": "note",
                     "label": "The caller is told the change was not kept, so nothing is lost silently; the List stands as it was",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n12",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n13",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n14",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n15",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n16",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n17",
                     "kind": "note",
                     "label": "The caller's surface shows the outcome and the correct Items Left",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n18",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n19",
                     "kind": "note",
                     "label": "A change carries the Todo as a whole through surface, resolution and List Record, so a new Todo attribute has one path to travel (Todo-attribute volatility).",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n20",
                     "kind": "note",
                     "label": "Hosting-platform volatility is deliberately not crossed by this flow or any other: no business step depends on how the service is run. It is exercised by the Deployment and Operations Model.",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1149,84 +1149,84 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture which Filter the caller wants on the caller's surface, whichever host or protocol it arrives through",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List is wanted and on whose authority the caller acts",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "decision",
                     "label": "May this caller see this List?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "note",
                     "label": "The caller is told the request was refused; nothing of the List is shown",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Recall the User's whole List from the List Record",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Match the Todos that belong under the Filter in effect",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "action",
                     "label": "Work out Items Left across the whole List, regardless of the Filter",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "note",
                     "label": "The caller's surface shows the matching Todos, the Filter in effect and Items Left; no Todo changes",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n11",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n12",
                     "kind": "note",
                     "label": "An open view stays correct because Tend the List makes each change known; a caller told of a change takes stock again.",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -1322,84 +1322,84 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the text for the new Todo on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List the new Todo is for",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Check the supplied text is not a Blank Title",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "decision",
                     "label": "Is the text a usable Title?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Record the new, not-completed Todo at the end of the List",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "note",
                     "label": "Nothing is added",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n11",
                     "kind": "note",
                     "label": "After a successful add the caller's surface clears the entry and shows the outcome",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n12",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -1500,77 +1500,77 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the finished wording for the Todo on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List the Todo is on",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Resolve whether the wording changes the Title or, being a Blank Title, removes the Todo",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "decision",
                     "label": "Is the wording a usable Title?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Record the new wording of the Todo",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Strike the Todo from the List Record",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n11",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -1665,28 +1665,28 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Discard the unfinished wording on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "note",
                     "label": "The original Title stands; nothing reaches the List Record",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -1733,49 +1733,49 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture which Todo to remove on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List the Todo is on",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Strike the Todo from the List Record",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -1840,49 +1840,49 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the Todo and its new completed state on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List the Todo is on",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Record the Todo's completed state",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -1947,77 +1947,77 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the Toggle All request on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List is being toggled",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Recall the List and resolve which way Toggle All goes",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "decision",
                     "label": "Is every Todo already completed?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Record every Todo as not completed, as one action",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Record every Todo as completed, as one action",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n11",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -2112,70 +2112,70 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the Clear Completed request on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List is being cleared",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Strike every Completed Todo from the List Record, as one action",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "decision",
                     "label": "Was any Todo removed?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "note",
                     "label": "There were no Completed Todos, so nothing changes",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -2264,49 +2264,49 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the newly chosen Filter on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List is being reviewed",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Recall the User's whole List from the List Record",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Match the Todos that belong under the chosen Filter",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "note",
                     "label": "The caller's surface shows the matching Todos and marks the Filter in effect; no Todo changes",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -2371,42 +2371,42 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the request for the count on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List is being counted",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Recall the whole List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "note",
                     "label": "The caller's surface shows Items Left, whichever Filter is in effect",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -2465,56 +2465,56 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the User's return when the app is reopened on the caller's surface",
-                    "roleName": "Caller",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List the returning User keeps",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Recall the User's whole List, with its order, Titles and completed states, from the List Record",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Match the Todos that belong under the Filter in effect",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Work out Items Left across the whole List, regardless of the Filter",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "note",
                     "label": "The caller's surface shows the same List as before the app closed, the device restarted or the system restarted",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],
@@ -2593,62 +2593,62 @@
                     "kind": "action",
                     "label": "Capture the agent's request through its protocol surface",
                     "roleName": "Agent Tooling",
-                    "linkedActorId": null
+                    "linkedActorId": "agent-tooling"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish which User the agent acts for and on whose authority",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "decision",
                     "label": "Does the request change the List?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Recall the List and resolve what the intended change means for it under the TodoMVC Behavior",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Record the resolved change in the List Record as one action",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "action",
                     "label": "Recall the User's whole List from the List Record",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "action",
                     "label": "Work out Items Left across the whole List",
-                    "roleName": "Todo System",
+                    "roleName": "ListResolvingEngine",
                     "linkedActorId": null
                   },
                   {
@@ -2763,84 +2763,84 @@
                     "id": "n1",
                     "kind": "start",
                     "label": "",
-                    "roleName": "Hosted Workspace",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Capture the User's action on the surface embedded in the Hosted Workspace",
-                    "roleName": "Hosted Workspace",
-                    "linkedActorId": null
+                    "roleName": "User",
+                    "linkedActorId": "user"
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Establish whose List it is from what the Hosted Workspace vouches for",
-                    "roleName": "Todo System",
+                    "roleName": "IdentityAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Recall the List and resolve what the intended change means for it under the TodoMVC Behavior",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "decision",
                     "label": "Does the change have any effect?",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Record the resolved change in the List Record as one action",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Recall the changed List and work out Items Left across all of it",
-                    "roleName": "Todo System",
+                    "roleName": "ListRecordAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n8",
                     "kind": "action",
                     "label": "Make the change known to every other caller with this List open",
-                    "roleName": "Todo System",
+                    "roleName": "ChangeNoticeAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n9",
                     "kind": "note",
                     "label": "Nothing changes",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n10",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo System",
+                    "roleName": "ListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n11",
                     "kind": "note",
                     "label": "The embedded surface shows the outcome within the Hosted Workspace",
-                    "roleName": "Hosted Workspace",
+                    "roleName": "User",
                     "linkedActorId": null
                   },
                   {
                     "id": "n12",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Hosted Workspace",
+                    "roleName": "User",
                     "linkedActorId": null
                   }
                 ],

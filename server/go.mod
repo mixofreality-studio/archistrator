@@ -7,7 +7,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.28.1
-	github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.1
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.6.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.9.0

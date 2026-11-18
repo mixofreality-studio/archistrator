@@ -155,8 +155,8 @@ github.com/mixofreality-studio/archistrator-platform/framework-go v0.27.0 h1:hxQ
 github.com/mixofreality-studio/archistrator-platform/framework-go v0.27.0/go.mod h1:O/JX3XM7bg+1HOfyQ0TCG4nnkED0w7R1vwcqzD5hEgM=
 github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.28.1 h1:cGHMwBtRp21BDs9fP2NIs4+eP2NYwmdALM4kI3WItHE=
 github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.28.1/go.mod h1:UcXpJ0+C/L6LjLLYJmegM5OWpOiemCXTPxwczaae/kM=
-github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.0 h1:PSimtdUuPUOc86qoRy7cHOJs8PDzMNaFaFOkuTPGBLk=
-github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.0/go.mod h1:KS8HVnvPS4uDHfCwrTizUmqfEp7q/6UwyJcGGfPKfNM=
+github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.1 h1:N/fTq7mp83hhNMGuTRTivcu7qcjW0s/T1+0+7dJDJ+0=
+github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.1/go.mod h1:bt/y0eoJcUZPlJ65ELjSa9G2PXlmO+PBHizWpXkBHIA=
 github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.6.0 h1:9+GZqCpamObXYeI31ITocZk7ysiJGQH0sm4z4rIOaQs=
 github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.6.0/go.mod h1:B+QxMPDv1UNzIhOTY7NqOoeZy8CXxzSuXjEl8uw0jzY=
 github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.3.0 h1:dnAqc4rzD5zKDKvthzlLbi2rUXltFbLNzRtVK8p/cC4=
