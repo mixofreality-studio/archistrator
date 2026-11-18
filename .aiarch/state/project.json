@@ -116392,6 +116392,11 @@
       "expires": "2026-12-31"
     },
     {
+      "rule": "UC-ACTOR-DOOR",
+      "reason": "ruling 8: own-project use-case re-authoring scheduled (FPC RUN-024 escape rules)",
+      "expires": "2026-12-31"
+    },
+    {
       "rule": "UC-OUTCOME-AT-ASKING-SURFACE",
       "reason": "ruling 8: own-project rebinding scheduled",
       "expires": "2026-12-31"
