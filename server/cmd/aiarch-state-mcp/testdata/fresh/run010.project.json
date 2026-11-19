@@ -854,175 +854,175 @@
           "id": "m0",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "d1",
           "kind": "decision",
           "label": "Which change is asked for?",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "d2",
           "kind": "decision",
           "label": "Is the new wording meaningful?",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Append a new active todo with that wording to the end of the kept list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "x2",
           "kind": "note",
           "label": "Blank wording captures nothing; the list is unchanged",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "m2",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "d3",
           "kind": "decision",
           "label": "Is the revised wording meaningful?",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a3",
           "kind": "action",
           "label": "Revise that todo's wording on the kept list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a3b",
           "kind": "action",
           "label": "Withdraw that todo from the kept list instead of keeping blank wording",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "m3",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a4",
           "kind": "action",
           "label": "Withdraw that one todo from the kept list, whatever its done state",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a5",
           "kind": "action",
           "label": "Settle that one todo as done or not done on the kept list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "d6",
           "kind": "decision",
           "label": "Is every todo on the list already done?",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a6",
           "kind": "action",
           "label": "Settle every todo on the kept list as not done",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a6b",
           "kind": "action",
           "label": "Settle every todo on the kept list as done",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "m6",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "d7",
           "kind": "decision",
           "label": "Is any todo on the list completed?",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a7",
           "kind": "action",
           "label": "Sweep every completed todo off the kept list, leaving active todos untouched",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "x7",
           "kind": "note",
           "label": "Nothing is completed; clear completed has no effect",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "m7",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "m1",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a8",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "f1",
           "kind": "fork",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a9",
           "kind": "action",
           "label": "Make the change visible on every other open surface showing this list",
-          "roleName": "List keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -1036,14 +1036,14 @@
           "id": "j1",
           "kind": "join",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
@@ -1332,28 +1332,28 @@
           "id": "m0",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Recall the kept list as it was last left and select the todos the chosen view shows",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list, independent of the view",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
@@ -1367,7 +1367,7 @@
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -1446,49 +1446,49 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "d1",
           "kind": "decision",
           "label": "Is the wording meaningful?",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Append a new active todo with that wording to the end of the kept list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "b1",
           "kind": "note",
           "label": "Blank wording captures nothing",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "m1",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -1572,49 +1572,49 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "d1",
           "kind": "decision",
           "label": "Is the revised wording meaningful?",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Revise that todo's wording on the kept list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "b1",
           "kind": "action",
           "label": "Withdraw that todo from the kept list instead of keeping blank wording",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "m1",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
@@ -1705,28 +1705,28 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Withdraw that one todo from the kept list, whatever its done state",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -1786,28 +1786,28 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Settle that one todo as done or not done on the kept list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -1867,49 +1867,49 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "d1",
           "kind": "decision",
           "label": "Is every todo on the list already done?",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Settle every todo on the kept list as not done",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "b1",
           "kind": "action",
           "label": "Settle every todo on the kept list as done",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "m1",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -1993,49 +1993,49 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "d1",
           "kind": "decision",
           "label": "Is any todo on the list completed?",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Sweep every completed todo off the kept list, leaving active todos untouched",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "b1",
           "kind": "note",
           "label": "Nothing is completed; clear completed has no effect",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "m1",
           "kind": "merge",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -2119,35 +2119,35 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Agent tooling",
+          "linkedActorId": "agent-tooling"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Apply the asked-for change to the kept list exactly as for a person",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a3",
           "kind": "action",
           "label": "Make the change visible on every surface the team member has open on this list",
-          "roleName": "List keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -2213,21 +2213,21 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Recall the kept list and select the todos the chosen view shows",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list, independent of the view",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
@@ -2241,7 +2241,7 @@
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -2307,14 +2307,14 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Count the active todos left across the whole list, independent of the view",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
@@ -2328,7 +2328,7 @@
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -2388,35 +2388,35 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Recall the kept list exactly as it was last left: same wording, order and done states",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          },
          {
           "id": "x0",
           "kind": "note",
           "label": "The list is kept on the team's side; nothing depends on the browser, the tab, or a service restart",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],
@@ -2476,21 +2476,21 @@
           "id": "a0",
           "kind": "action",
           "label": "Establish whose list is being worked and who is working it",
-          "roleName": "List keeping",
-          "linkedActorId": null
+          "roleName": "Team member",
+          "linkedActorId": "team-member"
          },
          {
           "id": "a1",
           "kind": "action",
           "label": "Recall the kept list and select the todos the chosen view shows",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
           "id": "a2",
           "kind": "action",
           "label": "Count the active todos left across the whole list",
-          "roleName": "List keeping",
+          "roleName": "ListAccess",
           "linkedActorId": null
          },
          {
@@ -2504,7 +2504,7 @@
           "id": "e1",
           "kind": "end",
           "label": "",
-          "roleName": "List keeping",
+          "roleName": "ListManager",
           "linkedActorId": null
          }
         ],

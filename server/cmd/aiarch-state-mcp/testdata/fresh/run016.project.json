@@ -796,161 +796,161 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Team Member or Automated Assistant asks for a list action (capture, reword, remove, mark done, mark all done, clear finished)",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Resolve the caller to the kept list it may act on",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d1",
                     "kind": "decision",
                     "label": "Caller resolved to a list?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x1",
                     "kind": "note",
                     "label": "Caller is told the request was not accepted; nothing changes",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e1",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "d2",
                     "kind": "decision",
                     "label": "Does the action carry new wording?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Check the proposed title is meaningful (not empty or blank)",
-                    "roleName": "Todo List",
+                    "roleName": "ListRulingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "d3",
                     "kind": "decision",
                     "label": "Wording blank on a capture?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x2",
                     "kind": "note",
                     "label": "Nothing is captured; the caller is told the wording was blank",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e2",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Retrieve the kept list's current todos in order",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Apply the list rules to work out the change: append the new remaining todo, revise one title or done state, make all done or (when all are already done) all remaining, turn a blank reword into a removal, or pick out only finished todos to clear",
-                    "roleName": "Todo List",
+                    "roleName": "ListRulingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "d4",
                     "kind": "decision",
                     "label": "Anything to change?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x3",
                     "kind": "note",
                     "label": "List already in the requested state (e.g. nothing finished to clear); nothing changes",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Keep the change: record, revise, or discard the affected todos in the kept list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "f1",
                     "kind": "fork",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n6",
                     "kind": "action",
                     "label": "Recount the remaining todos across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "ListRulingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n7",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "j1",
                     "kind": "join",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x4",
                     "kind": "note",
                     "label": "Caller sees the updated list and its items-left count",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "m2",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e3",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1134,70 +1134,70 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Team Member or Automated Assistant opens the list or chooses a view (All, Active, Completed)",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Resolve the caller to the kept list it may look at",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d1",
                     "kind": "decision",
                     "label": "Caller resolved to a list?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x1",
                     "kind": "note",
                     "label": "Caller is told the request was not accepted",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Retrieve the kept list's todos in order, with each title and done state",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Select the todos belonging to the chosen view and tally the remaining todos across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "ListRulingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "x2",
                     "kind": "note",
                     "label": "Caller sees the chosen view (visibly indicated) and the items-left count; no todo changes",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e1",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "x3",
                     "kind": "note",
                     "label": "Re-run whenever an open view is told the list changed elsewhere (Work the Kept List), so the view and count stay true",
-                    "roleName": "Other Open Views",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1285,70 +1285,70 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller submits wording for a new todo",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n0",
                     "kind": "action",
                     "label": "Check the proposed title is meaningful (not empty or blank)",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d",
                     "kind": "decision",
                     "label": "Title meaningful?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x0",
                     "kind": "note",
                     "label": "Nothing is captured; the caller is told the wording was blank",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Record a new remaining todo with that title at the end of the kept list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Recount the remaining todos across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "x1",
                     "kind": "note",
                     "label": "Caller sees the new todo at the end of the list; the entry is cleared",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "m",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1441,63 +1441,63 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller commits new wording for an existing todo",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Check the proposed title is meaningful (not empty or blank)",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d",
                     "kind": "decision",
                     "label": "Title meaningful?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Revise that todo's title in the kept list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Discard that todo from the kept list (a blank reword removes it)",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Recount the remaining todos across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1580,28 +1580,28 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Team Member backs out of a reword in progress (e.g. presses Escape)",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Discard the in-progress wording in the host and show the todo's kept title again",
-                    "roleName": "Presentation Host",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "The todo keeps its original title; nothing on the kept list changes",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1652,42 +1652,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller removes one todo, whatever its done state",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Discard that todo from the kept list",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Recount the remaining todos across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "Caller sees the list without that todo; every other todo is untouched",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1750,42 +1750,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller flips one todo between done and remaining",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Revise that todo's done state in the kept list",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Recount the remaining todos across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "Caller sees the todo's new done state; no other todo changes",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1848,49 +1848,49 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller asks to mark every todo done",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Retrieve the kept list's current todos",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Apply the Aggregate Done Decision: all remaining when every todo is already done, otherwise all done",
-                    "roleName": "Todo List",
+                    "roleName": "ListRulingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Revise every todo's done state in the kept list to the decided state",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n4",
                     "kind": "action",
                     "label": "Recount the remaining todos across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "ListRulingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "n5",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1959,56 +1959,56 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller asks to sweep away everything finished",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Retrieve the kept list's finished todos",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d",
                     "kind": "decision",
                     "label": "Any finished todos?",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x0",
                     "kind": "note",
                     "label": "Nothing to clear; the list is unchanged",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Discard every finished todo from the kept list, leaving remaining todos untouched",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "m",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "KeptListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2085,42 +2085,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Automated Assistant invokes a list action through the MCP surface",
-                    "roleName": "Caller",
+                    "roleName": "Automated Assistant",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Resolve the assistant to the kept list it may act on",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Automated Assistant",
+                    "linkedActorId": "automated-assistant"
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Apply the list rules and keep the change in the kept list, exactly as for a Team Member",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "action",
                     "label": "Tell the other open views of the list that it changed",
-                    "roleName": "Other Open Views",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "The assistant gets the same result a Team Member would",
-                    "roleName": "Caller",
+                    "roleName": "Automated Assistant",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Automated Assistant",
                     "linkedActorId": null
                   }
                 ],
@@ -2183,28 +2183,28 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller chooses a view",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Retrieve, in order, the kept todos belonging to the chosen view",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "Caller sees only that view's todos, with the current view visibly indicated; no todo changes",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2255,35 +2255,35 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Caller looks at the list after any change",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Retrieve the kept list's todos",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Tally the remaining todos across the whole list, whatever view is in use",
-                    "roleName": "Todo List",
+                    "roleName": "ListRulingEngine",
                     "linkedActorId": null
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "Caller sees the true items-left count",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2336,35 +2336,35 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Team Member returns after closing the tab or restarting their device",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Resolve the Team Member to their kept list",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Retrieve the kept list's todos in order, with each title and done state",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "The same todos, wording, and done states are there",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2417,35 +2417,35 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Team Member opens the list's MCP Apps surface inside their MCP host",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "action",
                     "label": "Resolve the Team Member to their kept list through the host",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "n2",
                     "kind": "action",
                     "label": "Retrieve the kept list and select the chosen view's todos with the items-left count",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "x",
                     "kind": "note",
                     "label": "The embedded surface shows the same list and count as the web app",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],

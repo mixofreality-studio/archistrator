@@ -848,125 +848,125 @@
           "kind": "action",
           "label": "Submit a change to the todo list",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "decision",
           "label": "Which change was asked for?",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "merge",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "decision",
           "label": "Is the wording a usable title?",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n7",
           "kind": "action",
           "label": "Record the new active todo at the end of the list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n8",
           "kind": "note",
           "label": "Nothing is added; the entry is refused",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n9",
           "kind": "merge",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n10",
           "kind": "decision",
           "label": "Is the new wording a usable title?",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n11",
           "kind": "action",
           "label": "Reword the todo's recorded title",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n12",
           "kind": "action",
           "label": "Strike the retitled-to-blank todo from the list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n13",
           "kind": "merge",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n14",
           "kind": "action",
           "label": "Strike the one todo from the list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n15",
           "kind": "action",
           "label": "Mark the one todo completed or active",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n16",
           "kind": "action",
           "label": "Mark every todo completed, or every todo active when all are already completed",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n17",
           "kind": "action",
           "label": "Purge every completed todo, leaving active todos untouched",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n18",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n19",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -980,7 +980,7 @@
           "id": "n21",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -1184,48 +1184,48 @@
           "kind": "action",
           "label": "Open the todo list in a chosen view (All, Active, or Completed)",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Recall the team member's todo list, in the order the todos were added",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "fork",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Select the todos that belong in the chosen view",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n7",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n8",
           "kind": "join",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
@@ -1239,7 +1239,7 @@
           "id": "n10",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -1341,55 +1341,55 @@
           "kind": "action",
           "label": "Type a new todo and submit it",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "decision",
           "label": "Is the wording a usable title?",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Record the new active todo at the end of the list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "note",
           "label": "Nothing is added; the entry is refused",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n7",
           "kind": "merge",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n8",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n9",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -1403,7 +1403,7 @@
           "id": "n11",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -1510,55 +1510,55 @@
           "kind": "action",
           "label": "Commit new wording for an existing todo",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "decision",
           "label": "Is the wording a usable title?",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Reword the todo's recorded title",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Strike the retitled-to-blank todo from the list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n7",
           "kind": "merge",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n8",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n9",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -1572,7 +1572,7 @@
           "id": "n11",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -1679,34 +1679,34 @@
           "kind": "action",
           "label": "Ask to remove one todo",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Strike the one todo from the list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -1720,7 +1720,7 @@
           "id": "n8",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -1803,34 +1803,34 @@
           "kind": "action",
           "label": "Check or uncheck one todo",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Mark the one todo completed or active",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -1844,7 +1844,7 @@
           "id": "n8",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -1927,55 +1927,55 @@
           "kind": "action",
           "label": "Ask to mark everything done at once",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "decision",
           "label": "Is every todo already completed?",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Mark every todo active again",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Mark every todo completed",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n7",
           "kind": "merge",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n8",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n9",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -1989,7 +1989,7 @@
           "id": "n11",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -2096,55 +2096,55 @@
           "kind": "action",
           "label": "Ask to sweep away every finished todo",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "decision",
           "label": "Are there any completed todos?",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Purge every completed todo, leaving active todos untouched",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "note",
           "label": "Nothing to clear; the list is unchanged",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n7",
           "kind": "merge",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          },
          {
           "id": "n8",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n9",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -2158,7 +2158,7 @@
           "id": "n11",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -2265,34 +2265,34 @@
           "kind": "action",
           "label": "Assistant asks, through its agent protocol, to change the todo list",
           "roleName": "Team Assistant",
-          "linkedActorId": null
+          "linkedActorId": "team-assistant"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Apply the asked-for change to the team member's recorded list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Make the change known to the team member's other open channels",
-          "roleName": "Team Todo Keeping",
+          "roleName": "MessageBus",
           "linkedActorId": null
          },
          {
@@ -2306,7 +2306,7 @@
           "id": "n8",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -2389,34 +2389,34 @@
           "kind": "action",
           "label": "Choose the All, Active, or Completed view",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Recall the team member's todo list, in the order the todos were added",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Select the todos that belong in the chosen view",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
@@ -2430,7 +2430,7 @@
           "id": "n8",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -2513,27 +2513,27 @@
           "kind": "action",
           "label": "Look at how many todos are still left to do",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Recall the team member's todo list, in the order the todos were added",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
@@ -2547,7 +2547,7 @@
           "id": "n7",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -2624,34 +2624,34 @@
           "kind": "action",
           "label": "Come back to the todo list after closing the tab or restarting",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Recall the team member's todo list, in the order the todos were added",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Select the todos that belong in the chosen view",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
@@ -2665,7 +2665,7 @@
           "id": "n8",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],
@@ -2744,34 +2744,34 @@
           "kind": "action",
           "label": "Open the todo list inside an MCP-hosted screen",
           "roleName": "Team Member",
-          "linkedActorId": null
+          "linkedActorId": "team-member"
          },
          {
           "id": "n3",
           "kind": "action",
           "label": "Recognize the team member, or the assistant acting on their behalf",
-          "roleName": "Team Todo Keeping",
+          "roleName": "ActorIdentityAccess",
           "linkedActorId": null
          },
          {
           "id": "n4",
           "kind": "action",
           "label": "Recall the team member's todo list, in the order the todos were added",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n5",
           "kind": "action",
           "label": "Select the todos that belong in the chosen view",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
           "id": "n6",
           "kind": "action",
           "label": "Tally the items left across the whole todo list",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoListAccess",
           "linkedActorId": null
          },
          {
@@ -2785,7 +2785,7 @@
           "id": "n8",
           "kind": "end",
           "label": "",
-          "roleName": "Team Todo Keeping",
+          "roleName": "TodoKeepingManager",
           "linkedActorId": null
          }
         ],

@@ -31,3 +31,34 @@ Rules applied, per use case:
 
 Reproduce from the pre-migration file (git history) with
 `./migrate_run008_actor_door.sh run008.project.json` (needs `jq` and `perl`).
+
+## run010, run011, run013, run016 and the fresh-systems predecessors: actor-door migration
+
+Same two rules as run008 (`UC-ACTOR-DOOR`, `UC-LANE-RESOLVES`, framework-go v0.27.0), same answer:
+the fixture data was migrated, not waived, by `migrate_actor_door.py` (`./migrate_actor_door.py
+run013.project.json`; for a `fresh-systems/<name>.predecessors.json`, which carries only slots 0-4,
+name the System file as the second argument). The migrated files are `run010`, `run011`, `run013`
+and `run016` here and the two `../fresh-systems/*.predecessors.json` (their System files are
+untouched, verbatim as the agent drafted them). It edits only `roleName` and `linkedActorId` on the activity nodes in
+`slots["4"]`, as text (the files mix literal and `\u`-escaped non-ASCII, so a JSON round trip would
+rewrite bytes the migration does not own). Node ids, edges, contracts, plans and dynamic views are
+untouched. Re-running it is a no-op.
+
+These recordings draw no action node in an actor's lane (their `Caller`-lane nodes are the start,
+the outcome notes and the end), so the run008 rule "an action node in an actor's lane gets the link"
+has nothing to link. The rules applied, per use case:
+
+- A node in the `Caller` lane is redrawn in the lane of the use case's FIRST declared actor.
+- A node in any other lane that is neither a declared actor's role nor a System component's name
+  (`Todo List`, `Other Open Views`, `Team Todo Record`, ...) is redrawn in the System component that
+  performs it: the callee of the first call, of the dynamic-view step whose `activityNodeId` is the
+  node, whose caller is not a declared actor (an actor-to-client call only names the surface the
+  actor used); a node with no step takes the Manager component's name.
+- The actor's act is found from the dynamic view: the use case's FIRST action or decision node whose
+  step carries a call from a declared actor, and the diagram's ENTRY (the first action or decision
+  after the start, past notes and merges; a branch can skip the first node, and `UC-ACTOR-DOOR` wants
+  every elementary path through an actor node), when its step, if it has one, touches an actor
+  (`CC-ACTOR-LANE` requires that of a node laned to an actor). Each such node is drawn in the lane of
+  the actor the call names (else the first declared actor) and gets `linkedActorId` = that actor's
+  id. (The recorded diagrams put a check or a lookup there; the step is where the actor's request
+  enters, which is what the door rule asks the diagram to show.)

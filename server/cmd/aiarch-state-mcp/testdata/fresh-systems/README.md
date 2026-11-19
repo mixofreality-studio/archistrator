@@ -25,6 +25,11 @@ To add a run's System (do it for every paid run that commits an architecture):
               slots: (.slots|with_entries(select(.key|IN("0","1","3","4"))))}' \
       > todomvc-<yyyymmdd>.predecessors.json
 
+The `.predecessors.json` files (committed slots, not the agent's System) were migrated onto
+framework-go v0.27.0's `UC-ACTOR-DOOR` / `UC-LANE-RESOLVES` by
+`../fresh/migrate_actor_door.py` (see `../fresh/README.md`); a new run's predecessors need the same:
+`../fresh/migrate_actor_door.py <name>.predecessors.json <name>.json`. The System files stay verbatim.
+
 Keep it verbatim: do not add `contractKey` or any other server-derived field —
 the point of the corpus is what the agent writes, not what the server stores. These runs
 predate `SYS-CLIENT-SURFACE`, so their Clients state no `surface` and the draft gate now

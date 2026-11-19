@@ -438,112 +438,112 @@
                     "id": "m0",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Recognise whose todo list is being changed",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d1",
                     "kind": "decision",
                     "label": "Does the change carry a title?",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "d2",
                     "kind": "decision",
                     "label": "Does the title have real content once blank space is set aside?",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Record the new todo, or retitle the edited todo, on the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "d3",
                     "kind": "decision",
                     "label": "Is an existing todo being edited?",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Discard the edited todo from the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "note",
                     "label": "A blank new todo adds nothing",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "m2",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a4",
                     "kind": "action",
                     "label": "Apply the completion or removal change to the affected todos on the list of record (one todo, every todo, or every completed todo)",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m3",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a5",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "note",
                     "label": "Each presentation host shows the changed list and the new items-left count",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n3",
                     "kind": "note",
                     "label": "The list of record outlives closed tabs, restarted machines and restarts of the running service, whatever hosting environment it is deployed into",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -705,63 +705,63 @@
                     "id": "m0",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Recognise whose todo list is being reviewed",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "f1",
                     "kind": "fork",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Recall the todos matching the chosen filter from the list of record, in the order they were added",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "j1",
                     "kind": "join",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "note",
                     "label": "Each presentation host shows the filtered todos, marks the chosen filter, and shows items left",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "note",
                     "label": "The list of record outlives closed tabs, restarted machines and restarts of the running service, whatever hosting environment it is deployed into",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -858,49 +858,49 @@
                     "id": "d1",
                     "kind": "decision",
                     "label": "Does the title have real content once blank space is set aside?",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Append the new active todo to the end of the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "note",
                     "label": "Nothing is added",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n2",
                     "kind": "note",
                     "label": "The host clears its new-todo entry",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -984,70 +984,70 @@
                     "id": "n0",
                     "kind": "note",
                     "label": "The host shows the todo's current title in an editable field",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "d1",
                     "kind": "decision",
                     "label": "Was the edit committed?",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d2",
                     "kind": "decision",
                     "label": "Does the corrected title have real content once blank space is set aside?",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Retitle the todo on the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Discard the todo from the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "n1",
                     "kind": "note",
                     "label": "The original title is kept; nothing changes",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "m2",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1155,21 +1155,21 @@
                     "id": "x0",
                     "kind": "action",
                     "label": "Discard the todo from the list of record",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x1",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1223,21 +1223,21 @@
                     "id": "x0",
                     "kind": "action",
                     "label": "Set the one todo's completion on the list of record",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x1",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1291,42 +1291,42 @@
                     "id": "d1",
                     "kind": "decision",
                     "label": "Is every todo already completed?",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Set every todo active on the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Set every todo completed on the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1404,35 +1404,35 @@
                     "id": "d1",
                     "kind": "decision",
                     "label": "Are there any completed todos?",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Sweep every completed todo from the list of record",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "n1",
                     "kind": "note",
                     "label": "Nothing to clear; the control is inert",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1504,21 +1504,21 @@
                     "id": "x0",
                     "kind": "action",
                     "label": "Recall the todos matching the newly chosen filter from the list of record",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x1",
                     "kind": "note",
                     "label": "The host marks the chosen filter; no todo changes",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1572,21 +1572,21 @@
                     "id": "x0",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x1",
                     "kind": "note",
                     "label": "The host shows items left, independent of the filter in use",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1640,28 +1640,28 @@
                     "id": "x0",
                     "kind": "note",
                     "label": "The team member reopens the app after a closed tab, a restarted machine, or a service restart",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x1",
                     "kind": "action",
                     "label": "Recall the team member's list of record exactly as last kept",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x2",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1721,49 +1721,49 @@
                     "id": "a0",
                     "kind": "action",
                     "label": "Recognise the team member the agent tooling acts for",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Agent Tooling",
+                    "linkedActorId": "agent-tooling"
                   },
                   {
                     "id": "d1",
                     "kind": "decision",
                     "label": "Does the agent tooling change the list?",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Apply the requested everyday action to the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Recall the todos matching the requested filter from the list of record",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1847,35 +1847,35 @@
                     "id": "x0",
                     "kind": "note",
                     "label": "An agent host opens the embedded list surface for the team member",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "x1",
                     "kind": "action",
                     "label": "Recall the todos matching the chosen filter from the list of record",
-                    "roleName": "Todo List",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "x2",
                     "kind": "action",
                     "label": "Work out the items left across the whole list",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "x3",
                     "kind": "note",
                     "label": "The agent host renders the list with the same behavior as the web app",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Todo List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],

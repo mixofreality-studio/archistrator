@@ -774,21 +774,21 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Ask to change what is on the list",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "id",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "k",
                     "kind": "decision",
                     "label": "Which change to the list's content?",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null,
                     "decidedBy": "team-member"
                   },
@@ -796,119 +796,119 @@
                     "id": "cv",
                     "kind": "decision",
                     "label": "Does the new wording contain visible text?",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "ca",
                     "kind": "action",
                     "label": "Append the new active todo to the end of the list durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "cn",
                     "kind": "note",
                     "label": "Blank wording captures nothing; the list is unchanged",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "rv",
                     "kind": "decision",
                     "label": "Does the revised wording contain visible text?",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "rr",
                     "kind": "action",
                     "label": "Record the todo's new title durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "rd",
                     "kind": "action",
                     "label": "Remove the reworded-to-blank todo from the list durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "rm",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "dd",
                     "kind": "action",
                     "label": "Remove the chosen todo from the list durably, whatever its completed state",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "zf",
                     "kind": "fork",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "za",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "zb",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "zj",
                     "kind": "join",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "m2",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "r",
                     "kind": "note",
                     "label": "The caller's host shows the refreshed list and Items Left",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "ab",
                     "kind": "note",
                     "label": "Abandoning a reword happens wholly in the host: nothing is sent, and the original title stays untouched",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1080,21 +1080,21 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Ask to settle work on the list",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "id",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "k",
                     "kind": "decision",
                     "label": "Which settlement?",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null,
                     "decidedBy": "team-member"
                   },
@@ -1102,98 +1102,98 @@
                     "id": "t1",
                     "kind": "action",
                     "label": "Flip the chosen todo between done and not done durably, leaving every other todo untouched",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "ar",
                     "kind": "action",
                     "label": "Read the completion state of the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "ad",
                     "kind": "decision",
                     "label": "Is every todo already completed?",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "au",
                     "kind": "action",
                     "label": "Mark every todo not done durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "ac",
                     "kind": "action",
                     "label": "Mark every todo done durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "am",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "cc",
                     "kind": "action",
                     "label": "Remove every completed todo from the list durably, leaving active todos untouched",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m1",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "zf",
                     "kind": "fork",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "za",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "zb",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "zj",
                     "kind": "join",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "r",
                     "kind": "note",
                     "label": "The caller's host shows the refreshed list and Items Left",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1347,91 +1347,91 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Open the list, or choose a View Filter",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "id",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "f",
                     "kind": "fork",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "v",
                     "kind": "action",
                     "label": "Retrieve, in captured order, the todos the chosen View Filter shows (All, Active or Completed)",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "c",
                     "kind": "action",
                     "label": "Tally Items Left across the whole list, independent of the View Filter",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "j",
                     "kind": "join",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "ld",
                     "kind": "decision",
                     "label": "Does the caller hold a live view of the list?",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "sub",
                     "kind": "action",
                     "label": "Subscribe the caller's view to later changes made to this list by any consumer",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "nr",
                     "kind": "note",
                     "label": "Agent Tooling re-reads when it next needs the list",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "m",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "r",
                     "kind": "note",
                     "label": "The caller's host shows the list with the chosen View Filter visibly indicated and Items Left",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "p",
                     "kind": "note",
                     "label": "The list is held in the team-held Todo Store, so it is the same after closing the tab, restarting the device, or restarting the service",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   }
                 ],
@@ -1543,63 +1543,63 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Submit wording for a new todo",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "id",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d",
                     "kind": "decision",
                     "label": "Does the wording contain visible text?",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "y",
                     "kind": "action",
                     "label": "Append the new active todo to the end of the list durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n",
                     "kind": "note",
                     "label": "Blank wording captures nothing",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "t0",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "t1",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "m",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1686,63 +1686,63 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Commit revised wording for a todo",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "id",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "d",
                     "kind": "decision",
                     "label": "Does the revised wording contain visible text?",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "y",
                     "kind": "action",
                     "label": "Record the todo's new title durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "n",
                     "kind": "action",
                     "label": "Remove the reworded-to-blank todo from the list durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "m",
                     "kind": "merge",
                     "label": "",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "t0",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "t1",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1829,42 +1829,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Ask to remove one todo",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Remove the chosen todo from the list durably, whatever its completed state",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -1927,42 +1927,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Toggle one todo",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Flip the chosen todo between done and not done durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2025,42 +2025,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Toggle all todos",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Apply the Aggregate Completion Rule to the whole list durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2123,42 +2123,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Ask to clear completed todos",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Remove every completed todo from the list durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Recount Items Left across the whole list",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a3",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2217,35 +2217,35 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Choose a View Filter",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Retrieve, in captured order, the todos the chosen View Filter shows",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "r",
                     "kind": "note",
                     "label": "The host shows the list with the chosen View Filter visibly indicated",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2302,35 +2302,35 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Look at the list",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Tally Items Left across the whole list, independent of the View Filter",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "r",
                     "kind": "note",
                     "label": "The host shows Items Left",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2383,35 +2383,35 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Come back to the app after closing the tab or restarting",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Retrieve the person's whole list in captured order from the team-held Todo Store",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "r",
                     "kind": "note",
                     "label": "The host shows the same todos with the same titles and completed states",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
@@ -2464,35 +2464,35 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Agent Tooling invokes a list operation over the MCP surface",
-                    "roleName": "Caller",
+                    "roleName": "Agent Tooling",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Agent Tooling",
+                    "linkedActorId": "agent-tooling"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Perform the requested list operation against the person's list durably",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Propagate the change to every other consumer working the same list",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "MessageBus",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Agent Tooling",
                     "linkedActorId": null
                   }
                 ],
@@ -2545,42 +2545,42 @@
                     "id": "s",
                     "kind": "start",
                     "label": "Open the todo experience inside another team tool",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "a0",
                     "kind": "action",
                     "label": "Establish which person's list the caller is working",
-                    "roleName": "Team Todo Record",
-                    "linkedActorId": null
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
                   },
                   {
                     "id": "a1",
                     "kind": "action",
                     "label": "Retrieve the person's whole list in captured order",
-                    "roleName": "Team Todo Record",
+                    "roleName": "TodoListAccess",
                     "linkedActorId": null
                   },
                   {
                     "id": "a2",
                     "kind": "action",
                     "label": "Subscribe the embedded view to later changes made to this list by any consumer",
-                    "roleName": "Other Consumers of the List",
+                    "roleName": "TodoListManager",
                     "linkedActorId": null
                   },
                   {
                     "id": "r",
                     "kind": "note",
                     "label": "The embedded host shows the list and Items Left",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   },
                   {
                     "id": "e",
                     "kind": "end",
                     "label": "",
-                    "roleName": "Caller",
+                    "roleName": "Team Member",
                     "linkedActorId": null
                   }
                 ],
