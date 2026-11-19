@@ -110,7 +110,21 @@
                         "statement": "Streamlined, opinionated delivery with configurable oversight: the delivery workflow is designed by the platform; how much human review it requires is configured per customer — from fully automatic to human approval at every chosen stage, with high-risk changes always human-reviewed."
                       }
                     ],
-                    "mission": "Carry each customer's idea through design, planning, construction, and operation as one guided, supervised workflow: the platform does the technical work through the agents it orchestrates and the tooling it generates, the customer stays in control through review, and the finished system is delivered — and, when the customer chooses, operated — on their behalf. The platform orchestrates; it does not hand-author code."
+                    "mission": "Carry each customer's idea through design, planning, construction, and operation as one guided, supervised workflow: the platform does the technical work through the agents it orchestrates and the tooling it generates, the customer stays in control through review, and the finished system is delivered — and, when the customer chooses, operated — on their behalf. The platform orchestrates; it does not hand-author code.",
+                    "deliverySurfaces": [
+                      {
+                        "kind": "web",
+                        "audience": "human",
+                        "source": "host a UI portal",
+                        "objective": 4
+                      },
+                      {
+                        "kind": "mcpTools",
+                        "audience": "machine",
+                        "source": "the user drives it with their own AI agent (over the remote MCP channel)",
+                        "objective": 8
+                      }
+                    ]
                   }
                 },
                 "revisions": 2
@@ -4298,7 +4312,7 @@
                         "contractKey": "webClient",
                         "constructionProfile": "generated",
                         "provisioning": "owned",
-                        "uiSurface": true
+                        "surface": "web"
                       },
                       {
                         "id": "mcp-client",
@@ -4313,7 +4327,7 @@
                         "contractKey": "mcpClient",
                         "constructionProfile": "generated",
                         "provisioning": "owned",
-                        "uiSurface": false
+                        "surface": "mcpTools"
                       },
                       {
                         "id": "scheduler-client",
@@ -4327,8 +4341,7 @@
                         "atomicBusinessVerbs": [],
                         "buildStatus": "planned",
                         "constructionProfile": "generated",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "system-design-manager",
@@ -4342,8 +4355,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "systemDesignManager",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "project-design-manager",
@@ -4357,8 +4369,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "projectDesignManager",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "construction-manager",
@@ -4372,8 +4383,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "constructionManager",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "operations-manager",
@@ -4387,8 +4397,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "operationsManager",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "billing-manager",
@@ -4402,8 +4411,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "billingManager",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "estimation-engine",
@@ -4417,8 +4425,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "estimationEngine",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "operation-estimation-engine",
@@ -4432,8 +4439,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "operationEstimationEngine",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "billing-engine",
@@ -4447,8 +4453,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "billingEngine",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "intervention-engine",
@@ -4462,8 +4467,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "interventionEngine",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "autoscaler-engine",
@@ -4477,8 +4481,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "autoscalerEngine",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "review-engine",
@@ -4492,8 +4495,7 @@
                         "atomicBusinessVerbs": [],
                         "contractKey": "reviewEngine",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "design-health-engine",
@@ -4506,8 +4508,7 @@
                         ],
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "project-state-access",
@@ -4540,8 +4541,7 @@
                         ],
                         "contractKey": "projectStateAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "operated-system-state-access",
@@ -4562,8 +4562,7 @@
                         ],
                         "contractKey": "operatedSystemStateAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "billing-state-access",
@@ -4584,8 +4583,7 @@
                         ],
                         "contractKey": "billingStateAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "agentic-job-access",
@@ -4603,8 +4601,7 @@
                         ],
                         "contractKey": "agenticJobAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "operated-runtime-access",
@@ -4625,8 +4622,7 @@
                         ],
                         "contractKey": "operatedRuntimeAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "usage-access",
@@ -4644,8 +4640,7 @@
                         ],
                         "contractKey": "usageAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "episode-access",
@@ -4663,8 +4658,7 @@
                         ],
                         "contractKey": "episodeAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "merchant-gateway-access",
@@ -4681,8 +4675,7 @@
                         ],
                         "contractKey": "merchantGatewayAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "source-control-access",
@@ -4708,8 +4701,7 @@
                         ],
                         "contractKey": "sourceControlAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "artifact-access",
@@ -4727,8 +4719,7 @@
                         ],
                         "contractKey": "artifactAccess",
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "project-git-repo",
@@ -4738,8 +4729,7 @@
                         "encapsulates": "The customer-owned per-project git repository — the physical store for the typed project state (git-as-DB) and content-addressed Phase-3 construction outputs (B-12: one customer-owned store per scenario, retrievable outright).",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "operated-system-state",
@@ -4749,8 +4739,7 @@
                         "encapsulates": "Physical store of operated-system rows (desired state, runtime status, deployable-bundle refs), mutated only via guarded in-place updates through OperatedSystemStateAccess (B-08).",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "billing-state",
@@ -4760,8 +4749,7 @@
                         "encapsulates": "Physical store of billing rows (customers, payment-instrument bindings, cycles, settlements), reached only through BillingStateAccess (B-11).",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "construction-pipeline-runtime",
@@ -4771,8 +4759,7 @@
                         "encapsulates": "The external execution fabric that runs agentic jobs on the project's configured venue — the customer's CI or their local runner (B-13); reached only through AgenticJobAccess.",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "vendor",
-                        "uiSurface": false
+                        "provisioning": "vendor"
                       },
                       {
                         "id": "operated-runtime",
@@ -4782,8 +4769,7 @@
                         "encapsulates": "The runtime hosting deployed customer systems, exposing health/SLO/compute-attribution telemetry (B-08, B-18); reached only through OperatedRuntimeAccess.",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "vendor",
-                        "uiSurface": false
+                        "provisioning": "vendor"
                       },
                       {
                         "id": "usage-log",
@@ -4793,8 +4779,7 @@
                         "encapsulates": "Append-only physical ledger of compute-usage entries feeding cost projection and usage-based billing (B-11, B-16); reached only through UsageAccess.",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "merchant-gateway",
@@ -4804,8 +4789,7 @@
                         "encapsulates": "The external payment provider (Stripe, charge-only Connect) executing charges/refunds against the customer's stored instrument (B-11); reached only through MerchantGatewayAccess.",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "vendor",
-                        "uiSurface": false
+                        "provisioning": "vendor"
                       },
                       {
                         "id": "github",
@@ -4815,8 +4799,7 @@
                         "encapsulates": "The external repo host carrying the GitHub App installation, per-project repos, branches, pull requests, and Actions triggers (B-12, B-13); reached only through SourceControlAccess.",
                         "atomicBusinessVerbs": [],
                         "constructionProfile": "handwritten",
-                        "provisioning": "vendor",
-                        "uiSurface": false
+                        "provisioning": "vendor"
                       },
                       {
                         "id": "security",
@@ -4828,8 +4811,7 @@
                         "buildStatus": "external",
                         "contractKey": "security",
                         "constructionProfile": "provided",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "logging",
@@ -4840,8 +4822,7 @@
                         "atomicBusinessVerbs": [],
                         "buildStatus": "external",
                         "constructionProfile": "provided",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "diagnostics",
@@ -4852,8 +4833,7 @@
                         "atomicBusinessVerbs": [],
                         "buildStatus": "external",
                         "constructionProfile": "provided",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       },
                       {
                         "id": "message-bus",
@@ -4870,8 +4850,7 @@
                         ],
                         "contractKey": "messageBus",
                         "constructionProfile": "provided",
-                        "provisioning": "owned",
-                        "uiSurface": false
+                        "provisioning": "owned"
                       }
                     ],
                     "relationships": [
@@ -26626,15 +26605,319 @@
                         ]
                       }
                     ]
+                  },
+                  {
+                    "Signature": "DeriveTaskSpec(project: string, facts: TaskFacts) → (TaskSpec, fweng.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "project",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "TaskFacts",
+                        "Fields": [
+                          {
+                            "Name": "activity",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "task",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ComponentID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "lifecycleKey",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "surface",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "model",
+                            "Type": "SpecModelFacts",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "slotRules",
+                            "Type": "SlotRules",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "TaskSpec",
+                        "Fields": [
+                          {
+                            "Name": "activity",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "task",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "identity",
+                            "Type": "SpecIdentity",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "model",
+                            "Type": "SpecModel",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "prompt",
+                            "Type": "SpecPrompt",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "tools",
+                            "Type": "SpecTools",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "editScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "activityEditScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "checks",
+                            "Type": "[]SpecCheck",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "contracts",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generate",
+                            "Type": "[]SpecGenerator",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generated",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "hash",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fweng.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fweng.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "TaskSpecHash(spec: TaskSpec) → (string, fweng.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "TaskSpec",
+                        "Fields": [
+                          {
+                            "Name": "activity",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "task",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "identity",
+                            "Type": "SpecIdentity",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "model",
+                            "Type": "SpecModel",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "prompt",
+                            "Type": "SpecPrompt",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "tools",
+                            "Type": "SpecTools",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "editScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "activityEditScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "checks",
+                            "Type": "[]SpecCheck",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "contracts",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generate",
+                            "Type": "[]SpecGenerator",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generated",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "hash",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fweng.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fweng.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "AdmitArtifact(project: string, kind: string) → ([]AdmissionProblem, fweng.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "project",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "[]AdmissionProblem",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "[]AdmissionProblem",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fweng.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fweng.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "DataContracts": [
                   "ActivityType",
+                  "AdmissionProblem",
+                  "AdmissionSeverity",
+                  "AdmissionTier",
                   "ReviewArtifactKind",
                   "ReviewChange",
                   "ReviewPolicy",
                   "ReviewSet",
-                  "Reviewer"
+                  "Reviewer",
+                  "SlotRules",
+                  "SpecCheck",
+                  "SpecCheckSource",
+                  "SpecEditScope",
+                  "SpecEstimate",
+                  "SpecGenerator",
+                  "SpecIdentity",
+                  "SpecModel",
+                  "SpecModelFacts",
+                  "SpecPrompt",
+                  "SpecScopeComponent",
+                  "SpecTools",
+                  "TaskFacts",
+                  "TaskSpec"
                 ],
                 "ErrorModel": "Operations fail with fweng.Error — the typed Engine fault.",
                 "Idempotency": "",
@@ -27344,6 +27627,55 @@
                         ]
                       }
                     ]
+                  },
+                  {
+                    "Signature": "ProjectRepo(projectID: ProjectID) → (ProjectRepoInfo, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ProjectRepoInfo",
+                        "Fields": [
+                          {
+                            "Name": "Repo",
+                            "Type": "RepoRef",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "WebURL",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Found",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "DataContracts": [
@@ -27356,6 +27688,7 @@
                   "ManagedFileRead",
                   "MergeResult",
                   "ProjectID",
+                  "ProjectRepoInfo",
                   "PullRequestRef",
                   "PullRequestSpec",
                   "PullRequestStatus",

@@ -533,7 +533,7 @@ func TestApplyContractsPendingDowngrades(t *testing.T) {
 		t.Fatalf("a fresh project must report every built contract-bearing component (not the Resource, not the planned client), got %v", pending)
 	}
 	got := applyContractsPendingDowngrades(proj, findings())
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if got[i].Severity != methodcheck.SeverityWarning || !strings.Contains(got[i].Message, "still being recorded") {
 			t.Errorf("%s must downgrade while contracts are pending, got %v %q", got[i].RuleID, got[i].Severity, got[i].Message)
 		}

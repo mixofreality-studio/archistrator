@@ -16834,15 +16834,319 @@
                         ]
                       }
                     ]
+                  },
+                  {
+                    "Signature": "DeriveTaskSpec(project: string, facts: TaskFacts) → (TaskSpec, fweng.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "project",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "TaskFacts",
+                        "Fields": [
+                          {
+                            "Name": "activity",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "task",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "ComponentID",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "lifecycleKey",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "surface",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "model",
+                            "Type": "SpecModelFacts",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "slotRules",
+                            "Type": "SlotRules",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "TaskSpec",
+                        "Fields": [
+                          {
+                            "Name": "activity",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "task",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "identity",
+                            "Type": "SpecIdentity",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "model",
+                            "Type": "SpecModel",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "prompt",
+                            "Type": "SpecPrompt",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "tools",
+                            "Type": "SpecTools",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "editScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "activityEditScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "checks",
+                            "Type": "[]SpecCheck",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "contracts",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generate",
+                            "Type": "[]SpecGenerator",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generated",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "hash",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fweng.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fweng.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "TaskSpecHash(spec: TaskSpec) → (string, fweng.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "TaskSpec",
+                        "Fields": [
+                          {
+                            "Name": "activity",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "task",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "identity",
+                            "Type": "SpecIdentity",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "model",
+                            "Type": "SpecModel",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "prompt",
+                            "Type": "SpecPrompt",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "tools",
+                            "Type": "SpecTools",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "editScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "activityEditScope",
+                            "Type": "SpecEditScope",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "checks",
+                            "Type": "[]SpecCheck",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "contracts",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generate",
+                            "Type": "[]SpecGenerator",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "generated",
+                            "Type": "[]string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "hash",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fweng.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fweng.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Signature": "AdmitArtifact(project: string, kind: string) → ([]AdmissionProblem, fweng.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "project",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "string",
+                        "Fields": [
+                          {
+                            "Name": "kind",
+                            "Type": "string",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "[]AdmissionProblem",
+                        "Fields": [
+                          {
+                            "Name": "result",
+                            "Type": "[]AdmissionProblem",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fweng.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fweng.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "DataContracts": [
                   "ActivityType",
+                  "AdmissionProblem",
+                  "AdmissionSeverity",
+                  "AdmissionTier",
                   "ReviewArtifactKind",
                   "ReviewChange",
                   "ReviewPolicy",
                   "ReviewSet",
-                  "Reviewer"
+                  "Reviewer",
+                  "SlotRules",
+                  "SpecCheck",
+                  "SpecCheckSource",
+                  "SpecEditScope",
+                  "SpecEstimate",
+                  "SpecGenerator",
+                  "SpecIdentity",
+                  "SpecModel",
+                  "SpecModelFacts",
+                  "SpecPrompt",
+                  "SpecScopeComponent",
+                  "SpecTools",
+                  "TaskFacts",
+                  "TaskSpec"
                 ],
                 "ErrorModel": "Operations fail with fweng.Error — the typed Engine fault.",
                 "Idempotency": "",
@@ -17552,6 +17856,55 @@
                         ]
                       }
                     ]
+                  },
+                  {
+                    "Signature": "ProjectRepo(projectID: ProjectID) → (ProjectRepoInfo, fwra.Error)",
+                    "Stereotype": "",
+                    "Note": "",
+                    "Inputs": [
+                      {
+                        "Name": "ProjectID",
+                        "Fields": [
+                          {
+                            "Name": "projectID",
+                            "Type": "ProjectID",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ],
+                    "Outputs": [
+                      {
+                        "Name": "ProjectRepoInfo",
+                        "Fields": [
+                          {
+                            "Name": "Repo",
+                            "Type": "RepoRef",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "WebURL",
+                            "Type": "string",
+                            "Note": ""
+                          },
+                          {
+                            "Name": "Found",
+                            "Type": "bool",
+                            "Note": ""
+                          }
+                        ]
+                      },
+                      {
+                        "Name": "fwra.Error",
+                        "Fields": [
+                          {
+                            "Name": "fault",
+                            "Type": "fwra.Error",
+                            "Note": ""
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ],
                 "DataContracts": [
@@ -17564,6 +17917,7 @@
                   "ManagedFileRead",
                   "MergeResult",
                   "ProjectID",
+                  "ProjectRepoInfo",
                   "PullRequestRef",
                   "PullRequestSpec",
                   "PullRequestStatus",

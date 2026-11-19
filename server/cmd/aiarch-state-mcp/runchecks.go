@@ -436,7 +436,7 @@ func uncommittedNote(root string) string {
 		return ""
 	}
 	var paths []string
-	for _, entry := range strings.Split(out, "\x00") {
+	for entry := range strings.SplitSeq(out, "\x00") {
 		if len(entry) < 4 {
 			continue
 		}

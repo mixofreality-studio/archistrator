@@ -289,6 +289,7 @@ void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => 
     'testRun',
     'scenarios',
     'taskSpec',
+    'useCaseCoverage',
   ]);
   assert.equal(entry.additionalProperties, false, 'an unknown kind is refused');
   assert.equal(entry.oneOf, undefined, 'it is not a bare answer');

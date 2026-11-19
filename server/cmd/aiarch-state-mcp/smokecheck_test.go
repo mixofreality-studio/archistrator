@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,9 +47,7 @@ func fixtureWithDeployment(t *testing.T) []byte {
 			continue
 		}
 		clone := map[string]any{}
-		for k, v := range acts[0].(map[string]any) {
-			clone[k] = v
-		}
+		maps.Copy(clone, acts[0].(map[string]any))
 		clone["name"] = smokeDeploymentActivity
 		clone["workerClass"] = "junior-developer"
 		clone["coding"] = false
