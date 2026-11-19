@@ -40,7 +40,10 @@ on:
 
 jobs:
   uitests:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: GitHub moved ubuntu-latest to 26.04 on 2026-11-18 and
+    # Playwright 1.60 refuses it ("does not support chromium on ubuntu26.04-x64"). Move
+    # back to ubuntu-latest only once Playwright supports the new image.
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
