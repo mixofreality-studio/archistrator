@@ -22,7 +22,12 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: GitHub moved ubuntu-latest to 26.04 on 2026-11-18 and
+    # Playwright 1.60 refuses it ("does not support chromium on ubuntu26.04-x64").
+    # `make test-short` installs and runs chromium (TestAcceptanceJob_RedRunHoldsAndNamesTheRoute
+    # in cmd/aiarch-state-mcp). Move back to ubuntu-latest only once Playwright supports
+    # the new image.
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
@@ -56,6 +61,25 @@ jobs:
       # PreflightClaudeCLI).
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
+
+      # cmd/aiarch-state-mcp's fresh-composition and acceptance tests
+      # (TestFreshManagerIntegrationComposesTheServer,
+      # TestMachineClientsIntegrateOverTheManagersRealShapes,
+      # TestAcceptanceJob_RedRunHoldsAndNamesTheRoute) build a fresh app and run its
+      # scenarios through the generated devstack, whose prerequisite check
+      # (framework-go-app-generator rungen) requires `temporal` on PATH whenever the
+      # plan uses Temporal. Docker, git and go are already on the runner image.
+      - name: Install Temporal CLI
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+
+      # TestAcceptanceJob_RedRunHoldsAndNamesTheRoute installs Playwright's chromium
+      # itself (`npx playwright install chromium`, the version its fixture package pins:
+      # uitestsPackage in cmd/aiarch-state-mcp/acceptancecheck_test.go) but a test cannot
+      # apt-get the browser's system libraries; the runner is provisioned with them here.
+      - name: Install Playwright chromium system dependencies
+        run: npx -y playwright@1.60.0 install-deps chromium
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run 'gofmt -w .'"; exit 1; }
