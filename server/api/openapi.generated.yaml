@@ -835,6 +835,90 @@ components:
                 - Name
                 - Fields
             type: object
+        DeliveryCoverageDoor:
+            description: 'The door cell of a coverage path, as a {kind, model} envelope: client (the Client the actor''s first stimulus enters through, with its surface), none (no actor-originated stimulus reaches a contracted Client: the finding the PM sends back) or pendingArchitecture (the System is not recorded yet, so there is no Client to enter through and the door has not been judged).'
+            oneOf:
+                - additionalProperties: false
+                  properties:
+                    kind:
+                        const: client
+                    model:
+                        $ref: '#/components/schemas/DeliveryCoverageDoorClient'
+                  required:
+                    - kind
+                    - model
+                  type: object
+                - additionalProperties: false
+                  properties:
+                    kind:
+                        const: none
+                    model:
+                        $ref: '#/components/schemas/DeliveryCoverageNoDoor'
+                  required:
+                    - kind
+                    - model
+                  type: object
+                - additionalProperties: false
+                  properties:
+                    kind:
+                        const: pendingArchitecture
+                    model:
+                        $ref: '#/components/schemas/DeliveryCoverageDoorPending'
+                  required:
+                    - kind
+                    - model
+                  type: object
+            x-go-sumtype:
+                discriminatorKey: kind
+                iface: CoverageDoor
+                kindEnum: CoverageDoorKind
+                marker: isCoverageDoor
+                variants:
+                    - kind: client
+                      kindConst: CoverageDoorKindClient
+                      type: CoverageDoorClient
+                    - kind: none
+                      kindConst: CoverageDoorKindNone
+                      type: CoverageNoDoor
+                    - kind: pendingArchitecture
+                      kindConst: CoverageDoorKindPendingArchitecture
+                      type: CoverageDoorPending
+        DeliveryCoverageDoorClient:
+            additionalProperties: false
+            description: A door that opens onto a Client.
+            properties:
+                client:
+                    description: The Client component the actor's first stimulus enters through, as the System spells its id.
+                    type: string
+                surface:
+                    description: 'That Client''s surface (web, rest, mcpTools, mcpApp): the way in. Empty when the Client states none.'
+                    type: string
+            required:
+                - client
+                - surface
+            type: object
+        DeliveryCoverageDoorKind:
+            enum:
+                - client
+                - none
+                - pendingArchitecture
+            type: string
+            x-enum-varnames:
+                - CoverageDoorKindClient
+                - CoverageDoorKindNone
+                - CoverageDoorKindPendingArchitecture
+        DeliveryCoverageDoorPending:
+            additionalProperties: false
+            description: 'Not yet judged: the System is not recorded, so no Client exists to enter through.'
+            properties: {}
+            required: []
+            type: object
+        DeliveryCoverageNoDoor:
+            additionalProperties: false
+            description: No actor-originated stimulus of the path reaches a contracted Client (SCN-ACTOR-PATH-CLIENT).
+            properties: {}
+            required: []
+            type: object
         DeliveryDefectView:
             additionalProperties: false
             properties:
@@ -1463,14 +1547,11 @@ components:
             type: string
         DeliveryPathCoverage:
             additionalProperties: false
-            description: 'One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor''s first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation''s own defect codes (SCN-*). Derived on read; nothing of it is stored.'
+            description: 'One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the door the actor''s first stimulus enters through, the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation''s own defect codes (SCN-*). Derived on read; nothing of it is stored.'
             properties:
-                client:
-                    description: The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT).
-                    type: string
                 door:
-                    description: 'That Client''s surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none.'
-                    type: string
+                    $ref: '#/components/schemas/DeliveryCoverageDoor'
+                    description: 'The way in: the Client the actor''s first stimulus enters through and its surface, no Client at all (the finding the PM sends back), or not yet judged because the architecture is not recorded.'
                 guards:
                     items:
                         type: string
@@ -1495,7 +1576,6 @@ components:
             required:
                 - scenario
                 - guards
-                - client
                 - door
                 - outcomeNodes
                 - problems

@@ -655,6 +655,36 @@ export interface components {
       Fields: null | components['schemas']['DeliveryGoField'][];
       Name: string;
     };
+    /** @description The door cell of a coverage path, as a {kind, model} envelope: client (the Client the actor's first stimulus enters through, with its surface), none (no actor-originated stimulus reaches a contracted Client: the finding the PM sends back) or pendingArchitecture (the System is not recorded yet, so there is no Client to enter through and the door has not been judged). */
+    DeliveryCoverageDoor:
+      | {
+          /** @constant */
+          kind: 'client';
+          model: components['schemas']['DeliveryCoverageDoorClient'];
+        }
+      | {
+          /** @constant */
+          kind: 'none';
+          model: components['schemas']['DeliveryCoverageNoDoor'];
+        }
+      | {
+          /** @constant */
+          kind: 'pendingArchitecture';
+          model: components['schemas']['DeliveryCoverageDoorPending'];
+        };
+    /** @description A door that opens onto a Client. */
+    DeliveryCoverageDoorClient: {
+      /** @description The Client component the actor's first stimulus enters through, as the System spells its id. */
+      client: string;
+      /** @description That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when the Client states none. */
+      surface: string;
+    };
+    /** @enum {string} */
+    DeliveryCoverageDoorKind: 'client' | 'none' | 'pendingArchitecture';
+    /** @description Not yet judged: the System is not recorded, so no Client exists to enter through. */
+    DeliveryCoverageDoorPending: Record<string, never>;
+    /** @description No actor-originated stimulus of the path reaches a contracted Client (SCN-ACTOR-PATH-CLIENT). */
+    DeliveryCoverageNoDoor: Record<string, never>;
     DeliveryDefectView: {
       id: string;
       note: string;
@@ -865,12 +895,10 @@ export interface components {
     /** @enum {integer} */
     DeliveryOverrideKind: 0 | 1 | 2 | 3 | 4;
     DeliveryOwnerScope: string;
-    /** @description One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor's first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored. */
+    /** @description One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the door the actor's first stimulus enters through, the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored. */
     DeliveryPathCoverage: {
-      /** @description The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT). */
-      client: string;
-      /** @description That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none. */
-      door: string;
+      /** @description The way in: the Client the actor's first stimulus enters through and its surface, no Client at all (the finding the PM sends back), or not yet judged because the architecture is not recorded. */
+      door: components['schemas']['DeliveryCoverageDoor'];
       guards: null | string[];
       outcomeNodes: null | string[];
       problems: null | string[];

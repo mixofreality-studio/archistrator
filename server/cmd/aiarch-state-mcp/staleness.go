@@ -163,6 +163,16 @@ const contractsPendingNote = " [downgraded to warning: contracts are still being
 // that have no .serviceContracts entry yet, in System order. It is empty when the System is not
 // committed, and empty once every contract is recorded: it is how construction tells "contracts
 // are still being recorded" from "the contract set is complete".
+//
+// EARMARK (RUN-025 follow-up, deliberately unchanged here): this counts a Client as contract-bearing
+// (projectstate.ContractKeyFor keys it), but projectmodel's own "is the contract set incomplete" test
+// (contractsIncomplete, which decides whether a not-yet-recorded component's contract is a pending
+// reference or a dangling one) and appgen's both count only Manager, Engine, ResourceAccess and
+// Utility components (a Client's contract is derived, not authored). They disagree in the one window
+// where every such component has its contract and a Client has none: here the scenario rules stay
+// advisory, there projectmodel already holds the set complete. One definition of "contract-bearing"
+// should be shared; until then the partial-contracts window is exercised by
+// TestApplyContractsPendingDowngrades.
 func uncontractedComponents(proj projectstate.Project) []string {
 	sys, ok := proj.SystemDesign.Model.(*projectstate.System)
 	if !ok || sys == nil || proj.SystemDesign.Status != projectstate.ReviewCommitted {

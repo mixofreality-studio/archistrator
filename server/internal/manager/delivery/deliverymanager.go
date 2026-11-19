@@ -11889,13 +11889,26 @@ func useCaseCoverageToContract(cov []projectstate.UseCaseCoverage) *UseCaseCover
 		out := UseCaseCoverage{UseCase: uc.UseCase, Paths: make([]PathCoverage, 0, len(uc.Paths))}
 		for _, p := range uc.Paths {
 			out.Paths = append(out.Paths, PathCoverage{
-				Scenario: p.Scenario, Guards: nonNilStrings(p.Guards), Client: p.Client, Door: p.Door,
+				Scenario: p.Scenario, Guards: nonNilStrings(p.Guards), Door: coverageDoorToContract(p.Door),
 				OutcomeNodes: nonNilStrings(p.OutcomeNodes), Problems: nonNilStrings(p.Problems),
 			})
 		}
 		view.UseCases = append(view.UseCases, out)
 	}
 	return view
+}
+
+// coverageDoorToContract is the wire door of a derived one, variant for variant.
+func coverageDoorToContract(d projectstate.CoverageDoor) CoverageDoor {
+	switch d := d.(type) {
+	case projectstate.Door:
+		return &CoverageDoorClient{Client: d.Client, Surface: d.Surface}
+	case projectstate.NoDoor:
+		return &CoverageNoDoor{}
+	case projectstate.DoorPendingArchitecture:
+		return &CoverageDoorPending{}
+	}
+	return &CoverageNoDoor{}
 }
 
 // queryProjectSummary answers the `summary` kind: one project's head state.

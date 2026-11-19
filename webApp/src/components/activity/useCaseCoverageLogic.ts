@@ -3,11 +3,25 @@
  * `node --test` loads it directly and the panel file exports only its component.
  */
 import type { PathCoverageView } from '../../contracts/types.ts';
+import { assertNever } from '../../contracts/exhaustive.ts';
 
-/** The cell text for a path's door: the Client and its surface, or NONE. */
+/**
+ * The cell text for a path's door: the Client and its surface; NONE when no Client is reached
+ * (the finding); or the not-yet-judged state a door is in while the architecture is not
+ * recorded, which must never read as NONE.
+ */
 export function doorLabel(p: PathCoverageView): string {
-  if (p.client === '') return 'NONE';
-  return p.door === '' ? p.client : `${p.client} (${p.door})`;
+  const d = p.door;
+  switch (d.kind) {
+    case 'client':
+      return d.surface === '' ? d.client : `${d.client} (${d.surface})`;
+    case 'none':
+      return 'NONE';
+    case 'pendingArchitecture':
+      return 'not yet judged (architecture pending)';
+    default:
+      return assertNever(d);
+  }
 }
 
 /** The cell text for a list column: its items joined, or the stated empty word. */
@@ -15,9 +29,25 @@ export function listLabel(items: readonly string[], none: string): string {
   return items.length === 0 ? none : items.join('; ');
 }
 
-/** A path is a finding when it has no door, no outcome, or a derivation defect. */
+/**
+ * A path is a finding when it has no door, no outcome, or a derivation defect. A door not yet
+ * judged is not a finding: the architecture that would judge it is what is pending.
+ */
 export function pathIsFinding(p: PathCoverageView): boolean {
-  return p.client === '' || p.outcomeNodes.length === 0 || p.problems.length > 0;
+  const d = p.door;
+  let doorMissing: boolean;
+  switch (d.kind) {
+    case 'client':
+    case 'pendingArchitecture':
+      doorMissing = false;
+      break;
+    case 'none':
+      doorMissing = true;
+      break;
+    default:
+      return assertNever(d);
+  }
+  return doorMissing || p.outcomeNodes.length === 0 || p.problems.length > 0;
 }
 
 /**

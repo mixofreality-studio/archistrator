@@ -96,6 +96,9 @@ const OUTPUT_NAMES = {
   DeliveryOperatorNoteKind: 'OperatorNoteKind',
   // billingManager's one client-exposed op, GetBillingCycle (view-a-billing-cycle).
   BillingRoutingDirective: 'RoutingDirective',
+  // the PM coverage view's door cell, a sealed sum {kind, model}; string-valued, so the wire
+  // value IS the discriminant the webApp switches on.
+  DeliveryCoverageDoorKind: 'CoverageDoorKind',
 };
 
 /** Groups of OAS schema names known (verified by one-off comparison against
@@ -186,6 +189,8 @@ const UNVERIFIED_MECHANICAL = new Set([
   // billingManager.GetBillingCycle's routed outcome (NoAction | Charge; ordinal 1, the
   // retired payout arm, is tombstoned). New with the billing view; no hand table.
   'RoutingDirective',
+  // the coverage view's door discriminant (client | none | pendingArchitecture): new, no hand table.
+  'CoverageDoorKind',
 ]);
 
 function splitWords(name) {

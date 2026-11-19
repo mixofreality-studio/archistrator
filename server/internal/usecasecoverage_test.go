@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/scenario"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
@@ -67,6 +68,10 @@ func rewordBeforeAmendments() scenario.Input {
 	}
 }
 
+// everythingRecorded is the basis of a hand-built derivation input: every artifact its rules read is
+// there by construction, so no rule is held back and every door is judged.
+func everythingRecorded(methodcheck.Prerequisite) bool { return true }
+
 func pathWithGuards(t *testing.T, uc projectstate.UseCaseCoverage, guards ...string) projectstate.PathCoverage {
 	t.Helper()
 	for _, p := range uc.Paths {
@@ -80,7 +85,7 @@ func pathWithGuards(t *testing.T, uc projectstate.UseCaseCoverage, guards ...str
 
 func TestCoverageView_ListsDoorAndOutcomesPerPath(t *testing.T) {
 	clients := map[string]projectstate.CoverageClient{"todowebapp": {ID: "todo-web-app", Surface: "web"}}
-	got, err := projectstate.UseCaseCoverageFor(rewordBeforeAmendments(), clients)
+	got, err := projectstate.UseCaseCoverageFor(rewordBeforeAmendments(), clients, everythingRecorded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +97,7 @@ func TestCoverageView_ListsDoorAndOutcomesPerPath(t *testing.T) {
 	// The abandon path: an actor's decision, no stimulus into any Client, so no door and the
 	// derivation's own defect code on the row. Its outcome list is empty, and the table says so.
 	abandoned := pathWithGuards(t, uc, "[abandoned]")
-	if abandoned.Client != "" || abandoned.Door != "" || len(abandoned.OutcomeNodes) != 0 {
+	if _, none := abandoned.Door.(projectstate.NoDoor); !none || len(abandoned.OutcomeNodes) != 0 {
 		t.Errorf("abandoned path %+v must have no door and no outcome", abandoned)
 	}
 	// The actor's decision at n2 is also an input no contracted component receives, so the
@@ -104,8 +109,8 @@ func TestCoverageView_ListsDoorAndOutcomesPerPath(t *testing.T) {
 	// The accepted path: the actor asks through the web client and is told the new wording; the
 	// label is the diagram's, verbatim.
 	accepted := pathWithGuards(t, uc, "[else]", "[acceptable]")
-	if accepted.Client != "todo-web-app" || accepted.Door != "web" {
-		t.Errorf("accepted path door %q/%q, want todo-web-app/web", accepted.Client, accepted.Door)
+	if want := (projectstate.Door{Client: "todo-web-app", Surface: "web"}); accepted.Door != want {
+		t.Errorf("accepted path door %+v, want %+v", accepted.Door, want)
 	}
 	if !slices.Equal(accepted.OutcomeNodes, []string{"Todo shows the new wording"}) {
 		t.Errorf("accepted path outcomes %v", accepted.OutcomeNodes)
@@ -119,7 +124,7 @@ func TestCoverageView_ListsDoorAndOutcomesPerPath(t *testing.T) {
 	// The refused path reaches the same door and ends in nothing the actor sees: the table must
 	// show an empty outcome column, which is what the PM sends back.
 	refused := pathWithGuards(t, uc, "[else]", "[else]")
-	if refused.Door != "web" || len(refused.OutcomeNodes) != 0 {
+	if want := (projectstate.Door{Client: "todo-web-app", Surface: "web"}); refused.Door != want || len(refused.OutcomeNodes) != 0 {
 		t.Errorf("refused path %+v", refused)
 	}
 }

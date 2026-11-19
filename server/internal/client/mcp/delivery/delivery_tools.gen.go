@@ -424,6 +424,10 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"attemptBudget": "How many supervision attempts the activity gets before it fails with VarianceExhausted, so a client never hardcodes the number. 0 on the project-level view.",
 		"awaitingTasks": "Every task this activity is awaiting a human at right now, sorted by task id so a replayed query reproduces it. Empty when nobody is being waited on. It REPLACES the six flat gate members (reviewSet, reviewSetError, awaitingGate, awaitingSince, awaitingUntil, redraftExhausted), which named one gate for a whole activity and were therefore wrong on any fork.",
 	},
+	reflect.TypeFor[mgr.CoverageDoorClient](): {
+		"client":  "The Client component the actor's first stimulus enters through, as the System spells its id.",
+		"surface": "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when the Client states none.",
+	},
 	reflect.TypeFor[mgr.NoteComment](): {
 		"jsonPath": "Where the comment is anchored in the artifact under review, as a JSONPath.",
 		"text":     "The comment, verbatim.",
@@ -439,8 +443,7 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"text":                 "The operator's note, verbatim.",
 	},
 	reflect.TypeFor[mgr.PathCoverage](): {
-		"client":   "The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT).",
-		"door":     "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none.",
+		"door":     "The way in: the Client the actor's first stimulus enters through and its surface, no Client at all (the finding the PM sends back), or not yet judged because the architecture is not recorded.",
 		"scenario": "The derived scenario's id (<useCase>-P<n>), the id every test of the path binds.",
 	},
 	reflect.TypeFor[mgr.PendingDependency](): {

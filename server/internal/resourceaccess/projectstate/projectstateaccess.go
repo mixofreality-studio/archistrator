@@ -12102,17 +12102,45 @@ type CoverageClient struct {
 	Surface string
 }
 
+// CoverageDoor is one path's door as the coverage view states it: a closed sum, so no reader can
+// take a door that has not been judged for one that is missing.
+//
+//sumtype:decl
+type CoverageDoor interface {
+	isCoverageDoor()
+}
+
+// Door is a Client the actor's first stimulus enters through.
+type Door struct {
+	// Client is the Client component as the System spells its id.
+	Client string
+	// Surface is that Client's stated surface (web, rest, mcpTools, mcpApp), "" when it states none.
+	Surface string
+}
+
+// NoDoor is a path none of whose actor-originated stimuli reaches a contracted Client: the finding
+// the PM sends back.
+type NoDoor struct{}
+
+// DoorPendingArchitecture is a door not yet judged: the artifacts that make a door knowable (the
+// System, whose Clients are the doors, and the contracts the stimuli land on) are not recorded, so
+// "no door" would be a claim about an architecture that does not exist yet.
+type DoorPendingArchitecture struct{}
+
+func (Door) isCoverageDoor()                    {}
+func (NoDoor) isCoverageDoor()                  {}
+func (DoorPendingArchitecture) isCoverageDoor() {}
+
 // PathCoverage is one derived path of a use case as the PM reads it.
 type PathCoverage struct {
 	// Scenario is the derived scenario's id (<useCase>-P<n>), the same id every test binds.
 	Scenario string
 	// Guards are the guards taken on the path, in order, as the diagram spells them.
 	Guards []string
-	// Client is the Client component the actor's first stimulus enters through; "" when no
-	// actor-originated stimulus reaches a contracted Client (the SCN-ACTOR-PATH-CLIENT case).
-	Client string
-	// Door is that Client's surface: the way in. "" with Client "" or when the Client states none.
-	Door string
+	// Door is the way in: the Client the actor's first stimulus enters through, none when no
+	// actor-originated stimulus reaches a contracted Client (the SCN-ACTOR-PATH-CLIENT case), or
+	// pending while the System is not recorded and the door cannot be judged yet.
+	Door CoverageDoor
 	// OutcomeNodes are the labels of the sendSignal and objectNode nodes on the path, verbatim (an
 	// objectNode reads "<object> <state>"): what the actor is told or sees.
 	OutcomeNodes []string
@@ -12135,7 +12163,64 @@ func UseCaseCoverageOf(p *Project, draftCoreUseCases bool) ([]UseCaseCoverage, e
 	if err != nil {
 		return nil, err
 	}
-	return UseCaseCoverageFor(in, coverageClientsOf(p))
+	return UseCaseCoverageFor(in, coverageClientsOf(p), recordedArtifactsOf(p, draftCoreUseCases))
+}
+
+// recordedArtifactsOf answers, for p, whether a rule prerequisite is recorded: the same question
+// methodcheck.ValidateProject asks before it keeps a rule's findings (RUN-025), over the typed project.
+// With draftCoreUseCases the draft the critique is judging counts as the core use cases, as it does for
+// the derivation itself. Both switches are exhaustive over methodcheck's sealed Prerequisite sum, so a
+// new prerequisite fails the build here.
+func recordedArtifactsOf(p *Project, draftCoreUseCases bool) func(methodcheck.Prerequisite) bool {
+	return func(pr methodcheck.Prerequisite) bool {
+		if kind, isSlot := prerequisiteSlot(pr); isSlot {
+			if kind == KindCoreUseCases && draftCoreUseCases {
+				_, drafted := draftCoreUseCasesModel(p)
+				return drafted
+			}
+			slot, ok := slotPtr(p, kind)
+			return ok && slot.Status == ReviewCommitted
+		}
+		switch pr.(type) {
+		case methodcheck.RequiresContracts:
+			return len(p.ServiceContracts) > 0
+		case methodcheck.RequiresTestPlan:
+			return p.PhaseArtifacts != nil && len(p.PhaseArtifacts.TestPlan) > 0
+		case methodcheck.RequiresUIDesign:
+			return p.PhaseArtifacts != nil && len(p.PhaseArtifacts.UIDesign) > 0
+		case methodcheck.RequiresMission, methodcheck.RequiresGlossary, methodcheck.RequiresScrubbedRequirements,
+			methodcheck.RequiresVolatilities, methodcheck.RequiresCoreUseCases, methodcheck.RequiresSystem,
+			methodcheck.RequiresOperationalConcepts, methodcheck.RequiresStandardCheck:
+			// slot prerequisites, answered above
+		}
+		return false
+	}
+}
+
+// prerequisiteSlot is the artifact slot a prerequisite names, false for a prerequisite that is a
+// record of its own (the contracts, a test plan, a UI design).
+func prerequisiteSlot(pr methodcheck.Prerequisite) (ArtifactKind, bool) {
+	switch pr.(type) {
+	case methodcheck.RequiresMission:
+		return KindMission, true
+	case methodcheck.RequiresGlossary:
+		return KindGlossary, true
+	case methodcheck.RequiresScrubbedRequirements:
+		return KindScrubbedRequirements, true
+	case methodcheck.RequiresVolatilities:
+		return KindVolatilities, true
+	case methodcheck.RequiresCoreUseCases:
+		return KindCoreUseCases, true
+	case methodcheck.RequiresSystem:
+		return KindSystem, true
+	case methodcheck.RequiresOperationalConcepts:
+		return KindOperationalConcepts, true
+	case methodcheck.RequiresStandardCheck:
+		return KindStandardCheck, true
+	case methodcheck.RequiresContracts, methodcheck.RequiresTestPlan, methodcheck.RequiresUIDesign:
+		// records of their own
+	}
+	return 0, false
 }
 
 // draftCoreUseCasesModel is slot 4's model whatever its status, false when none is drafted.
@@ -12171,11 +12256,25 @@ func coverageClientsOf(p *Project) map[string]CoverageClient {
 // UseCaseCoverageFor is the derivation's coverage over in, sorted as the derivation is (use case id,
 // then scenario id). clients names the doors by normalized component id; a Client the contracts mark but
 // the map does not know is named by its normalized id and states no surface.
-func UseCaseCoverageFor(in scenario.Input, clients map[string]CoverageClient) ([]UseCaseCoverage, error) {
+//
+// recorded says which artifacts the project records. A rule's finding is listed only once every
+// artifact the rule reads is recorded (methodcheck.RulePrerequisites, RUN-025: the same filter
+// ValidateProject applies), and a door is judged only once the artifacts SCN-ACTOR-PATH-CLIENT reads
+// are: before that it is DoorPendingArchitecture, never NoDoor.
+func UseCaseCoverageFor(in scenario.Input, clients map[string]CoverageClient, recorded func(methodcheck.Prerequisite) bool) ([]UseCaseCoverage, error) {
 	report, err := scenario.DeriveReport(in)
 	if err != nil {
 		return nil, fmt.Errorf("projectstate.UseCaseCoverageFor: %w", err)
 	}
+	rulePrerequisitesRecorded := func(code string) bool {
+		prs, known := methodcheck.RulePrerequisites(methodcheck.RuleID(code))
+		if !known {
+			// A code methodcheck has no rule for is reported, never silenced (as ValidateProject does).
+			return true
+		}
+		return slices.IndexFunc(prs, func(pr methodcheck.Prerequisite) bool { return !recorded(pr) }) < 0
+	}
+	doorJudged := rulePrerequisitesRecorded(scenario.ProblemActorPathClient)
 	// A stimulus lands on the contract that declares its op, so a Client's FACET (webClientPlan of
 	// webClient) is the key a stimulus names; the door is the component the facet belongs to.
 	clientKeys := map[string]string{}
@@ -12196,7 +12295,9 @@ func UseCaseCoverageFor(in scenario.Input, clients map[string]CoverageClient) ([
 	}
 	problems := map[string][]string{}
 	for _, pr := range report.Problems {
-		problems[pr.Scenario] = append(problems[pr.Scenario], pr.Code)
+		if rulePrerequisitesRecorded(pr.Code) {
+			problems[pr.Scenario] = append(problems[pr.Scenario], pr.Code)
+		}
 	}
 	var out []UseCaseCoverage
 	for _, s := range report.Scenarios {
@@ -12213,14 +12314,18 @@ func UseCaseCoverageFor(in scenario.Input, clients map[string]CoverageClient) ([
 		for _, g := range s.Guards {
 			pc.Guards = append(pc.Guards, g.Guard)
 		}
-		pc.Client, pc.Door = coverageDoor(s, clientKeys, clients)
+		pc.Door = DoorPendingArchitecture{}
+		if doorJudged {
+			pc.Door = coverageDoor(s, clientKeys, clients)
+		}
 		uc.Paths = append(uc.Paths, pc)
 	}
 	return out, nil
 }
 
-// coverageDoor is the Client the path's first actor-originated stimulus enters through, and its surface.
-func coverageDoor(s scenario.Scenario, clientKeys map[string]string, clients map[string]CoverageClient) (string, string) {
+// coverageDoor is the door the path's first actor-originated stimulus enters through: the Client and
+// its surface, or NoDoor when no such stimulus reaches a contracted Client.
+func coverageDoor(s scenario.Scenario, clientKeys map[string]string, clients map[string]CoverageClient) CoverageDoor {
 	for _, st := range s.Stimuli {
 		if st.Input.Kind == "call" {
 			continue
@@ -12230,11 +12335,11 @@ func coverageDoor(s scenario.Scenario, clientKeys map[string]string, clients map
 			continue
 		}
 		if c, ok := clients[base]; ok {
-			return c.ID, c.Surface
+			return Door{Client: c.ID, Surface: c.Surface}
 		}
-		return base, ""
+		return Door{Client: base}
 	}
-	return "", ""
+	return NoDoor{}
 }
 
 // outcomeNodesOf is the labels of the sendSignal and objectNode nodes along path, in path order.
@@ -12260,8 +12365,26 @@ func outcomeNodesOf(d scenario.Diagram, path []string) []string {
 	return out
 }
 
-// RenderCoverageTable is the coverage as the markdown table the PM reads: one row per path. An empty door
-// or outcome cell reads NONE, because that absence is exactly what the PM is there to send back.
+// doorCell is a door as the table spells it: the Client (and its surface), NONE for a path that reaches no
+// Client (that absence is exactly what the PM is there to send back), or the not-yet-judged state a door
+// is in while the architecture is not recorded.
+func doorCell(d CoverageDoor) string {
+	switch d := d.(type) {
+	case Door:
+		if d.Surface != "" {
+			return d.Client + " (" + d.Surface + ")"
+		}
+		return d.Client
+	case NoDoor:
+		return "NONE"
+	case DoorPendingArchitecture:
+		return "not yet judged (architecture pending)"
+	}
+	return "NONE"
+}
+
+// RenderCoverageTable is the coverage as the markdown table the PM reads: one row per path. An empty
+// outcome cell reads NONE, because that absence is exactly what the PM is there to send back.
 func RenderCoverageTable(cov []UseCaseCoverage) string {
 	cell := func(items []string, none string) string {
 		if len(items) == 0 {
@@ -12278,15 +12401,8 @@ func RenderCoverageTable(cov []UseCaseCoverage) string {
 	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
 	for _, uc := range cov {
 		for _, p := range uc.Paths {
-			door := "NONE"
-			if p.Client != "" {
-				door = p.Client
-				if p.Door != "" {
-					door += " (" + p.Door + ")"
-				}
-			}
 			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n", uc.UseCase, p.Scenario,
-				cell(p.Guards, "—"), door, cell(p.OutcomeNodes, "NONE"), cell(p.Problems, "—"))
+				cell(p.Guards, "—"), doorCell(p.Door), cell(p.OutcomeNodes, "NONE"), cell(p.Problems, "—"))
 		}
 	}
 	return b.String()

@@ -1010,8 +1010,14 @@ var encapsulationAllowlistData = map[string][]string{
 		// are the pure recognition of the system comment a PM send-back lands on a round and of
 		// the reason an approve over it must carry, shared by the Manager's façade check and the
 		// child's re-check. Total, side-effect-free functions of the given *Project / thread,
-		// the same category as ComponentScenarios.
+		// the same category as ComponentScenarios. CoverageDoor is the sealed sum of a path's
+		// door (Door | NoDoor | DoorPendingArchitecture, RUN-025): the value type the same
+		// view returns, so each variant is part of that return surface.
 		"CoverageClient",
+		"CoverageDoor",
+		"Door",
+		"NoDoor",
+		"DoorPendingArchitecture",
 		"PathCoverage",
 		"UseCaseCoverage",
 		"UseCaseCoverageOf",

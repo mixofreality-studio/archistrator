@@ -361,6 +361,19 @@ export const CONSTRUCTION_STAGE_APP_TO_ORDINAL: Readonly<Record<ConstructionStag
   exited: 6,
   awaitingApproval: 7,
 };
+// --- CoverageDoorKind ----------------------------------------------------
+// Sources: DeliveryCoverageDoorKind
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const COVERAGE_DOOR_KIND_VALUES = ['client', 'none', 'pendingArchitecture'] as const;
+
+export type CoverageDoorKind = (typeof COVERAGE_DOOR_KIND_VALUES)[number];
+
+export const COVERAGE_DOOR_KIND_GO_VARNAMES = [
+  'CoverageDoorKindClient',
+  'CoverageDoorKindNone',
+  'CoverageDoorKindPendingArchitecture',
+] as const;
+
 // --- DelinquencyAction ---------------------------------------------------
 // Sources: OperationsDelinquencyAction
 export const DELINQUENCY_ACTION_GO_VARNAMES = [

@@ -22405,6 +22405,128 @@
           ],
           "additionalProperties": false
         },
+        "CoverageDoor": {
+          "description": "The door cell of a coverage path, as a {kind, model} envelope: client (the Client the actor's first stimulus enters through, with its surface), none (no actor-originated stimulus reaches a contracted Client: the finding the PM sends back) or pendingArchitecture (the System is not recorded yet, so there is no Client to enter through and the door has not been judged).",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "client"
+                },
+                "model": {
+                  "$ref": "#/$defs/CoverageDoorClient"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "none"
+                },
+                "model": {
+                  "$ref": "#/$defs/CoverageNoDoor"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "pendingArchitecture"
+                },
+                "model": {
+                  "$ref": "#/$defs/CoverageDoorPending"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "x-go-sumtype": {
+            "iface": "CoverageDoor",
+            "marker": "isCoverageDoor",
+            "discriminatorKey": "kind",
+            "kindEnum": "CoverageDoorKind",
+            "variants": [
+              {
+                "kind": "client",
+                "type": "CoverageDoorClient",
+                "kindConst": "CoverageDoorKindClient"
+              },
+              {
+                "kind": "none",
+                "type": "CoverageNoDoor",
+                "kindConst": "CoverageDoorKindNone"
+              },
+              {
+                "kind": "pendingArchitecture",
+                "type": "CoverageDoorPending",
+                "kindConst": "CoverageDoorKindPendingArchitecture"
+              }
+            ]
+          }
+        },
+        "CoverageDoorClient": {
+          "type": "object",
+          "description": "A door that opens onto a Client.",
+          "properties": {
+            "client": {
+              "type": "string",
+              "description": "The Client component the actor's first stimulus enters through, as the System spells its id."
+            },
+            "surface": {
+              "type": "string",
+              "description": "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when the Client states none."
+            }
+          },
+          "required": [
+            "client",
+            "surface"
+          ],
+          "additionalProperties": false
+        },
+        "CoverageDoorKind": {
+          "type": "string",
+          "enum": [
+            "client",
+            "none",
+            "pendingArchitecture"
+          ],
+          "x-enum-varnames": [
+            "CoverageDoorKindClient",
+            "CoverageDoorKindNone",
+            "CoverageDoorKindPendingArchitecture"
+          ]
+        },
+        "CoverageDoorPending": {
+          "type": "object",
+          "description": "Not yet judged: the System is not recorded, so no Client exists to enter through.",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "CoverageNoDoor": {
+          "type": "object",
+          "description": "No actor-originated stimulus of the path reaches a contracted Client (SCN-ACTOR-PATH-CLIENT).",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
         "DefectView": {
           "type": "object",
           "properties": {
@@ -23243,7 +23365,7 @@
         },
         "PathCoverage": {
           "type": "object",
-          "description": "One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor's first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored.",
+          "description": "One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the door the actor's first stimulus enters through, the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored.",
           "properties": {
             "scenario": {
               "type": "string",
@@ -23258,13 +23380,9 @@
                 "type": "string"
               }
             },
-            "client": {
-              "type": "string",
-              "description": "The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT)."
-            },
             "door": {
-              "type": "string",
-              "description": "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none."
+              "$ref": "#/$defs/CoverageDoor",
+              "description": "The way in: the Client the actor's first stimulus enters through and its surface, no Client at all (the finding the PM sends back), or not yet judged because the architecture is not recorded."
             },
             "outcomeNodes": {
               "type": [
@@ -23288,7 +23406,6 @@
           "required": [
             "scenario",
             "guards",
-            "client",
             "door",
             "outcomeNodes",
             "problems"
@@ -29308,6 +29425,128 @@
           ],
           "additionalProperties": false
         },
+        "CoverageDoor": {
+          "description": "The door cell of a coverage path, as a {kind, model} envelope: client (the Client the actor's first stimulus enters through, with its surface), none (no actor-originated stimulus reaches a contracted Client: the finding the PM sends back) or pendingArchitecture (the System is not recorded yet, so there is no Client to enter through and the door has not been judged).",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "client"
+                },
+                "model": {
+                  "$ref": "#/$defs/CoverageDoorClient"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "none"
+                },
+                "model": {
+                  "$ref": "#/$defs/CoverageNoDoor"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "pendingArchitecture"
+                },
+                "model": {
+                  "$ref": "#/$defs/CoverageDoorPending"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "x-go-sumtype": {
+            "iface": "CoverageDoor",
+            "marker": "isCoverageDoor",
+            "discriminatorKey": "kind",
+            "kindEnum": "CoverageDoorKind",
+            "variants": [
+              {
+                "kind": "client",
+                "type": "CoverageDoorClient",
+                "kindConst": "CoverageDoorKindClient"
+              },
+              {
+                "kind": "none",
+                "type": "CoverageNoDoor",
+                "kindConst": "CoverageDoorKindNone"
+              },
+              {
+                "kind": "pendingArchitecture",
+                "type": "CoverageDoorPending",
+                "kindConst": "CoverageDoorKindPendingArchitecture"
+              }
+            ]
+          }
+        },
+        "CoverageDoorClient": {
+          "type": "object",
+          "description": "A door that opens onto a Client.",
+          "properties": {
+            "client": {
+              "type": "string",
+              "description": "The Client component the actor's first stimulus enters through, as the System spells its id."
+            },
+            "surface": {
+              "type": "string",
+              "description": "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when the Client states none."
+            }
+          },
+          "required": [
+            "client",
+            "surface"
+          ],
+          "additionalProperties": false
+        },
+        "CoverageDoorKind": {
+          "type": "string",
+          "enum": [
+            "client",
+            "none",
+            "pendingArchitecture"
+          ],
+          "x-enum-varnames": [
+            "CoverageDoorKindClient",
+            "CoverageDoorKindNone",
+            "CoverageDoorKindPendingArchitecture"
+          ]
+        },
+        "CoverageDoorPending": {
+          "type": "object",
+          "description": "Not yet judged: the System is not recorded, so no Client exists to enter through.",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "CoverageNoDoor": {
+          "type": "object",
+          "description": "No actor-originated stimulus of the path reaches a contracted Client (SCN-ACTOR-PATH-CLIENT).",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
         "DefectView": {
           "type": "object",
           "properties": {
@@ -30203,7 +30442,7 @@
         },
         "PathCoverage": {
           "type": "object",
-          "description": "One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the Client the actor's first stimulus enters through and its surface (the door), the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored.",
+          "description": "One derived path of a use case as the product manager reads it at the core-use-cases critique: the guards taken, the door the actor's first stimulus enters through, the sendSignal and objectNode labels the actor is shown (verbatim), and the derivation's own defect codes (SCN-*). Derived on read; nothing of it is stored.",
           "properties": {
             "scenario": {
               "type": "string",
@@ -30218,13 +30457,9 @@
                 "type": "string"
               }
             },
-            "client": {
-              "type": "string",
-              "description": "The Client component the actor's first stimulus enters through; empty when no actor-originated stimulus reaches a contracted Client (SCN-ACTOR-PATH-CLIENT)."
-            },
             "door": {
-              "type": "string",
-              "description": "That Client's surface (web, rest, mcpTools, mcpApp): the way in. Empty when there is no Client or it states none."
+              "$ref": "#/$defs/CoverageDoor",
+              "description": "The way in: the Client the actor's first stimulus enters through and its surface, no Client at all (the finding the PM sends back), or not yet judged because the architecture is not recorded."
             },
             "outcomeNodes": {
               "type": [
@@ -30248,7 +30483,6 @@
           "required": [
             "scenario",
             "guards",
-            "client",
             "door",
             "outcomeNodes",
             "problems"

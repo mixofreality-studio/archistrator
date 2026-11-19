@@ -48,16 +48,21 @@ const wireView = {
         {
           scenario: 'reword-a-todo-P1',
           guards: ['[abandoned]'],
-          client: '',
-          door: '',
+          door: { kind: 'none', model: {} },
           outcomeNodes: null,
           problems: ['SCN-ACTOR-PATH-CLIENT', 'SCN-UNADDRESSED'],
         },
         {
           scenario: 'reword-a-todo-P2',
           guards: null,
-          client: 'todo-web-app',
-          door: 'web',
+          door: { kind: 'client', model: { client: 'todo-web-app', surface: 'web' } },
+          outcomeNodes: ['Todo shows the new wording'],
+          problems: null,
+        },
+        {
+          scenario: 'reword-a-todo-P3',
+          guards: null,
+          door: { kind: 'pendingArchitecture', model: {} },
           outcomeNodes: ['Todo shows the new wording'],
           problems: null,
         },
@@ -77,9 +82,15 @@ test('mapUseCaseCoverage: every list is never-null', () => {
 
 test('door and list labels say NONE where the absence is the finding', () => {
   const [p1, p2] = wire.mapUseCaseCoverage(wireView).useCases[0].paths;
+  const p3 = wire.mapUseCaseCoverage(wireView).useCases[0].paths[2];
   assert.equal(logic.doorLabel(p1), 'NONE');
   assert.equal(logic.doorLabel(p2), 'todo-web-app (web)');
-  assert.equal(logic.doorLabel({ ...p2, door: '' }), 'todo-web-app');
+  assert.equal(
+    logic.doorLabel({ ...p2, door: { kind: 'client', client: 'todo-web-app', surface: '' } }),
+    'todo-web-app'
+  );
+  // Not NONE: the architecture is not recorded, so the door has not been judged.
+  assert.equal(logic.doorLabel(p3), 'not yet judged (architecture pending)');
   assert.equal(logic.listLabel(p1.outcomeNodes, 'NONE'), 'NONE');
   assert.equal(logic.listLabel(['a', 'b'], 'NONE'), 'a; b');
 });
@@ -90,7 +101,21 @@ test('pathIsFinding: no door, no outcome, or a defect', () => {
   assert.equal(logic.pathIsFinding(p2), false);
   assert.equal(logic.pathIsFinding({ ...p2, outcomeNodes: [] }), true);
   assert.equal(logic.pathIsFinding({ ...p2, problems: ['SCN-UNADDRESSED'] }), true);
-  assert.equal(logic.pathIsFinding({ ...p2, client: '' }), true);
+  assert.equal(logic.pathIsFinding({ ...p2, door: { kind: 'none' } }), true);
+});
+
+test('a door not yet judged is not a finding: the architecture is what is pending', () => {
+  const [, , p3] = wire.mapUseCaseCoverage(wireView).useCases[0].paths;
+  assert.deepEqual(p3.door, { kind: 'pendingArchitecture' });
+  assert.equal(logic.pathIsFinding(p3), false);
+  // The outcome and the defect codes are still the PM's to judge.
+  assert.equal(logic.pathIsFinding({ ...p3, outcomeNodes: [] }), true);
+});
+
+test('mapUseCaseCoverage refuses a door kind it does not know rather than guessing', () => {
+  const bad = structuredClone(wireView);
+  bad.useCases[0].paths[0].door = { kind: 'revolving', model: {} };
+  assert.throws(() => wire.mapUseCaseCoverage(bad), /revolving/);
 });
 
 test('the override note says the floor and the reason', () => {

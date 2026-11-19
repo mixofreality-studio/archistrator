@@ -5,6 +5,7 @@ package delivery
 
 import (
 	"encoding/json"
+	"fmt"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -328,6 +329,113 @@ type ContractStruct struct {
 	Fields []GoField `json:"Fields"`
 }
 
+// CoverageDoor is the generated sealed sum interface for this contract.
+//
+//sumtype:decl
+type CoverageDoor interface {
+	Kind() CoverageDoorKind
+	isCoverageDoor() // unexported marker: seals the sum to this package's variants
+}
+
+func (*CoverageDoorClient) isCoverageDoor()        {}
+func (*CoverageDoorClient) Kind() CoverageDoorKind { return CoverageDoorKindClient }
+
+func (*CoverageNoDoor) isCoverageDoor()        {}
+func (*CoverageNoDoor) Kind() CoverageDoorKind { return CoverageDoorKindNone }
+
+func (*CoverageDoorPending) isCoverageDoor()        {}
+func (*CoverageDoorPending) Kind() CoverageDoorKind { return CoverageDoorKindPendingArchitecture }
+
+// CoverageDoorEnvelope is the wire form of a CoverageDoor: the string kind discriminator + the
+// concrete variant's own JSON under "model".
+type CoverageDoorEnvelope struct {
+	Kind  string          `json:"kind"`
+	Model json.RawMessage `json:"model,omitempty"`
+}
+
+// kindStringCoverageDoor maps a variant's discriminator value to its wire kind string.
+func kindStringCoverageDoor(k CoverageDoorKind) (string, bool) {
+	switch k {
+	case CoverageDoorKindClient:
+		return "client", true
+	case CoverageDoorKindNone:
+		return "none", true
+	case CoverageDoorKindPendingArchitecture:
+		return "pendingArchitecture", true
+	default:
+		return "", false
+	}
+}
+
+// MarshalCoverageDoor encodes a CoverageDoor to its {"kind","model"} envelope, byte-identical to
+// the hand-written wire form. A nil value encodes as the zero envelope.
+func MarshalCoverageDoor(v CoverageDoor) ([]byte, error) {
+	if v == nil {
+		return json.Marshal(CoverageDoorEnvelope{})
+	}
+	kind, ok := kindStringCoverageDoor(v.Kind())
+	if !ok {
+		return nil, fmt.Errorf("marshal CoverageDoor: no wire kind for %v", v.Kind())
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal CoverageDoor %v: %w", v.Kind(), err)
+	}
+	return json.Marshal(CoverageDoorEnvelope{Kind: kind, Model: raw})
+}
+
+// newCoverageDoorForKind returns a freshly-allocated zero-value concrete variant for
+// the wire kind string, suitable for json.Unmarshal, or (nil,false) if unknown.
+func newCoverageDoorForKind(kind string) (CoverageDoor, bool) {
+	switch kind {
+	case "client":
+		return &CoverageDoorClient{}, true
+	case "none":
+		return &CoverageNoDoor{}, true
+	case "pendingArchitecture":
+		return &CoverageDoorPending{}, true
+	default:
+		return nil, false
+	}
+}
+
+// UnmarshalCoverageDoor decodes a {"kind","model"} envelope back into the concrete
+// variant selected by its kind. An empty model payload decodes to a nil value.
+func UnmarshalCoverageDoor(data []byte) (CoverageDoor, error) {
+	var env CoverageDoorEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, err
+	}
+	if len(env.Model) == 0 {
+		return nil, nil
+	}
+	v, ok := newCoverageDoorForKind(env.Kind)
+	if !ok {
+		return nil, fmt.Errorf("unknown kind %q for CoverageDoor", env.Kind)
+	}
+	if err := json.Unmarshal(env.Model, v); err != nil {
+		return nil, fmt.Errorf("unmarshal CoverageDoor %q: %w", env.Kind, err)
+	}
+	return v, nil
+}
+
+type CoverageDoorClient struct {
+	Client  string `json:"client"`
+	Surface string `json:"surface"`
+}
+
+type CoverageDoorKind string
+
+const (
+	CoverageDoorKindClient              CoverageDoorKind = "client"
+	CoverageDoorKindNone                CoverageDoorKind = "none"
+	CoverageDoorKindPendingArchitecture CoverageDoorKind = "pendingArchitecture"
+)
+
+type CoverageDoorPending map[string]interface{}
+
+type CoverageNoDoor map[string]interface{}
+
 type DefectView struct {
 	Id       string `json:"id"`
 	Title    string `json:"title"`
@@ -567,12 +675,11 @@ const (
 type OwnerScope string
 
 type PathCoverage struct {
-	Scenario     string   `json:"scenario"`
-	Guards       []string `json:"guards"`
-	Client       string   `json:"client"`
-	Door         string   `json:"door"`
-	OutcomeNodes []string `json:"outcomeNodes"`
-	Problems     []string `json:"problems"`
+	Scenario     string       `json:"scenario"`
+	Guards       []string     `json:"guards"`
+	Door         CoverageDoor `json:"door"`
+	OutcomeNodes []string     `json:"outcomeNodes"`
+	Problems     []string     `json:"problems"`
 }
 
 type PendingDependency struct {

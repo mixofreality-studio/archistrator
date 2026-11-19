@@ -54,7 +54,9 @@ import {
   autoscalerModeFromOrdinal,
   testingVariantFromOrdinal,
 } from './enumMappings.ts';
+import { assertNever } from './exhaustive.ts';
 import type {
+  CoverageDoorView,
   ArtifactKind,
   ArtifactKindFull,
   ArtifactSlotView,
@@ -799,13 +801,26 @@ export function mapUseCaseCoverage(w: Schemas['DeliveryUseCaseCoverageView']): U
       paths: arr(uc.paths).map((p) => ({
         scenario: p.scenario,
         guards: arr(p.guards),
-        client: p.client,
-        door: p.door,
+        door: mapCoverageDoor(p.door),
         outcomeNodes: arr(p.outcomeNodes),
         problems: arr(p.problems),
       })),
     })),
   };
+}
+
+/** The wire's {kind, model} door envelope as the app's flat discriminated union. */
+function mapCoverageDoor(w: Schemas['DeliveryCoverageDoor']): CoverageDoorView {
+  switch (w.kind) {
+    case 'client':
+      return { kind: 'client', client: w.model.client, surface: w.model.surface };
+    case 'none':
+      return { kind: 'none' };
+    case 'pendingArchitecture':
+      return { kind: 'pendingArchitecture' };
+    default:
+      return assertNever(w);
+  }
 }
 
 function mapTestArg(w: Schemas['DeliveryTestArgView']): TestArgView {

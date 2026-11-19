@@ -1138,13 +1138,21 @@ export interface ScenarioStimulusView {
 export interface PathCoverageView {
   scenario: string;
   guards: string[];
-  /** The Client component the first actor stimulus enters through; '' when none does. */
-  client: string;
-  /** That Client's surface (web, rest, mcpTools, mcpApp); '' when there is no Client. */
-  door: string;
+  door: CoverageDoorView;
   outcomeNodes: string[];
   problems: string[];
 }
+
+/**
+ * A coverage path's door, a closed sum switched on `kind` (a new variant fails the typecheck
+ * at every `assertNever`): the Client the actor's first stimulus enters through with its
+ * surface ('' when it states none); no Client at all (the finding the PM sends back); or not
+ * yet judged because the architecture is not recorded (RUN-025), which is NOT a finding.
+ */
+export type CoverageDoorView =
+  | { kind: 'client'; client: string; surface: string }
+  | { kind: 'none' }
+  | { kind: 'pendingArchitecture' };
 
 export interface UseCaseCoverageRow {
   useCase: string;
