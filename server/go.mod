@@ -6,12 +6,12 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.28.1
-	github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.1
+	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.29.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.2
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.7.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.9.0
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.30.0
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.31.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0

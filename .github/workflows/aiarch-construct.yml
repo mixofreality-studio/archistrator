@@ -113,7 +113,8 @@ concurrency:
 
 jobs:
   construct:
-    runs-on: ubuntu-latest
+    # Pinned: Playwright (browser install below) does not support ubuntu-26.04, which ubuntu-latest became on 2026-11-18.
+    runs-on: ubuntu-24.04
     # Bound the whole job (ruling R12). The agent's own 25-minute bound and the
     # check gate's 45-minute bound live on their steps; the rest is setup and the
     # record, so a slow or hung check is recorded red instead of the job being
