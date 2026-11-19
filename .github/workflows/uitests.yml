@@ -94,10 +94,14 @@ jobs:
         working-directory: webApp
         run: npm ci
 
+      # --host 127.0.0.1: with no host Vite listens on `localhost`, which Node (17+, verbatim
+      # DNS order) resolves on the Ubuntu runner to ::1 first, so the dev server is up on
+      # [::1]:5173 only and every probe of 127.0.0.1 is refused (curl exit 7). Bind and probe
+      # the one address, and give Playwright the same origin (PLAYWRIGHT_TEST_BASE_URL).
       - name: Start SPA dev server
         working-directory: webApp
         run: |
-          npm run dev -- --port 5173 --strictPort &
+          npm run dev -- --host 127.0.0.1 --port 5173 --strictPort &
           for _ in $(seq 1 60); do
             if curl -sf http://127.0.0.1:5173/ >/dev/null 2>&1; then
               echo "SPA ready"
@@ -131,7 +135,7 @@ jobs:
         working-directory: uitests
         env:
           CI: 'true'
-          PLAYWRIGHT_TEST_BASE_URL: 'http://localhost:5173'
+          PLAYWRIGHT_TEST_BASE_URL: 'http://127.0.0.1:5173'
           UITESTS_API_PORT: '8888'
           UITESTS_POSTGRES_URL: postgres://archistrator:archistrator@localhost:5432/archistrator?sslmode=disable
           UITESTS_SERVER_BIN: /tmp/uitests-bin/archistrator-server
