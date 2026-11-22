@@ -61,24 +61,3 @@ func TestDecodeWorkspaceOwnedPaths(t *testing.T) {
 		})
 	}
 }
-
-// TestParseOwnedPath pins the sealed sum's two arms.
-func TestParseOwnedPath(t *testing.T) {
-	in, err := projectstate.ParseOwnedPath("cmd/x")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := in.(projectstate.InProject); !ok || got.Path != "cmd/x" {
-		t.Fatalf("got %#v, want InProject{cmd/x}", in)
-	}
-	ws, err := projectstate.ParseOwnedPath("@plat/framework-go/methodcheck")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := ws.(projectstate.InWorkspaceRepo); !ok || got.Repo != "plat" || got.Path != "framework-go/methodcheck" {
-		t.Fatalf("got %#v, want InWorkspaceRepo{plat, framework-go/methodcheck}", ws)
-	}
-	if ws.String() != "@plat/framework-go/methodcheck" {
-		t.Fatalf("String() = %q", ws.String())
-	}
-}

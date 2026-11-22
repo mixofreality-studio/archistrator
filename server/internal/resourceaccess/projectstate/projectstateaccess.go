@@ -2157,11 +2157,11 @@ func checkOwnedPaths(repos []WorkspaceRepo, contracts map[string]ServiceContract
 	keys := slices.Sorted(maps.Keys(contracts))
 	for _, key := range keys {
 		for _, e := range contracts[key].OwnedPaths {
-			op, err := ParseOwnedPath(e)
+			op, err := parseOwnedPath(e)
 			if err != nil {
 				return ownedPathRefusal(key, e, err.Error())
 			}
-			if ws, ok := op.(InWorkspaceRepo); ok && !declared[ws.Repo] {
+			if ws, ok := op.(inWorkspaceRepo); ok && !declared[ws.Repo] {
 				return ownedPathRefusal(key, e, fmt.Sprintf("names workspace repo %q, which the project does not declare", ws.Repo))
 			}
 			for _, other := range keys {
@@ -2183,43 +2183,43 @@ type WorkspaceRepo struct {
 	RelPath string `json:"relPath"`
 }
 
-// OwnedPath is one ownedPaths entry: a directory of the project's own repo (module-relative)
+// ownedPathEntry is one ownedPaths entry: a directory of the project's own repo (module-relative)
 // or a directory of a declared workspace repo (repo-relative). The wire form is a string: a
 // plain directory, or "@<repo>/<dir>".
 //
 //sumtype:decl
-type OwnedPath interface {
+type ownedPathEntry interface {
 	// String is the wire form.
 	String() string
 	ownedPath()
 }
 
-// InProject is an ownedPaths directory inside the project's own module.
-type InProject struct{ Path string }
+// inProject is an ownedPaths directory inside the project's own module.
+type inProject struct{ Path string }
 
-// InWorkspaceRepo is an ownedPaths directory inside the declared workspace repo Repo.
-type InWorkspaceRepo struct{ Repo, Path string }
+// inWorkspaceRepo is an ownedPaths directory inside the declared workspace repo Repo.
+type inWorkspaceRepo struct{ Repo, Path string }
 
-func (InProject) ownedPath()       {}
-func (InWorkspaceRepo) ownedPath() {}
+func (inProject) ownedPath()       {}
+func (inWorkspaceRepo) ownedPath() {}
 
-func (o InProject) String() string { return o.Path }
+func (o inProject) String() string { return o.Path }
 
-func (o InWorkspaceRepo) String() string { return "@" + o.Repo + "/" + o.Path }
+func (o inWorkspaceRepo) String() string { return "@" + o.Repo + "/" + o.Path }
 
 // workspaceRepoPrefix opens a repo-qualified ownedPaths entry.
 const workspaceRepoPrefix = "@"
 
-// ParseOwnedPath reads one ownedPaths wire entry into the sum, refusing a directory that is
+// parseOwnedPath reads one ownedPaths wire entry into the sum, refusing a directory that is
 // not clean (see ownedPathShapeProblem). It does not know which workspace repos the project
 // declares; checkOwnedPaths holds that.
-func ParseOwnedPath(entry string) (OwnedPath, error) {
+func parseOwnedPath(entry string) (ownedPathEntry, error) {
 	rest, ok := strings.CutPrefix(entry, workspaceRepoPrefix)
 	if !ok {
 		if why := ownedPathShapeProblem(entry); why != "" {
 			return nil, errors.New(why)
 		}
-		return InProject{Path: entry}, nil
+		return inProject{Path: entry}, nil
 	}
 	repo, dir, found := strings.Cut(rest, "/")
 	if !found || repo == "" {
@@ -2228,7 +2228,7 @@ func ParseOwnedPath(entry string) (OwnedPath, error) {
 	if why := ownedPathShapeProblem(dir); why != "" {
 		return nil, errors.New(why)
 	}
-	return InWorkspaceRepo{Repo: repo, Path: dir}, nil
+	return inWorkspaceRepo{Repo: repo, Path: dir}, nil
 }
 
 // checkWorkspaceRepos refuses a workspaceRepos list whose id is not a plain name or repeats,
@@ -2278,12 +2278,12 @@ func ownedPathShapeProblem(e string) string {
 
 // ownedPathOverlapProblem is why entry e of contract key overlaps the goPackage or an
 // ownedPaths entry of contract other (itself excluded), or "".
-func ownedPathOverlapProblem(key string, e OwnedPath, other string, sc ServiceContract) string {
-	if in, ok := e.(InProject); ok && sc.GoPackage != "" && pathsOverlap(in.Path, sc.GoPackage) {
+func ownedPathOverlapProblem(key string, e ownedPathEntry, other string, sc ServiceContract) string {
+	if in, ok := e.(inProject); ok && sc.GoPackage != "" && pathsOverlap(in.Path, sc.GoPackage) {
 		return fmt.Sprintf("overlaps the goPackage %q of contract %q, which already owns that package", sc.GoPackage, other)
 	}
 	for _, raw := range sc.OwnedPaths {
-		o, err := ParseOwnedPath(raw)
+		o, err := parseOwnedPath(raw)
 		if err != nil || (other == key && o == e) {
 			continue // a malformed entry is refused on its own visit
 		}
@@ -2296,13 +2296,13 @@ func ownedPathOverlapProblem(key string, e OwnedPath, other string, sc ServiceCo
 
 // sameTreeOverlap is whether a and b are directories of the same repo (or both the
 // project's own) that are equal or nested.
-func sameTreeOverlap(a, b OwnedPath) bool {
+func sameTreeOverlap(a, b ownedPathEntry) bool {
 	switch av := a.(type) {
-	case InProject:
-		bv, ok := b.(InProject)
+	case inProject:
+		bv, ok := b.(inProject)
 		return ok && pathsOverlap(av.Path, bv.Path)
-	case InWorkspaceRepo:
-		bv, ok := b.(InWorkspaceRepo)
+	case inWorkspaceRepo:
+		bv, ok := b.(inWorkspaceRepo)
 		return ok && av.Repo == bv.Repo && pathsOverlap(av.Path, bv.Path)
 	}
 	return false
