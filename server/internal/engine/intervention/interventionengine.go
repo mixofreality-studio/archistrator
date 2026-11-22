@@ -56,6 +56,9 @@ import (
 // wire/persistence contract — the directive IDENTITIES, not their numeric
 // values, are load-bearing (senior freeze-time note, contract §3). Nothing in
 // this package or its callers may depend on the numeric values.
+// VarianceDirective and SettlementFailureDirective carry an Unknown zero value,
+// so a null or unset decision never reads as a retry and a test of the retry
+// outcome can tell the Engine's answer from an empty one.
 
 // interventionEngineImpl and NewInterventionEngine are generated
 // (contract.gen.go); the behaviour below is hand-written on that generated
@@ -152,6 +155,8 @@ func varianceDirectiveValid(d VarianceDirective) bool {
 	switch d {
 	case VarianceRetry, VarianceEscalate, VarianceTakeover, VarianceGiveUp, VarianceSendBack:
 		return true
+	case VarianceDirectiveUnknown:
+		return false
 	default:
 		return false
 	}
@@ -170,6 +175,8 @@ func settlementDirectiveValid(d SettlementFailureDirective) bool {
 	switch d {
 	case SettlementRetry, SettlementDelay, SettlementEscalate:
 		return true
+	case SettlementFailureDirectiveUnknown:
+		return false
 	default:
 		return false
 	}

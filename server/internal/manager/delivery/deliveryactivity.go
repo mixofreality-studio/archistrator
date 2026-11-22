@@ -1639,9 +1639,11 @@ func (wf *csWorkflows) runTaskVariance(
 		tc.State.variance = nil
 		tc.State.stage = StageDispatching
 		return varianceSentBack, deferred, nil
+	case intervention.VarianceDirectiveUnknown:
+		// Falls through to the unknown-directive error below.
 	}
-	// VarianceDirective has no Unknown sentinel (VarianceRetry is its zero value), so anything
-	// outside the closed set is an unrecognized engine decision.
+	// The zero value is VarianceDirectiveUnknown, so an unset or unrecognized engine decision
+	// lands here and never reads as a retry.
 	return varianceRedispatch, deferred, temporal.NewNonRetryableApplicationError(
 		"intervention returned an unknown directive", "UnknownDirective", nil)
 }

@@ -47,7 +47,7 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
                           }
                         }}`, &in1)
 		out1, err1 = subject.DecideOnVariance(h.EngineContext(t), in1.Variance)
-		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"2","errorExpected":false}`)
 	})
 }
 
@@ -80,7 +80,7 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                           }
                         }}`, &in1)
 		out1, err1 = subject.DecideOnVariance(h.EngineContext(t), in1.Variance)
-		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"0","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 	})
 }
 
@@ -113,7 +113,7 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
                           }
                         }}`, &in1)
 		out1, err1 = subject.DecideOnVariance(h.EngineContext(t), in1.Variance)
-		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"2","errorExpected":false}`)
 	})
 }
 
@@ -192,7 +192,7 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
                           }
                         }}`, &in1)
 		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
-		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"result":"0","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P1", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 	})
 }
 
@@ -225,7 +225,7 @@ func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
                           }
                         }}`, &in1)
 		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
-		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"0","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P2", 1, out1, err1, `{"result":"1","errorExpected":false}`)
 	})
 }
 
@@ -258,7 +258,7 @@ func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
                           }
                         }}`, &in1)
 		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
-		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"1","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P3", 1, out1, err1, `{"result":"2","errorExpected":false}`)
 	})
 }
 
@@ -291,7 +291,7 @@ func TestScenario_retry_a_declined_service_invoice_P4(t *testing.T) {
                           }
                         }}`, &in1)
 		out1, err1 = subject.DecideOnSettlementFailure(h.EngineContext(t), in1.Failure)
-		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"2","errorExpected":false}`)
+		expect(t, "retry-a-declined-service-invoice-P4", 1, out1, err1, `{"result":"3","errorExpected":false}`)
 	})
 }
 

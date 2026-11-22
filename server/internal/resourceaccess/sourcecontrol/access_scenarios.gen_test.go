@@ -44,6 +44,27 @@ func TestScenario_ask_a_clarifying_question_during_review_P2(t *testing.T) {
 	h.RunScenario(t, "sourceControlAccess", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
 		var subject sourcecontrol.SourceControlAccess = scenariocompose.NewSourceControlAccess(t, h)
 		subject = nullSubjectSourceControlAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// arrange 1: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				Repo  sourcecontrol.RepoRef        `json:"repo"`
+				Files []sourcecontrol.ManagedFile  `json:"files"`
+				Cred  sourcecontrol.RepoCredential `json:"cred"`
+			}
+			mustUnmarshal(t, `{"repo":"local|local/stp-sca-acq-p2","files":[
+                            {
+                              "Path": ".claude/.method-assets-manifest.json",
+                              "Content": "eyJ2ZXJzaW9uIjoidGVzdCJ9"
+                            }
+                          ],"cred":{
+                            "Bytes": "bG9jYWw=",
+                            "ExpiresAt": "9999-12-31T00:00:00Z"
+                          }}`, &in)
+			aout, aerr = subject.CommitManagedFiles(h.ResourceAccessContext(t, "arrange-1"), in.Repo, in.Files, in.Cred)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 1", 0, aout, aerr, `{"errorExpected":false}`)
+		}
 		// step 1: ProjectRepo (node dispatch-answer-job; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
 		var out1 any
 		var err1 error
@@ -60,7 +81,7 @@ func TestScenario_ask_a_clarifying_question_during_review_P2(t *testing.T) {
                           "ExpiresAt": "9999-12-31T00:00:00Z"
                         }}`, &in2)
 		out2, err2 = subject.ReadManagedFile(h.ResourceAccessContext(t, "2"), in2.Repo, in2.Path, in2.Cred)
-		expect(t, "ask-a-clarifying-question-during-review-P2", 2, out2, err2, `{"result":"{\"Found\":false}","errorExpected":false}`)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 2, out2, err2, `{"result":"{\"Content\":\"eyJ2ZXJzaW9uIjoidGVzdCJ9\",\"Found\":true}","errorExpected":false}`)
 	})
 }
 
@@ -90,6 +111,27 @@ func TestScenario_ask_a_clarifying_question_during_review_P4(t *testing.T) {
 	h.RunScenario(t, "sourceControlAccess", "ask-a-clarifying-question-during-review-P4", func(t *testing.T) {
 		var subject sourcecontrol.SourceControlAccess = scenariocompose.NewSourceControlAccess(t, h)
 		subject = nullSubjectSourceControlAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// arrange 1: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				Repo  sourcecontrol.RepoRef        `json:"repo"`
+				Files []sourcecontrol.ManagedFile  `json:"files"`
+				Cred  sourcecontrol.RepoCredential `json:"cred"`
+			}
+			mustUnmarshal(t, `{"repo":"local|local/stp-sca-acq-p4","files":[
+                            {
+                              "Path": ".claude/.method-assets-manifest.json",
+                              "Content": "eyJ2ZXJzaW9uIjoidGVzdCJ9"
+                            }
+                          ],"cred":{
+                            "Bytes": "bG9jYWw=",
+                            "ExpiresAt": "9999-12-31T00:00:00Z"
+                          }}`, &in)
+			aout, aerr = subject.CommitManagedFiles(h.ResourceAccessContext(t, "arrange-1"), in.Repo, in.Files, in.Cred)
+			expect(t, "ask-a-clarifying-question-during-review-P4 arrange 1", 0, aout, aerr, `{"errorExpected":false}`)
+		}
 		// step 1: ProjectRepo (node dispatch-answer-job; guards artifact-state=[no: committed], answer-ran=[no: dispatch miss])
 		var out1 any
 		var err1 error
@@ -106,7 +148,7 @@ func TestScenario_ask_a_clarifying_question_during_review_P4(t *testing.T) {
                           "ExpiresAt": "9999-12-31T00:00:00Z"
                         }}`, &in2)
 		out2, err2 = subject.ReadManagedFile(h.ResourceAccessContext(t, "2"), in2.Repo, in2.Path, in2.Cred)
-		expect(t, "ask-a-clarifying-question-during-review-P4", 2, out2, err2, `{"result":"{\"Found\":false}","errorExpected":false}`)
+		expect(t, "ask-a-clarifying-question-during-review-P4", 2, out2, err2, `{"result":"{\"Content\":\"eyJ2ZXJzaW9uIjoidGVzdCJ9\",\"Found\":true}","errorExpected":false}`)
 	})
 }
 

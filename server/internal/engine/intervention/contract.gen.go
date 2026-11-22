@@ -114,9 +114,10 @@ type SettlementFailure struct {
 type SettlementFailureDirective int
 
 const (
-	SettlementRetry    SettlementFailureDirective = 0
-	SettlementDelay    SettlementFailureDirective = 1
-	SettlementEscalate SettlementFailureDirective = 2
+	SettlementFailureDirectiveUnknown SettlementFailureDirective = 0
+	SettlementRetry                   SettlementFailureDirective = 1
+	SettlementDelay                   SettlementFailureDirective = 2
+	SettlementEscalate                SettlementFailureDirective = 3
 )
 
 type SettlementFailureKind int
@@ -138,11 +139,12 @@ const (
 type VarianceDirective int
 
 const (
-	VarianceRetry    VarianceDirective = 0
-	VarianceEscalate VarianceDirective = 1
-	VarianceTakeover VarianceDirective = 2
-	VarianceGiveUp   VarianceDirective = 3
-	VarianceSendBack VarianceDirective = 4
+	VarianceDirectiveUnknown VarianceDirective = 0
+	VarianceRetry            VarianceDirective = 1
+	VarianceEscalate         VarianceDirective = 2
+	VarianceTakeover         VarianceDirective = 3
+	VarianceGiveUp           VarianceDirective = 4
+	VarianceSendBack         VarianceDirective = 5
 )
 
 type VarianceKind int

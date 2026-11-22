@@ -917,9 +917,11 @@ func TestScenario_track_weekly_project_progress_P3(t *testing.T) {
                             }
                           ],
                           "milestones": null
-                        },"integrated":[],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
+                        },"integrated":[
+                          "C-orders-access"
+                        ],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in1)
 		out1, err1 = subject.ComputeEarnedValue(h.EngineContext(t), in1.Activities, in1.Network, in1.Integrated, in1.TotalWeeks, in1.CalendarDaysPerWeek)
-		expect(t, "track-weekly-project-progress-P3", 1, out1, err1, `{"result":"{\"spi\":0}","errorExpected":false}`)
+		expect(t, "track-weekly-project-progress-P3", 1, out1, err1, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
 		// step 2: ComputeEarnedValue (node project-eac; guards enough-points=[yes], off-track=[yes])
 		var out2 any
 		var err2 error
@@ -949,9 +951,11 @@ func TestScenario_track_weekly_project_progress_P3(t *testing.T) {
                             }
                           ],
                           "milestones": null
-                        },"integrated":[],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in2)
+                        },"integrated":[
+                          "C-orders-access"
+                        ],"totalWeeks":1,"calendarDaysPerWeek":5}`, &in2)
 		out2, err2 = subject.ComputeEarnedValue(h.EngineContext(t), in2.Activities, in2.Network, in2.Integrated, in2.TotalWeeks, in2.CalendarDaysPerWeek)
-		expect(t, "track-weekly-project-progress-P3", 2, out2, err2, `{"result":"{\"spi\":0}","errorExpected":false}`)
+		expect(t, "track-weekly-project-progress-P3", 2, out2, err2, `{"result":"{\"spi\":0.75}","errorExpected":false}`)
 	})
 }
 

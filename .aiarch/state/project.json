@@ -28253,9 +28253,11 @@
           "enum": [
             0,
             1,
-            2
+            2,
+            3
           ],
           "x-enum-varnames": [
+            "SettlementFailureDirectiveUnknown",
             "SettlementRetry",
             "SettlementDelay",
             "SettlementEscalate"
@@ -28297,9 +28299,11 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "x-enum-varnames": [
+            "VarianceDirectiveUnknown",
             "VarianceRetry",
             "VarianceEscalate",
             "VarianceTakeover",
@@ -76057,7 +76061,9 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": []
+                        "json": [
+                          "C-orders-access"
+                        ]
                       }
                     },
                     "schemaRef": ""
@@ -76084,7 +76090,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"spi\":0}",
+                  "result": "{\"spi\":0.75}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -76144,7 +76150,9 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": []
+                        "json": [
+                          "C-orders-access"
+                        ]
                       }
                     },
                     "schemaRef": ""
@@ -76171,7 +76179,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"spi\":0}",
+                  "result": "{\"spi\":0.75}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -77629,7 +77637,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "1",
+                  "result": "2",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -77669,7 +77677,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "0",
+                  "result": "1",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -77709,7 +77717,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "1",
+                  "result": "2",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -77972,7 +77980,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "0",
+                  "result": "1",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -78012,7 +78020,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "0",
+                  "result": "1",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -78052,7 +78060,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "1",
+                  "result": "2",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -78092,7 +78100,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "2",
+                  "result": "3",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -97428,7 +97436,60 @@
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P2",
-            "arrange": [],
+            "arrange": [
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "sourceControlAccess",
+                  "operation": "CommitManagedFiles",
+                  "inputs": [
+                    {
+                      "name": "repo",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "local|local/stp-sca-acq-p2"
+                        }
+                      },
+                      "schemaRef": "#/$defs/RepoRef"
+                    },
+                    {
+                      "name": "files",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": [
+                            {
+                              "Path": ".claude/.method-assets-manifest.json",
+                              "Content": "eyJ2ZXJzaW9uIjoidGVzdCJ9"
+                            }
+                          ]
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "bG9jYWw=",
+                            "ExpiresAt": "9999-12-31T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": "#/$defs/RepoCredential"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              }
+            ],
             "steps": [
               {
                 "seq": 1,
@@ -97491,7 +97552,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"Found\":false}",
+                  "result": "{\"Content\":\"eyJ2ZXJzaW9uIjoidGVzdCJ9\",\"Found\":true}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -97578,7 +97639,60 @@
           },
           {
             "scenario": "ask-a-clarifying-question-during-review-P4",
-            "arrange": [],
+            "arrange": [
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "sourceControlAccess",
+                  "operation": "CommitManagedFiles",
+                  "inputs": [
+                    {
+                      "name": "repo",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "local|local/stp-sca-acq-p4"
+                        }
+                      },
+                      "schemaRef": "#/$defs/RepoRef"
+                    },
+                    {
+                      "name": "files",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": [
+                            {
+                              "Path": ".claude/.method-assets-manifest.json",
+                              "Content": "eyJ2ZXJzaW9uIjoidGVzdCJ9"
+                            }
+                          ]
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "bG9jYWw=",
+                            "ExpiresAt": "9999-12-31T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": "#/$defs/RepoCredential"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              }
+            ],
             "steps": [
               {
                 "seq": 1,
@@ -97641,7 +97755,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "{\"Found\":false}",
+                  "result": "{\"Content\":\"eyJ2ZXJzaW9uIjoidGVzdCJ9\",\"Found\":true}",
                   "errorExpected": false,
                   "errorCode": ""
                 },
