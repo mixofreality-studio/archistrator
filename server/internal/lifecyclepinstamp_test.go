@@ -34,8 +34,8 @@ func TestLifecyclePinStampsDAGIdentity(t *testing.T) {
 	if stamp == nil || ident == nil {
 		t.Fatalf("delivery must declare lifecyclePinFor and lifecycleIdentity (found stamp=%v identity=%v)", stamp != nil, ident != nil)
 	}
-	if !stampsIdentity(stamp) {
-		t.Error("lifecyclePinFor must set LifecyclePin.AssetsVersion to lifecycleIdentity(...)")
+	for _, problem := range stampProblems(stamp) {
+		t.Error(problem)
 	}
 	for _, problem := range identityProblems(ident) {
 		t.Error(problem)
@@ -49,12 +49,18 @@ func TestLifecyclePinStampsDAGIdentity(t *testing.T) {
 // -> json.Marshal(lc) bound to raw -> sha256.Sum256(raw) bound to sum -> returned value
 // built from sum.
 func identityProblems(fn *ast.FuncDecl) []string {
-	lcVar := boundByCall(fn, "methodassets.LifecycleFor", "")
+	param := singleParam(fn)
+	lcVar := ""
+	if param != "" {
+		lcVar = boundByCall(fn, "methodassets.LifecycleFor", param)
+	}
 	rawVar := boundByCall(fn, "json.Marshal", lcVar)
 	sumVar := boundByCall(fn, "sha256.Sum256", rawVar)
 	switch {
+	case param == "":
+		return []string{"lifecycleIdentity must take exactly one named parameter, the lifecycle type key"}
 	case lcVar == "":
-		return []string{"lifecycleIdentity must bind the lifecycle from methodassets.LifecycleFor"}
+		return []string{"lifecycleIdentity must bind the lifecycle from methodassets.LifecycleFor(<its own parameter>): any other key identifies another type's DAG"}
 	case rawVar == "":
 		return []string{"lifecycleIdentity must json.Marshal the whole lifecycle bound by methodassets.LifecycleFor, not a part of it"}
 	case sumVar == "":
@@ -65,11 +71,19 @@ func identityProblems(fn *ast.FuncDecl) []string {
 	return nil
 }
 
-// boundByCall is the first variable assigned the result of calling callee. For every callee
-// but methodassets.LifecycleFor the call's single argument must be the identifier arg; an
-// empty arg there (the previous step failed) yields "".
+// singleParam is the name of fn's only parameter, or "" when it has not exactly one.
+func singleParam(fn *ast.FuncDecl) string {
+	ps := fn.Type.Params.List
+	if len(ps) != 1 || len(ps[0].Names) != 1 {
+		return ""
+	}
+	return ps[0].Names[0].Name
+}
+
+// boundByCall is the first variable assigned the result of calling callee whose single
+// argument is the identifier arg; an empty arg (the previous step failed) yields "".
 func boundByCall(fn *ast.FuncDecl, callee, arg string) string {
-	if arg == "" && callee != "methodassets.LifecycleFor" {
+	if arg == "" {
 		return ""
 	}
 	out := ""
@@ -83,7 +97,7 @@ func boundByCall(fn *ast.FuncDecl, callee, arg string) string {
 		if !ok || lhs == nil || selName(call.Fun) != callee {
 			return true
 		}
-		if arg == "" || (len(call.Args) == 1 && isIdent(call.Args[0], arg)) {
+		if len(call.Args) == 1 && isIdent(call.Args[0], arg) {
 			out = lhs.Name
 		}
 		return true
@@ -242,22 +256,73 @@ func moduleVersionUses(f *ast.File) []token.Pos {
 	return out
 }
 
-// stampsIdentity reports whether fn sets an AssetsVersion field to a lifecycleIdentity call.
-func stampsIdentity(fn *ast.FuncDecl) bool {
-	found := false
+// stampProblems checks lifecyclePinFor's data flow: key := projectstate.LifecycleKeyFor(
+// act.Type, act.Variant) (act being the function's parameter), and the returned LifecyclePin
+// literal sets TypeKey: key and AssetsVersion: lifecycleIdentity(key), the one key for both,
+// so the identity is of the very lifecycle the pin names.
+func stampProblems(fn *ast.FuncDecl) []string {
+	keyVar := boundLifecycleKey(fn)
+	if keyVar == "" {
+		return []string{"lifecyclePinFor must bind key := projectstate.LifecycleKeyFor(<act>.Type, <act>.Variant) from its own parameter"}
+	}
+	typeKeyOK, identityOK := false, false
 	ast.Inspect(fn, func(n ast.Node) bool {
-		kv, ok := n.(*ast.KeyValueExpr)
-		if !ok {
-			return true
-		}
-		if k, ok := kv.Key.(*ast.Ident); ok && k.Name == "AssetsVersion" {
-			if call, ok := kv.Value.(*ast.CallExpr); ok {
-				if f, ok := call.Fun.(*ast.Ident); ok && f.Name == "lifecycleIdentity" {
-					found = true
-				}
-			}
+		if kv, ok := n.(*ast.KeyValueExpr); ok {
+			t, i := pinField(kv, keyVar)
+			typeKeyOK, identityOK = typeKeyOK || t, identityOK || i
 		}
 		return true
 	})
-	return found
+	var out []string
+	if !typeKeyOK {
+		out = append(out, "lifecyclePinFor must set LifecyclePin.TypeKey to the key bound from LifecycleKeyFor")
+	}
+	if !identityOK {
+		out = append(out, "lifecyclePinFor must set LifecyclePin.AssetsVersion to lifecycleIdentity(<that same key>)")
+	}
+	return out
+}
+
+// boundLifecycleKey is the variable fn binds from projectstate.LifecycleKeyFor(act.Type,
+// act.Variant), act being fn's own parameter, or "".
+func boundLifecycleKey(fn *ast.FuncDecl) string {
+	act := singleParam(fn)
+	out := ""
+	ast.Inspect(fn, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || out != "" || len(as.Rhs) != 1 || len(as.Lhs) != 1 {
+			return true
+		}
+		call, ok := as.Rhs[0].(*ast.CallExpr)
+		lhs, _ := as.Lhs[0].(*ast.Ident)
+		if ok && lhs != nil && act != "" && selName(call.Fun) == "projectstate.LifecycleKeyFor" && len(call.Args) == 2 &&
+			isSel(call.Args[0], act, "Type") && isSel(call.Args[1], act, "Variant") {
+			out = lhs.Name
+		}
+		return true
+	})
+	return out
+}
+
+// pinField reports whether kv is TypeKey: key, and whether it is AssetsVersion:
+// lifecycleIdentity(key).
+func pinField(kv *ast.KeyValueExpr, key string) (typeKey, identity bool) {
+	k, _ := kv.Key.(*ast.Ident)
+	if k == nil {
+		return false, false
+	}
+	switch k.Name {
+	case "TypeKey":
+		return isIdent(kv.Value, key), false
+	case "AssetsVersion":
+		call, ok := kv.Value.(*ast.CallExpr)
+		return false, ok && isIdent(call.Fun, "lifecycleIdentity") && len(call.Args) == 1 && isIdent(call.Args[0], key)
+	}
+	return false, false
+}
+
+// isSel reports whether e is the selector base.name.
+func isSel(e ast.Expr, base, name string) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == name && isIdent(sel.X, base)
 }

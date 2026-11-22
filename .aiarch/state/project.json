@@ -51874,6 +51874,1060 @@
                     "errorCode": ""
                   }
                 }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "OpenActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-LIVE"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "typ",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 7
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "variant",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "pin",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.1"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:29"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "ReadActivityExecution",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-LIVE"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"activityID\":\"D-PIN-LIVE\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "OpenActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "typ",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 7
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "variant",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "pin",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.1"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:30"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "RecordAttemptOutcome",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "attempt",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "attemptId": "D-PIN-KEEP:missionDraft:1",
+                            "taskId": "missionDraft",
+                            "attempt": 1,
+                            "actor": "agent",
+                            "outcome": "passed",
+                            "evidenceKind": "episode",
+                            "evidenceRef": "ep-D-PIN-KEEP-missionDraft-1",
+                            "detail": ""
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:31"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "RecordActivityOutcome",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "outcome",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "reason",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 1
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "detail",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "failed"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:32"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "RecordOperatorNote",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "note",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "noteId": "requeue:D-PIN-KEEP:1",
+                            "kind": 6,
+                            "gate": "construction",
+                            "text": "change request",
+                            "comments": null
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "deliveredToAttemptID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": ""
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:33"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "OpenActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "typ",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 7
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "variant",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "pin",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.1"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:34"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "ReadActivityExecution",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"activityID\":\"D-PIN-KEEP\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "RecordAttemptOutcome",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "attempt",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "attemptId": "D-PIN-KEEP:missionDraft:2",
+                            "taskId": "missionDraft",
+                            "attempt": 1,
+                            "actor": "agent",
+                            "outcome": "passed",
+                            "evidenceKind": "episode",
+                            "evidenceRef": "ep-D-PIN-KEEP-missionDraft-2",
+                            "detail": ""
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:35"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "RecordActivityOutcome",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "outcome",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "reason",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 1
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "detail",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "failed"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:36"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "RecordOperatorNote",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "note",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "noteId": "requeue:D-PIN-KEEP:2",
+                            "kind": 6,
+                            "gate": "construction",
+                            "text": "change request",
+                            "comments": null
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "deliveredToAttemptID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": ""
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:37"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "OpenActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedActivityVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "typ",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 7
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "variant",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 0
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "pin",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.2"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "cred",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2:arr:38"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "activityExecutionAccess",
+                  "operation": "ReadActivityExecution",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-aea-ask-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "activityID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "D-PIN-KEEP"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"activityID\":\"D-PIN-KEEP\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.2\"},\"lifecyclePinHistory\":[{\"pin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}]}",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
               }
             ],
             "steps": [
