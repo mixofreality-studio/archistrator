@@ -1,0 +1,7 @@
+# Temporal registration entrypoints (see delivery). RegisterSchedules registers the
+# shortfallSweep Schedule.
+ExecutionKinds
+RegisterManagerWorker
+RegisterSchedules
+RegisterWorker
+TaskQueue

@@ -1,0 +1,761 @@
+# TYPED METHOD-MODEL CORPUS + GIT INFRASTRUCTURE. projectstate is the OWNER of the shared,
+# hand-written typed Method models (Glossary, System, Network, Solution, ...); its schema
+# generates only the ProjectStateAccess port, and Project stores artifact payloads as opaque
+# slots, so the models are NOT structurally reachable from the port. They are consumed
+# downward by Engines and Managers as a normal layer edge (see TestMethodLayering). This set
+# also carries the FLAGGED HAND-WRITTEN INTERFACES the spec documents: the git-backed GitStore
+# + its access ports, the JSON codec (EncodeProjectJSON/DecodeProjectJSON), the repo-locator
+# options (RepoLocator/BranchRepoLocator/ProjectCatalog/ProjectCatalogRef/LocalRepoCredential/
+# NewGitStore + GitStore.WithCatalog/WithClock), and the model derivation/factory helpers
+# (New*, Derive*, Coarse*, ...). Error = fwra.Error. This is the one package with a large
+# legitimate non-generated public surface.
+# STEP-8 FOLD — deployment VARIANT CONSTRUCTORS + their ports (buildDesignProjectState
+# + projectstate_git_adapter.go folded in). NewGitLocal/GitHubProjectStateAccess build
+# the cred-binding adapter over *GitStore; CredentialMinter is the port the CLOUD
+# sourcecontrol-backed minter (kept at the composition root — NoSideways) satisfies;
+# GitActivityStatusPort encapsulates the former composition-root private-field
+# type-assert to the git-activity-status port.
+NewGitLocalProjectStateAccess
+NewGitHubProjectStateAccess
+CredentialMinter
+GitActivityStatusPort
+# designSessionAccess (B4): NewDesignSessionAccess wraps a base ProjectStateAccess,
+# running the SAME branch/ledger/provenance/reconcile capability-fallback chains the
+# design Managers' custom activities used to run inline — a facade, not a Manager-
+# consumed constructor yet, same VARIANT-CONSTRUCTOR category as the pair above.
+NewDesignSessionAccess
+NewGitLocalGitActivityStatusAccess
+NewGitHubGitActivityStatusAccess
+NewGitLocalDesignSessionAccess
+NewGitHubDesignSessionAccess
+# activityExecutionAccess (stage 3): the facet's variant constructors, in the
+# same VARIANT-CONSTRUCTOR category as the pairs above and for the same reason
+# — composegen's generated composition root calls them by name per profile.
+NewActivityExecutionAccess
+NewGitLocalActivityExecutionAccess
+NewGitHubActivityExecutionAccess
+ActivityDiagram
+ActivityEdge
+ActivityItem
+ActivityList
+ActivityList.Kind
+ActivityNetwork
+ActivityNode
+ActivityNodeKind
+ActivityNodeKind.BookEnumerated
+ActivityNodeKind.MarshalJSON
+ActivityNodeKind.UnmarshalJSON
+ActivityOutcome
+ActivityOutcome.String
+ActivityOutcomeCompleted
+ActivityOutcomeSkipped
+ActivityOutcomeTakenOver
+ActivityOutcomeUnknown
+ActivityProgress
+Actor
+AllArtifactKinds
+# PURE LEDGER TRANSFORM over projectstate's own owned types (same category as
+# ClassifyType / CommandFor below): ApplyReviewBatch is what ONE submitted review
+# batch DOES to a thread — the fresh comments open entries, the replies append
+# utterances, and the derive rule re-runs. The reject verb calls it, and the design
+# Managers that SPLIT a submission into those two halves (ruling P2, comment-margin
+# §3.7) verify their split against it rather than re-implementing utterance-id
+# minting and the reopen-bit rule a layer up. Total and side-effect-free over
+# already-public types; there is no resource to generate a contract op for.
+ApplyReviewBatch
+ArtifactKindFromWireName
+Axis
+Axis.MarshalJSON
+Axis.UnmarshalJSON
+AxisAllCustomersAtOneTime
+AxisSameCustomerOverTime
+BranchRepoLocator
+CallEventPubSub
+CallMode
+CallMode.MarshalJSON
+CallMode.UnmarshalJSON
+CallQueued
+CallSync
+CanonicalLayer
+CheckFail
+CheckItem
+CheckPass
+CheckStatus
+CheckStatus.MarshalJSON
+CheckStatus.UnmarshalJSON
+CheckWaived
+ClassCore
+ClassNonCore
+Classification
+Classification.MarshalJSON
+Classification.UnmarshalJSON
+# PURE DERIVATION HELPERS over projectstate's own owned types (ActivityType,
+# TestingVariant, ActivityMethodPhase), shared downward with Managers per the
+# normal RA→Manager layer edge — not service-contract operations, since they
+# touch no resource. ClassifyType (projectstateaccess.go) is the classification
+# rule that turns a Phase-2 activity row's coding/workerClass/service-contract
+# signals into a canonical ActivityType. Inside projectstate, ResolveConstructionRow
+# reads it on behalf of the systemdesign Manager's view-model and the construction
+# pump; its one outside caller is cmd/backfill-attempts (classify), which types each
+# qualifying activity before recording its backfilled attempts. CommandFor
+# (projectstateaccess.go) is the
+# (type, variant, phase) → .claude slash-command name mapping the construction
+# Manager needs to dispatch the right command for an activity
+# (construction/constructactivity.go). Both are
+# total, side-effect-free functions of already-public
+# projectstate enum values; there is nothing to generate a contract op for.
+#
+# ClassifyActivity is the DISPATCH-TIME half of the same rule: (id, workerClass,
+# coding) → (ActivityType, TestingVariant), the pair the construction Manager must
+# resolve before it can pick either a phase profile (ProfileFor) or a slash command
+# (CommandFor). ClassifyType is now a lens over it, so the view-model
+# classification and the dispatch classification cannot drift apart. Same category:
+# total (modulo its unclassifiable error), side-effect-free, over already-public
+# projectstate enum values.
+#
+# (ErrDesignActivityNotDispatchable was allowlisted here beside them until stage 4b1
+# Task 10 deleted it. An allowlist entry naming a symbol that no longer exists is a
+# waiver nobody can ever retire, so the entry went with the sentinel.)
+ClassifyActivity
+ClassifyType
+# DesignCommandFor (Plan-2 Task B1) + its DesignJobMode dispatch-shape enum: the
+# (kind, mode, addressee) → .claude slash-command name mapping the design Managers
+# need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
+# a total, side-effect-free function of already-public projectstate enum values plus
+# the new DesignJobMode wire concept; its supporting designKindSlug/
+# designKindHasCritique stay unexported (same precedent as lifecycleFor/
+# dispatchTaskIn behind CommandFor; all of them live in projectstateaccess.go).
+DesignCommandFor
+DesignJobMode
+DesignJobModeAnswer
+DesignJobModeCritique
+DesignJobModeDraft
+# FIGURE A-1 TASK VOCABULARY + ATTEMPT-LEDGER DERIVATION HELPERS. Same category
+# as ClassifyActivity/CommandFor above: total, side-effect-free functions over
+# projectstate's OWN owned types (MethodTask, ActivityMethodPhase, Profile,
+# TaskAttempt, RecordOrigin), shared downward with Managers on the normal
+# RA→Manager layer edge. None of them touches a resource — no clone, no read, no
+# write, no clock — so there is no contract operation to generate for them.
+#
+# Every name below has at least one caller OUTSIDE this package, named here and
+# verifiable by grep. Nothing is exported "ahead of its callers": an identifier
+# whose only users are projectstate's own in-package access_test.go does not need
+# to be exported to be tested, and three of them (IsGateTask, WorstOrigin,
+# LatestAttempt) were removed from this list for exactly that reason.
+#
+# gen-uiprofiles is gone (stage 2): the SPA's lifecycle table is rendered from
+# method-assets by cmd/gen-lifecycles, not from this package, so the five names
+# whose only outside caller it was left with it.
+#
+#	TasksForProfile → cmd/backfill-attempts: the per-activity task row set the
+#	                  backfill walks.
+#	PhaseForTask    → cmd/backfill-attempts: the denormalized Phase stamp on every
+#	                  TaskAttempt it writes.
+#	AttemptID       → the construction Manager (constructactivity.go), which stamps
+#	                  it onto every EpisodeRecord TargetRef; also
+#	                  cmd/backfill-attempts. It is the ledger's join key and must
+#	                  never be inlined — see its own doc comment.
+#	AgentTaskFor    → the construction Manager (constructactivity.go): which Figure
+#	                  A-1 task an agent-work dispatch's episode is attributed to.
+#	GateTaskFor     → the construction Manager (constructactivity.go): the phase's
+#	                  binary exit criterion, and cmd/backfill-attempts' integration
+#	                  filter via PhaseForTask.
+#	AttemptsWorstOrigin → the systemdesign Manager's construction view-model: the
+#	                  provenance contagion roll-up stamped onto each wire row.
+#	LifecycleKeyFor → the construction Manager (constructionmanager.go,
+#	                  QueryActivityView): the method-assets lifecycle key of an
+#	                  activity. ONE production home for the rule, which stage 0
+#	                  deliberately carried twice.
+AgentTaskFor
+AttemptID
+AttemptsWorstOrigin
+GateTaskFor
+LifecycleKeyFor
+PhaseForTask
+TasksForProfile
+# CONSTRUCTION-ROW RESOLUTION (Task 7a, architect ruling Q2, 2026-09-12). Same
+# category as the ledger helpers above: total, side-effect-free functions over
+# projectstate's own owned types (ActivityConstructionStatus, ActivityItem,
+# Profile, PhaseCompletion, TaskAttempt). None of them touches a resource, so there
+# is no contract operation to generate. They moved DOWN from the systemdesign
+# Manager so the construction pump reads a row exactly as the construction view
+# renders it. Callers outside this package, verifiable by grep:
+#
+#	ResolveConstructionRow     → the systemdesign Manager (classifiedRowView): the
+#	                             one classification + phase set a row's chip, its
+#	                             sub-rows and the EV curve all read.
+#	ResolvePhaseCompletions    → the systemdesign Manager (resolvedPhaseCompletions,
+#	                             the name its view-model tests pin the rule under).
+#	EffectiveConstructionPhase → the construction Manager (isActivityNotStarted) and
+#	                             the systemdesign Manager (isPendingResume): the
+#	                             row's head facts, then its attempt ledger. (The
+#	                             dependency rule that also reads it,
+#	                             ResolveDependencySatisfied, now lives in this
+#	                             package; see the list below.)
+#	CurrentLifecyclePhase      → the systemdesign Manager (the view row's
+#	                             CurrentPhase, and pendingResume's fromPhase) and
+#	                             the construction Manager (appendRunningAttempt: the
+#	                             phase the dispatch running now is working in). It
+#	                             replaces the stored CurrentPhase the row no longer
+#	                             carries (stage-3 task 4), and it moved DOWN here
+#	                             because all three callers had their own copy of the
+#	                             same loop over the same resolved set.
+#
+# phaseCompleteFromAttempts left this list in the same move. Its only outside caller
+# was the view-model's copy of ResolvePhaseCompletions, which now lives here.
+CurrentLifecyclePhase
+EffectiveConstructionPhase
+ResolveConstructionRow
+ResolvePhaseCompletions
+# INTEGRATION-PENDING ROWS (architect (D), D.1.1 + D.3). Same category: total,
+# side-effect-free functions (and the one plain result struct they return) over
+# projectstate's own owned types, so there is no contract operation to generate.
+# The dependency rule moved DOWN from the construction Manager so the pump and the
+# construction view read one copy (systemdesign cannot call construction sideways).
+# Callers outside this package, verifiable by grep:
+#
+#	PumpWroteRow               → the systemdesign Manager (pendingResumeFor): a row
+#	                             no pump opened whose ledger is partial is pending.
+#	MilestonesByID             → the construction Manager (nextEligibleActivity) and
+#	                             the systemdesign Manager (pendingResumeFor).
+#	AllDepsSatisfied           → the construction Manager (nextEligibleActivity).
+#	ResolveDependencySatisfied → the systemdesign Manager (pendingResumeFor), per
+#	                             direct dependency, for waitsOn.
+#	DependencyResolution       → the result both of the above return.
+AllDepsSatisfied
+DependencyResolution
+MilestonesByID
+PumpWroteRow
+ResolveDependencySatisfied
+# THE REQUEUE'S EVIDENCE (stage 4b1, Task 12 round 3). RequeuedAfterExit is the same
+# category as PumpWroteRow beside it: a total, side-effect-free predicate over
+# projectstate's OWN row type, so there is no resource to reach and no contract op to
+# generate. It lives here rather than in the Manager for the reason PumpWroteRow does —
+# the rule is about what THIS store's write path left behind (reopenTerminalRow clears
+# four head facts and keeps both ledgers), and a Manager-side copy would be a second
+# reader of an invariant only the store enforces. Caller outside this package,
+# verifiable by grep:
+#
+#	RequeuedAfterExit → the delivery Manager (isActivityDispatchable): a row re-armed by
+#	                    an operator requeue is dispatchable again whatever its attempt
+#	                    ledger resolves to, because the ledger is deliberately KEPT.
+RequeuedAfterExit
+# THE T4 READ RULE (deterministic component testing, spec §1 T4). QualifiedAttempts is
+# the same category as ResolvePhaseCompletions above, which reads through it: a total,
+# side-effect-free function over projectstate's OWN TaskAttempt ledger — no resource,
+# so no contract op. It drops a `testing` pass that cites no TestRun from a test-planned
+# activity's ledger, so the testing task can never READ passed without a qualifying
+# run. Callers outside this package, verifiable by grep:
+#
+#	QualifiedAttempts → the delivery Manager: the activity view's task states
+#	                    (activityTaskViews) and the walk's ledger seed
+#	                    (seedWalkFromLedger), so the screen and the walk read the
+#	                    testing task exactly as the phase resolution does.
+QualifiedAttempts
+# OPERATOR NOTES (plan B1.1). OperatorNote is the STORED note on
+# ActivityExecution.OperatorNotes, hand-written beside that row type like
+# TaskAttempt; the verbs' input shape (OperatorNoteInput, NoteComment,
+# OperatorNoteKind) is generated from the contract. Caller outside this package,
+# verifiable by grep:
+#
+#	OperatorNote → the systemdesign Manager (operatorNotesToContract): the wire view
+#	               of a row's notes.
+#	PendingOperatorNotes → the construction Manager (loadReviewSnapshot and
+#	               recordOperatorNote, plan B1.4): the one rule for which recorded
+#	               notes ride the next agent dispatch. Total, side-effect-free over
+#	               ActivityConstructionStatus — no resource, so no contract op.
+OperatorNote
+PendingOperatorNotes
+# LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
+# category as ClassifyActivity/TasksForProfile above: a total, side-effect-free
+# function of an already-public projectstate value (a Layer.String() value the
+# caller resolves from the committed System) — no clone, no read, no write, no
+# clock, so there is no contract operation to generate for it. Exported because
+# its caller — the systemdesign Manager's construction view-model
+# (constructionRowsToContract, this task) — lives OUTSIDE this package, same as
+# MaterializeActivityPlan above. It owns the layered/projectWide band rule (a
+# componentless activity gets no fake layer), which is documented to hold for
+# future server-side consumers of the same System model (a Structurizr
+# render-on-read, an MCP tool output) precisely so none of them re-derives it
+# independently — duplicating it in TypeScript already cost this codebase twice.
+LayerForActivity
+CoarseBuildStatus
+CoarseBuildStatusFor
+CoarsePhase
+CoarsePhaseFor
+CommandFor
+CompClient
+CompEngine
+CompManager
+CompResource
+CompResourceAccess
+CompUtility
+Component
+ComponentID
+ComponentKind
+ComponentKind.MarshalJSON
+ComponentKind.UnmarshalJSON
+ComputeCostFlatMarkup
+ComputeCostKind
+ComputeCostTieredFloors
+ComputeCostUnknown
+ContainerInstance
+CoreUseCases
+CoreUseCases.Kind
+CorpusPresence
+CritiqueVerdictApprove
+CritiqueVerdictRevise
+DecodeProjectJSON
+DeliveryStyle
+DeliveryStyle.MarshalJSON
+DeliveryStyle.UnmarshalJSON
+DeployContainer
+DeploymentEnvironment
+DeploymentNode
+DeploymentProfile
+DeploymentProfile.MarshalJSON
+DeploymentProfile.UnmarshalJSON
+DeploymentTopology
+DeriveBuildStatus
+DynamicView
+EdgeControlFlow
+EdgeGuardedFlow
+EdgeKind
+EdgeKind.MarshalJSON
+EdgeKind.UnmarshalJSON
+# PROMOTED ENVELOPE CODEC (designSessionAccess, B4): the Manager-Temporal-boundary
+# wire discipline for the sealed ArtifactModel sum + the head-state Project
+# aggregate, moved down from the near-duplicate codec.go the projectdesign and
+# systemdesign Managers each carried. Consumed downward by those two Managers
+# (a normal RA→Manager layer edge, same category as the typed Method model corpus
+# above) via type aliases + these exported constructors/methods.
+EncodeModel
+EncodeProject
+EncodeProjectJSON
+# BINDING MODEL V2 DIALECT SEAMS (fpc-2 Task 2.11): ApplyRuleWaivers is the dated rule-waiver
+# downgrade the aiarch-state-mcp gate and the method-design test both apply (one policy, two
+# callers); BrowserDialectDefs is the embedded UI-dialect $defs, one source for
+# RecordBrowserContract; OperationReadOnly is the verb-prefix classifier the recording verb and
+# internaltoolsgen share. Same category as the codec: consumed by cmd/ binaries.
+ApplyRuleWaivers
+BrowserDialectDefs
+OperationReadOnly
+# IsTestCodePath is the edit-scope matcher's built-in exclusion (GC-1: no scope admits test
+# code); the aiarch-state-mcp gate and the task-spec tests read it through EditScopeGlobMatch.
+IsTestCodePath
+# PROMOTED CO-AUTHOR HELPERS (code-health-phase-bd task D3): the PURE reason/label
+# formatters, review-ledger predicate, and rail resolvers the two design Managers
+# (systemdesign, projectdesign) each carried as byte-identical duplicates, promoted
+# here per the SAME PROMOTED-CODEC precedent as EncodeModel above. The
+# git-rail/session/dispatch/recovery workflow ORCHESTRATION stays per-manager (Temporal
+# lives only in the Manager layer; workflow.Context funcs are forbidden outside
+# Manager) — only helpers with no Temporal SDK dependency, no RA→RA sideways
+# dependency, and no per-manager generated-type param were promotable. designRepoTarget
+# stays per-manager (it needs sibling RAs agenticjob/sourcecontrol — a
+# forbidden RA→RA sideways import); dispatchErrSummary and its 4 dependents stay
+# per-manager (they need go.temporal.io/sdk/temporal.ApplicationError); and
+# designArchApprovalBody/openReviewCommentViewIDs/checkCommentTransition/
+# reviewThreadToView stay per-manager (they traffic in each Manager's own generated
+# ArtifactKind/ReviewCommentView contract types). Consumed downward by both Managers
+# (a normal RA→Manager layer edge, same category as the codec above).
+AmendmentIndexFor
+AmendmentNoChangeReason
+OpenReviewCommentIDs
+ReadBackDecodeFailedReason
+SameArtifactModel
+Error
+GitActivityStatusAccess
+GitStore
+GitStore.ReadProjectOnBranch
+GitStore.RecordActivityBranchOpened
+GitStore.RecordActivityCIObserved
+GitStore.StageArtifactForReviewOnBranch
+GitStore.WithCatalog
+GitStore.WithClock
+Glossary
+Glossary.Kind
+GlossaryItem
+InfrastructureKind
+InfrastructureKindGoTemporalPostgres
+InfrastructureKindUnknown
+InfrastructureNode
+Layer
+Layer.MarshalJSON
+Layer.Rank
+Layer.UnmarshalJSON
+LayerClient
+LayerEngine
+LayerManager
+LayerResource
+LayerResourceAccess
+LayerUtility
+# RECONCILE (F80): the two deterministic single-writer-per-slot resolver free-funcs (a
+# diverged session branch vs main) behind ReconcileBranchFromMain (now a required
+# ProjectStateAccess op, C2 fold code-health-phase-a). Consumed by the
+# cmd/aiarch-state-mcp `reconcile` subcommand and the server git adapter.
+ReconcileSlotOntoBase
+OverlaySlotFromBranchOntoMain
+# F81 GATE 0: the raw-JSON required-field presence pass demanding every closed-enum /
+# identity field on a drafted model (component id/name/kind/layer, relationship
+# from/to/mode, dynamic-view useCaseId, …). Consumed by cmd/aiarch-state-mcp
+# (putDraftModel) AND the server read-back (decodeSlotsMap) so write ≡ read-back.
+RequireModelFields
+# NAME→ID FINALIZE PASS (name-as-identity, founder 2026-06-04): assigns the
+# server-owned slug identities (UseCase.ID, Actor.ID, VariationOf, actor-
+# referencing node links) on a decoded draft model before staging. Consumed by
+# cmd/aiarch-state-mcp (putDraftModel) — the one draft-model writer — same
+# category as RequireModelFields above.
+FinalizeDraftModel
+# IDENTITY-INTEGRITY GATE: rejects an identity that is present-but-EMPTY,
+# which JSON Schema `required` cannot express (founder ruling 2026-08-13:
+# non-emptiness lives in Go, not in the schema). Consumed by
+# cmd/aiarch-state-mcp (putDraftModel) beside FinalizeDraftModel.
+ValidateModelIdentities
+# CONSTRUCTION-VERB ROUTING CORE: the pure, I/O-free router of a phase-artifact /
+# testing-state payload into the Project aggregate — the shared core of the RA's
+# RecordPhaseArtifactProduced, exported so the cmd/aiarch-state-mcp construction verbs
+# (recordPhaseArtifact/recordTestingState) reuse the SAME routing (one source of truth
+# for which payload field lands in which slot). Same category as RequireModelFields
+# above (a pure helper the MCP binary shares with the server read/write path).
+ApplyPhaseArtifactPayload
+# SCENARIO DERIVATION ADAPTER (deterministic component testing, design §2/§3.2):
+# the pure, I/O-free projection of the typed Project onto framework-go/scenario's
+# adapter-neutral Input (ScenarioInputOf) and the derive+project composition over
+# it (ComponentScenarios). projectstate OWNS the use-case diagrams, dynamic views
+# and contract corpus the derivation reads, so the adapter lives here — the
+# server-side mirror of methodcheck.ScenarioInput — and is consumed by
+# cmd/aiarch-state-mcp (listComponentScenarios) and the delivery Manager's
+# test-plan/test-run views, so every consumer binds against ONE canonical id set.
+# Same category as ClassifyActivity/ApplyPhaseArtifactPayload above (a total,
+# side-effect-free function the MCP binary shares with the server read path).
+ScenarioInputOf
+ComponentScenarios
+# THE PM COVERAGE VIEW (FPC Task 2.14), render-on-read over the same derivation: the
+# per-path door / outcomes / defect codes the core-use-cases critique reads, consumed by
+# the delivery Manager's useCaseCoverage view and cmd/aiarch-state-mcp's
+# getUseCaseCoverage, so the PM and the reviewer read one table. The PMCoverage* helpers
+# are the pure recognition of the system comment a PM send-back lands on a round and of
+# the reason an approve over it must carry, shared by the Manager's façade check and the
+# child's re-check. Total, side-effect-free functions of the given *Project / thread,
+# the same category as ComponentScenarios. CoverageDoor is the sealed sum of a path's
+# door (Door | NoDoor | DoorPendingArchitecture, RUN-025): the value type the same
+# view returns, so each variant is part of that return surface.
+CoverageClient
+CoverageDoor
+Door
+NoDoor
+DoorPendingArchitecture
+PathCoverage
+UseCaseCoverage
+UseCaseCoverageOf
+UseCaseCoverageFor
+RenderCoverageTable
+PMCoverageHoldAnchor
+PMCoverageHoldComment
+PMCoverageHoldIn
+ApproveOverPMCoverageRefusal
+# ACCEPTANCE (FPC plan 4, Amendment C). The acceptance projection of the same derived set
+# (the variants no single client plan covers, and the route a failing one takes), read by
+# cmd/aiarch-state-mcp (listAcceptanceScenarios), the estimation/delivery path of the
+# M-ACCEPT milestone and the acceptance gate: total, side-effect-free functions of the
+# given *Project, the same category as ComponentScenarios.
+AcceptanceContract
+ClientContractKeys
+AcceptanceResidual
+AcceptanceScenarios
+AcceptanceRoute
+AcceptanceRouteInfo
+AcceptanceRouteLine
+# AGENT TASK SPEC (FPC Task 6.2, ruling 5). The review Engine derives a lifecycle task's
+# agent configuration (identity, prompt, tools, edit scope, typed checks, generated
+# paths, hash); what only the project state knows crosses as TaskFacts — the activity's
+# classification, the model and estimate from the rate card and effort, the slot rule
+# attribution — a total, side-effect-free function of the embedded method assets and the
+# given *Project, the same category as ComponentScenarios above. The delivery Manager
+# (taskSpec view, dispatch hash) and cmd/aiarch-state-mcp (task-spec / run_checks) both
+# resolve facts here and hand them to the Engine, so the panel and the job hash the
+# identical spec. The CheckKind* consts are the check kinds the Engine's specs carry.
+TaskFactsFor
+TaskFacts
+SpecModelFacts
+SlotRuleFacts
+# R56: the task-spec generation the server and the aiarch-state-mcp binary must
+# agree on — `aiarch-state-mcp version` prints it, and the composition root hands
+# it to the local rail, which refuses a stale binary before gating.
+StateToolVersion
+TaskSpecSchemaVersion
+# The per-run allowance the null-subject check's budget is derived from; the
+# internal taskspec test holds the derived budget to it.
+DiscriminateRunTimeoutSec
+DiscriminateInProcessRunSec
+DiscriminatePackageSec
+DevstackBootSec
+CheckKindRule
+CheckKindCommand
+CheckKindSmoke
+CheckKindScenario
+CheckKindAdmission
+# ValidEditScopeGlob: the ONE edit-scope glob grammar ("**", "<dir>/**", literal)
+# the Engine validates its scopes against and cmd/aiarch-state-mcp's edit-scope gate
+# matches by, so the scope the panel shows and the gate enforces cannot diverge. A
+# pure predicate, same category as the result shape above.
+ValidEditScopeGlob
+EditScopeGlobMatch
+# WebScenariosArgv: the ONE spelling of the command that runs a browser surface's
+# generated Playwright project under the scenario host (`go tool webscenarios`). The
+# surface-check TaskSpecFor derives and the web scenario batch cmd/aiarch-state-mcp runs
+# are the same command, so they cannot diverge. A pure function, same category as the
+# result shape above.
+WebScenariosArgv
+# RULE ATTRIBUTION REGISTRY (moved from cmd/aiarch-state-mcp/staleness.go, Task B2):
+# the rule-id-prefix → owning-slot table. cmd/aiarch-state-mcp's slot-scoped severity
+# policy reads AttributeRule; TaskFactsFor's slot rule attribution reads RulePrefixesFor —
+# one registry, two consumers. Pure lookups over projectstate's own ArtifactKind.
+RuleAttribution
+AttribNone
+AttribSlot
+AttribTesting
+AttribActivityExecution
+AttributeRule
+RulePrefixesFor
+# AI-AGENT PRICING (moved from the delivery Manager's airates block, Task B2): the
+# class's charter-model default rate spec and the Claude API rate math. The delivery
+# Manager's SDP cost derivation and TaskSpecFor's per-task estimate price tokens
+# through the same two functions. Pure + deterministic over WorkerRateSpec/Money.
+DefaultRateSpec
+RateForSpec
+# ContractKeyOf: the committed System's contractKey for a component id — the lookup
+# the delivery Manager's testing gate and review-floor read (and TaskSpecFor's edit
+# scope) share. Same category as ComponentScenarios.
+ContractKeyOf
+# ContractKeyFor (FIX-007): the ONE derivation of a component's contract key
+# (lowerCamel(id), none for a Resource) — FinalizeDraftModel stamps it, the codec
+# enforces it at read-back, and aiarch-state-mcp's recordServiceContract and
+# REC-BUILT-UNRECORDED resolve through it. projectstate owns the System model it is
+# derived over; same category as ContractKeyOf / the Finalize/identity helpers.
+ContractKeyFor
+# RecordBrowserContract / RecordMachineClientContracts / IsClientComponent: a Client's contract
+# is derived, a browser surface's when its UI design is recorded and a machine client's when
+# its Manager's is, and a Client authors none. aiarch-state-mcp's
+# record verbs call both over the document; same category as ContractKeyFor.
+RecordBrowserContract
+IsClientComponent
+RecordMachineClientContracts
+# ManagerDepsFromSystem / TemporalClientDep (FIX-032): a Manager's constructor deps are the
+# design's, derived from its System edges as its layer is. aiarch-state-mcp's
+# recordServiceContract derives them over the document; same category as ContractKeyFor.
+ManagerDepsFromSystem
+TemporalClientDep
+# PlanBindingDigests / ActivityLifecycle (FIX-022): pure reads of the document model, with
+# the same two callers as ContractKeyOf. aiarch-state-mcp's reportPlanDefect stamps the
+# baseline and resolves the route through them, and the delivery Manager's replan hold
+# compares against the same digests, so the two sides cannot digest a binding differently.
+PlanBindingDigests
+ActivityLifecycle
+# UpstreamRouteOf / AdmitUpstreamNodes / UpstreamNode / UpstreamDefectID /
+# UpsertUpstreamDefect (FIX-044): pure reads and an in-memory upsert over the document
+# model, same category and same two callers as PlanBindingDigests / ActivityLifecycle.
+# aiarch-state-mcp's reportUpstreamDefect resolves the declared route, admits the node
+# references against the committed core use cases and files the report through them, and
+# the delivery Manager re-admits the same references against main, so the verb and the
+# Manager's judgement cannot admit a node differently.
+UpstreamRouteOf
+AdmitUpstreamNodes
+UpstreamNode
+UpstreamDefectID
+UpsertUpstreamDefect
+# INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
+# ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
+# needs an explicit entry like the System model types) + its hand-written accessors.
+# projectstate OWNS the contract corpus + System model this surface derives from, the
+# same category as the CommandFor/DeriveKind derivation helpers above.
+InternalTool
+InternalToolCatalog
+AgentExposableTools
+InternalToolByName
+LocalRepoCredential
+MissionStatement
+MissionStatement.Kind
+ModelEnvelope
+ModelEnvelope.Decode
+Money
+Network
+Network.Kind
+NetworkDependency
+NetworkMilestone
+NetworkNodeCompute
+NetworkSummary
+# CONTRACT VOCABULARY for a generated parameter (stage 4a). The eleven mutating
+# verbs on activityExecutionAccess take an expectedActivityVersion, and this const
+# is the one value that means "I have not read this row" — the posture OpenActivity
+# takes on a BIRTH, when there is no row yet to hold a version of.
+#
+# Its only CODE users outside this package today are the three Managers'
+# hand-rolled activityExecutionAccess doubles, which compare against it to decide
+# whether a caller is asserting a row version at all. (The three production
+# Managers name it in doc comments, to say what their zero-seeded activityVersion
+# means — they do not reference the value.) That is a thin roster on purpose: the
+# PRODUCTION caller arrives in Task 6, when the moved workflows fill the parameter
+# for real. No migration or backfill tool calls this facet at all —
+# cmd/backfill-attempts and cmd/migrate-activity-execution write through the
+# store's own verbs, not through it.
+#
+# It is exported for the same reason a generated enum member is: a caller outside
+# the package cannot fill a generated parameter honestly without the name for its
+# sentinel, and the alternative is every caller writing a bare 0.
+NoActivityVersionExpectation
+# FIX-006 WRITE-QUEUE PROBES. The row write path's behaviour that the contract
+# cannot show is exactly what its regression must pin: that the per-project write
+# queue spans read → commit (zero ref-CASes lost among in-process writers under a
+# 48-sibling herd), that a CAS lost to an OUTSIDE writer is re-applied in the
+# store, and that re-apply exhaustion is Transient, never Conflict. The black-box
+# hooks file (access_hooks_test.go, the only test file the file-layout gate admits)
+# cannot reach an unexported counter or bound, so these three are exported:
+# StateWriteCASLosses is also an operational counter; SetStateWriteTestHooks /
+# StateWriteTestHooks are TEST-ONLY levers production never calls (their zero value
+# is the shipped bounds). Callers: the FIX-006 tests in access_hooks_test.go.
+SetStateWriteTestHooks
+StateWriteCASLosses
+StateWriteTestHooks
+NewGitStore
+NewGlossary
+NewMissionStatement
+NewModelForKind
+NewSolution
+NewSystem
+NewUseCase
+NodeAction
+NodeDecision
+NodeEnd
+NodeFork
+NodeGoto
+NodeInterruptEdge
+NodeJoin
+NodeLoop
+NodeMerge
+NodeNote
+NodeStart
+NodeSwimLane
+NodeSwitch
+Objective
+OptionActivity
+OptionID
+Phase1RequiredKinds
+Phase2RequiredKinds
+PhaseArtifactPayload
+PlanningAssumptions
+PlanningAssumptions.Kind
+Profile
+Profile.PhaseIDs
+ProfileCloud
+ProfileFor
+ProfileLocal
+ProfilePhase
+ProfileTest
+ProjectCatalog
+ProjectCatalogRef
+ProjectEarnedValue
+ProjectEnvelope
+ProjectEnvelope.Decode
+ProjectOption
+Relationship
+RepoCredential
+RepoCredential.IsZero
+RepoLocator
+Requirement
+# REVIEW-LEDGER status vocabulary — the closed wire values of a durable ReviewComment's
+# status (the CritiqueVerdictApprove/Revise precedent above). Plain-string consts owned
+# here; the ReviewComment type itself is generated contract surface. The LIVE
+# vocabulary a thread's status is derived into is open/answered/resolved
+# (normalizeReviewThread).
+ReviewCommentAnswered
+ReviewCommentOpen
+ReviewCommentResolved
+# QUESTION-COMMENTS vocabulary + behavior — the closed type/addressee wire values of a
+# durable ReviewComment plus the pure classification helpers over them. Plain-string
+# consts + funcs owned here (same category as the status vocabulary above); the
+# ReviewComment.Type/Addressee fields themselves are generated contract surface.
+# ReviewCommentID is exposed so the AskQuestions dispatch can predict the ids a fresh
+# append will mint (to name each question in the answer-job prompt).
+ReviewCommentTypeChangeRequest
+ReviewCommentTypeQuestion
+ReviewCommentTypeStaleAck
+ReviewAddresseePM
+ReviewAddresseeArchitect
+ReviewCommentIsQuestion
+ReviewCommentBlocksApprove
+ReviewCommentID
+# FACTORY FREE FUNCTION: ReviewPolicyFromGateIDs converts the webApp PolicyPanel's
+# ad-hoc gate-id vocabulary (e.g. "svc-contract") into the canonical ReviewPolicy
+# value stored in head-state. It is the client-facing constructor for ReviewPolicy
+# and must be exported for the client layer (cmd/server/construction_dryrun.go and
+# generated web handlers) to call. It DECIDES nothing — it is pure shaping of the
+# client's vocabulary INTO the stored document the reviewEngine later reads.
+# ReviewPolicy itself is contract surface via the Project aggregate's ReviewPolicy
+# field; only the constructor free-func needs allowlisting.
+ReviewPolicyFromGateIDs
+# REVIEW-PRESET vocabulary + non-overridable-floor helpers (Task 7, local-first
+# sophistication dial). ReviewPresetVibes/Checkpoints/Full are the closed
+# ReviewPolicy.Preset wire values (same category as the ReviewComment status
+# vocabulary above — plain-string consts owned here; ReviewPolicy.Preset itself
+# is generated contract surface); the WRITE path validates against them and the
+# webApp's PolicyPanel writes them, while the reviewEngine holds its own copy and
+# decides what they mean. ContractTouchesReviewFloor is the pure classification
+# helper the construction Manager's snapshot (constructactivity.go's
+# loadReviewSnapshot) calls to seed the floor — exported because it is invoked
+# from internal/manager/construction, a different package. It reads a
+# projectstate.ServiceContract, a type no Engine may import, so it stays here and
+# FEEDS the engine the boolean rather than deciding the gate.
+ReviewPresetVibes
+ReviewPresetCheckpoints
+ReviewPresetFull
+ContractTouchesReviewFloor
+# CODEC SELF-DESCRIPTION: CodecCarriesEveryMember answers "does this codec carry
+# everything that member held?" for a writer that re-materializes part of the
+# committed document in place (`make derived-plan-write`, in
+# internal/manager/projectdesign). Only THIS package can answer it — it owns
+# EncodeProjectJSON/DecodeProjectJSON and the normalizations they apply — and the
+# caller is a different package, so it is exported. It is a pure structural
+# predicate over two JSON values; it decides nothing about project state.
+CodecCarriesEveryMember
+RiskModel
+RiskModel.Kind
+RiskRow
+ScheduleDaily
+ScheduleKind
+ScheduleMonthly
+ScheduleUnknown
+ScheduleWeekly
+ScrubbedRequirements
+ScrubbedRequirements.Kind
+SdpOptionRow
+SdpReview
+SdpReview.Kind
+SettlementTerms
+SlotEnvelope
+Slug
+SoftwareSystemInstance
+Solution
+Solution.Kind
+SolutionKinds
+StandardCheck
+StandardCheck.Kind
+StyleBoth
+StyleCloud
+StyleLocal
+System
+System.Kind
+Trigger
+Trigger.MarshalJSON
+Trigger.UnmarshalJSON
+TriggerBusMessage
+TriggerClientAction
+TriggerTimer
+UsageAssumption
+UseCase
+UseCaseDecision
+UseCaseID
+Volatilities
+Volatilities.Kind
+Volatility
+WorkerMix

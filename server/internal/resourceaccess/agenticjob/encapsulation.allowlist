@@ -1,0 +1,33 @@
+# FREE-FUNCTION BEHAVIOUR over the contract's named-scalar handle/enum value types: the
+# schema-first rule keeps generated contract types method-free, so
+# String/Parse/Equal/IsZero/IsTerminal behaviour lives as free funcs. Plus the package Error
+# alias (= fwra.Error).
+# DRY-RUN VARIANT CONSTRUCTOR (step-8 fold): the in-memory dogfood/demo stub
+# folded out of cmd/server (construction_dryrun.go). The REAL GitHub-Actions
+# variant is the generated NewGitHubActionsAgenticJobAccess.
+NewDryRunAgenticJobAccess
+# LOCAL-EXECUTOR VARIANT CONSTRUCTOR (local-first-init-funnel Task 6, same
+# category as the dry-run stub above): headless-claude dispatch for a
+# local-profile boot with no GitHub creds. Selected by cmd/server/hooks.go's
+# FinalizeAgenticJobAccess alongside the generated GitHub-Actions
+# constructor and the dry-run stub.
+NewLocalExecAgenticJobAccess
+# DISPATCH-INPUT VOCABULARY (local-merge-and-policy Commit 1): the job key +
+# merge-job value the constructionManager stamps into the frozen Submit
+# surface's open DispatchInputs map to route the local-executor merge job
+# (merge activity/<id> into main + delete branch). Shared constants so the
+# Manager and this RA cannot drift on the wire strings.
+DispatchInputJobKey
+DispatchJobMerge
+# The refresh job (FIX-038): main merged into activity/<id> before a task
+# dispatches, ordered by the delivery walk ahead of its spec hash.
+DispatchJobRefresh
+Error
+ParsePipelineHandle
+PipelineHandleEqual
+PipelineHandleIsZero
+PipelineHandleString
+PipelinePhaseIsTerminal
+PipelinePhaseString
+RepoTargetIsZero
+StepOutcomeString

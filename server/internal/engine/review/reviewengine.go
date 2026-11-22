@@ -598,10 +598,6 @@ const (
 // devstackDir is the package `appgen compose` writes the local run launcher to.
 const devstackDir = "cmd/devstack"
 
-// encapsulationAllowlistFile is the module-relative file holding the arch gate's per-package
-// encapsulation allowlist; every service task may edit it (see serviceScopeAndChecks).
-const encapsulationAllowlistFile = "internal/arch_test.go"
-
 // smokeCheckID names the boot smoke; policyCheckID the composition check that holds the policy to
 // the generated requests; installUITestsCheck and surfaceCheckID the web checks.
 const (
@@ -830,24 +826,14 @@ func (tp *taskProject) goPackagesOf(contracts []string) []string {
 }
 
 // ownedPathsOf is the directories the contracts' components own besides their Go packages
-// (module-relative), sorted and unique. The field is read from the raw project document: the
-// methodcheck mirror of a service contract does not carry it. A document that does not decode
-// names none.
+// (module-relative), sorted and unique. They come from the decoded document's contracts; the
+// application's decode has already refused an entry that is not a clean directory or that
+// overlaps another owner.
 func (tp *taskProject) ownedPathsOf(contracts []string) []string {
-	var top struct {
-		ServiceContracts map[string]struct {
-			OwnedPaths []string `json:"ownedPaths"`
-		} `json:"serviceContracts"`
-	}
-	if json.Unmarshal([]byte(tp.raw), &top) != nil {
-		return nil
-	}
 	var out []string
 	for _, c := range contracts {
-		for _, p := range top.ServiceContracts[c].OwnedPaths {
-			if p = strings.Trim(path.Clean(p), "/"); p != "" && p != "." {
-				out = append(out, p)
-			}
+		for _, p := range tp.doc.ServiceContracts[c].OwnedPaths {
+			out = append(out, strings.Trim(path.Clean(p), "/"))
 		}
 	}
 	slices.Sort(out)
@@ -1484,10 +1470,7 @@ func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID strin
 	pkgs = slices.Compact(pkgs)
 	scope := SpecEditScope{
 		Components: []SpecScopeComponent{{ID: componentID, Paths: tp.packageGlobs(pkgs)}},
-		// Every service task passes the arch gate (archCheck), whose encapsulation allowlist is one
-		// shared file: a component that exports a symbol another package uses must be able to add
-		// its entry, so the file is in every service task's scope.
-		Extra: []string{tp.inModule("go.mod"), tp.inModule("go.sum"), tp.inModule(encapsulationAllowlistFile)},
+		Extra:      []string{tp.inModule("go.mod"), tp.inModule("go.sum")},
 	}
 	dir := tp.moduleDir
 	trees := make([]string, len(pkgs))

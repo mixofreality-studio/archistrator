@@ -1,0 +1,6 @@
+# Cross-package identity value types (CustomerID, OperatedAppID) consumed by downstream
+# Managers, + Error alias. (Both profiles bind the Postgres store since the local
+# profile serves the operations console, DCT §12 B16 — no local variant constructor.)
+CustomerID
+Error
+OperatedAppID

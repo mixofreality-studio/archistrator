@@ -1,0 +1,7 @@
+# Temporal registration entrypoints (see delivery). RegisterSchedules registers the
+# operatedStateReconcile Schedule at startup.
+ExecutionKinds
+RegisterManagerWorker
+RegisterSchedules
+RegisterWorker
+TaskQueue

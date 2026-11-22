@@ -1,0 +1,5 @@
+# The package Error alias, and nothing else: the ExecutionHandle/ExecutionStatus
+# free-function behaviour died with the two ops the 2026-08-01 fold dropped
+# (a restricted utility carries no unused verbs). KindBinding is a generated-impl
+# construction input, not a flagged hand-written public type.
+Error

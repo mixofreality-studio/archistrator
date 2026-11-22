@@ -51,7 +51,7 @@ type roundSweepInput struct {
 // pumpSweepResult states for itself: this is not a façade op, so it carries no
 // service-contract entry and the encapsulation gate's rule holds — the only exported
 // symbols this package may carry are its generated contract surface and the five
-// documented registration entrypoints (arch_test.go's encapsulationAllowlistData).
+// documented registration entrypoints (this package's encapsulation.allowlist).
 // The generated, exported PumpResult is exported because it IS contract surface; this
 // one is not.
 type roundSweepResult struct {

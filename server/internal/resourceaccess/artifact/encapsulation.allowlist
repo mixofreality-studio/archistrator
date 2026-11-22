@@ -1,0 +1,8 @@
+# DEPLOYMENT-PROFILE VARIANT CONSTRUCTORS (step-8 fold): the composition-root policy
+# that used to live in cmd/server (buildArtifactAccess + artifact_auth.go + the dry-run
+# stub) folded into the owning package. Each assembles the generated GitArtifactAccess
+# over the satellite blob store + a profile-specific auth resolver; NewDryRunArtifactAccess
+# is the in-memory dogfood/demo stub. The auth-resolver glue itself stays unexported.
+NewDryRunArtifactAccess
+NewGitHubCloudArtifactAccess
+NewGitLocalArtifactAccess

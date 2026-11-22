@@ -56,7 +56,7 @@ func TestMethodDesignArtifacts(t *testing.T) {
 		// arch_test.go passes to arch.Check / arch.CheckGeneratedSurface.
 		Arch:                   appArchSpec(),
 		SupportedSurfaces:      appgen.SupportedSurfaces(),
-		EncapsulationAllowlist: encapAllowlist(),
+		EncapsulationAllowlist: encapAllowlist(t),
 		// StereotypeSuffixNormalizer strips one trailing Method stereotype suffix
 		// (access|engine|manager|client) so the design's stereotyped component
 		// names (ProjectStateAccess, ReviewEngine) match the bare package leaves
