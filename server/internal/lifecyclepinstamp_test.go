@@ -1,6 +1,7 @@
 package internal_test
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -21,9 +22,12 @@ import (
 // It is a source gate, not a unit test, because the stamp lives in the delivery Manager
 // package, where TestFileLayout admits only generated scenario tests, and every
 // deliveryManager scenario needs a full construction run (arranged state, ruling 8). It
-// fails on: a stamp that is not a call of lifecycleIdentity; a lifecycleIdentity that does
-// not hash the lifecycle resolved for its type key; and ANY use of methodassets.Version in
-// the delivery package.
+// fails on: a stamp that is not a call of lifecycleIdentity; a lifecycleIdentity whose
+// json.Marshal argument is not the lifecycle bound by methodassets.LifecycleFor, whose
+// Sum256 argument is not that marshalled value, or whose result does not use the sum; any
+// projectstate.LifecyclePin composite literal in delivery outside lifecyclePinFor; any
+// ActivityExecutionOpenActivity call whose pin is not lifecyclePinFor(...); and ANY use of
+// methodassets.Version in the delivery package.
 func TestLifecyclePinStampsDAGIdentity(t *testing.T) {
 	funcs := deliveryFuncs(t, filepath.Join("manager", "delivery"))
 	stamp, ident := funcs["lifecyclePinFor"], funcs["lifecycleIdentity"]
@@ -33,12 +37,164 @@ func TestLifecyclePinStampsDAGIdentity(t *testing.T) {
 	if !stampsIdentity(stamp) {
 		t.Error("lifecyclePinFor must set LifecyclePin.AssetsVersion to lifecycleIdentity(...)")
 	}
-	uses := identityInputs(ident)
-	for _, want := range []string{"methodassets.LifecycleFor", "json.Marshal", "sha256.Sum256", "dag-sha256:"} {
-		if !uses[want] {
-			t.Errorf("lifecycleIdentity must derive the identity from the resolved lifecycle's content; missing %s", want)
+	for _, problem := range identityProblems(ident) {
+		t.Error(problem)
+	}
+	for _, problem := range pinSiteProblems(t, filepath.Join("manager", "delivery")) {
+		t.Error(problem)
+	}
+}
+
+// identityProblems checks lifecycleIdentity's data flow: lc from methodassets.LifecycleFor
+// -> json.Marshal(lc) bound to raw -> sha256.Sum256(raw) bound to sum -> returned value
+// built from sum.
+func identityProblems(fn *ast.FuncDecl) []string {
+	lcVar := boundByCall(fn, "methodassets.LifecycleFor", "")
+	rawVar := boundByCall(fn, "json.Marshal", lcVar)
+	sumVar := boundByCall(fn, "sha256.Sum256", rawVar)
+	switch {
+	case lcVar == "":
+		return []string{"lifecycleIdentity must bind the lifecycle from methodassets.LifecycleFor"}
+	case rawVar == "":
+		return []string{"lifecycleIdentity must json.Marshal the whole lifecycle bound by methodassets.LifecycleFor, not a part of it"}
+	case sumVar == "":
+		return []string{"lifecycleIdentity must sha256.Sum256 the marshalled lifecycle"}
+	case !returnsDigestOf(fn, sumVar):
+		return []string{`lifecycleIdentity must return "dag-sha256:" plus an encoding of the sum`}
+	}
+	return nil
+}
+
+// boundByCall is the first variable assigned the result of calling callee. For every callee
+// but methodassets.LifecycleFor the call's single argument must be the identifier arg; an
+// empty arg there (the previous step failed) yields "".
+func boundByCall(fn *ast.FuncDecl, callee, arg string) string {
+	if arg == "" && callee != "methodassets.LifecycleFor" {
+		return ""
+	}
+	out := ""
+	ast.Inspect(fn, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || out != "" || len(as.Rhs) != 1 || len(as.Lhs) == 0 {
+			return true
+		}
+		call, ok := as.Rhs[0].(*ast.CallExpr)
+		lhs, _ := as.Lhs[0].(*ast.Ident)
+		if !ok || lhs == nil || selName(call.Fun) != callee {
+			return true
+		}
+		if arg == "" || (len(call.Args) == 1 && isIdent(call.Args[0], arg)) {
+			out = lhs.Name
+		}
+		return true
+	})
+	return out
+}
+
+// returnsDigestOf reports whether fn returns an expression holding both the dag-sha256:
+// prefix and the sum variable.
+func returnsDigestOf(fn *ast.FuncDecl, sum string) bool {
+	found := false
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if ret, ok := n.(*ast.ReturnStmt); ok && len(ret.Results) == 1 {
+			lit, uses := false, false
+			ast.Inspect(ret.Results[0], func(m ast.Node) bool {
+				if bl, ok := m.(*ast.BasicLit); ok && strings.Contains(bl.Value, "dag-sha256:") {
+					lit = true
+				}
+				if id, ok := m.(*ast.Ident); ok && id.Name == sum {
+					uses = true
+				}
+				return true
+			})
+			found = found || (lit && uses)
+		}
+		return true
+	})
+	return found
+}
+
+// pinSiteProblems scans every non-test delivery source for LifecyclePin literals outside
+// lifecyclePinFor and for OpenActivity calls whose pin is not lifecyclePinFor(...).
+func pinSiteProblems(t *testing.T, dir string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var problems []string
+	openCalls := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, d := range f.Decls {
+			ps, n := declPinProblems(fset, d)
+			problems = append(problems, ps...)
+			openCalls += n
 		}
 	}
+	if openCalls == 0 {
+		problems = append(problems, "no ActivityExecutionOpenActivity call found in delivery; the gate lost its target")
+	}
+	return problems
+}
+
+// declPinProblems is one declaration's literal and OpenActivity-call findings, and how many
+// OpenActivity calls it holds.
+func declPinProblems(fset *token.FileSet, d ast.Decl) ([]string, int) {
+	fd, isFn := d.(*ast.FuncDecl)
+	inStamp := isFn && fd.Recv == nil && fd.Name.Name == "lifecyclePinFor"
+	var problems []string
+	calls := 0
+	ast.Inspect(d, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.CompositeLit); ok && selName(lit.Type) == "projectstate.LifecyclePin" && !inStamp {
+			problems = append(problems, fmt.Sprintf("%s: a LifecyclePin literal outside lifecyclePinFor bypasses the DAG-identity stamp", fset.Position(lit.Pos())))
+		}
+		if call, ok := n.(*ast.CallExpr); ok && isOpenActivity(call) {
+			calls++
+			if !passesStamp(call) {
+				problems = append(problems, fmt.Sprintf("%s: ActivityExecutionOpenActivity must be passed lifecyclePinFor(...)", fset.Position(call.Pos())))
+			}
+		}
+		return true
+	})
+	return problems, calls
+}
+
+func isOpenActivity(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "ActivityExecutionOpenActivity"
+}
+
+func passesStamp(call *ast.CallExpr) bool {
+	for _, a := range call.Args {
+		if c, ok := a.(*ast.CallExpr); ok && isIdent(c.Fun, "lifecyclePinFor") {
+			return true
+		}
+	}
+	return false
+}
+
+// selName renders pkg.Name for a selector expression, else "".
+func selName(e ast.Expr) string {
+	if sel, ok := e.(*ast.SelectorExpr); ok {
+		if id, ok := sel.X.(*ast.Ident); ok {
+			return id.Name + "." + sel.Sel.Name
+		}
+	}
+	return ""
+}
+
+func isIdent(e ast.Expr, name string) bool {
+	id, ok := e.(*ast.Ident)
+	return ok && id.Name == name
 }
 
 // deliveryFuncs parses the package's non-test sources, reports every methodassets.Version
@@ -104,23 +260,4 @@ func stampsIdentity(fn *ast.FuncDecl) bool {
 		return true
 	})
 	return found
-}
-
-// identityInputs is the set of qualified selectors and the dag-sha256 literal fn uses.
-func identityInputs(fn *ast.FuncDecl) map[string]bool {
-	uses := map[string]bool{}
-	ast.Inspect(fn, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.SelectorExpr:
-			if id, ok := x.X.(*ast.Ident); ok {
-				uses[id.Name+"."+x.Sel.Name] = true
-			}
-		case *ast.BasicLit:
-			if strings.Contains(x.Value, "dag-sha256:") {
-				uses["dag-sha256:"] = true
-			}
-		}
-		return true
-	})
-	return uses
 }
