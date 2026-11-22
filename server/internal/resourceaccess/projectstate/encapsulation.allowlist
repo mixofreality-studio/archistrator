@@ -305,6 +305,8 @@ CoreUseCases.Kind
 CorpusPresence
 CritiqueVerdictApprove
 CritiqueVerdictRevise
+# Shared review-note rune budget: consumed by the state MCP (critic notes) and delivery (operator notes).
+MaxReviewNoteRunes
 DecodeProjectJSON
 DeliveryStyle
 DeliveryStyle.MarshalJSON

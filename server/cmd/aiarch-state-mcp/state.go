@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -221,6 +222,10 @@ func (s *Session) setCritiqueVerdict(verdict, notes string) error {
 	}
 	if verdict == projectstate.CritiqueVerdictRevise && strings.TrimSpace(notes) == "" {
 		return fmt.Errorf("a %q verdict requires notes describing the concrete revision the architect should make", projectstate.CritiqueVerdictRevise)
+	}
+	if n := utf8.RuneCountInString(notes); verdict == projectstate.CritiqueVerdictRevise && n > projectstate.MaxReviewNoteRunes {
+		return fmt.Errorf("critique notes are at most %d characters (you sent %d): condense and call setCritiqueVerdict again - keep every REQUIRED change request, drop or shorten NON-BLOCKING items",
+			projectstate.MaxReviewNoteRunes, n)
 	}
 	proj, _, err := s.readProject()
 	if err != nil {

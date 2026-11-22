@@ -6472,6 +6472,13 @@ const (
 	CritiqueVerdictRevise = "revise"
 )
 
+// MaxReviewNoteRunes is the most runes one review note may carry on BOTH ends of the
+// review contract (a critic's revise notes via setCritiqueVerdict, and an operator's
+// send-back/override note at the delivery façade), so every critic note can be relayed
+// whole through the human gate's send-back door and project.json never carries
+// unbounded review prose.
+const MaxReviewNoteRunes = 4000
+
 // Project is the head-state aggregate — the "sane state object" the contract is
 // built around. Read whole; never folded. Each Phase-1/2 artifact is a NAMED
 // TYPED SLOT, not a map[ArtifactKind]ArtifactRef. Named slots over a map: the

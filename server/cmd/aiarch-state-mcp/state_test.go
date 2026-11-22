@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -107,35 +109,82 @@ func TestRespondToReviewComment(t *testing.T) {
 	}
 }
 
-// TestSetCritiqueVerdict covers approve/revise validation and the carrier write.
+// TestSetCritiqueVerdict covers approve/revise validation, the carrier write and the
+// shared review-note budget.
 func TestSetCritiqueVerdict(t *testing.T) {
-	p := minimalProject()
-	p.Mission = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.MissionStatement{}}
-	s, _ := seedProject(t, p, jobModeCritique, projectstate.KindMission)
+	atLimit := strings.Repeat("é", projectstate.MaxReviewNoteRunes)
+	overLimit := atLimit + "é"
+	cases := []struct {
+		name         string
+		verdict      string
+		notes        string
+		wantErr      []string // substrings; nil = success
+		wantVerdict  string
+		wantNotes    string
+		wantWrote    bool
+		priorRevised bool // seed a revise first, so approve-clears is observable
+	}{
+		{name: "revise stores notes", verdict: "revise", notes: "Tighten the vision sentence.",
+			wantVerdict: projectstate.CritiqueVerdictRevise, wantNotes: "Tighten the vision sentence.", wantWrote: true},
+		{name: "approve clears long notes", verdict: "approve", notes: overLimit, priorRevised: true,
+			wantVerdict: projectstate.CritiqueVerdictApprove, wantNotes: "", wantWrote: true},
+		{name: "unknown verdict", verdict: "maybe", wantErr: []string{"approve"}},
+		{name: "revise without notes", verdict: "revise", notes: "  ", wantErr: []string{"requires notes"}},
+		{name: "exactly at limit accepted whole", verdict: "revise", notes: atLimit,
+			wantVerdict: projectstate.CritiqueVerdictRevise, wantNotes: atLimit, wantWrote: true},
+		{name: "one multi-byte rune over refused", verdict: "revise", notes: overLimit,
+			wantErr: []string{"4000", "4001"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := minimalProject()
+			p.Mission = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.MissionStatement{}}
+			s, _ := seedProject(t, p, jobModeCritique, projectstate.KindMission)
+			if tc.priorRevised {
+				if err := s.setCritiqueVerdict("revise", "earlier note"); err != nil {
+					t.Fatalf("seed revise: %v", err)
+				}
+				s.wroteState = false
+			}
+			err := s.setCritiqueVerdict(tc.verdict, tc.notes)
+			if tc.wantErr != nil {
+				if err == nil {
+					t.Fatalf("expected error containing %v", tc.wantErr)
+				}
+				for _, sub := range tc.wantErr {
+					if !strings.Contains(err.Error(), sub) {
+						t.Fatalf("error %q lacks %q", err, sub)
+					}
+				}
+				if s.wroteState {
+					t.Fatal("a refused verdict must not write")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if s.wroteState != tc.wantWrote {
+				t.Fatalf("wroteState = %v, want %v", s.wroteState, tc.wantWrote)
+			}
+			slot := readBackSlot(t, s, projectstate.KindMission)
+			if slot.CritiqueVerdict != tc.wantVerdict || slot.CritiqueNotes != tc.wantNotes {
+				t.Fatalf("carrier wrong: verdict=%q notes len=%d", slot.CritiqueVerdict, len(slot.CritiqueNotes))
+			}
+		})
+	}
+}
 
-	if err := s.setCritiqueVerdict("revise", "Tighten the vision sentence."); err != nil {
-		t.Fatalf("revise verdict: %v", err)
+// TestCritiqueNotesBudgetTagMatchesConstant pins the literal budget in the tool's
+// jsonschema tag to projectstate.MaxReviewNoteRunes so the two cannot drift.
+func TestCritiqueNotesBudgetTagMatchesConstant(t *testing.T) {
+	f, ok := reflect.TypeOf(setCritiqueVerdictInput{}).FieldByName("Notes")
+	if !ok {
+		t.Fatal("Notes field missing")
 	}
-	slot := readBackSlot(t, s, projectstate.KindMission)
-	if slot.CritiqueVerdict != projectstate.CritiqueVerdictRevise || slot.CritiqueNotes == "" {
-		t.Fatalf("revise carrier not written: %+v", slot)
-	}
-
-	// approve clears notes.
-	if err := s.setCritiqueVerdict("approve", "ignored"); err != nil {
-		t.Fatalf("approve verdict: %v", err)
-	}
-	slot = readBackSlot(t, s, projectstate.KindMission)
-	if slot.CritiqueVerdict != projectstate.CritiqueVerdictApprove || slot.CritiqueNotes != "" {
-		t.Fatalf("approve carrier wrong: %+v", slot)
-	}
-
-	// Unknown verdict + revise-without-notes are rejected.
-	if err := s.setCritiqueVerdict("maybe", ""); err == nil {
-		t.Fatalf("expected error for unknown verdict")
-	}
-	if err := s.setCritiqueVerdict("revise", "  "); err == nil {
-		t.Fatalf("expected error for revise with no notes")
+	want := fmt.Sprintf("at most %d characters", projectstate.MaxReviewNoteRunes)
+	if tag := f.Tag.Get("jsonschema"); !strings.Contains(tag, want) {
+		t.Fatalf("Notes jsonschema tag %q must contain %q", tag, want)
 	}
 }
 

@@ -42,7 +42,7 @@ type respondToReviewCommentInput struct {
 
 type setCritiqueVerdictInput struct {
 	Verdict string `json:"verdict" jsonschema:"exactly 'approve' or 'revise'"`
-	Notes   string `json:"notes" jsonschema:"on 'revise', the concrete revision guidance the architect should apply; empty on 'approve'"`
+	Notes   string `json:"notes" jsonschema:"on 'revise', the concrete revision guidance the architect should apply, at most 4000 characters (REQUIRED change requests first; longer notes are refused, never truncated); empty on 'approve'"`
 }
 
 type publishDraftInput struct {
@@ -248,7 +248,8 @@ func composedVerbs(s *Session) []composedVerb {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "setCritiqueVerdict",
 				Description: "Record your Product-Manager critique verdict for this artifact: exactly 'approve' or 'revise'. On 'revise', give concrete revision notes " +
-					"naming the change the architect should make. This does NOT rewrite the model. A verdict is required; finish by calling publishDraft.",
+					"naming the change the architect should make, " + fmt.Sprintf("at most %d characters (REQUIRED change requests first; longer notes are refused, not truncated). ", projectstate.MaxReviewNoteRunes) +
+					"This does NOT rewrite the model. A verdict is required; finish by calling publishDraft.",
 			}, textHandler(func(_ context.Context, in setCritiqueVerdictInput) (string, error) {
 				if err := s.setCritiqueVerdict(in.Verdict, in.Notes); err != nil {
 					return "", err
