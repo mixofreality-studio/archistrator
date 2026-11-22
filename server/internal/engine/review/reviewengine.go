@@ -825,6 +825,31 @@ func (tp *taskProject) goPackagesOf(contracts []string) []string {
 	return slices.Compact(out)
 }
 
+// ownedPathsOf is the directories the contracts' components own besides their Go packages
+// (module-relative), sorted and unique. The field is read from the raw project document: the
+// methodcheck mirror of a service contract does not carry it. A document that does not decode
+// names none.
+func (tp *taskProject) ownedPathsOf(contracts []string) []string {
+	var top struct {
+		ServiceContracts map[string]struct {
+			OwnedPaths []string `json:"ownedPaths"`
+		} `json:"serviceContracts"`
+	}
+	if json.Unmarshal([]byte(tp.raw), &top) != nil {
+		return nil
+	}
+	var out []string
+	for _, c := range contracts {
+		for _, p := range top.ServiceContracts[c].OwnedPaths {
+			if p = strings.Trim(path.Clean(p), "/"); p != "" && p != "." {
+				out = append(out, p)
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // inModule is a module-relative path as a repo-relative one.
 func (tp *taskProject) inModule(rel string) string {
 	if tp.moduleDir == "" {
@@ -1449,6 +1474,10 @@ func commandCheck(id, title string, argv []string, dir string, timeout int) Spec
 // serviceScopeAndChecks is a Go component's construction (integration adds the
 // composition root, the generated-tests drift check and the scenario checks).
 func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID string, pkgs, contracts []string) (SpecEditScope, []SpecCheck, error) {
+	// The component owns its Go packages and the directories its contracts name as owned.
+	pkgs = append(slices.Clone(pkgs), tp.ownedPathsOf(contracts)...)
+	slices.Sort(pkgs)
+	pkgs = slices.Compact(pkgs)
 	scope := SpecEditScope{
 		Components: []SpecScopeComponent{{ID: componentID, Paths: tp.packageGlobs(pkgs)}},
 		Extra:      []string{tp.inModule("go.mod"), tp.inModule("go.sum")},
