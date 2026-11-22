@@ -98346,7 +98346,159 @@
           },
           {
             "scenario": "view-the-project-state-log-P2",
-            "arrange": [],
+            "arrange": [
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "projectStateAccess",
+                  "operation": "CreateProject",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-psa-vsl-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "owner",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-psa-owner-vsl-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "name",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "STP View State Log P2"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "1",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "projectStateAccess",
+                  "operation": "RecordReviewPolicy",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-psa-vsl-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 1
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "policy",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "preset": "full"
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "idempotencyKey",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-psa-vsl-p2:policy"
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "2",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              },
+              {
+                "kind": "contractCall",
+                "model": {
+                  "component": "projectStateAccess",
+                  "operation": "SetResearchInput",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": "stp-psa-vsl-p2"
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "expectedVersion",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": 2
+                        }
+                      },
+                      "schemaRef": ""
+                    },
+                    {
+                      "name": "research",
+                      "value": {
+                        "kind": "literal",
+                        "model": {
+                          "json": {
+                            "Sources": [
+                              {
+                                "Title": "Founder brief",
+                                "Content": "Archistrator designs, builds and operates software with The Method."
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "schemaRef": ""
+                    }
+                  ],
+                  "expect": {
+                    "result": "3",
+                    "errorExpected": false,
+                    "errorCode": ""
+                  }
+                }
+              }
+            ],
             "steps": [
               {
                 "seq": 1,

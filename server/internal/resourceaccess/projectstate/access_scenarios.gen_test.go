@@ -1806,6 +1806,55 @@ func TestScenario_ProjectStateAccess_view_the_project_state_log_P2(t *testing.T)
 	h.RunScenario(t, "projectStateAccess", "view-the-project-state-log-P2", func(t *testing.T) {
 		var subject projectstate.ProjectStateAccess = scenariocompose.NewProjectStateAccess(t, h)
 		subject = nullSubjectProjectStateAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// arrange 1: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID projectstate.ProjectID  `json:"projectID"`
+				Owner     projectstate.OwnerScope `json:"owner"`
+				Name      string                  `json:"name"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p2","owner":"stp-psa-owner-vsl-p2","name":"STP View State Log P2"}`, &in)
+			aout, aerr = subject.CreateProject(h.ResourceAccessContext(t, "arrange-1"), in.ProjectID, in.Owner, in.Name)
+			expect(t, "view-the-project-state-log-P2 arrange 1", 0, aout, aerr, `{"result":"1","errorExpected":false}`)
+		}
+		// arrange 2: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID       projectstate.ProjectID    `json:"projectID"`
+				ExpectedVersion projectstate.Version      `json:"expectedVersion"`
+				Policy          projectstate.ReviewPolicy `json:"policy"`
+				IdempotencyKey  fwra.IdempotencyKey       `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p2","expectedVersion":1,"policy":{
+                            "preset": "full"
+                          },"idempotencyKey":"stp-psa-vsl-p2:policy"}`, &in)
+			aout, aerr = subject.RecordReviewPolicy(h.ResourceAccessContext(t, "arrange-2"), in.ProjectID, in.ExpectedVersion, in.Policy, in.IdempotencyKey)
+			expect(t, "view-the-project-state-log-P2 arrange 2", 0, aout, aerr, `{"result":"2","errorExpected":false}`)
+		}
+		// arrange 3: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID       projectstate.ProjectID     `json:"projectID"`
+				ExpectedVersion projectstate.Version       `json:"expectedVersion"`
+				Research        projectstate.ResearchInput `json:"research"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-psa-vsl-p2","expectedVersion":2,"research":{
+                            "Sources": [
+                              {
+                                "Title": "Founder brief",
+                                "Content": "Archistrator designs, builds and operates software with The Method."
+                              }
+                            ]
+                          }}`, &in)
+			aout, aerr = subject.SetResearchInput(h.ResourceAccessContext(t, "arrange-3"), in.ProjectID, in.ExpectedVersion, in.Research)
+			expect(t, "view-the-project-state-log-P2 arrange 3", 0, aout, aerr, `{"result":"3","errorExpected":false}`)
+		}
 		// step 1: ReadProjectVersion (node read-commits; guards inspect=[no])
 		var out1 any
 		var err1 error
