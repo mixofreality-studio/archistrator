@@ -7798,7 +7798,10 @@ func roundToSettle(row projectstate.ActivityExecution, taskID string, kind *proj
 // maxOperatorNoteRunes caps one operator note — its text plus its anchored comments'
 // text and JSONPaths — at the façade (plan B1.4): a send-back's feedback and an
 // override's notes are persisted on the activity and carried to the next agent attempt.
-const maxOperatorNoteRunes = 4000
+// The limit is projectstate.MaxReviewNoteRunes, shared with the critic's
+// setCritiqueVerdict, so any note a critic records can be relayed whole through
+// SubmitTaskDecision's send-back door.
+const maxOperatorNoteRunes = projectstate.MaxReviewNoteRunes
 
 // operatorNoteRunes counts a note's characters: its text, and each anchored comment's
 // text AND JSONPath (M6), since the rendered note carries both.
