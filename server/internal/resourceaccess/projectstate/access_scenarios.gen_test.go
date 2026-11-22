@@ -159,11 +159,469 @@ func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_revie
 	})
 }
 
+// inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1 is step 1's parameters of AppendReviewVerdict, decoded from the binding's inputs.
+type inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1 struct {
+	ProjectID               projectstate.ProjectID       `json:"projectID"`
+	ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+	ActivityID              string                       `json:"activityID"`
+	RoundID                 string                       `json:"roundID"`
+	Verdict                 projectstate.ReviewVerdict   `json:"verdict"`
+	Comments                []projectstate.ReviewComment `json:"comments"`
+	Replies                 []projectstate.ReviewReply   `json:"replies"`
+	Cred                    projectstate.RepoCredential  `json:"cred"`
+	IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+}
+
 // TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P2 — Ask a Clarifying Question During Review — [yes: session branch] · [no: dispatch miss] (use case ask-a-clarifying-question-during-review; path start → write-questions → artifact-state → append-session-branch → thread-open-on-session-branch → merge-recorded → dispatch-answer-job → answer-ran → remain-open → question-still-open → merge-answered → approve-unblocked → note-open-tally-convention → warn-open-questions → end).
 func TestScenario_ActivityExecutionAccess_ask_a_clarifying_question_during_review_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "activityExecutionAccess", "ask-a-clarifying-question-during-review-P2", func(t *testing.T) {
-		t.Skip("ruling 8: needs arranged state; own-project rebinding scheduled (until 2026-12-31)")
+		var subject projectstate.ActivityExecutionAccess = scenariocompose.NewActivityExecutionAccess(t, h)
+		subject = nullSubjectActivityExecutionAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
+		// arrange 1: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID projectstate.ProjectID  `json:"projectID"`
+				Owner     projectstate.OwnerScope `json:"owner"`
+				Name      string                  `json:"name"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","owner":"stp-aea-owner-auc-p1","name":"STP Ask P2"}`, &in)
+			aout, aerr = scenariocompose.NewProjectStateAccess(t, h).CreateProject(h.ResourceAccessContext(t, "arrange-1"), in.ProjectID, in.Owner, in.Name)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 1", 0, aout, aerr, `{"result":"1","errorExpected":false}`)
+		}
+		// arrange 2: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID      `json:"projectID"`
+				ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+				ActivityID              string                      `json:"activityID"`
+				Typ                     projectstate.ActivityType   `json:"typ"`
+				Variant                 projectstate.TestingVariant `json:"variant"`
+				Pin                     projectstate.LifecyclePin   `json:"pin"`
+				Cred                    projectstate.RepoCredential `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-REQ","typ":7,"variant":0,"pin":{
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.1"
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:1"}`, &in)
+			aout, aerr = subject.OpenActivity(h.ResourceAccessContext(t, "arrange-2"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 2", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 3: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID        `json:"projectID"`
+				ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+				ActivityID              string                        `json:"activityID"`
+				Round                   projectstate.ReviewRoundInput `json:"round"`
+				Cred                    projectstate.RepoCredential   `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-REQ","round":{
+                            "roundId": "D-REQ:missionReview:mission:1",
+                            "taskId": "missionReview",
+                            "reviews": "missionDraft",
+                            "artifactKind": 0,
+                            "round": 1,
+                            "subjectRef": {
+                              "kind": "artifact",
+                              "ref": "mission"
+                            }
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:2"}`, &in)
+			aout, aerr = subject.OpenReviewRound(h.ResourceAccessContext(t, "arrange-3"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Round, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 3", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 4: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID      `json:"projectID"`
+				ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+				ActivityID              string                      `json:"activityID"`
+				Typ                     projectstate.ActivityType   `json:"typ"`
+				Variant                 projectstate.TestingVariant `json:"variant"`
+				Pin                     projectstate.LifecyclePin   `json:"pin"`
+				Cred                    projectstate.RepoCredential `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-LIVE","typ":7,"variant":0,"pin":{
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.1"
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:3"}`, &in)
+			aout, aerr = subject.OpenActivity(h.ResourceAccessContext(t, "arrange-4"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 4", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 5: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID      `json:"projectID"`
+				ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+				ActivityID              string                      `json:"activityID"`
+				Typ                     projectstate.ActivityType   `json:"typ"`
+				Variant                 projectstate.TestingVariant `json:"variant"`
+				Pin                     projectstate.LifecyclePin   `json:"pin"`
+				Cred                    projectstate.RepoCredential `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-LIVE","typ":7,"variant":0,"pin":{
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.2"
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:4"}`, &in)
+			aout, aerr = subject.OpenActivity(h.ResourceAccessContext(t, "arrange-5"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 5", 0, aout, aerr, `{"errorExpected":true,"errorCode":"ContractMisuse"}`)
+		}
+		// arrange 6: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID  projectstate.ProjectID `json:"projectID"`
+				ActivityID string                 `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","activityID":"D-PIN-LIVE"}`, &in)
+			aout, aerr = subject.ReadActivityExecution(h.ResourceAccessContext(t, "arrange-6"), in.ProjectID, in.ActivityID)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 6", 0, aout, aerr, `{"result":"{\"activityID\":\"D-PIN-LIVE\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		}
+		// arrange 7: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID      `json:"projectID"`
+				ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+				ActivityID              string                      `json:"activityID"`
+				Typ                     projectstate.ActivityType   `json:"typ"`
+				Variant                 projectstate.TestingVariant `json:"variant"`
+				Pin                     projectstate.LifecyclePin   `json:"pin"`
+				Cred                    projectstate.RepoCredential `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-REPIN","typ":7,"variant":0,"pin":{
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.1"
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:5"}`, &in)
+			aout, aerr = subject.OpenActivity(h.ResourceAccessContext(t, "arrange-7"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 7", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 8: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID        `json:"projectID"`
+				ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+				ActivityID              string                        `json:"activityID"`
+				Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+				Cred                    projectstate.RepoCredential   `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-REPIN","attempt":{
+                            "attemptId": "D-PIN-REPIN:missionDraft:1",
+                            "taskId": "missionDraft",
+                            "attempt": 1,
+                            "actor": "agent",
+                            "outcome": "passed",
+                            "evidenceKind": "episode",
+                            "evidenceRef": "ep-D-PIN-REPIN-missionDraft-1",
+                            "detail": ""
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:6"}`, &in)
+			aout, aerr = subject.RecordAttemptOutcome(h.ResourceAccessContext(t, "arrange-8"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Attempt, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 8", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 9: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID       `json:"projectID"`
+				ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+				ActivityID              string                       `json:"activityID"`
+				Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+				Reason                  projectstate.FailureReason   `json:"reason"`
+				Detail                  string                       `json:"detail"`
+				Cred                    projectstate.RepoCredential  `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-REPIN","outcome":0,"reason":1,"detail":"failed","cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:7"}`, &in)
+			aout, aerr = subject.RecordActivityOutcome(h.ResourceAccessContext(t, "arrange-9"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Outcome, in.Reason, in.Detail, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 9", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 10: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID         `json:"projectID"`
+				ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
+				ActivityID              string                         `json:"activityID"`
+				Note                    projectstate.OperatorNoteInput `json:"note"`
+				DeliveredToAttemptID    string                         `json:"deliveredToAttemptID"`
+				Cred                    projectstate.RepoCredential    `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey            `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-REPIN","note":{
+                            "noteId": "requeue:D-PIN-REPIN",
+                            "kind": 6,
+                            "gate": "construction",
+                            "text": "change request",
+                            "comments": null
+                          },"deliveredToAttemptID":"","cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:8"}`, &in)
+			aout, aerr = subject.RecordOperatorNote(h.ResourceAccessContext(t, "arrange-10"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Note, in.DeliveredToAttemptID, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 10", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 11: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID      `json:"projectID"`
+				ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+				ActivityID              string                      `json:"activityID"`
+				Typ                     projectstate.ActivityType   `json:"typ"`
+				Variant                 projectstate.TestingVariant `json:"variant"`
+				Pin                     projectstate.LifecyclePin   `json:"pin"`
+				Cred                    projectstate.RepoCredential `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-REPIN","typ":7,"variant":0,"pin":{
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.2"
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:9"}`, &in)
+			aout, aerr = subject.OpenActivity(h.ResourceAccessContext(t, "arrange-11"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 11", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 12: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID  projectstate.ProjectID `json:"projectID"`
+				ActivityID string                 `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","activityID":"D-PIN-REPIN"}`, &in)
+			aout, aerr = subject.ReadActivityExecution(h.ResourceAccessContext(t, "arrange-12"), in.ProjectID, in.ActivityID)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 12", 0, aout, aerr, `{"result":"{\"activityID\":\"D-PIN-REPIN\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.2\"},\"lifecyclePinHistory\":[{\"pin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}]}","errorExpected":false}`)
+		}
+		// arrange 13: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID      `json:"projectID"`
+				ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+				ActivityID              string                      `json:"activityID"`
+				Typ                     projectstate.ActivityType   `json:"typ"`
+				Variant                 projectstate.TestingVariant `json:"variant"`
+				Pin                     projectstate.LifecyclePin   `json:"pin"`
+				Cred                    projectstate.RepoCredential `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-MISSING","typ":7,"variant":0,"pin":{
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.1"
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:10"}`, &in)
+			aout, aerr = subject.OpenActivity(h.ResourceAccessContext(t, "arrange-13"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 13", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 14: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID        `json:"projectID"`
+				ExpectedActivityVersion int64                         `json:"expectedActivityVersion"`
+				ActivityID              string                        `json:"activityID"`
+				Attempt                 projectstate.TaskAttemptInput `json:"attempt"`
+				Cred                    projectstate.RepoCredential   `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey           `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-MISSING","attempt":{
+                            "attemptId": "D-PIN-MISSING:no-such-task:1",
+                            "taskId": "no-such-task",
+                            "attempt": 1,
+                            "actor": "agent",
+                            "outcome": "failed",
+                            "evidenceKind": "episode",
+                            "evidenceRef": "ep-D-PIN-MISSING-no-such-task-1",
+                            "detail": ""
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:11"}`, &in)
+			aout, aerr = subject.RecordAttemptOutcome(h.ResourceAccessContext(t, "arrange-14"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Attempt, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 14", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 15: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID       `json:"projectID"`
+				ExpectedActivityVersion int64                        `json:"expectedActivityVersion"`
+				ActivityID              string                       `json:"activityID"`
+				Outcome                 projectstate.ActivityOutcome `json:"outcome"`
+				Reason                  projectstate.FailureReason   `json:"reason"`
+				Detail                  string                       `json:"detail"`
+				Cred                    projectstate.RepoCredential  `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey          `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-MISSING","outcome":0,"reason":1,"detail":"failed","cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:12"}`, &in)
+			aout, aerr = subject.RecordActivityOutcome(h.ResourceAccessContext(t, "arrange-15"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Outcome, in.Reason, in.Detail, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 15", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 16: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID         `json:"projectID"`
+				ExpectedActivityVersion int64                          `json:"expectedActivityVersion"`
+				ActivityID              string                         `json:"activityID"`
+				Note                    projectstate.OperatorNoteInput `json:"note"`
+				DeliveredToAttemptID    string                         `json:"deliveredToAttemptID"`
+				Cred                    projectstate.RepoCredential    `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey            `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-MISSING","note":{
+                            "noteId": "requeue:D-PIN-MISSING",
+                            "kind": 6,
+                            "gate": "construction",
+                            "text": "change request",
+                            "comments": null
+                          },"deliveredToAttemptID":"","cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:13"}`, &in)
+			aout, aerr = subject.RecordOperatorNote(h.ResourceAccessContext(t, "arrange-16"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Note, in.DeliveredToAttemptID, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 16", 0, aout, aerr, `{"errorExpected":false}`)
+		}
+		// arrange 17: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID               projectstate.ProjectID      `json:"projectID"`
+				ExpectedActivityVersion int64                       `json:"expectedActivityVersion"`
+				ActivityID              string                      `json:"activityID"`
+				Typ                     projectstate.ActivityType   `json:"typ"`
+				Variant                 projectstate.TestingVariant `json:"variant"`
+				Pin                     projectstate.LifecyclePin   `json:"pin"`
+				Cred                    projectstate.RepoCredential `json:"cred"`
+				IdempotencyKey          fwra.IdempotencyKey         `json:"idempotencyKey"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-PIN-MISSING","typ":7,"variant":0,"pin":{
+                            "typeKey": "requirements",
+                            "assetsVersion": "v0.10.2"
+                          },"cred":{
+                            "Bytes": "",
+                            "ExpiresAt": "2027-01-01T00:00:00Z"
+                          },"idempotencyKey":"stp-aea-ask-p2:arr:14"}`, &in)
+			aout, aerr = subject.OpenActivity(h.ResourceAccessContext(t, "arrange-17"), in.ProjectID, in.ExpectedActivityVersion, in.ActivityID, in.Typ, in.Variant, in.Pin, in.Cred, in.IdempotencyKey)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 17", 0, aout, aerr, `{"errorExpected":true,"errorCode":"Conflict"}`)
+		}
+		// arrange 18: contractCall
+		{
+			var aout any
+			var aerr error
+			var in struct {
+				ProjectID  projectstate.ProjectID `json:"projectID"`
+				ActivityID string                 `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","activityID":"D-PIN-MISSING"}`, &in)
+			aout, aerr = subject.ReadActivityExecution(h.ResourceAccessContext(t, "arrange-18"), in.ProjectID, in.ActivityID)
+			expect(t, "ask-a-clarifying-question-during-review-P2 arrange 18", 0, aout, aerr, `{"result":"{\"activityID\":\"D-PIN-MISSING\",\"lifecyclePin\":{\"typeKey\":\"requirements\",\"assetsVersion\":\"v0.10.1\"}}","errorExpected":false}`)
+		}
+		// step 1: AppendReviewVerdict (node append-session-branch; guards artifact-state=[yes: session branch], answer-ran=[no: dispatch miss])
+		var out1 any
+		var err1 error
+		// probe 1.1: activityExecutionAccess.ReadActivityExecution for thread-open-on-session-branch
+		var pout1_1 any
+		var perr1_1 error
+		run1_1 := func() (any, error) {
+			pc := h.ProbeContext(t)
+			var in struct {
+				ProjectID  projectstate.ProjectID `json:"projectID"`
+				ActivityID string                 `json:"activityID"`
+			}
+			mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","activityID":"D-REQ"}`, &in)
+			return subject.ReadActivityExecution(pc.ResourceAccessContext(t, "1.1"), in.ProjectID, in.ActivityID)
+		}
+		pre1_1 := held("ask-a-clarifying-question-during-review-P2 probe 1.1 before", 1, run1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}`)
+		var in1 inputActivityExecutionAccessAskAClarifyingQuestionDuringReviewP2S1
+		mustUnmarshal(t, `{"projectID":"stp-aea-ask-p2","expectedActivityVersion":0,"activityID":"D-REQ","roundID":"D-REQ:missionReview:mission:1","verdict":{
+                          "reviewerRole": "operator",
+                          "actor": "operator",
+                          "verdict": "abstain",
+                          "summary": "Clarifying questions before a verdict.",
+                          "attemptId": "D-REQ:missionDraft:1",
+                          "at": ""
+                        },"comments":[
+                          {
+                            "id": "q-1",
+                            "anchor": "$.mission",
+                            "anchorText": "operated on the customer's behalf",
+                            "text": "Does 'operated' include billing the customer?",
+                            "authorRole": "operator",
+                            "round": 1,
+                            "status": "open",
+                            "response": "",
+                            "replies": [],
+                            "reopened": false,
+                            "type": "question",
+                            "addressee": "system-architect"
+                          }
+                        ],"replies":[],"cred":{
+                          "Bytes": "",
+                          "ExpiresAt": "2027-01-01T00:00:00Z"
+                        },"idempotencyKey":"stp-aea-ask-p2:verdict:1"}`, &in1)
+		out1, err1 = subject.AppendReviewVerdict(h.ResourceAccessContext(t, "1"), in1.ProjectID, in1.ExpectedActivityVersion, in1.ActivityID, in1.RoundID, in1.Verdict, in1.Comments, in1.Replies, in1.Cred, in1.IdempotencyKey)
+		expect(t, "ask-a-clarifying-question-during-review-P2", 1, out1, err1, `{"errorExpected":false}`)
+		pout1_1, perr1_1 = run1_1()
+		expectProbe(t, "ask-a-clarifying-question-during-review-P2 probe 1.1", 1, pout1_1, perr1_1, `{"result":"{\"reviews\":[{\"roundId\":\"D-REQ:missionReview:mission:1\",\"verdicts\":[{\"verdict\":\"abstain\"}],\"thread\":[{\"id\":\"r1c1\",\"type\":\"question\",\"status\":\"open\"}]}]}","errorExpected":false}`)
+		differential(t, "ask-a-clarifying-question-during-review-P2", 1, pre1_1)
 	})
 }
 

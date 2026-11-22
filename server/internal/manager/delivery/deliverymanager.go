@@ -47,6 +47,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13186,7 +13188,27 @@ const changeExecutionLedger = "execution-ledger-writes"
 // would be read back against a DAG they were never written under.
 func lifecyclePinFor(act constructionActivity) projectstate.LifecyclePin {
 	key := projectstate.LifecycleKeyFor(act.Type, act.Variant)
-	return projectstate.LifecyclePin{TypeKey: key, AssetsVersion: projectstate.LifecycleIdentity(key)}
+	return projectstate.LifecyclePin{TypeKey: key, AssetsVersion: lifecycleIdentity(key)}
+}
+
+// lifecycleIdentity is the AssetsVersion a LifecyclePin carries: a content identity of the
+// task DAG typeKey resolves to, not the method-assets module version. The module version is
+// build-dependent ((devel) in a workspace build, vX.Y.Z in a GOWORK=off build) and names no
+// reproducible lifecycle, so pinning it forced a re-pin on every move between builds even
+// when the DAG was identical. Two builds whose lifecycle for typeKey is byte-identical agree
+// on this value; only a real DAG change differs. A key with no lifecycle yields
+// "unresolved:"+typeKey, which matches nothing resolvable.
+func lifecycleIdentity(typeKey string) string {
+	lc, ok := methodassets.LifecycleFor(typeKey)
+	if !ok {
+		return "unresolved:" + typeKey
+	}
+	raw, err := json.Marshal(lc)
+	if err != nil {
+		return "unresolved:" + typeKey
+	}
+	sum := sha256.Sum256(raw)
+	return "dag-sha256:" + hex.EncodeToString(sum[:8])
 }
 
 // attemptOutcomeFor maps a terminal pipeline phase onto the attempt's terminal. Only a

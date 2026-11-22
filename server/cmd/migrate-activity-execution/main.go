@@ -45,6 +45,7 @@ import (
 	"strings"
 	"time"
 
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -602,8 +603,10 @@ func stampedPin(row projectstate.ActivityExecution, item projectstate.ActivityIt
 	if !classified {
 		return nil
 	}
-	key := projectstate.LifecycleKeyFor(typ, variant)
-	return &projectstate.LifecyclePin{TypeKey: key, AssetsVersion: projectstate.LifecycleIdentity(key)}
+	return &projectstate.LifecyclePin{
+		TypeKey:       projectstate.LifecycleKeyFor(typ, variant),
+		AssetsVersion: methodassets.Version(),
+	}
 }
 
 // committedItems is the committed plan's activity items by name — the authority on what

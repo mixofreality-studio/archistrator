@@ -11223,26 +11223,6 @@ func roundPtr(cs *ActivityExecution, op, roundID string) (*ReviewRound, error) {
 	return nil, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.%s: no review round %s on %s", op, roundID, cs.ActivityID))
 }
 
-// LifecycleIdentity is the AssetsVersion a LifecyclePin carries: a content identity of the
-// task DAG the pin's TypeKey resolves to, not the method-assets module version. The module
-// version is build-dependent ((devel) in a workspace build, vX.Y.Z in a GOWORK=off build) and
-// names no reproducible lifecycle, so pinning it forced a re-pin on every move between builds
-// even when the DAG was identical. Two builds whose lifecycle for typeKey is byte-identical
-// agree on this value; only a real DAG change differs. A key with no lifecycle yields
-// "unresolved:" + typeKey, which matches nothing resolvable.
-func LifecycleIdentity(typeKey string) string {
-	lc, ok := methodassets.LifecycleFor(typeKey)
-	if !ok {
-		return "unresolved:" + typeKey
-	}
-	raw, err := json.Marshal(lc)
-	if err != nil {
-		return "unresolved:" + typeKey
-	}
-	sum := sha256.Sum256(raw)
-	return "dag-sha256:" + hex.EncodeToString(sum[:8])
-}
-
 // LifecyclePinSuperseded is one entry of ActivityExecution.PinHistory: a pin the row held
 // until SupersededAt, when a re-open after a requeue re-pinned it.
 type LifecyclePinSuperseded struct {

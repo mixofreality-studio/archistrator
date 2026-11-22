@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -572,8 +573,8 @@ func TestMigrate_StampsVersionAndTheCurrentLifecyclePin(t *testing.T) {
 		if row.Pin == nil {
 			t.Fatalf("row %s carries no lifecycle pin", id)
 		}
-		if row.Pin.AssetsVersion != projectstate.LifecycleIdentity(row.Pin.TypeKey) {
-			t.Fatalf("row %s pinned to %q, want the current lifecycle identity %q", id, row.Pin.AssetsVersion, projectstate.LifecycleIdentity(row.Pin.TypeKey))
+		if row.Pin.AssetsVersion != methodassets.Version() {
+			t.Fatalf("row %s pinned to %q, want the current release %q", id, row.Pin.AssetsVersion, methodassets.Version())
 		}
 	}
 	if got := after.ActivityExecution["architecture"].Pin.TypeKey; got != "architecture" {
