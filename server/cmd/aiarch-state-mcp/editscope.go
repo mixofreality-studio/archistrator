@@ -48,6 +48,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -79,6 +80,15 @@ func runEditScope(args []string) error {
 	head := flags.String("head", "", "the branch tip the agent published (resolved once to a SHA)")
 	mainSHA := flags.String("main", "", "the full SHA of main captured before the agent ran: content merged in from it is not the agent's")
 	noMain := flags.Bool("no-main", false, "judge the plain base..head diff (no main to net merged-in content against)")
+	var workspaces []workspaceRange
+	flags.Func("workspace", "a workspace repo's range, as JSON {id,dir,base,head,main}: its changes are judged as @<id>/<path> (repeatable)", func(v string) error {
+		var w workspaceRange
+		if err := json.Unmarshal([]byte(v), &w); err != nil {
+			return fmt.Errorf("--workspace: %w", err)
+		}
+		workspaces = append(workspaces, w)
+		return nil
+	})
 	if err := flags.Parse(args); err != nil {
 		return exitError{2, err}
 	}
@@ -93,11 +103,11 @@ func runEditScope(args []string) error {
 	if err != nil {
 		return exitError{2, err}
 	}
-	bad, err := editScopeViolations(wd, *spec, rng)
+	bad, err := editScopeViolations(wd, *spec, rng, workspaces...)
 	if err != nil {
 		return exitError{2, err}
 	}
-	stray, err := activityScopeViolations(wd, *spec, rng)
+	stray, err := activityScopeViolations(wd, *spec, rng, workspaces...)
 	if err != nil {
 		return exitError{2, err}
 	}
@@ -177,7 +187,7 @@ func commitSHA(root, rev string) (string, error) {
 
 // editScopeViolations returns the sorted paths changed over rng (net of main's
 // merged-in content, see the file comment) outside specPath's edit scope, in repo root.
-func editScopeViolations(root, specPath string, rng editScopeRange) ([]string, error) {
+func editScopeViolations(root, specPath string, rng editScopeRange, workspaces ...workspaceRange) ([]string, error) {
 	spec, err := readSpecFile(specPath)
 	if err != nil {
 		return nil, err
@@ -186,14 +196,53 @@ func editScopeViolations(root, specPath string, rng editScopeRange) ([]string, e
 	if err != nil {
 		return nil, err
 	}
+	for _, w := range workspaces {
+		wr, err := w.resolve()
+		if err != nil {
+			return nil, err
+		}
+		own, err := branchChangedPaths(w.Dir, wr)
+		if err != nil {
+			return nil, err
+		}
+		changed = append(changed, w.qualify(own)...)
+	}
 	return outsideScope(spec.EditScope, changed)
+}
+
+// workspaceRange is one workspace repo's checkout and what the gate diffs in it: the same
+// base, head and main the project's own range holds, captured by the venue before the agent
+// ran, in the workspace repo's own history. Its paths are judged as "@<ID>/<path>".
+type workspaceRange struct {
+	ID   string `json:"id"`
+	Dir  string `json:"dir"`
+	Base string `json:"base"`
+	Head string `json:"head"`
+	Main string `json:"main"`
+}
+
+// resolve holds the range to the strict forms (full SHAs, one commit) in the workspace repo.
+func (w workspaceRange) resolve() (editScopeRange, error) {
+	if w.ID == "" || w.Dir == "" {
+		return editScopeRange{}, errors.New("a --workspace range names a repo id and its checkout dir")
+	}
+	return resolveEditScopeRange(w.Dir, w.Base, w.Head, w.Main, w.Main == "")
+}
+
+// qualify spells the workspace repo's changed paths as the edit-scope grammar does, "@<ID>/<path>".
+func (w workspaceRange) qualify(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = "@" + w.ID + "/" + p
+	}
+	return out
 }
 
 // activityScopeViolations returns the sorted paths of the branch's net diff against main,
 // merge-base(main, head)..head, outside specPath's activityEditScope (FIX-040). With no
 // main (--no-main) there is nothing to net against, and the per-attempt check is already
 // the strict whole diff, so it reports nothing.
-func activityScopeViolations(root, specPath string, rng editScopeRange) ([]string, error) {
+func activityScopeViolations(root, specPath string, rng editScopeRange, workspaces ...workspaceRange) ([]string, error) {
 	if rng.main == "" {
 		return nil, nil
 	}
@@ -209,7 +258,26 @@ func activityScopeViolations(root, specPath string, rng editScopeRange) ([]strin
 	if err != nil {
 		return nil, err
 	}
-	return outsideScope(spec.ActivityEditScope, sortedKeys(net))
+	changed := sortedKeys(net)
+	for _, w := range workspaces {
+		wr, err := w.resolve()
+		if err != nil {
+			return nil, err
+		}
+		if wr.main == "" {
+			continue
+		}
+		wmb, err := mergeBaseOf(w.Dir, wr.main, wr.head)
+		if err != nil {
+			return nil, err
+		}
+		wnet, err := treeDiffNames(w.Dir, wmb, wr.head)
+		if err != nil {
+			return nil, err
+		}
+		changed = append(changed, w.qualify(sortedKeys(wnet))...)
+	}
+	return outsideScope(spec.ActivityEditScope, changed)
 }
 
 // outsideScope returns the paths of changed (sorted) that scope does not admit; the state

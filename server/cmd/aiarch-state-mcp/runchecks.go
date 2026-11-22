@@ -236,7 +236,7 @@ func runRunChecks(args []string, stdout io.Writer) error {
 			return exitError{2, err}
 		}
 	}
-	results := runSpecChecks(context.Background(), checkRunner{root: root, outDir: a.out}, a.spec.Checks, prev, a.onlyFailed)
+	results := runSpecChecks(context.Background(), checkRunner{root: root, outDir: a.out, workspaces: workspaceRootsFromEnv()}, a.spec.Checks, prev, a.onlyFailed)
 	if err := writeCheckResults(a.out, results); err != nil {
 		return exitError{2, fmt.Errorf("write the results: %w", err)}
 	}
@@ -331,7 +331,7 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 	}
 	note = joinNotes(note, s.tidyModuleGraph(ctx, spec), s.installWebProjects(ctx, spec))
 	out := filepath.Join(s.StateRoot, checksOutDir)
-	r := checkRunner{root: s.StateRoot, outDir: out, exec: s.checkExec}
+	r := checkRunner{root: s.StateRoot, outDir: out, exec: s.checkExec, workspaces: workspaceRootsFromEnv()}
 	results := runSpecChecks(ctx, r, spec.Checks, s.checks.last, onlyFailed)
 	s.checks.last = results
 	if err := writeCheckResults(out, results); err != nil {

@@ -2013,6 +2013,8 @@ type projectDoc struct {
 	// ModuleDir is the repo-relative directory holding the project's Go module
 	// (server/go.mod). Empty means the repo root, the scaffold default.
 	ModuleDir string `json:"moduleDir,omitempty"`
+	// WorkspaceRepos: see Project.WorkspaceRepos.
+	WorkspaceRepos []WorkspaceRepo `json:"workspaceRepos,omitempty"`
 	// UpdatedAt is the server-resolved timestamp of the last committed state
 	// mutation (set by buildStateFiles on every write). omitempty so existing
 	// project.json documents that pre-date this field decode cleanly as the zero
@@ -2093,12 +2095,13 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		ReviewPolicy:         doc.ReviewPolicy,
 		RuleWaivers:          doc.RuleWaivers,
 		ModuleDir:            doc.ModuleDir,
+		WorkspaceRepos:       doc.WorkspaceRepos,
 		UpdatedAt:            doc.UpdatedAt,
 	}
 	if err := checkActivityExecutionKeys(p.ActivityExecution); err != nil {
 		return Project{}, false, err
 	}
-	if err := checkOwnedPaths(p.ServiceContracts); err != nil {
+	if err := checkOwnedPaths(p.WorkspaceRepos, p.ServiceContracts); err != nil {
 		return Project{}, false, err
 	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
@@ -2143,19 +2146,108 @@ func checkActivityExecutionKeys(rows map[string]ActivityExecution) error {
 // module-relative directory, overlaps any contract's goPackage, or overlaps another
 // contract's ownedPaths entry. Contracts and entries are visited in sorted order, so
 // the error is deterministic. Malformed committed state is terminal (ContractMisuse).
-func checkOwnedPaths(contracts map[string]ServiceContract) error {
+func checkOwnedPaths(repos []WorkspaceRepo, contracts map[string]ServiceContract) error {
+	if err := checkWorkspaceRepos(repos); err != nil {
+		return err
+	}
+	declared := make(map[string]bool, len(repos))
+	for _, r := range repos {
+		declared[r.ID] = true
+	}
 	keys := slices.Sorted(maps.Keys(contracts))
 	for _, key := range keys {
 		for _, e := range contracts[key].OwnedPaths {
-			if why := ownedPathShapeProblem(e); why != "" {
-				return ownedPathRefusal(key, e, why)
+			op, err := ParseOwnedPath(e)
+			if err != nil {
+				return ownedPathRefusal(key, e, err.Error())
+			}
+			if ws, ok := op.(InWorkspaceRepo); ok && !declared[ws.Repo] {
+				return ownedPathRefusal(key, e, fmt.Sprintf("names workspace repo %q, which the project does not declare", ws.Repo))
 			}
 			for _, other := range keys {
-				if why := ownedPathOverlapProblem(key, e, other, contracts[other]); why != "" {
+				if why := ownedPathOverlapProblem(key, op, other, contracts[other]); why != "" {
 					return ownedPathRefusal(key, e, why)
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// WorkspaceRepo declares one sibling repo of the project's own that a service contract's
+// ownedPaths may name. ID is the plain name an ownedPaths entry qualifies its directory with
+// ("@<ID>/<dir>"); RelPath is the repo's checkout relative to the project's repo
+// (e.g. "../archistrator-platform"), resolved by the venue, never by an edit-scope glob.
+type WorkspaceRepo struct {
+	ID      string `json:"id"`
+	RelPath string `json:"relPath"`
+}
+
+// OwnedPath is one ownedPaths entry: a directory of the project's own repo (module-relative)
+// or a directory of a declared workspace repo (repo-relative). The wire form is a string: a
+// plain directory, or "@<repo>/<dir>".
+//
+//sumtype:decl
+type OwnedPath interface {
+	// String is the wire form.
+	String() string
+	ownedPath()
+}
+
+// InProject is an ownedPaths directory inside the project's own module.
+type InProject struct{ Path string }
+
+// InWorkspaceRepo is an ownedPaths directory inside the declared workspace repo Repo.
+type InWorkspaceRepo struct{ Repo, Path string }
+
+func (InProject) ownedPath()       {}
+func (InWorkspaceRepo) ownedPath() {}
+
+func (o InProject) String() string { return o.Path }
+
+func (o InWorkspaceRepo) String() string { return "@" + o.Repo + "/" + o.Path }
+
+// workspaceRepoPrefix opens a repo-qualified ownedPaths entry.
+const workspaceRepoPrefix = "@"
+
+// ParseOwnedPath reads one ownedPaths wire entry into the sum, refusing a directory that is
+// not clean (see ownedPathShapeProblem). It does not know which workspace repos the project
+// declares; checkOwnedPaths holds that.
+func ParseOwnedPath(entry string) (OwnedPath, error) {
+	rest, ok := strings.CutPrefix(entry, workspaceRepoPrefix)
+	if !ok {
+		if why := ownedPathShapeProblem(entry); why != "" {
+			return nil, errors.New(why)
+		}
+		return InProject{Path: entry}, nil
+	}
+	repo, dir, found := strings.Cut(rest, "/")
+	if !found || repo == "" {
+		return nil, errors.New(`must be "@<repo>/<dir>"`)
+	}
+	if why := ownedPathShapeProblem(dir); why != "" {
+		return nil, errors.New(why)
+	}
+	return InWorkspaceRepo{Repo: repo, Path: dir}, nil
+}
+
+// checkWorkspaceRepos refuses a workspaceRepos list whose id is not a plain name or repeats,
+// or whose relPath is not a relative path.
+func checkWorkspaceRepos(repos []WorkspaceRepo) error {
+	seen := map[string]bool{}
+	for _, r := range repos {
+		switch {
+		case r.ID == "" || r.ID == "." || r.ID == ".." || strings.ContainsAny(r.ID, `/\*?[ `):
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate: decode project.json: workspaceRepos id %q must be a plain name", r.ID))
+		case seen[r.ID]:
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate: decode project.json: workspaceRepos id %q is declared twice", r.ID))
+		case r.RelPath == "" || path.IsAbs(r.RelPath):
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate: decode project.json: workspaceRepos[%q].relPath %q must be relative to the project's repo", r.ID, r.RelPath))
+		}
+		seen[r.ID] = true
 	}
 	return nil
 }
@@ -2186,16 +2278,34 @@ func ownedPathShapeProblem(e string) string {
 
 // ownedPathOverlapProblem is why entry e of contract key overlaps the goPackage or an
 // ownedPaths entry of contract other (itself excluded), or "".
-func ownedPathOverlapProblem(key, e, other string, sc ServiceContract) string {
-	if sc.GoPackage != "" && pathsOverlap(e, sc.GoPackage) {
+func ownedPathOverlapProblem(key string, e OwnedPath, other string, sc ServiceContract) string {
+	if in, ok := e.(InProject); ok && sc.GoPackage != "" && pathsOverlap(in.Path, sc.GoPackage) {
 		return fmt.Sprintf("overlaps the goPackage %q of contract %q, which already owns that package", sc.GoPackage, other)
 	}
-	for _, o := range sc.OwnedPaths {
-		if (other != key || o != e) && pathsOverlap(e, o) {
-			return fmt.Sprintf("overlaps ownedPaths entry %q of contract %q; a directory is owned by one contract", o, other)
+	for _, raw := range sc.OwnedPaths {
+		o, err := ParseOwnedPath(raw)
+		if err != nil || (other == key && o == e) {
+			continue // a malformed entry is refused on its own visit
+		}
+		if sameTreeOverlap(e, o) {
+			return fmt.Sprintf("overlaps ownedPaths entry %q of contract %q; a directory is owned by one contract", raw, other)
 		}
 	}
 	return ""
+}
+
+// sameTreeOverlap is whether a and b are directories of the same repo (or both the
+// project's own) that are equal or nested.
+func sameTreeOverlap(a, b OwnedPath) bool {
+	switch av := a.(type) {
+	case InProject:
+		bv, ok := b.(InProject)
+		return ok && pathsOverlap(av.Path, bv.Path)
+	case InWorkspaceRepo:
+		bv, ok := b.(InWorkspaceRepo)
+		return ok && av.Repo == bv.Repo && pathsOverlap(av.Path, bv.Path)
+	}
+	return false
 }
 
 // pathsOverlap is whether a and b are equal, or one is a directory inside the other.
@@ -2383,6 +2493,7 @@ func encodeProjectDoc(p *Project, updatedAt time.Time) ([]byte, error) {
 		ReviewPolicy:         p.ReviewPolicy,
 		RuleWaivers:          p.RuleWaivers,
 		ModuleDir:            p.ModuleDir,
+		WorkspaceRepos:       p.WorkspaceRepos,
 		UpdatedAt:            updatedAt,
 	}
 	b, err := json.MarshalIndent(doc, "", "  ")
@@ -4358,6 +4469,9 @@ type ProjectEnvelope struct {
 	// must see it to hash the same as one resolved off the checkout. omitempty keeps every
 	// payload of a root-module project byte-identical to before.
 	ModuleDir string `json:"moduleDir,omitempty"`
+	// WorkspaceRepos carries Project.WorkspaceRepos, so a spec resolved off the envelope
+	// scopes a workspace-repo path exactly as one resolved off the checkout.
+	WorkspaceRepos []WorkspaceRepo `json:"workspaceRepos,omitempty"`
 
 	// OperatorPaused / PauseReason carry the operator's RECORDED pause
 	// (RecordOperatorPaused) across the boundary: the construction pump's
@@ -4390,6 +4504,7 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 		out.PlanBindingDigests = digests
 	}
 	out.ModuleDir = p.ModuleDir
+	out.WorkspaceRepos = p.WorkspaceRepos
 	out.RuleWaivers = p.RuleWaivers
 	out.OperatorPaused = p.OperatorPaused
 	out.PauseReason = p.PauseReason
@@ -4432,6 +4547,7 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	p.PlanDigests = e.PlanBindingDigests
 	p.UpstreamDefects = e.UpstreamDefects
 	p.ModuleDir = e.ModuleDir
+	p.WorkspaceRepos = e.WorkspaceRepos
 	p.RuleWaivers = e.RuleWaivers
 	p.OperatorPaused = e.OperatorPaused
 	p.PauseReason = e.PauseReason
@@ -6583,6 +6699,12 @@ type Project struct {
 	// ModuleDir is the repo-relative directory holding the project's Go module
 	// (server/go.mod). Empty means the repo root, the scaffold default.
 	ModuleDir string `json:"moduleDir,omitempty"`
+	// WorkspaceRepos are the sibling repos besides this project's own that a service
+	// contract's ownedPaths may name ("@<id>/<dir>"). The project's one repo stays where the
+	// construction worktree, merge and state live; a workspace repo is a second checkout the
+	// task edits on the same activity branch. Each id is a plain name unique in the list, each
+	// relPath a relative path from the project's repo to the sibling checkout. Omitted when empty.
+	WorkspaceRepos []WorkspaceRepo `json:"workspaceRepos,omitempty"`
 
 	// UpdatedAt is the document's updatedAt as committed: the server-resolved time of
 	// the last state mutation. The git store stamps a fresh one on every write; a

@@ -87,10 +87,13 @@ const (
 
 // checkRunner runs checks against one checkout.
 type checkRunner struct {
-	root   string // repo root (the checkout)
-	outDir string // results dir; logs at outDir/checks/<sanitized id>.log
-	exec   func(ctx context.Context, dir string, env []string, argv ...string) (out []byte, err error)
-	now    func() time.Time
+	root string // repo root (the checkout)
+	// workspaces are the workspace repos' checkouts by id (workspaceRootsFromEnv): a check dir
+	// "@<id>/<dir>" runs in <dir> of that checkout.
+	workspaces map[string]string
+	outDir     string // results dir; logs at outDir/checks/<sanitized id>.log
+	exec       func(ctx context.Context, dir string, env []string, argv ...string) (out []byte, err error)
+	now        func() time.Time
 	// launch boots a composed app through its run contract and inventory lists the docker
 	// objects now present; both default to devstack's, and a test substitutes them.
 	launch    func(ctx context.Context, dir string, env []string, log io.Writer) (*devstack.App, error)
@@ -235,7 +238,11 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
 	defer cancel()
-	out, err := r.exec(ctx, filepath.Join(r.root, strVal(c.Source.Dir)), commandEnv(moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
+	dir, derr := r.dirOf(strVal(c.Source.Dir))
+	if derr != nil {
+		return r.finish(c, checkFail, 0, []byte(derr.Error()+"\n"))
+	}
+	out, err := r.exec(ctx, dir, commandEnv(moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
 	status := checkPass
 	switch {
 	case err == nil && boolVal(c.Source.RequireTests) && !ranATest(out):
@@ -249,6 +256,37 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 		out = append(out, []byte("\n["+err.Error()+"]\n")...)
 	}
 	return r.finish(c, status, r.since(start), out)
+}
+
+// workspaceRootsEnv is the env var the venue hands the workspace repos' checkouts in: a JSON
+// object, repo id → checkout dir. Absent for a project with no workspace repo.
+const workspaceRootsEnv = "AIARCH_WORKSPACE_ROOTS"
+
+// workspaceRootsFromEnv reads workspaceRootsEnv; an absent or unreadable value is no workspace.
+func workspaceRootsFromEnv() map[string]string {
+	var out map[string]string
+	if raw := os.Getenv(workspaceRootsEnv); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			return nil
+		}
+	}
+	return out
+}
+
+// dirOf is where a check's dir runs: repo-relative in this checkout, or, for "@<id>/<dir>", <dir>
+// of workspace repo id's checkout (an id the venue did not hand over is an error, never the
+// project's own repo).
+func (r checkRunner) dirOf(dir string) (string, error) {
+	rest, ok := strings.CutPrefix(dir, "@")
+	if !ok {
+		return filepath.Join(r.root, dir), nil
+	}
+	id, sub, _ := strings.Cut(rest, "/")
+	root, ok := r.workspaces[id]
+	if !ok {
+		return "", fmt.Errorf("check dir %q names workspace repo %q, which this run has no checkout of", dir, id)
+	}
+	return filepath.Join(root, sub), nil
 }
 
 // moduleGraphEnv pins the go command for `go mod ...`: tidying must not move the go line or

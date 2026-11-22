@@ -2063,11 +2063,13 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	}
 	workDir := filepath.Join(parentDir, localWorktreeName)
 	ownWorkDir := true
+	var workspaces []workspaceWorktree
 	defer func() {
 		if ownWorkDir {
 			a.gitMu.Lock()
 			_ = removeWorktree(a.repoPath, workDir) // best-effort cleanup
 			a.gitMu.Unlock()
+			a.removeWorkspaceWorktrees(workspaces)
 			_ = os.RemoveAll(parentDir)
 		}
 	}()
@@ -2094,7 +2096,9 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// BEFORE the agent's surface is seated because the spec says whether there is an agent:
 	// a JOB task (the M-ACCEPT milestone's acceptance run) is run by the venue alone, so it
 	// needs no claude, no prompt surface and no MCP config.
-	gate, why, err := a.prepareGate(plan.taskSpec, parentDir, workDir, branch, beforeSHA, rig)
+	var gate *localGate
+	var why string
+	gate, workspaces, why, err = a.prepareGateAndWorkspaces(plan.taskSpec, parentDir, workDir, branch, beforeSHA, rig)
 	if err != nil || why != "" {
 		return why, err
 	}
@@ -2102,7 +2106,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 		// The gates run off the submit path and the run's phase is theirs: succeeded iff every
 		// gate is green, a red check being the run's verdict and not a reason it never started.
 		ownWorkDir = false
-		go a.runJob(run, completionScope{branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate})
+		go a.runJob(run, completionScope{branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate, workspaces: workspaces})
 		return "", nil
 	}
 	if a.claudeBin == "" {
@@ -2130,7 +2134,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 		// gates still run and record their evidence (the templates' always() gates run
 		// after a failed step), and the run fails. They run off the submit path.
 		ownWorkDir = false
-		go a.gateWithoutAgent(run, completionScope{branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate})
+		go a.gateWithoutAgent(run, completionScope{branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate, workspaces: workspaces})
 		return "", nil
 	}
 
@@ -2145,7 +2149,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	settings := claudeSettings{
 		sandboxed:       !allowUnsandboxedFromEnv(),
 		allowedDomains:  sandboxAllowedDomains(a.repoURL),
-		allowWritePaths: []string{workDir, gitDir, buildCacheDir(parentDir)},
+		allowWritePaths: append([]string{workDir, gitDir, buildCacheDir(parentDir)}, workspaceSandboxPaths(workspaces)...),
 		disallowedTools: gate.deniedTools(plan.command),
 	}
 	if err := writeClaudeSettings(parentDir, settings); err != nil {
@@ -2177,7 +2181,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// host cache. The module graph stays the job's (run_checks tidies outside the sandbox).
 	cmd.Env = append(claudeSubprocessEnv(rig), "GOCACHE="+buildCacheDir(parentDir))
 	// The prompt rides stdin, never argv (claudeCommand says why).
-	cmd.Stdin = strings.NewReader(plan.prompt)
+	cmd.Stdin = strings.NewReader(plan.prompt + workspacePromptNote(workspaces))
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
 	// startServerChild / claudecli.go's Generate already use for a supervised
 	// subprocess — reused here per the task's explicit precedent guidance.
@@ -2205,7 +2209,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	ownWorkDir = false
 	ownTrace = false
 	go a.awaitCompletion(runCtx, run, cmd, runCancel, completionScope{
-		branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate,
+		branch: branch, beforeSHA: beforeSHA, parentDir: parentDir, workDir: workDir, gate: gate, workspaces: workspaces,
 	}, sink, &tail, &stderr)
 	return "", nil
 }
@@ -2229,6 +2233,8 @@ type completionScope struct {
 	branch, beforeSHA  string
 	parentDir, workDir string
 	gate               *localGate
+	// workspaces are the run's workspace repo worktrees, removed with the primary one.
+	workspaces []workspaceWorktree
 }
 
 // localGate is one gated run's resolved task spec and the gate inputs the job captured
@@ -2270,6 +2276,9 @@ type localGate struct {
 	// baseSHA is the branch tip before the agent and mainSHA main's tip then ("" when
 	// the repo has no main: the edit scope then judges the whole base..head diff).
 	baseSHA, mainSHA string
+	// workspaces are the workspace repos' worktrees of the run (addWorkspaceWorktrees): the
+	// edit-scope gate judges their diffs beside the project's own.
+	workspaces []workspaceWorktree
 	// attempt names the run in its run id: the dispatch's revision (attempt id), else
 	// activity:task.
 	attempt  string
@@ -2418,6 +2427,7 @@ func (a *localExecAccess) gateWithoutAgent(run *localRun, scope completionScope)
 	a.gitMu.Lock()
 	_ = removeWorktree(a.repoPath, scope.workDir)
 	a.gitMu.Unlock()
+	a.removeWorkspaceWorktrees(scope.workspaces)
 	_ = os.RemoveAll(scope.parentDir)
 	// No agent started, so there is no model to have reached and no host fault to blame: the
 	// scenario tests could not be generated, a failure of the work the run was dispatched to judge.
@@ -2460,6 +2470,7 @@ func (a *localExecAccess) runJob(run *localRun, scope completionScope) {
 	a.gitMu.Lock()
 	_ = removeWorktree(a.repoPath, scope.workDir)
 	a.gitMu.Unlock()
+	a.removeWorkspaceWorktrees(scope.workspaces)
 	_ = os.RemoveAll(scope.parentDir)
 	run.mu.Lock()
 	defer run.mu.Unlock()
@@ -2926,13 +2937,10 @@ func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 	} else {
 		scope = append(scope, "--no-main")
 	}
-	switch res := g.run(gateStepTimeout, workDir, scope...); res.code {
-	case 0:
-	case 1:
-		v.failures = append(v.failures, "the edit scope gate failed: "+res.detail())
-		v.scopeRed, v.scopePaths = true, editScopePaths(res.stderr)
-	default:
-		v.failures = append(v.failures, "the edit scope gate could not run: "+res.detail())
+	if flags, werr := g.workspaceGateFlags(); werr != nil {
+		v.failures = append(v.failures, "the edit scope gate could not run: "+werr.Error())
+	} else {
+		v.runEditScope(g, workDir, append(scope, flags...))
 	}
 
 	// The check gate judges exactly what the gated branch holds: the worktree back on that
@@ -2965,6 +2973,18 @@ func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 		v.failures = append(v.failures, why)
 	}
 	return v
+}
+
+// runEditScope runs the edit-scope gate with args and records its verdict.
+func (v *gateVerdict) runEditScope(g *localGate, workDir string, args []string) {
+	switch res := g.run(gateStepTimeout, workDir, args...); res.code {
+	case 0:
+	case 1:
+		v.failures = append(v.failures, "the edit scope gate failed: "+res.detail())
+		v.scopeRed, v.scopePaths = true, editScopePaths(res.stderr)
+	default:
+		v.failures = append(v.failures, "the edit scope gate could not run: "+res.detail())
+	}
 }
 
 // editScopePaths reads the paths the edit-scope gate named off its stderr: every message lists
@@ -4138,6 +4158,7 @@ func (a *localExecAccess) awaitCompletion(
 	a.gitMu.Lock()
 	removeErr := removeWorktree(a.repoPath, workDir)
 	a.gitMu.Unlock()
+	a.removeWorkspaceWorktrees(scope.workspaces)
 
 	_ = os.RemoveAll(scope.parentDir)
 
@@ -5456,6 +5477,217 @@ func revParseBranch(repoPath, branch string) (string, error) {
 	return ref.Hash().String(), nil
 }
 
+// ---------------------------------------------------------------------------
+// WORKSPACE REPOS. A project is one repo, but its model may declare sibling repos
+// (project.json workspaceRepos) that a service contract's ownedPaths name
+// ("@<id>/<dir>"). A task whose edit scope names such a repo gets a SECOND worktree of it
+// on the same activity branch, beside the primary one: the agent edits and commits there,
+// the sandbox may write it and its git dir, the edit-scope gate judges its diff as
+// "@<id>/<path>", the checks run in it, and the merge lands its branch with the primary's.
+// The repo is chosen by id, never by a path in the edit scope (the grammar stays free of
+// "..").
+// ---------------------------------------------------------------------------
+
+// workspaceRootsKey is the rig key carrying the workspace worktrees to the state tool and the
+// agent: a JSON object, repo id -> worktree dir (aiarch-state-mcp's workspaceRootsEnv).
+const workspaceRootsKey = "AIARCH_WORKSPACE_ROOTS"
+
+// workspaceWorktree is one workspace repo's worktree of a dispatch: the repo it came from, the
+// worktree and git dir the sandbox opens, and the tips captured before the agent ran (R26).
+type workspaceWorktree struct {
+	id, repoPath, workDir, gitDir string
+	beforeSHA, mainSHA            string
+}
+
+// workspaceRepoPaths is the project's declared workspace repos as absolute checkout paths (id ->
+// path), read from the state document under dir and resolved against repoPath, the project's own
+// repo. No state document, or none declared, is an empty map.
+func workspaceRepoPaths(dir, repoPath string) (map[string]string, error) {
+	raw, err := readFileInDir(filepath.Join(dir, filepath.FromSlash(filepath.Dir(localStateDocPath))), filepath.Base(localStateDocPath))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the state document for its workspace repos: %w", err)
+	}
+	var doc struct {
+		WorkspaceRepos []struct {
+			ID      string `json:"id"`
+			RelPath string `json:"relPath"`
+		} `json:"workspaceRepos"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("read the state document for its workspace repos: %w", err)
+	}
+	abs, err := filepath.Abs(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(doc.WorkspaceRepos))
+	for _, r := range doc.WorkspaceRepos {
+		rel := filepath.FromSlash(r.RelPath)
+		if r.ID == "" || rel == "" || filepath.IsAbs(rel) {
+			return nil, fmt.Errorf("workspace repo %q has relPath %q, which is not a path relative to the project's repo", r.ID, r.RelPath)
+		}
+		out[r.ID] = filepath.Join(abs, rel)
+	}
+	return out, nil
+}
+
+// specWorkspaceIDs is the sorted workspace repo ids a resolved task spec's scopes name: every
+// "@<id>/..." glob of its editScope and activityEditScope.
+func specWorkspaceIDs(specPath string) ([]string, error) {
+	raw, err := os.ReadFile(specPath) //nolint:gosec // G304: the spec path is the executor's own file beside the worktree.
+	if err != nil {
+		return nil, err
+	}
+	type scope struct {
+		Components []struct {
+			Paths []string `json:"paths"`
+		} `json:"components"`
+		Extra []string `json:"extra"`
+	}
+	var spec struct {
+		EditScope         scope `json:"editScope"`
+		ActivityEditScope scope `json:"activityEditScope"`
+	}
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return nil, fmt.Errorf("read the task spec's scopes: %w", err)
+	}
+	seen := map[string]bool{}
+	for _, sc := range []scope{spec.EditScope, spec.ActivityEditScope} {
+		globs := slices.Clone(sc.Extra)
+		for _, c := range sc.Components {
+			globs = append(globs, c.Paths...)
+		}
+		for _, g := range globs {
+			if rest, ok := strings.CutPrefix(g, "@"); ok {
+				id, _, _ := strings.Cut(rest, "/")
+				seen[id] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
+}
+
+// addWorkspaceWorktrees adds a worktree on branch in every workspace repo the gate's spec names,
+// stamps their roots on the rig and the gate's env, and returns them; refused is why the job
+// cannot start (a scope naming a repo the project does not declare, a repo without a usable
+// checkout). The caller removes the returned worktrees on every completion path.
+func (a *localExecAccess) prepareGateAndWorkspaces(s dispatchedTaskSpec, parentDir, workDir, branch, beforeSHA string, rig map[string]string) (gate *localGate, ws []workspaceWorktree, refused string, err error) {
+	gate, refused, err = a.prepareGate(s, parentDir, workDir, branch, beforeSHA, rig)
+	if err != nil || refused != "" || gate == nil {
+		return gate, nil, refused, err
+	}
+	ws, refused = a.addWorkspaceWorktrees(gate, rig, parentDir, workDir, branch)
+	return gate, ws, refused, nil
+}
+
+// addWorkspaceWorktrees adds a worktree on the branch in every workspace repo the gate's spec names
+// (see prepareGateAndWorkspaces, its only caller).
+func (a *localExecAccess) addWorkspaceWorktrees(g *localGate, rig map[string]string, parentDir, workDir, branch string) (added []workspaceWorktree, refused string) {
+	ids, err := specWorkspaceIDs(g.specPath)
+	if err != nil {
+		return nil, "the task spec's workspace repos could not be read: " + err.Error()
+	}
+	if len(ids) == 0 {
+		return nil, ""
+	}
+	declared, err := workspaceRepoPaths(workDir, a.repoPath)
+	if err != nil {
+		return nil, err.Error()
+	}
+	for _, id := range ids {
+		repoPath, ok := declared[id]
+		if !ok {
+			a.removeWorkspaceWorktrees(added)
+			return nil, "the task's edit scope names workspace repo " + id + ", which the project does not declare"
+		}
+		holder := filepath.Join(parentDir, "ws-"+id)
+		if err := os.MkdirAll(holder, 0o700); err != nil {
+			a.removeWorkspaceWorktrees(added)
+			return nil, "workspace repo " + id + ": " + err.Error()
+		}
+		a.gitMu.Lock()
+		before, gitDir, addErr := addWorktree(repoPath, branch, holder)
+		mainSHA, mainErr := revParseBranch(repoPath, localMainBranch)
+		a.gitMu.Unlock()
+		if addErr != nil {
+			a.removeWorkspaceWorktrees(added)
+			return nil, "workspace repo " + id + " (" + repoPath + "): add the worktree: " + addErr.Error()
+		}
+		if mainErr != nil {
+			mainSHA = "" // no main: the edit scope judges the whole base..head diff
+		}
+		added = append(added, workspaceWorktree{id: id, repoPath: repoPath, workDir: filepath.Join(holder, localWorktreeName),
+			gitDir: gitDir, beforeSHA: before, mainSHA: mainSHA})
+	}
+	roots := make(map[string]string, len(added))
+	for _, w := range added {
+		roots[w.id] = w.workDir
+	}
+	enc, err := json.Marshal(roots)
+	if err != nil {
+		a.removeWorkspaceWorktrees(added)
+		return nil, err.Error()
+	}
+	rig[workspaceRootsKey] = string(enc)
+	g.env = append(g.env, workspaceRootsKey+"="+string(enc))
+	g.workspaces = added
+	return added, ""
+}
+
+// removeWorkspaceWorktrees removes each workspace worktree and prunes its repo's registration of it.
+func (a *localExecAccess) removeWorkspaceWorktrees(ws []workspaceWorktree) {
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	for _, w := range ws {
+		_ = removeWorktree(w.repoPath, w.workDir) // best-effort cleanup, as the primary's
+	}
+}
+
+// workspaceSandboxPaths are the paths the agent's sandbox may write besides the primary
+// worktree's: each workspace worktree and its repo's git dir.
+func workspaceSandboxPaths(ws []workspaceWorktree) []string {
+	var out []string
+	for _, w := range ws {
+		out = append(out, w.workDir, w.gitDir)
+	}
+	return out
+}
+
+// workspacePromptNote tells the agent where each workspace repo's worktree is, because its
+// edit scope names "@<id>/<path>" and that is not a path under its working directory.
+func workspacePromptNote(ws []workspaceWorktree) string {
+	if len(ws) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\nWORKSPACE REPOS. Your edit scope names paths as \"@<repo>/<path>\": <path> is inside that repo's worktree below, not under your working directory. Edit and commit there (the same activity branch), then call run_checks as usual.\n")
+	for _, w := range ws {
+		b.WriteString("- @" + w.id + ": " + w.workDir + "\n")
+	}
+	return b.String()
+}
+
+// workspaceGateFlags are the edit-scope gate's --workspace flags: each workspace repo's checkout and
+// the tips captured before the agent ran, with the head read now off the gated branch.
+func (g *localGate) workspaceGateFlags() ([]string, error) {
+	var out []string
+	for _, w := range g.workspaces {
+		head, err := revParseBranch(w.repoPath, g.branch)
+		if err != nil {
+			return nil, fmt.Errorf("workspace repo %s: %w", w.id, err)
+		}
+		enc, err := json.Marshal(map[string]string{"id": w.id, "dir": w.workDir, "base": w.beforeSHA, "head": head, "main": w.mainSHA})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, "--workspace", string(enc))
+	}
+	return out, nil
+}
+
 // removeWorktree removes the worktree directory and then prunes the shared repo's
 // registration of it (`git worktree prune` drops every registration whose directory
 // is gone). Removing the directory outright is the --force the old `worktree remove`
@@ -5557,6 +5789,50 @@ func (a *localExecAccess) runSyncGitJob(rc fwra.Context, step string, work func(
 // write no ref anyone pushes to. ctx is the caller's, so a parked waiter is
 // cancellable.
 func (a *localExecAccess) mergeActivityBranch(ctx context.Context, branch string) (diagnostic string, ok bool) {
+	// A workspace repo that holds the activity branch lands with the project's own, and a
+	// conflict in any of them lands none: every leg first merges in a throwaway clone and pushes
+	// nothing, and only when every leg merges cleanly do the workspace repos land, then the
+	// project's own. A leg that fails to land after another did is retry-safe: a landed leg's
+	// branch is gone (the retry skips it), and the project's own branch, merged last, is still
+	// there to be merged.
+	legs := a.workspaceMergeLegs(branch)
+	own := mergeLeg{repoPath: a.repoPath, tidy: true}
+	for _, land := range []bool{false, true} {
+		for _, leg := range append(slices.Clone(legs), own) {
+			if diag, ok := a.mergeLeg(ctx, leg, branch, land); !ok {
+				return diag, false
+			}
+		}
+	}
+	return "", true
+}
+
+// mergeLeg is one repo's share of an activity's merge: repoPath is the repo, tidy whether main's
+// module invariant is held across the merge (only the project's own repo has a module state).
+type mergeLeg struct {
+	repoPath string
+	tidy     bool
+}
+
+// workspaceMergeLegs are the project's declared workspace repos that hold the activity branch.
+// A repo without it has nothing to land (its task never named it, or a prior pass landed it).
+func (a *localExecAccess) workspaceMergeLegs(branch string) []mergeLeg {
+	declared, err := workspaceRepoPaths(a.repoPath, a.repoPath)
+	if err != nil {
+		return nil
+	}
+	var legs []mergeLeg
+	for _, id := range slices.Sorted(maps.Keys(declared)) {
+		if _, err := revParseBranch(declared[id], branch); err == nil {
+			legs = append(legs, mergeLeg{repoPath: declared[id]})
+		}
+	}
+	return legs
+}
+
+// mergeLeg merges (land=false: only proves the merge is clean, pushing nothing) or lands
+// (land=true) the activity branch in one repo, re-running a pass that lost a push race.
+func (a *localExecAccess) mergeLeg(ctx context.Context, leg mergeLeg, branch string, land bool) (diagnostic string, ok bool) {
 	// THE PUSH IS A COMPARE-AND-SWAP ON main, SO A LOST RACE IS RE-RUN AND NOT A FAILURE
 	// (wedge #7). Everything below is a clone→merge→push: a read-modify-write on a ref that
 	// other writers advance — the pump's OpenActivity, a round-sweep heal, another activity's
@@ -5577,8 +5853,8 @@ func (a *localExecAccess) mergeActivityBranch(ctx context.Context, branch string
 	// AND IT NEVER FORCES. --force would fix the symptom by deleting the concurrent write,
 	// which is strictly worse than the wedge; the branch is re-merged on top of it instead.
 	for attempt := 1; ; attempt++ {
-		if err := fwgithub.PushLocal(ctx, a.repoPath, func() error {
-			diagnostic, ok = a.attemptMergeActivityBranch(branch)
+		if err := fwgithub.PushLocal(ctx, leg.repoPath, func() error {
+			diagnostic, ok = attemptMergeActivityBranch(leg, branch, land)
 			return nil
 		}); err != nil {
 			return "local merge: wait for the shared repo's push lock: " + err.Error(), false
@@ -5619,14 +5895,14 @@ func pushRejectedStaleMain(diagnostic string) bool {
 // attemptMergeActivityBranch is ONE pass of the merge: clone main, merge the branch, push,
 // delete the branch. Every pass starts from a fresh clone, which is what makes re-running it
 // after a lost push race a re-merge against the new main rather than a re-push of a stale one.
-func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic string, ok bool) {
+func attemptMergeActivityBranch(leg mergeLeg, branch string, land bool) (diagnostic string, ok bool) {
 	parentDir, err := os.MkdirTemp("", "aiarch-merge-*")
 	if err != nil {
 		return "local merge: create work dir: " + err.Error(), false
 	}
 	defer func() { _ = os.RemoveAll(parentDir) }()
 
-	cloneDir, clone, diag := cloneMainForMerge(parentDir, a.repoPath)
+	cloneDir, clone, diag := cloneMainForMerge(parentDir, leg.repoPath)
 	if diag != "" {
 		return diag, false
 	}
@@ -5641,6 +5917,9 @@ func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic 
 	// Already merged (a prior attempt landed the merge but failed before the
 	// branch delete)? Skip straight to the delete — no second merge commit.
 	if _, err := gitExec(cloneDir, exec.Command("git", "merge-base", "--is-ancestor", localMergeHeadRef, "HEAD")); err == nil {
+		if !land {
+			return "", true
+		}
 		if derr := deleteMergedBranch(clone, branch); derr != nil {
 			return "local merge: branch " + branch + " already merged but could not be deleted: " + derr.Error(), false
 		}
@@ -5650,8 +5929,13 @@ func (a *localExecAccess) attemptMergeActivityBranch(branch string) (diagnostic 
 	if diag, merged := mergePinnedHead(cloneDir, branch); !merged {
 		return diag, false
 	}
-	if diag := tidyMergedModule(cloneDir, branch+" into "+localMainBranch); diag != "" {
-		return diag, false
+	if leg.tidy {
+		if diag := tidyMergedModule(cloneDir, branch+" into "+localMainBranch); diag != "" {
+			return diag, false
+		}
+	}
+	if !land {
+		return "", true
 	}
 	if out, err := gitExec(cloneDir, exec.Command("git", "push", localMergeRemote, localMainBranch)); err != nil {
 		// THE REJECTION LINE IS KEPT WHOLE, and that is load-bearing rather than cosmetic:

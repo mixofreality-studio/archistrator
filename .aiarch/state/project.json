@@ -26149,6 +26149,9 @@
       "component": "designHealthEngine",
       "layer": "Engine",
       "goPackage": "internal/engine/designhealth",
+      "ownedPaths": [
+        "@archistrator-platform/framework-go/methodcheck"
+      ],
       "title": "design-health engine contract",
       "$defs": {
         "Finding": {
@@ -118241,5 +118244,11 @@
     }
   ],
   "moduleDir": "server",
+  "workspaceRepos": [
+    {
+      "id": "archistrator-platform",
+      "relPath": "../archistrator-platform"
+    }
+  ],
   "updatedAt": "2026-08-09T05:30:44.213963Z"
 }

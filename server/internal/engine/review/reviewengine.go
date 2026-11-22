@@ -833,11 +833,70 @@ func (tp *taskProject) ownedPathsOf(contracts []string) []string {
 	var out []string
 	for _, c := range contracts {
 		for _, p := range tp.doc.ServiceContracts[c].OwnedPaths {
+			if _, _, ok := workspaceOwned(p); ok {
+				continue // a workspace repo's directory is scoped by workspaceOwnedOf
+			}
 			out = append(out, strings.Trim(path.Clean(p), "/"))
 		}
 	}
 	slices.Sort(out)
 	return slices.Compact(out)
+}
+
+// workspaceDir is one ownedPaths directory of a declared workspace repo.
+type workspaceDir struct{ repo, path string }
+
+// qualified is the directory as the edit-scope grammar and a check's dir spell it: the repo
+// chosen by id ("@<repo>/<dir>"), never by a relative path out of the project's repo.
+func (d workspaceDir) qualified() string { return "@" + d.repo + "/" + d.path }
+
+// workspaceOwned reads one ownedPaths entry as a workspace repo's directory ("@<repo>/<dir>").
+// The application's decode has already refused an entry that does not name a declared repo or
+// a clean directory.
+func workspaceOwned(entry string) (repo, dir string, ok bool) {
+	rest, ok := strings.CutPrefix(entry, "@")
+	if !ok {
+		return "", "", false
+	}
+	repo, dir, ok = strings.Cut(rest, "/")
+	return repo, dir, ok
+}
+
+// workspaceOwnedOf is the workspace-repo directories the contracts' components own, sorted and unique.
+func (tp *taskProject) workspaceOwnedOf(contracts []string) []workspaceDir {
+	var out []workspaceDir
+	for _, c := range contracts {
+		for _, p := range tp.doc.ServiceContracts[c].OwnedPaths {
+			if repo, dir, ok := workspaceOwned(p); ok {
+				out = append(out, workspaceDir{repo: repo, path: strings.Trim(path.Clean(dir), "/")})
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b workspaceDir) int { return strings.Compare(a.qualified(), b.qualified()) })
+	return slices.Compact(out)
+}
+
+// repoRootFromModule is the project's repo root as a path from the module dir ("" for a root module).
+func (tp *taskProject) repoRootFromModule() string {
+	if m := strings.Trim(tp.moduleDir, "/"); m != "" {
+		return strings.Repeat("../", strings.Count(m, "/")+1)
+	}
+	return ""
+}
+
+// workspaceChecks are the checks of one workspace-repo directory: each runs in that repo's own
+// module (the command runner resolves the "@<repo>/" dir, and always runs GOWORK=off, as the
+// platform's modules are checked), so the edit is judged against its own pins.
+func workspaceChecks(d workspaceDir) []SpecCheck {
+	slug := "ws-" + d.repo + "-" + strings.ReplaceAll(d.path, "/", "-")
+	dir := d.qualified()
+	return []SpecCheck{
+		commandCheck("gofmt-"+slug, "gofmt "+dir, []string{"sh", "-c", `test -z "$(gofmt -l .)"`}, dir, commandCheckTimeoutSec),
+		commandCheck("build-"+slug, "go build "+dir, []string{"go", "build", "./..."}, dir, commandCheckTimeoutSec),
+		commandCheck("vet-"+slug, "go vet "+dir, []string{"go", "vet", "./..."}, dir, commandCheckTimeoutSec),
+		commandCheck("lint-"+slug, "golangci-lint "+dir, []string{"golangci-lint", "run", "./..."}, dir, lintCheckTimeoutSec),
+		commandCheck("test-"+slug, "go test "+dir, []string{"go", "test", "./..."}, dir, commandCheckTimeoutSec),
+	}
 }
 
 // inModule is a module-relative path as a repo-relative one.
@@ -1468,8 +1527,13 @@ func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID strin
 	pkgs = append(slices.Clone(pkgs), tp.ownedPathsOf(contracts)...)
 	slices.Sort(pkgs)
 	pkgs = slices.Compact(pkgs)
+	globs := tp.packageGlobs(pkgs)
+	workspace := tp.workspaceOwnedOf(contracts)
+	for _, d := range workspace {
+		globs = append(globs, d.qualified()+"/**")
+	}
 	scope := SpecEditScope{
-		Components: []SpecScopeComponent{{ID: componentID, Paths: tp.packageGlobs(pkgs)}},
+		Components: []SpecScopeComponent{{ID: componentID, Paths: globs}},
 		Extra:      []string{tp.inModule("go.mod"), tp.inModule("go.sum")},
 	}
 	dir := tp.moduleDir
@@ -1484,6 +1548,15 @@ func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID strin
 		commandCheck("lint", "golangci-lint", append([]string{"golangci-lint", "run"}, trees...), dir, lintCheckTimeoutSec),
 		archCheck(dir),
 		commandCheck("tidy", "The module graph is tidy", []string{"go", "mod", "tidy", "-diff"}, dir, commandCheckTimeoutSec),
+	}
+	if len(workspace) > 0 {
+		for _, d := range workspace {
+			checks = append(checks, workspaceChecks(d)...)
+		}
+		// The workspace build: the project's own module builds against the workspace repos'
+		// edits (its go.work), where every other check judges the released pins.
+		checks = append(checks, commandCheck("build-workspace", "The project builds against its workspace repos' edits",
+			[]string{"env", "GOWORK=" + tp.repoRootFromModule() + "go.work", "go", "build", "./..."}, dir, commandCheckTimeoutSec))
 	}
 	if slices.ContainsFunc(contracts, tp.modelgenGenerates) {
 		checks = append(checks, tp.genModelsCheck(contracts, dir))
