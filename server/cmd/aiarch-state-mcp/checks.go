@@ -235,7 +235,7 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
 	defer cancel()
-	out, err := r.exec(ctx, filepath.Join(r.root, strVal(c.Source.Dir)), commandEnv(c.Source.Argv[0], moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
+	out, err := r.exec(ctx, filepath.Join(r.root, strVal(c.Source.Dir)), commandEnv(moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
 	status := checkPass
 	switch {
 	case err == nil && boolVal(c.Source.RequireTests) && !ranATest(out):
@@ -266,14 +266,12 @@ func ranATest(out []byte) bool {
 	return bytes.Contains(out, []byte("=== RUN "))
 }
 
-// commandEnv is the process env, plus GOWORK=off for the Go toolchain (go, make): a
-// check judges the checkout's own module pins, never a developer's workspace.
-func commandEnv(argv0 string, extra ...string) []string {
-	env := os.Environ()
-	if argv0 == "go" || argv0 == "make" {
-		env = append(env, "GOWORK=off")
-	}
-	return append(env, extra...)
+// commandEnv is the process env plus GOWORK=off for every command: a check judges the
+// checkout's own module pins, never a developer's workspace. The rule is about the checkout,
+// not the binary (golangci-lint loads packages through go/packages and inherits workspace
+// mode too), and GOWORK is inert for non-Go tools.
+func commandEnv(extra ...string) []string {
+	return append(append(os.Environ(), "GOWORK=off"), extra...)
 }
 
 // --- smoke ---
@@ -477,7 +475,7 @@ func goScenarioBatch(r checkRunner, proj projectstate.Project, contract, pkg, if
 	b.refBase = filepath.ToSlash(filepath.Join(proj.ModuleDir, "test-results", contract))
 	b.argv = []string{"go", "test", "-p", "1", "-count=1", "-timeout", strconv.Itoa(sumSec+goTestSlackSec) + "s",
 		"./" + pkg + "/", "-run", goScenarioRunRegex(b.iface, ids), "-json"}
-	b.env = commandEnv("go", "AIARCH_SCENARIO_TIMEOUT="+strconv.Itoa(maxSec)+"s")
+	b.env = commandEnv("AIARCH_SCENARIO_TIMEOUT=" + strconv.Itoa(maxSec) + "s")
 	return b
 }
 
@@ -508,7 +506,7 @@ func webScenarioBatch(r checkRunner, proj projectstate.Project, contract string,
 	b.indexDir = filepath.Join(r.root, "uitests", "test-results", contract)
 	b.refBase = "test-results/" + contract
 	b.argv = projectstate.WebScenariosArgv(proj.ModuleDir, contract, "-grep", webScenarioGrep(ids))
-	b.env = commandEnv("go", "AIARCH_SCENARIO_TIMEOUT_MS="+strconv.Itoa(maxSec*1000))
+	b.env = commandEnv("AIARCH_SCENARIO_TIMEOUT_MS=" + strconv.Itoa(maxSec*1000))
 	return b
 }
 

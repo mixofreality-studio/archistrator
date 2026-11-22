@@ -373,7 +373,7 @@ func (s *Session) tidyModuleGraph(ctx context.Context, spec review.TaskSpec) str
 		}
 		dir := filepath.Join(s.StateRoot, strVal(c.Source.Dir))
 		argv := []string{"go", "mod", "tidy"}
-		out, err := exec(ctx, dir, commandEnv(argv[0], moduleGraphEnv(argv)...), argv...)
+		out, err := exec(ctx, dir, commandEnv(moduleGraphEnv(argv)...), argv...)
 		if err != nil {
 			return "go mod tidy failed; fix the import it names and call run_checks again: " + err.Error() + "\n" + checkLogTail(string(out))
 		}
@@ -410,7 +410,7 @@ func (s *Session) installWebProjects(ctx context.Context, spec review.TaskSpec) 
 		dir := filepath.Join(s.StateRoot, strVal(c.Source.Dir))
 		for _, argv := range steps {
 			stepCtx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
-			out, err := exec(stepCtx, dir, commandEnv(argv[0]), argv...)
+			out, err := exec(stepCtx, dir, commandEnv(), argv...)
 			cancel()
 			if err != nil {
 				return joinNotes(note, strings.Join(argv, " ")+" failed in "+strVal(c.Source.Dir)+": "+err.Error()+"\n"+checkLogTail(string(out)))

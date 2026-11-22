@@ -66,7 +66,7 @@ func TestRunCommandCheckRealProcess(t *testing.T) {
 }
 
 // TestRunCommandCheckDirAndEnv pins where a command runs and what it sees: the check's
-// Dir under the repo root, the process env plus GOWORK=off for go and make only.
+// Dir under the repo root, the process env plus GOWORK=off for every command (golangci-lint included).
 func TestRunCommandCheckDirAndEnv(t *testing.T) {
 	t.Setenv("GOWORK", "") // CI exports GOWORK=off; the assertion is about what the runner adds
 	root := t.TempDir()
@@ -84,12 +84,13 @@ func TestRunCommandCheckDirAndEnv(t *testing.T) {
 		{ID: "command:build", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"go", "build"}, Dir: ptr("server")}, TimeoutSec: 5},
 		{ID: "command:gen", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"make", "gen-tests-check"}}, TimeoutSec: 5},
 		{ID: "command:typecheck", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"npm", "run", "typecheck"}, Dir: ptr("webApp")}, TimeoutSec: 5},
+		{ID: "command:lint", Kind: "command", Source: review.SpecCheckSource{Argv: []string{"golangci-lint", "run", "./x/..."}, Dir: ptr("server")}, TimeoutSec: 5},
 	})
 	if calls[0].dir != filepath.Join(root, "server") || calls[1].dir != root || calls[2].dir != filepath.Join(root, "webApp") {
 		t.Fatalf("dirs %q %q %q", calls[0].dir, calls[1].dir, calls[2].dir)
 	}
-	if !slices.Contains(calls[0].env, "GOWORK=off") || !slices.Contains(calls[1].env, "GOWORK=off") || slices.Contains(calls[2].env, "GOWORK=off") {
-		t.Fatal("GOWORK=off must be set for go and make only")
+	if !slices.Contains(calls[0].env, "GOWORK=off") || !slices.Contains(calls[1].env, "GOWORK=off") || !slices.Contains(calls[2].env, "GOWORK=off") || !slices.Contains(calls[3].env, "GOWORK=off") {
+		t.Fatal("GOWORK=off must be set for every command check, golangci-lint included")
 	}
 	if res[0].OutputRef == nil || *res[0].OutputRef != "check-results/checks/command_build.log" {
 		t.Fatalf("outputRef must be repo-root relative, got %v", res[0].OutputRef)
