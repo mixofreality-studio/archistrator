@@ -17730,7 +17730,7 @@
             },
             "assetsVersion": {
               "type": "string",
-              "description": "The method-assets release the type key was resolved against, recorded verbatim so a later reader can tell which lifecycle shape the ledger below was written under."
+              "description": "A content identity of the lifecycle task DAG the type key resolves to (dag-sha256:<16 hex>), not a method-assets module version, which is build-dependent ((devel) in a workspace build). Identical lifecycles agree across builds and releases; only a real DAG change differs. Write-once while the row is live; a requeued row may be re-pinned once, checked against the new DAG and recorded in the pin history."
             }
           },
           "required": [

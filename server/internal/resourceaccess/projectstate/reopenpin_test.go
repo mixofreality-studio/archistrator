@@ -1,7 +1,12 @@
 package projectstate
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -107,5 +112,124 @@ func TestLifecycleIdentity_StableAndDiscriminating(t *testing.T) {
 	}
 	if id == LifecycleIdentity("no-such-type") {
 		t.Fatal("distinct lifecycles must differ")
+	}
+}
+
+// The tests below drive the REAL operations (OpenActivity, RecordAttemptOutcome,
+// RecordActivityOutcome, RecordOperatorNote) over a throwaway local git repo, so a
+// regression of OpenActivity's own pin handling is caught, not just of the pure helpers.
+
+const pinProject ProjectID = "pin-project"
+
+func pinRepo(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(dir, ".aiarch", "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".aiarch", "state", "project.json"), []byte(`{"id":"pin-project"}`), 0o644); err != nil { //nolint:gosec // a repo file
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "."}, {"commit", "-q", "-m", "arranged state"}, {"checkout", "-q", "-b", "checkout"}} {
+		cmd := exec.Command("git", append([]string{"-c", "user.name=seed", "-c", "user.email=seed@aiarch.local"}, args...)...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return "file://" + dir
+}
+
+type pinRig struct {
+	t  *testing.T
+	ae ActivityExecutionAccess
+	rc fwra.Context
+	n  int
+}
+
+func (r *pinRig) key() fwra.IdempotencyKey {
+	r.n++
+	return fwra.IdempotencyKey(fmt.Sprintf("k-%d", r.n))
+}
+
+func (r *pinRig) open(pin LifecyclePin) error {
+	_, err := r.ae.OpenActivity(r.rc, pinProject, NoActivityVersionExpectation, "A", ActivityTypeService, TestVariantNone, pin, RepoCredential{}, r.key())
+	return err
+}
+
+func (r *pinRig) row() ActivityExecution {
+	r.t.Helper()
+	row, err := r.ae.ReadActivityExecution(r.rc, pinProject, "A")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return row
+}
+
+func (r *pinRig) must(_ Version, err error) {
+	r.t.Helper()
+	if err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+// exitAndRequeue records one attempt on task, fails the activity, and requeues it.
+func (r *pinRig) exitAndRequeue(task MethodTask) {
+	r.t.Helper()
+	r.must(r.ae.RecordAttemptOutcome(r.rc, pinProject, NoActivityVersionExpectation, "A",
+		TaskAttemptInput{AttemptID: "att-1", TaskID: task, Attempt: 1, Outcome: OutcomePassed}, RepoCredential{}, r.key()))
+	r.must(r.ae.RecordActivityOutcome(r.rc, pinProject, NoActivityVersionExpectation, "A", ActivityOutcomeUnknown, PipelineFailed, "failed", RepoCredential{}, r.key()))
+	r.must(r.ae.RecordOperatorNote(r.rc, pinProject, NoActivityVersionExpectation, "A",
+		OperatorNoteInput{NoteID: "n-1", Kind: NoteRequeue, Gate: "construction", Text: "change request"}, "", RepoCredential{}, r.key()))
+}
+
+func newPinRig(t *testing.T) *pinRig {
+	t.Helper()
+	return &pinRig{t: t, ae: NewGitLocalActivityExecutionAccess(pinRepo(t)), rc: fwra.Context{Context: context.Background()}}
+}
+
+func TestOpenActivity_RepinsARequeuedRowAndRecordsHistory(t *testing.T) {
+	r := newPinRig(t)
+	if err := r.open(pinOld()); err != nil {
+		t.Fatal(err)
+	}
+	r.exitAndRequeue(pinTestTask(t))
+	if err := r.open(pinNew()); err != nil {
+		t.Fatalf("a requeued row must re-pin on re-open: %v", err)
+	}
+	row := r.row()
+	if row.Pin == nil || *row.Pin != pinNew() || len(row.PinHistory) != 1 || row.PinHistory[0].Pin != pinOld() {
+		t.Fatalf("pin %v history %v", row.Pin, row.PinHistory)
+	}
+}
+
+func TestOpenActivity_RefusesToRepinALiveRow(t *testing.T) {
+	r := newPinRig(t)
+	if err := r.open(pinOld()); err != nil {
+		t.Fatal(err)
+	}
+	err := r.open(pinNew())
+	var ra *fwra.Error
+	if err == nil || !errors.As(err, &ra) || ra.Kind != fwra.ContractMisuse {
+		t.Fatalf("a live row must refuse a re-pin as ContractMisuse, got %v", err)
+	}
+	if row := r.row(); *row.Pin != pinOld() || len(row.PinHistory) != 0 {
+		t.Fatalf("a refused re-pin must change nothing: %v %v", row.Pin, row.PinHistory)
+	}
+}
+
+func TestOpenActivity_RepinWithATaskMissingFromTheNewDAGIsAConflict(t *testing.T) {
+	r := newPinRig(t)
+	if err := r.open(pinOld()); err != nil {
+		t.Fatal(err)
+	}
+	r.exitAndRequeue("no-such-task")
+	err := r.open(pinNew())
+	var ra *fwra.Error
+	if err == nil || !errors.As(err, &ra) || ra.Kind != fwra.Conflict || !strings.Contains(err.Error(), "no-such-task") {
+		t.Fatalf("want a Conflict naming the missing task, got %v", err)
+	}
+	if row := r.row(); *row.Pin != pinOld() || len(row.PinHistory) != 0 {
+		t.Fatalf("a refused re-pin must change nothing: %v %v", row.Pin, row.PinHistory)
 	}
 }
