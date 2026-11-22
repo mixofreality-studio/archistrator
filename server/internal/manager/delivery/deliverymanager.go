@@ -13185,10 +13185,8 @@ const changeExecutionLedger = "execution-ledger-writes"
 // activity that is already running, and every attempt and round already on the ledger
 // would be read back against a DAG they were never written under.
 func lifecyclePinFor(act constructionActivity) projectstate.LifecyclePin {
-	return projectstate.LifecyclePin{
-		TypeKey:       projectstate.LifecycleKeyFor(act.Type, act.Variant),
-		AssetsVersion: methodassets.Version(),
-	}
+	key := projectstate.LifecycleKeyFor(act.Type, act.Variant)
+	return projectstate.LifecyclePin{TypeKey: key, AssetsVersion: projectstate.LifecycleIdentity(key)}
 }
 
 // attemptOutcomeFor maps a terminal pipeline phase onto the attempt's terminal. Only a
