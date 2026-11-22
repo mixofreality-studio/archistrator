@@ -598,6 +598,10 @@ const (
 // devstackDir is the package `appgen compose` writes the local run launcher to.
 const devstackDir = "cmd/devstack"
 
+// encapsulationAllowlistFile is the module-relative file holding the arch gate's per-package
+// encapsulation allowlist; every service task may edit it (see serviceScopeAndChecks).
+const encapsulationAllowlistFile = "internal/arch_test.go"
+
 // smokeCheckID names the boot smoke; policyCheckID the composition check that holds the policy to
 // the generated requests; installUITestsCheck and surfaceCheckID the web checks.
 const (
@@ -1480,7 +1484,10 @@ func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID strin
 	pkgs = slices.Compact(pkgs)
 	scope := SpecEditScope{
 		Components: []SpecScopeComponent{{ID: componentID, Paths: tp.packageGlobs(pkgs)}},
-		Extra:      []string{tp.inModule("go.mod"), tp.inModule("go.sum")},
+		// Every service task passes the arch gate (archCheck), whose encapsulation allowlist is one
+		// shared file: a component that exports a symbol another package uses must be able to add
+		// its entry, so the file is in every service task's scope.
+		Extra: []string{tp.inModule("go.mod"), tp.inModule("go.sum"), tp.inModule(encapsulationAllowlistFile)},
 	}
 	dir := tp.moduleDir
 	trees := make([]string, len(pkgs))

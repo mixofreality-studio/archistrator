@@ -963,3 +963,28 @@ func TestDiscriminateBudgetScalesWithTheModulesRuns(t *testing.T) {
 		t.Errorf("test-discriminate budget = %ds, not below the one-process-per-run budget of %ds", got, perProcess)
 	}
 }
+
+// TestTaskSpecProjectStateAccessOwnsTheStateVerbRig pins that archistrator can change its own
+// in-run verbs: the component whose contract the aiarch-state-mcp binary fronts owns that
+// binary's tree and builds it, and a service task may add the encapsulation allowlist entry an
+// exported symbol it shares needs.
+func TestTaskSpecProjectStateAccessOwnsTheStateVerbRig(t *testing.T) {
+	s := deriveSpec(t, ownProject(t), "C-project-state-access", "construction")
+	for _, p := range []string{
+		"server/cmd/aiarch-state-mcp/state.go",
+		"server/cmd/aiarch-state-mcp/tools.go",
+		"server/internal/resourceaccess/projectstate/projectstateaccess.go",
+		"server/internal/arch_test.go",
+	} {
+		if !scopeAdmits(s.EditScope, p) {
+			t.Errorf("the edit scope of C-project-state-access construction must admit %s: %+v", p, s.EditScope)
+		}
+	}
+	if scopeAdmits(s.EditScope, "server/internal/engine/review/reviewengine.go") {
+		t.Errorf("owning the rig must not widen the scope to other components: %+v", s.EditScope)
+	}
+	build := checkByID(t, s, "command:build")
+	if !slices.Contains(build.Source.Argv, "./cmd/aiarch-state-mcp/...") {
+		t.Errorf("the rig must build in its owner's checks: %v", build.Source.Argv)
+	}
+}
