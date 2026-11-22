@@ -761,3 +761,11 @@ Volatilities
 Volatilities.Kind
 Volatility
 WorkerMix
+# OWNED-PATH SUM (workspace repos): the typed reading of a service contract ownedPaths wire
+# entry, consumed by the ownedPaths scenario tests; same typed-model corpus category as above.
+OwnedPath
+InProject
+InProject.String
+InWorkspaceRepo
+InWorkspaceRepo.String
+ParseOwnedPath
