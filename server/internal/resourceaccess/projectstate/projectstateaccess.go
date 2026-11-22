@@ -2098,6 +2098,9 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 	if err := checkActivityExecutionKeys(p.ActivityExecution); err != nil {
 		return Project{}, false, err
 	}
+	if err := checkOwnedPaths(p.ServiceContracts); err != nil {
+		return Project{}, false, err
+	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
 		// A committed slot model that will not decode — e.g. free prose in a CLOSED-ENUM
 		// field (a Trigger/Axis/CallMode wire name), a type mismatch — is MALFORMED
@@ -2134,6 +2137,70 @@ func checkActivityExecutionKeys(rows map[string]ActivityExecution) error {
 		}
 	}
 	return nil
+}
+
+// checkOwnedPaths refuses a service contract whose ownedPaths entry is not a clean
+// module-relative directory, overlaps any contract's goPackage, or overlaps another
+// contract's ownedPaths entry. Contracts and entries are visited in sorted order, so
+// the error is deterministic. Malformed committed state is terminal (ContractMisuse).
+func checkOwnedPaths(contracts map[string]ServiceContract) error {
+	keys := slices.Sorted(maps.Keys(contracts))
+	for _, key := range keys {
+		for _, e := range contracts[key].OwnedPaths {
+			if why := ownedPathShapeProblem(e); why != "" {
+				return ownedPathRefusal(key, e, why)
+			}
+			for _, other := range keys {
+				if why := ownedPathOverlapProblem(key, e, other, contracts[other]); why != "" {
+					return ownedPathRefusal(key, e, why)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func ownedPathRefusal(key, entry, why string) error {
+	return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+		"projectstate: decode project.json: serviceContracts[%q].ownedPaths entry %q %s", key, entry, why))
+}
+
+// ownedPathShapeProblem is why e is not a clean module-relative directory, or "".
+func ownedPathShapeProblem(e string) string {
+	switch {
+	case e == "" || e == ".":
+		return `must name a directory, not "." or empty`
+	case path.IsAbs(e):
+		return "must be module-relative, not absolute"
+	case strings.HasSuffix(e, "/"):
+		return "must not end with a slash"
+	case strings.ContainsAny(e, `*?[\`):
+		return `must not contain a wildcard character (* ? [ \)`
+	case slices.Contains(strings.Split(e, "/"), ".."):
+		return `must not contain ".."`
+	case path.Clean(e) != e:
+		return "must be a clean path (path.Clean(entry) == entry)"
+	}
+	return ""
+}
+
+// ownedPathOverlapProblem is why entry e of contract key overlaps the goPackage or an
+// ownedPaths entry of contract other (itself excluded), or "".
+func ownedPathOverlapProblem(key, e, other string, sc ServiceContract) string {
+	if sc.GoPackage != "" && pathsOverlap(e, sc.GoPackage) {
+		return fmt.Sprintf("overlaps the goPackage %q of contract %q, which already owns that package", sc.GoPackage, other)
+	}
+	for _, o := range sc.OwnedPaths {
+		if (other != key || o != e) && pathsOverlap(e, o) {
+			return fmt.Sprintf("overlaps ownedPaths entry %q of contract %q; a directory is owned by one contract", o, other)
+		}
+	}
+	return ""
+}
+
+// pathsOverlap is whether a and b are equal, or one is a directory inside the other.
+func pathsOverlap(a, b string) bool {
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
 // DecodeProjectJSON decodes a raw `.aiarch/state/project.json` document into the
@@ -5753,6 +5820,15 @@ type ServiceContract struct {
 	// GoPackage is the target Go package for codegen (e.g.
 	// "internal/resourceaccess/artifact"). Empty for un-migrated stub entries.
 	GoPackage string `json:"goPackage,omitempty"`
+	// OwnedPaths are the module-relative Go package directories, besides GoPackage,
+	// whose hand-written code this component owns (e.g. "cmd/aiarch-state-mcp", the
+	// binary fronting projectStateAccess). A service task's edit scope is its
+	// contracts' GoPackage plus these. Each entry is a clean directory (no leading or
+	// trailing slash, no "..", no wildcard), is not equal to, inside or containing any
+	// contract's GoPackage, and is owned by one contract only; decode refuses a
+	// document that breaks this. Omitted when empty, so existing documents round-trip
+	// unchanged.
+	OwnedPaths []string `json:"ownedPaths,omitempty"`
 	// Infra is the approved framework-* infrastructure each ResourceAccess binds to
 	// (e.g. ["Git"], ["Postgres"], or both for projectstate). modelgen emits one
 	// New<Infra><Component> impl struct + DI constructor per infra. Empty for
