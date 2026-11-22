@@ -8780,6 +8780,12 @@ type ActivityExecution struct {
 	// the row predates the pin and its DAG shape is whatever the current method-assets
 	// release says, which is exactly the ambiguity the pin removes going forward.
 	Pin *LifecyclePin `json:"lifecyclePin,omitempty"`
+	// PinHistory records every pin this row has been re-pinned AWAY from, oldest first,
+	// each with the time it was superseded. The pin is write-once while the row is LIVE
+	// and re-pinnable once per requeue re-arm; this is what keeps the ledger honest across
+	// that: an attempt written before a SupersededAt was written under that entry's Pin.
+	// Appended in the same transition as the re-pin; empty for a row never re-pinned.
+	PinHistory []LifecyclePinSuperseded `json:"lifecyclePinHistory,omitempty"`
 	// StartedAt is the server-resolved timestamp when the activity was opened.
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 	// CompletedAt is the server-resolved timestamp of the activity's binary exit. It is
@@ -11217,6 +11223,120 @@ func roundPtr(cs *ActivityExecution, op, roundID string) (*ReviewRound, error) {
 	return nil, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.%s: no review round %s on %s", op, roundID, cs.ActivityID))
 }
 
+// LifecyclePinSuperseded is one entry of ActivityExecution.PinHistory: a pin the row held
+// until SupersededAt, when a re-open after a requeue re-pinned it.
+type LifecyclePinSuperseded struct {
+	Pin          LifecyclePin `json:"pin"`
+	SupersededAt time.Time    `json:"supersededAt"`
+}
+
+// reopenPinDecision is what OpenActivity decides about the lifecycle pin of the row it is
+// opening. It is a sealed sum so a new outcome cannot be added without every switch
+// naming it; decideReopenPin is the one pure function that produces it.
+//
+//sumtype:decl
+type reopenPinDecision interface {
+	isReopenPinDecision()
+}
+
+// pinBirth: the row has no pin yet; stamp the one offered.
+type pinBirth struct{}
+
+// pinKeep: the offered pin equals the held one; nothing changes.
+type pinKeep struct{}
+
+// pinRepin: the row was re-armed by a requeue and its ledgers fit the new lifecycle's DAG;
+// replace From with To and record From in the history.
+type pinRepin struct{ From, To LifecyclePin }
+
+// pinRefuse: the pin cannot change. Missing is non-empty when the cause is a ledgered task
+// absent from the new DAG (a Conflict: the state is wrong); otherwise the pin change itself
+// is the misuse (a live row, or a lifecycle type change) and Reason says which.
+type pinRefuse struct {
+	From, To LifecyclePin
+	Missing  []string
+	Reason   string
+}
+
+func (pinBirth) isReopenPinDecision()  {}
+func (pinKeep) isReopenPinDecision()   {}
+func (pinRepin) isReopenPinDecision()  {}
+func (pinRefuse) isReopenPinDecision() {}
+
+// decideReopenPin is the pin rule of OpenActivity, pure. The pin is write-once while the
+// row is LIVE (StartedAt set): a method-assets release landing mid-flight must not re-shape
+// a running walk. A row that is NOT live and already pinned was re-armed by a requeue
+// (reopenTerminalRow clears StartedAt), and may be re-pinned to the new release provided the
+// lifecycle type is unchanged and every task its attempt ledger and review rounds reference
+// still exists in the new lifecycle's task DAG.
+func decideReopenPin(cs ActivityExecution, pin LifecyclePin) reopenPinDecision {
+	if cs.Pin == nil {
+		return pinBirth{}
+	}
+	held := *cs.Pin
+	if held == pin {
+		return pinKeep{}
+	}
+	if cs.StartedAt != nil {
+		return pinRefuse{From: held, To: pin, Reason: "the row is live and its pin is write-once while live; the ledger was written under the first"}
+	}
+	if held.TypeKey != pin.TypeKey {
+		return pinRefuse{From: held, To: pin, Reason: "a lifecycle type change is never a re-pin"}
+	}
+	lc, ok := methodassets.LifecycleFor(pin.TypeKey)
+	if !ok {
+		return pinRefuse{From: held, To: pin, Reason: fmt.Sprintf("method-assets has no lifecycle %q to re-pin to", pin.TypeKey)}
+	}
+	known := make(map[string]bool, len(lc.Tasks))
+	for _, t := range lc.Tasks {
+		known[t.ID] = true
+	}
+	seen := map[string]bool{}
+	var missing []string
+	note := func(id string) {
+		if id != "" && !known[id] && !seen[id] {
+			seen[id] = true
+			missing = append(missing, id)
+		}
+	}
+	for _, at := range cs.Attempts {
+		note(string(at.Task))
+	}
+	for _, r := range cs.Reviews {
+		note(string(r.TaskID))
+		note(string(r.Reviews))
+	}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		return pinRefuse{From: held, To: pin, Missing: missing}
+	}
+	return pinRepin{From: held, To: pin}
+}
+
+// applyReopenPin carries out decideReopenPin's verdict on cs, exhaustively.
+func applyReopenPin(cs *ActivityExecution, activityID string, pin LifecyclePin, now time.Time) error {
+	switch d := decideReopenPin(*cs, pin).(type) {
+	case pinBirth:
+		held := pin
+		cs.Pin = &held
+	case pinKeep:
+	case pinRepin:
+		cs.PinHistory = append(cs.PinHistory, LifecyclePinSuperseded{Pin: d.From, SupersededAt: now})
+		to := d.To
+		cs.Pin = &to
+	case pinRefuse:
+		if len(d.Missing) > 0 {
+			return fwra.New(fwra.Conflict, fmt.Sprintf(
+				"projectstate.OpenActivity: activity %s cannot be re-pinned from %s@%s to %s@%s: its ledger references tasks absent from the new lifecycle: %s",
+				activityID, d.From.TypeKey, d.From.AssetsVersion, d.To.TypeKey, d.To.AssetsVersion, strings.Join(d.Missing, ", ")))
+		}
+		return execMisuse("OpenActivity", fmt.Sprintf(
+			"activity %s is pinned to lifecycle %s@%s and cannot be re-pinned to %s@%s: %s",
+			activityID, d.From.TypeKey, d.From.AssetsVersion, d.To.TypeKey, d.To.AssetsVersion, d.Reason))
+	}
+	return nil
+}
+
 // OpenActivity is the fold of RecordActivityStarted and the first RecordPhaseStarted:
 // it births the row, stamps the (type, variant) pair the dispatcher classified, seeds
 // the phase set from THAT pair — leaving Type zero seeded the service profile for
@@ -11225,7 +11345,12 @@ func roundPtr(cs *ActivityExecution, op, roundID string) (*ReviewRound, error) {
 //
 // The pin is not decoration: without it a method-assets release landing mid-flight
 // re-shapes an activity that is already running, and the ledger below would be read
-// against a DAG it was never written under.
+// against a DAG it was never written under. So it is WRITE-ONCE while the row is LIVE
+// (StartedAt set). It is re-pinnable exactly once per re-arm: a row a requeue has re-armed
+// (StartedAt clear) opened under a different release is re-pinned if its ledgers fit the new
+// lifecycle's task DAG, and the superseded pin is appended to PinHistory in the same
+// transition. A ledgered task missing from the new DAG is a Conflict naming the task ids
+// and both pins; a lifecycle TYPE change is never re-pinned. See decideReopenPin.
 func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID ProjectID, expectedActivityVersion int64, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case activityID == "":
@@ -11286,17 +11411,12 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 					"projectstate.OpenActivity: activity %s already exited (%v); a finished activity is not re-opened in place", activityID, exited))
 				return
 			}
-			// The pin is WRITE-ONCE for the same reason StartedAt is: it names the
-			// lifecycle the ledger below was written under, so a re-open that quietly
-			// re-pinned would retro-date every attempt and round already recorded to a DAG
-			// they were never written against.
-			if cs.Pin == nil {
-				held := pin
-				cs.Pin = &held
-			} else if *cs.Pin != pin {
-				refused = execMisuse("OpenActivity", fmt.Sprintf(
-					"activity %s is pinned to lifecycle %s@%s and cannot be re-pinned to %s@%s; the ledger was written under the first",
-					activityID, cs.Pin.TypeKey, cs.Pin.AssetsVersion, pin.TypeKey, pin.AssetsVersion))
+			// The pin is WRITE-ONCE while the row is live, for the same reason StartedAt is:
+			// it names the lifecycle the ledger below was written under. Across a requeue
+			// re-arm it may move, but only through decideReopenPin's checked, recorded
+			// re-pin — never by quietly retro-dating the ledger.
+			if err := applyReopenPin(cs, activityID, pin, now); err != nil {
+				refused = err
 				return
 			}
 			// TYPE AND VARIANT ARE WRITE-ONCE, for the same reason the pin is. The row's
@@ -11926,7 +12046,9 @@ func stampNoteDelivery(n *OperatorNote, activityID, attemptID string, now time.T
 // WHAT IT CLEARS, AND WHAT IT MUST NOT. Exactly the STICKY HEAD FACTS — StartedAt,
 // CompletedAt, FailureReason, FailureDetail and, since stage 4b3, TailFailureDetail.
 // Everything below them is the record of work that
-// really happened and is KEPT: both append-only ledgers, the lifecycle pin, the classified
+// really happened and is KEPT: both append-only ledgers, the lifecycle pin (which OpenActivity
+// may re-pin once on the next run, DAG-compatibility-checked and recorded in PinHistory, since
+// a re-armed row is no longer live), the classified
 // (type, variant), the produced artifacts and the notes. That is what makes the next walk
 // re-seed the tasks that PASSED and re-dispatch only what did not, with its per-dispatch counter
 // continuing the ledger's own numbering instead of colliding with it.
