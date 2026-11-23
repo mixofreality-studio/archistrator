@@ -107,6 +107,9 @@ func (wf *workflows) retryDeclined(ctx workflow.Context, c billingstate.Declined
 		workflow.GetLogger(ctx).Warn("declined charge escalated to persistent delinquency",
 			"customerId", c.CustomerID.String(), "cycleId", c.Cycle, "attempts", c.Outcome.Attempts)
 		correction.Escalated = true
+	case intervention.SettlementFailureDirectiveUnknown:
+		return temporal.NewNonRetryableApplicationError(
+			"intervention returned an unknown billing-failure directive", "UnknownBillingDirective", nil)
 	default:
 		return temporal.NewNonRetryableApplicationError(
 			"intervention returned an unknown billing-failure directive", "UnknownBillingDirective", nil)
