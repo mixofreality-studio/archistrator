@@ -1006,7 +1006,7 @@ func (wf *csWorkflows) admitDesignDraft(
 	if err != nil {
 		return fwmanager.MapError(err)
 	}
-	problems, err := wf.admissionProblems(ctx, string(doc), kind.WireName())
+	problems, err := wf.admissionProblems(ctx, proj.ID, proj.ModuleDir, string(doc), kind.WireName())
 	if err != nil {
 		return err
 	}
@@ -1046,10 +1046,19 @@ const tier1AdmissionTimeout = 30 * time.Second
 // surface). A refusal is a RESULT of that activity (the problem list), never its error: the
 // retry policy is bounded and applies only to a faulted Engine, so a draft that cannot build is
 // not retried into the same answer three times.
-func (wf *csWorkflows) admissionProblems(ctx workflow.Context, doc, kind string) ([]review.AdmissionProblem, error) {
+func (wf *csWorkflows) admissionProblems(
+	ctx workflow.Context, projectID projectstate.ProjectID, moduleDir, doc, kind string,
+) ([]review.AdmissionProblem, error) {
 	if workflow.GetVersion(ctx, changeAdmissionLocalActivity, workflow.DefaultVersion, 1) < 1 {
-		problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: context.Background()}, doc, kind)
+		problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: context.Background()}, doc, kind, "", "")
 		return problems, fwmanager.MapError(err)
+	}
+	cfg, goMod := "", ""
+	if workflow.GetVersion(ctx, changeAdmissionAppgenConfig, workflow.DefaultVersion, 1) >= 1 {
+		var err error
+		if cfg, goMod, err = wf.moduleFiles(ctx, ProjectID(projectID), moduleDir); err != nil {
+			return nil, err
+		}
 	}
 	lctx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: tier1AdmissionTimeout,
@@ -1060,17 +1069,58 @@ func (wf *csWorkflows) admissionProblems(ctx workflow.Context, doc, kind string)
 		},
 	})
 	var problems []review.AdmissionProblem
-	if err := workflow.ExecuteLocalActivity(lctx, wf.admitTier1Local, doc, kind).Get(ctx, &problems); err != nil {
+	if err := workflow.ExecuteLocalActivity(lctx, wf.admitTier1Local, doc, kind, cfg, goMod).Get(ctx, &problems); err != nil {
 		return nil, err
 	}
 	return problems, nil
 }
 
+// changeAdmissionAppgenConfig versions the read of the module's appgen.json and go.mod that Tier 1
+// is given: a workflow that ran admission before it asked the Engine with the empty config, and
+// keeps doing so on replay (the read left Activity commands in its history).
+const changeAdmissionAppgenConfig = "admission-appgen-config"
+
+// moduleFiles reads the module's appgen.json and go.mod off the project's repo through the rail
+// (main, the branch the venue's managed files live on; a design draft never edits them). The
+// generators compose the module with that config and import its packages by that module path, so
+// Tier 1 holds a draft to them: under the library defaults a module whose infra constructors
+// return no error fails composition and every draft of that module is refused whatever it
+// records. A project with no venue, or a module with no such file, is admitted with it empty: the
+// library's defaults, and a module path inferred from the document.
+func (wf *csWorkflows) moduleFiles(ctx workflow.Context, projectID ProjectID, moduleDir string) (appgenConfig, goMod string, err error) {
+	repo, ok := wf.projectRepo(ctx, projectID)
+	if !ok {
+		return "", "", nil
+	}
+	cred, err := wf.mintCred(ctx, repo)
+	if err != nil {
+		return "", "", err
+	}
+	read := func(name string) (string, error) {
+		file := name
+		if dir := strings.Trim(moduleDir, "/"); dir != "" {
+			file = dir + "/" + name
+		}
+		got, err := wf.Acts.RailReadManagedFile(ctx, repo, file, cred.toRail())
+		if err != nil || !got.Found {
+			return "", err
+		}
+		return string(got.Content), nil
+	}
+	if appgenConfig, err = read("appgen.json"); err != nil {
+		return "", "", err
+	}
+	if goMod, err = read("go.mod"); err != nil {
+		return "", "", err
+	}
+	return appgenConfig, goMod, nil
+}
+
 // admitTier1Local is the local activity body of admissionProblems. Its error is the Engine's own,
 // mapped to the canonical Temporal type so a non-retryable Engine fault stops the retry policy at
 // the first attempt; the problems, refusals included, come back as the result.
-func (wf *csWorkflows) admitTier1Local(ctx context.Context, doc, kind string) ([]review.AdmissionProblem, error) {
-	problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: ctx}, doc, kind)
+func (wf *csWorkflows) admitTier1Local(ctx context.Context, doc, kind, appgenConfig, goMod string) ([]review.AdmissionProblem, error) {
+	problems, err := wf.Review.AdmitArtifact(fweng.Context{Context: ctx}, doc, kind, appgenConfig, goMod)
 	return problems, fwmanager.MapError(err)
 }
 

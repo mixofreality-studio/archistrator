@@ -13,7 +13,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,18 +36,62 @@ var runChainOn = conformance.RunChainOn
 
 // admitArtifact is the review Engine's Tier 1 op, the one call every verb makes; tests substitute
 // it to see which kinds a verb admits.
-var admitArtifact = func(project, kind string) ([]review.AdmissionProblem, error) {
-	return review.NewReviewEngine().AdmitArtifact(fweng.Context{Context: context.Background()}, project, kind)
+var admitArtifact = func(project, kind, appgenConfig, goMod string) ([]review.AdmissionProblem, error) {
+	return review.NewReviewEngine().AdmitArtifact(fweng.Context{Context: context.Background()}, project, kind, appgenConfig, goMod)
+}
+
+// The files of the module Tier 1 composes the candidate with: its generator config and its go.mod,
+// which names the module path.
+const (
+	appgenConfigFile = "appgen.json"
+	goModFile        = "go.mod"
+)
+
+// moduleFiles reads the appgen.json and go.mod of the module the candidate document describes,
+// from the worktree: the generators compose the module with that config and import its packages
+// by that module path, so Tier 1 must too (a module whose messageBus constructor returns no error
+// is a composition error under the defaults and a correct one under the module's own config).
+// A module with no such file is admitted with it empty: the library's defaults, and a module path
+// inferred from the document. A document that does not decode has no module to name: the Engine
+// reports that.
+func (s *Session) moduleFiles(raw []byte) (appgenConfig, goMod string, err error) {
+	var doc struct {
+		ModuleDir string `json:"moduleDir"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return "", "", nil
+	}
+	read := func(name string) (string, error) {
+		b, err := os.ReadFile(filepath.Join(s.StateRoot, filepath.FromSlash(doc.ModuleDir), name))
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return "", nil
+		case err != nil:
+			return "", fmt.Errorf("read the module's %s: %w", name, err)
+		}
+		return string(b), nil
+	}
+	if appgenConfig, err = read(appgenConfigFile); err != nil {
+		return "", "", err
+	}
+	if goMod, err = read(goModFile); err != nil {
+		return "", "", err
+	}
+	return appgenConfig, goMod, nil
 }
 
 // admitTier1 holds the candidate project document to Tier 1 for each kind (the kinds no generator
 // reads admit nothing). It returns an error listing every local problem, or nil, noting the
 // incomplete ones on the session for the tool result.
 func (s *Session) admitTier1(what string, raw []byte, kinds ...string) error {
+	cfg, goMod, err := s.moduleFiles(raw)
+	if err != nil {
+		return fmt.Errorf("tier 1 admission of the %s: %w", what, err)
+	}
 	var local, incomplete []review.AdmissionProblem
 	seen := map[review.AdmissionProblem]bool{}
 	for _, kind := range kinds {
-		problems, err := admitArtifact(string(raw), kind)
+		problems, err := admitArtifact(string(raw), kind, cfg, goMod)
 		if err != nil {
 			return fmt.Errorf("tier 1 admission of the %s: %w", what, err)
 		}

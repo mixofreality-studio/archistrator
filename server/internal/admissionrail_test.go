@@ -172,7 +172,7 @@ func newAdmissionRun(t *testing.T, answer []review.AdmissionProblem) *admissionR
 		ProposeReviewsFn: realEngine.ProposeReviews,
 		DeriveTaskSpecFn: realEngine.DeriveTaskSpec,
 		TaskSpecHashFn:   realEngine.TaskSpecHash,
-		AdmitArtifactFn: func(_ fweng.Context, _ string, kind string) ([]review.AdmissionProblem, error) {
+		AdmitArtifactFn: func(_ fweng.Context, _ string, kind, _, _ string) ([]review.AdmissionProblem, error) {
 			r.asked.Add(1)
 			r.kind.Store(kind)
 			return answer, nil

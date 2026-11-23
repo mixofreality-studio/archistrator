@@ -72,12 +72,60 @@ func spyAdmission(t *testing.T, fn func(kind string) []review.AdmissionProblem) 
 	t.Helper()
 	var kinds []string
 	prev := admitArtifact
-	admitArtifact = func(_, kind string) ([]review.AdmissionProblem, error) {
+	admitArtifact = func(_, kind, _, _ string) ([]review.AdmissionProblem, error) {
 		kinds = append(kinds, kind)
 		return fn(kind), nil
 	}
 	t.Cleanup(func() { admitArtifact = prev })
 	return &kinds
+}
+
+// Tier 1 holds the candidate to the module it is built in: the appgen.json and go.mod under the
+// project document's moduleDir go to the Engine as its third and fourth arguments, and a module
+// with none is admitted with them empty (the library's defaults, an inferred module path).
+func TestAdmitTier1_PassesTheModulesAppgenConfig(t *testing.T) {
+	cases := []struct {
+		name, moduleDir, dir, want string
+	}{
+		{"module at the repo root", "", "", `{"variantConstructorNoError":{"messageBus/Temporal":true}}`},
+		{"module in a subdirectory", "server", "server", `{"container":"x"}`},
+		{"no module files", "server", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, _ := seedProject(t, minimalProject(), jobModeConstruct, 0)
+			wantMod := ""
+			if c.want != "" {
+				wantMod = "module example.com/app\n"
+				for name, body := range map[string]string{"appgen.json": c.want, "go.mod": wantMod} {
+					p := filepath.Join(s.StateRoot, c.dir, name)
+					if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			var got, gotMod *string
+			prev := admitArtifact
+			admitArtifact = func(_, _, cfg, goMod string) ([]review.AdmissionProblem, error) {
+				got, gotMod = &cfg, &goMod
+				return nil, nil
+			}
+			t.Cleanup(func() { admitArtifact = prev })
+			raw := []byte(`{"moduleDir":"` + c.moduleDir + `"}`)
+			if err := s.admitTier1("test", raw, "serviceContract"); err != nil {
+				t.Fatalf("admitTier1: %v", err)
+			}
+			if got == nil || *got != c.want {
+				t.Errorf("the Engine was given config %v, want %q", got, c.want)
+			}
+			if gotMod == nil || *gotMod != wantMod {
+				t.Errorf("the Engine was given go.mod %v, want %q", gotMod, wantMod)
+			}
+		})
+	}
 }
 
 // A def named like the constructor modelgen writes for the contract's interface is a contract the

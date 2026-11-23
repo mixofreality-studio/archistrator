@@ -1150,7 +1150,7 @@ func (reviewEngineImpl) TaskSpecHash(_ fweng.Context, spec TaskSpec) (string, er
 // =====================================================================================
 // TIER 1 ADMISSION (FPC Task 6.3, ruling 6) — what the generators make of a recorded artifact.
 //
-// AdmitArtifact runs, in process and over the project document alone, every generator that reads
+// AdmitArtifact runs, in process and over the project document and the module's appgen config alone, every generator that reads
 // the artifact's kind and typechecks what they emit against one another (appgen.AdmitTier1): a
 // contract the recorder accepts and a generator cannot load, or two generators that disagree
 // about a name, is found when it is recorded, not three tasks later in a paid run. It is pure
@@ -1158,9 +1158,15 @@ func (reviewEngineImpl) TaskSpecHash(_ fweng.Context, spec TaskSpec) (string, er
 // Tier 2, a venue check at commit.
 // =====================================================================================
 
-// AdmitArtifact implements ReviewEngine. An empty or undecodable project is ContractMisuse; a kind
-// no generator reads admits with no problems.
-func (reviewEngineImpl) AdmitArtifact(_ fweng.Context, project string, kind string) ([]AdmissionProblem, error) {
+// AdmitArtifact implements ReviewEngine. An empty or undecodable project, or a config that does not
+// parse, is ContractMisuse; a kind no generator reads admits with no problems. The config is the
+// module's appgen.json: the generators compose the module with it (which variant constructors
+// return an error, which operations a client exposes), so admission holds a document to the config
+// the module is actually built with, and an empty config means the library's defaults. The go.mod
+// names the module path the generators import the module's packages by; empty means the path is
+// inferred from the project document (a document whose contracts import none of the module's own
+// packages carries no path, and a placeholder stands for it).
+func (reviewEngineImpl) AdmitArtifact(_ fweng.Context, project string, kind string, appgenConfig string, goMod string) ([]AdmissionProblem, error) {
 	k := appgen.ArtifactKind(kind)
 	if len(appgen.Consumers(k)) == 0 {
 		return nil, nil
@@ -1175,12 +1181,40 @@ func (reviewEngineImpl) AdmitArtifact(_ fweng.Context, project string, kind stri
 	if err := json.Unmarshal([]byte(project), &top); err != nil {
 		return nil, fweng.Wrap(fweng.ContractMisuse, err, "AdmitArtifact: the project document does not decode")
 	}
-	in := appgen.Input{Project: []byte(project), ModulePath: inferModulePath(top.ServiceContracts), ModuleDir: top.ModuleDir, Config: appgen.DefaultConfig()}
+	cfg := appgen.DefaultConfig()
+	if strings.TrimSpace(appgenConfig) != "" {
+		parsed, err := appgen.ParseConfig([]byte(appgenConfig))
+		if err != nil {
+			return nil, fweng.Wrap(fweng.ContractMisuse, err, "AdmitArtifact: the appgen config does not parse")
+		}
+		cfg = parsed
+	}
+	module := inferModulePath(top.ServiceContracts)
+	if strings.TrimSpace(goMod) != "" {
+		m, ok := goModModule(goMod)
+		if !ok {
+			return nil, fweng.New(fweng.ContractMisuse, "AdmitArtifact: the go.mod has no module line")
+		}
+		module = m
+	}
+	in := appgen.Input{Project: []byte(project), ModulePath: module, ModuleDir: top.ModuleDir, Config: cfg}
 	var out []AdmissionProblem
 	for _, p := range appgen.AdmitTier1(in, k) {
 		out = append(out, AdmissionProblem{Consumer: p.Consumer, Path: p.Path, Message: p.Message, Severity: admissionSeverity(p.Severity), Tier: AdmissionTier1})
 	}
 	return out, nil
+}
+
+// goModModule is the module line of a go.mod document.
+func goModModule(goMod string) (string, bool) {
+	for _, line := range strings.Split(goMod, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			if m := strings.Trim(strings.TrimSpace(rest), `"`); m != "" {
+				return m, true
+			}
+		}
+	}
+	return "", false
 }
 
 // admitContract is the part of a service contract the module path is read from.

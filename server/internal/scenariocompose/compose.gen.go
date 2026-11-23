@@ -1575,9 +1575,9 @@ func (n nullReviewEngine) TaskSpecHash(rc fweng.Context, p0 review.TaskSpec) (st
 	return zero, nil
 }
 
-func (n nullReviewEngine) AdmitArtifact(rc fweng.Context, p0 string, p1 string) ([]review.AdmissionProblem, error) {
+func (n nullReviewEngine) AdmitArtifact(rc fweng.Context, p0 string, p1 string, p2 string, p3 string) ([]review.AdmissionProblem, error) {
 	if !n.ops["AdmitArtifact"] {
-		return n.inner.AdmitArtifact(rc, p0, p1)
+		return n.inner.AdmitArtifact(rc, p0, p1, p2, p3)
 	}
 	var zero []review.AdmissionProblem
 	return zero, nil

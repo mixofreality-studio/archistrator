@@ -145,7 +145,20 @@ func isManagedFilePath(p string) bool {
 	if isManagedClaudePath(p) {
 		return true
 	}
-	return scaffoldRootPaths[p]
+	return scaffoldRootPaths[p] || isModuleFilePath(p)
+}
+
+// isModuleFilePath reports whether p is a module's appgen.json or go.mod in a module directory
+// below the repo root (a project whose Go module is not at the root, as archistrator's own is
+// under server/). The root's own copies are scaffold roots; these are the same two files one
+// clean directory deeper, so Tier 1 can read the config and module path the module is composed
+// with. The path must equal its own path.Clean and carry no ".." segment, so no traversal rides
+// the suffix.
+func isModuleFilePath(p string) bool {
+	if base := path.Base(p); (base != "appgen.json" && base != "go.mod") || p != path.Clean(p) || path.IsAbs(p) {
+		return false
+	}
+	return !slices.Contains(strings.Split(p, "/"), "..")
 }
 
 // isManagedClaudePath reports whether p is a CLEAN path under the managed .claude/

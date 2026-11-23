@@ -197,7 +197,7 @@ type ReviewEngine interface {
 	ProposeReviews(rc fweng.Context, change ReviewChange, activityType ActivityType, lifecyclePhase string, componentID string, policy ReviewPolicy, floorTouched bool, contracts []string) (ReviewSet, error)
 	DeriveTaskSpec(rc fweng.Context, project string, facts TaskFacts) (TaskSpec, error)
 	TaskSpecHash(rc fweng.Context, spec TaskSpec) (string, error)
-	AdmitArtifact(rc fweng.Context, project string, kind string) ([]AdmissionProblem, error)
+	AdmitArtifact(rc fweng.Context, project string, kind string, appgenConfig string, goMod string) ([]AdmissionProblem, error)
 }
 
 // NewReviewEngine constructs the ReviewEngine, delegating to the hand-written, unexported

@@ -42374,6 +42374,20 @@
                   "type": "string",
                   "description": "The artifact kind that was recorded: serviceContract, testPlan, uiDesign, acceptancePlan, system, operationalConcepts or coreUseCases. Any other kind has no consumer and admits with no problems."
                 }
+              },
+              {
+                "name": "appgenConfig",
+                "schema": {
+                  "type": "string",
+                  "description": "The module's appgen.json document, the knobs the generators compose the module with. Empty means the generator library's default configuration."
+                }
+              },
+              {
+                "name": "goMod",
+                "schema": {
+                  "type": "string",
+                  "description": "The module's go.mod document, which names the module path the generators import its packages by. Empty means the module path is inferred from the project document."
+                }
               }
             ],
             "result": {
@@ -100080,6 +100094,26 @@
                       }
                     },
                     "schemaRef": ""
+                  },
+                  {
+                    "name": "appgenConfig",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "goMod",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
+                      }
+                    },
+                    "schemaRef": ""
                   }
                 ],
                 "expect": {
@@ -100233,6 +100267,26 @@
                       "kind": "literal",
                       "model": {
                         "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "appgenConfig",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "goMod",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
                       }
                     },
                     "schemaRef": ""
@@ -100784,6 +100838,26 @@
                       }
                     },
                     "schemaRef": ""
+                  },
+                  {
+                    "name": "appgenConfig",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "goMod",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
+                      }
+                    },
+                    "schemaRef": ""
                   }
                 ],
                 "expect": {
@@ -100931,6 +101005,26 @@
                       "kind": "literal",
                       "model": {
                         "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "appgenConfig",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "{\"variantConstructorNoError\":{\"messageBus/Temporal\":true}}"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "goMod",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": "module example.com/app\n\ngo 1.25\n"
                       }
                     },
                     "schemaRef": ""
@@ -101087,6 +101181,26 @@
                       "kind": "literal",
                       "model": {
                         "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "appgenConfig",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "goMod",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
                       }
                     },
                     "schemaRef": ""
@@ -101441,6 +101555,26 @@
                       "kind": "literal",
                       "model": {
                         "json": "serviceContract"
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "appgenConfig",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
+                      }
+                    },
+                    "schemaRef": ""
+                  },
+                  {
+                    "name": "goMod",
+                    "value": {
+                      "kind": "literal",
+                      "model": {
+                        "json": ""
                       }
                     },
                     "schemaRef": ""
