@@ -155,7 +155,9 @@ const admissionTail = 8 << 10
 
 // runAdmission is Tier 2: the checkout's project.json builds through the whole generator chain
 // (conformance.RunChainOn: scaffold, every generator, go build, go vet) in a scratch module, with
-// the failing step's stderr tail as its log.
+// the failing step's stderr tail as its log. A module with a composition of its own (a non-default
+// appgen.json) is built as itself instead: a copy regenerated with its own Makefile (see
+// admissionmodule.go), since the scaffold never sees its config or hand-written constructors.
 func (r checkRunner) runAdmission(ctx context.Context, c review.SpecCheck) CheckResult {
 	start := r.now()
 	ctx, cancel := context.WithTimeout(ctx, timeoutOf(c, defaultCheckTimeoutSec))
@@ -169,7 +171,16 @@ func (r checkRunner) runAdmission(ctx context.Context, c review.SpecCheck) Check
 		return r.finish(c, checkFail, r.since(start), []byte("admission: "+err.Error()+"\n"))
 	}
 	defer func() { _ = os.RemoveAll(scratch) }()
-	rep, err := runChainOn(ctx, "project", raw, scratch)
+	moduleDir, own, err := ownModuleDir(r.root, raw)
+	if err != nil {
+		return r.finish(c, checkFail, r.since(start), []byte("admission: "+err.Error()+"\n"))
+	}
+	var rep conformance.Report
+	if own {
+		rep, err = r.runModuleChain(ctx, moduleDir, raw, scratch)
+	} else {
+		rep, err = runChainOn(ctx, "project", raw, scratch)
+	}
 	var log strings.Builder
 	for _, st := range rep.Steps {
 		fmt.Fprintf(&log, "%s: exit %d (%s)\n", st.Name, st.ExitCode, st.Duration.Round(100*time.Millisecond))
