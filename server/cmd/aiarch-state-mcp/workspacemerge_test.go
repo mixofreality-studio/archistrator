@@ -68,10 +68,10 @@ func siblingRepo(t *testing.T, parent, name string, files map[string]string) str
 }
 
 // workspaceMergeFixture is a born project repo declaring one workspace repo "plat" (a sibling
-// checkout), both accepting pushes to their checked-out main as `archistrator init` repos do.
+// checkout) whose framework-go and lib directories a contract owns on main, both accepting pushes to their checked-out main as `archistrator init` repos do.
 func workspaceMergeFixture(t *testing.T) (repo, plat string, access agenticjob.AgenticJobAccess) {
 	t.Helper()
-	repo, plat, _, access = workspaceFixtureOf(t, workspaceState(t, platRepos, ""))
+	repo, plat, _, access = workspaceFixtureOf(t, workspaceState(t, platRepos, `["@plat/framework-go","@plat/lib"]`))
 	return repo, plat, access
 }
 
@@ -166,9 +166,9 @@ func TestLocalMergeLandsTheWorkspaceRepoBranchWithTheProjects(t *testing.T) {
 func TestLocalMergeConflictInAWorkspaceRepoLandsNothing(t *testing.T) {
 	repo, plat, access := workspaceMergeFixture(t)
 	onBranch(t, repo, "activity/C-y", map[string]string{"own.txt": "own\n"})
-	onBranch(t, plat, "activity/C-y", map[string]string{"README.md": "branch edit\n"})
+	onBranch(t, plat, "activity/C-y", map[string]string{"lib/lib.go": "package lib\n\nvar X = 1\n"})
 	// main moves under the same file in the workspace repo, so the branch conflicts with it.
-	writeRepoFile(t, plat, "README.md", []byte("main edit\n"))
+	writeRepoFile(t, plat, "lib/lib.go", []byte("package lib\n\nvar X = 2\n"))
 	inRepo(t, plat, "git", "add", "-A")
 	inRepo(t, plat, "git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "main edit")
 	ownBefore := gitOut(t, repo, "rev-parse", "main")

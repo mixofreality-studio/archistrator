@@ -5524,6 +5524,10 @@ const workspaceRootsKey = "AIARCH_WORKSPACE_ROOTS"
 type workspaceWorktree struct {
 	id, repoPath, workDir, gitDir string
 	beforeSHA, mainSHA            string
+	// judgeOnly marks a repo the spec does not name that holds the activity branch anyway: its
+	// worktree exists so the gates judge the branch there, and the agent is given neither it nor
+	// its git dir.
+	judgeOnly bool
 }
 
 // workspaceRepoIDPattern is a workspace repo id: a plain name (projectstate holds the same
@@ -5583,19 +5587,58 @@ type declaredWorkspaceRepo struct {
 	RelPath string `json:"relPath"`
 }
 
+// mainState is the part of the state document committed on the project's main that the workspace
+// boundary is drawn from: the repos it declares and the directories its contracts own in them.
+type mainState struct {
+	WorkspaceRepos   []declaredWorkspaceRepo `json:"workspaceRepos"`
+	ServiceContracts map[string]struct {
+		OwnedPaths []string `json:"ownedPaths"`
+	} `json:"serviceContracts"`
+}
+
 // mainWorkspaceDeclaration is the workspaceRepos the state document committed on the project's
 // main holds. No main or no state document is no declaration.
 func mainWorkspaceDeclaration(repoPath string) ([]declaredWorkspaceRepo, error) {
-	fail := func(err error) ([]declaredWorkspaceRepo, error) {
-		return nil, fmt.Errorf("read the workspace repos declared on %s: %w", localMainBranch, err)
-	}
-	repo, err := openSharedRepo(repoPath)
+	doc, err := readMainState(repoPath)
+	return doc.WorkspaceRepos, err
+}
+
+// mainWorkspaceGrants is the workspace directories main's committed contracts own, each spelled
+// "@<repo>/<dir>" (cleaned). THIS IS THE WRITE GRANT: a task's spec is resolved over the activity
+// branch, whose state document the agent may edit, so a spec that names a workspace directory is
+// admitted only if main already grants it. An agent can therefore never widen its own sandbox or
+// landing area by editing its contract on its branch; a grant is a change that reached main.
+func mainWorkspaceGrants(repoPath string) (map[string]bool, error) {
+	doc, err := readMainState(repoPath)
 	if err != nil {
 		return nil, err
 	}
+	out := map[string]bool{}
+	for _, sc := range doc.ServiceContracts {
+		for _, e := range sc.OwnedPaths {
+			if rest, ok := strings.CutPrefix(e, "@"); ok {
+				id, dir, _ := strings.Cut(rest, "/")
+				out["@"+id+"/"+strings.Trim(path.Clean(dir), "/")] = true
+			}
+		}
+	}
+	return out, nil
+}
+
+// readMainState reads the state document committed on the project's main. No main or no state
+// document is the zero value; any other failure is an error, never "none".
+func readMainState(repoPath string) (mainState, error) {
+	var doc mainState
+	fail := func(err error) (mainState, error) {
+		return mainState{}, fmt.Errorf("read the state committed on %s: %w", localMainBranch, err)
+	}
+	repo, err := openSharedRepo(repoPath)
+	if err != nil {
+		return mainState{}, err
+	}
 	ref, err := repo.Reference(plumbing.NewBranchReferenceName(localMainBranch), true)
 	if errors.Is(err, plumbing.ErrReferenceNotFound) {
-		return nil, nil
+		return doc, nil
 	}
 	if err != nil {
 		return fail(err)
@@ -5606,7 +5649,7 @@ func mainWorkspaceDeclaration(repoPath string) ([]declaredWorkspaceRepo, error) 
 	}
 	file, err := commit.File(localStateDocPath)
 	if errors.Is(err, object.ErrFileNotFound) {
-		return nil, nil
+		return doc, nil
 	}
 	if err != nil {
 		return fail(err)
@@ -5615,13 +5658,10 @@ func mainWorkspaceDeclaration(repoPath string) ([]declaredWorkspaceRepo, error) 
 	if err != nil {
 		return fail(err)
 	}
-	var doc struct {
-		WorkspaceRepos []declaredWorkspaceRepo `json:"workspaceRepos"`
-	}
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		return fail(err)
 	}
-	return doc.WorkspaceRepos, nil
+	return doc, nil
 }
 
 // workspaceRepoShapeProblem is why a declared workspace repo is not admitted, or "": its id is a
@@ -5638,9 +5678,9 @@ func workspaceRepoShapeProblem(id, relPath string) string {
 	return ""
 }
 
-// specWorkspaceIDs is the sorted workspace repo ids a resolved task spec's scopes name: every
-// "@<id>/..." glob of its editScope and activityEditScope.
-func specWorkspaceIDs(specPath string) ([]string, error) {
+// specWorkspaceGlobs is the sorted, unique "@<id>/..." globs of a resolved task spec's editScope and
+// activityEditScope: every workspace directory the spec asks to open.
+func specWorkspaceGlobs(specPath string) ([]string, error) {
 	raw, err := os.ReadFile(specPath) //nolint:gosec // G304: the spec path is the executor's own file beside the worktree.
 	if err != nil {
 		return nil, err
@@ -5665,13 +5705,32 @@ func specWorkspaceIDs(specPath string) ([]string, error) {
 			globs = append(globs, c.Paths...)
 		}
 		for _, g := range globs {
-			if rest, ok := strings.CutPrefix(g, "@"); ok {
-				id, _, _ := strings.Cut(rest, "/")
-				seen[id] = true
+			if strings.HasPrefix(g, "@") {
+				seen[g] = true
 			}
 		}
 	}
 	return slices.Sorted(maps.Keys(seen)), nil
+}
+
+// workspaceGlobProblem is why a spec's "@<id>/<glob>" is not covered by the grants main commits,
+// or "". A glob is covered when the directory it names ("<dir>/**", or the directory of a literal
+// path) is a granted directory of that repo or lies inside one; "@<id>/**" (a whole repo) never is.
+func workspaceGlobProblem(glob string, grants map[string]bool) string {
+	rest, _ := strings.CutPrefix(glob, "@")
+	id, g, _ := strings.Cut(rest, "/")
+	dir := strings.TrimSuffix(g, "/**")
+	if id == "" || dir == "" || dir == "**" || path.Clean(dir) != dir || slices.Contains(strings.Split(dir, "/"), "..") {
+		return "the task's edit scope glob " + strconv.Quote(glob) + " does not name a clean directory of a workspace repo"
+	}
+	for grant := range grants {
+		gid, gdir, _ := strings.Cut(strings.TrimPrefix(grant, "@"), "/")
+		if gid == id && (dir == gdir || strings.HasPrefix(dir, gdir+"/")) {
+			return ""
+		}
+	}
+	return "the task's edit scope names " + strconv.Quote(glob) + ", which no contract's ownedPaths on " + localMainBranch +
+		" grants (a workspace directory is opened only when the committed project owns it, never because a branch's own contract claims it)"
 }
 
 // prepareGateAndWorkspaces resolves the gate and, for a gated task whose scope names workspace repos,
@@ -5687,27 +5746,36 @@ func (a *localExecAccess) prepareGateAndWorkspaces(s dispatchedTaskSpec, parentD
 	return gate, ws, refused, nil
 }
 
-// addWorkspaceWorktrees adds a worktree on the branch in every workspace repo the gate's spec
-// names, stamps their roots on the rig and the gate's env, and returns them. The repo behind each
-// id is the project's main's declaration (declaredWorkspaceRepos), never the agent's checkout.
+// addWorkspaceWorktrees adds a worktree on the branch in every workspace repo the task must be
+// judged in, stamps the writable ones' roots on the rig and the gate's env, and returns them. The
+// repo behind each id and the directories a task may open in it are the project's MAIN's
+// (declaredWorkspaceRepos, mainWorkspaceGrants), never the agent's checkout or its branch's
+// contract: the spec is resolved over the branch, so a glob it names is admitted only when main
+// already grants that directory, and is refused before any worktree or sandbox path exists.
+//
+// Two kinds of worktree come back. A repo the spec names is the agent's (sandbox-writable). Every
+// other declared repo that ALREADY holds the activity branch is added judge-only, so the gates
+// see what the branch carries there under an edit scope that admits none of it: a leftover from
+// an earlier attempt or a branch an agent planted goes red instead of reaching the merge, which
+// lands every declared repo holding the branch (workspaceMergeLegs).
 func (a *localExecAccess) addWorkspaceWorktrees(g *localGate, rig map[string]string, parentDir, branch string) (added []workspaceWorktree, refused string) {
-	ids, err := specWorkspaceIDs(g.specPath)
+	globs, err := specWorkspaceGlobs(g.specPath)
 	if err != nil {
 		return nil, "the task spec's workspace repos could not be read: " + err.Error()
-	}
-	if len(ids) == 0 {
-		return nil, ""
 	}
 	declared, err := declaredWorkspaceRepos(a.repoPath)
 	if err != nil {
 		return nil, err.Error()
 	}
+	if len(declared) == 0 && len(globs) == 0 {
+		return nil, ""
+	}
+	ids, named, refused := a.workspaceRepoIDs(globs, declared, branch)
+	if refused != "" {
+		return nil, refused
+	}
 	for _, id := range ids {
-		repoPath, ok := declared[id]
-		if !ok {
-			a.removeWorkspaceWorktrees(added)
-			return nil, "the task's edit scope names workspace repo " + id + ", which the project does not declare"
-		}
+		repoPath := declared[id]
 		holder := filepath.Join(parentDir, "ws-"+id)
 		if err := os.MkdirAll(holder, 0o700); err != nil {
 			a.removeWorkspaceWorktrees(added)
@@ -5725,21 +5793,63 @@ func (a *localExecAccess) addWorkspaceWorktrees(g *localGate, rig map[string]str
 			mainSHA = "" // no main: the edit scope judges the whole base..head diff
 		}
 		added = append(added, workspaceWorktree{id: id, repoPath: repoPath, workDir: filepath.Join(holder, localWorktreeName),
-			gitDir: gitDir, beforeSHA: before, mainSHA: mainSHA})
+			gitDir: gitDir, beforeSHA: before, mainSHA: mainSHA, judgeOnly: !named[id]})
 	}
-	roots := make(map[string]string, len(added))
+	roots := map[string]string{}
 	for _, w := range added {
-		roots[w.id] = w.workDir
+		if !w.judgeOnly {
+			roots[w.id] = w.workDir
+		}
 	}
-	enc, err := json.Marshal(roots)
-	if err != nil {
-		a.removeWorkspaceWorktrees(added)
-		return nil, err.Error()
+	if len(roots) > 0 {
+		enc, err := json.Marshal(roots)
+		if err != nil {
+			a.removeWorkspaceWorktrees(added)
+			return nil, err.Error()
+		}
+		rig[workspaceRootsKey] = string(enc)
+		g.env = append(g.env, workspaceRootsKey+"="+string(enc))
 	}
-	rig[workspaceRootsKey] = string(enc)
-	g.env = append(g.env, workspaceRootsKey+"="+string(enc))
 	g.workspaces = added
 	return added, ""
+}
+
+// workspaceRepoIDs are the declared repos to add worktrees for, sorted, and which of them the spec
+// names (the agent's). Every glob the spec names must be of a declared repo and covered by main's
+// grants; every other declared repo that already holds the branch is judged too. refused is why
+// the job cannot start.
+func (a *localExecAccess) workspaceRepoIDs(globs []string, declared map[string]string, branch string) (ids []string, named map[string]bool, refused string) {
+	named = map[string]bool{}
+	if len(globs) > 0 {
+		grants, err := mainWorkspaceGrants(a.repoPath)
+		if err != nil {
+			return nil, nil, err.Error()
+		}
+		for _, glob := range globs {
+			id, _, _ := strings.Cut(strings.TrimPrefix(glob, "@"), "/")
+			if _, ok := declared[id]; !ok {
+				return nil, nil, "the task's edit scope names workspace repo " + id + ", which the project does not declare"
+			}
+			if why := workspaceGlobProblem(glob, grants); why != "" {
+				return nil, nil, why
+			}
+			named[id] = true
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(declared)) {
+		if named[id] {
+			ids = append(ids, id)
+			continue
+		}
+		switch _, err := revParseBranch(declared[id], branch); {
+		case err == nil:
+			ids = append(ids, id)
+		case errors.Is(err, plumbing.ErrReferenceNotFound):
+		default:
+			return nil, nil, fmt.Errorf("workspace repo %s (%s): %w", id, declared[id], err).Error()
+		}
+	}
+	return ids, named, ""
 }
 
 // removeWorkspaceWorktrees removes each workspace worktree and prunes its repo's registration of it.
@@ -5783,7 +5893,9 @@ func (a *localExecAccess) workspaceBranchesAdvanced(ws []workspaceWorktree, bran
 func workspaceSandboxPaths(ws []workspaceWorktree) []string {
 	var out []string
 	for _, w := range ws {
-		out = append(out, w.workDir, w.gitDir)
+		if !w.judgeOnly {
+			out = append(out, w.workDir, w.gitDir)
+		}
 	}
 	return out
 }
@@ -5791,12 +5903,13 @@ func workspaceSandboxPaths(ws []workspaceWorktree) []string {
 // workspacePromptNote tells the agent where each workspace repo's worktree is, because its
 // edit scope names "@<id>/<path>" and that is not a path under its working directory.
 func workspacePromptNote(ws []workspaceWorktree) string {
-	if len(ws) == 0 {
+	granted := slices.DeleteFunc(slices.Clone(ws), func(w workspaceWorktree) bool { return w.judgeOnly })
+	if len(granted) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n\nWORKSPACE REPOS. Your edit scope names paths as \"@<repo>/<path>\": <path> is inside that repo's worktree below, not under your working directory. Edit and commit there (the same activity branch), then call run_checks as usual.\n")
-	for _, w := range ws {
+	for _, w := range granted {
 		b.WriteString("- @" + w.id + ": " + w.workDir + "\n")
 	}
 	return b.String()
@@ -5930,7 +6043,7 @@ func (a *localExecAccess) mergeActivityBranch(ctx context.Context, branch string
 	// is reported as a PARTIAL LANDING naming what moved, and is retry-safe: a landed leg's
 	// branch is gone (the retry skips it) and the project's own branch, merged last, is still
 	// there to be merged.
-	legs, err := a.workspaceMergeLegs(branch)
+	legs, err := a.workspaceMergeLegs(branch, true)
 	if err != nil {
 		return "local merge: " + err.Error() + "; nothing was merged", false
 	}
@@ -5987,15 +6100,33 @@ func (l mergeLeg) describe(diag string) string {
 // that is concluded only from git saying the branch does not exist. A declaration that cannot be
 // read, a repo that cannot be opened or any other failure is an error and stops the job before
 // anything lands: dropping the leg would merge the project's half and report a success.
-func (a *localExecAccess) workspaceMergeLegs(branch string) ([]mergeLeg, error) {
+func (a *localExecAccess) workspaceMergeLegs(branch string, landing bool) ([]mergeLeg, error) {
 	declared, err := declaredWorkspaceRepos(a.repoPath)
 	if err != nil {
 		return nil, err
 	}
 	var legs []mergeLeg
+	var grants map[string]bool
 	for _, id := range slices.Sorted(maps.Keys(declared)) {
-		switch _, err := revParseBranch(declared[id], branch); {
+		switch tip, err := revParseBranch(declared[id], branch); {
 		case err == nil:
+			// The backstop beside the dispatch gates (addWorkspaceWorktrees): whatever judged the
+			// branch, a leg lands only content inside directories main's committed contracts own.
+			if !landing {
+				legs = append(legs, mergeLeg{id: id, repoPath: declared[id]})
+				continue
+			}
+			if grants == nil {
+				if grants, err = mainWorkspaceGrants(a.repoPath); err != nil {
+					return nil, err
+				}
+			}
+			if stray, err := workspaceLegStrays(declared[id], id, tip, grants); err != nil {
+				return nil, fmt.Errorf("workspace repo %s (%s): %w", id, declared[id], err)
+			} else if len(stray) > 0 {
+				return nil, fmt.Errorf("workspace repo %s holds %s outside every directory %s grants (a leftover or planted commit no gate judged): %s",
+					id, branch, localMainBranch, strings.Join(stray, ", "))
+			}
 			legs = append(legs, mergeLeg{id: id, repoPath: declared[id]})
 		case errors.Is(err, plumbing.ErrReferenceNotFound):
 		default:
@@ -6003,6 +6134,59 @@ func (a *localExecAccess) workspaceMergeLegs(branch string) ([]mergeLeg, error) 
 		}
 	}
 	return legs, nil
+}
+
+// gitStdout runs cmd in dir and returns its standard output alone: a path list parsed from it
+// must not have git's stderr advice mixed in, as gitExec's combined output would.
+func gitStdout(dir string, cmd *exec.Cmd) (string, error) {
+	cmd.Dir = dir
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w: %s", strings.Join(cmd.Args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return string(out), nil
+}
+
+// workspaceLegStrays are the "@<id>/<path>" paths the branch tip changes against main in a
+// workspace repo (merge-base(main, tip)..tip, a tree diff) that lie outside every directory the
+// grants hold for that repo. A repo with no main has no base to net against and every path of the
+// tip counts.
+func workspaceLegStrays(repoPath, id, tip string, grants map[string]bool) ([]string, error) {
+	base := ""
+	if out, err := gitStdout(repoPath, gateGit("merge-base", "--end-of-options", localMainBranch, tip)); err == nil {
+		base = strings.TrimSpace(out)
+	}
+	var out string
+	var err error
+	if base == "" {
+		out, err = gitStdout(repoPath, gateGit("ls-tree", "-r", "-z", "--name-only", tip))
+	} else {
+		out, err = gitStdout(repoPath, gateGit("diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", base, tip))
+	}
+	if err != nil {
+		return nil, err
+	}
+	var stray []string
+	for p := range strings.SplitSeq(out, "\x00") {
+		if p == "" {
+			continue
+		}
+		covered := false
+		for grant := range grants {
+			gid, gdir, _ := strings.Cut(strings.TrimPrefix(grant, "@"), "/")
+			if gid == id && strings.HasPrefix(p, gdir+"/") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			stray = append(stray, "@"+id+"/"+p)
+		}
+	}
+	slices.Sort(stray)
+	return stray, nil
 }
 
 // mergeLeg merges (land=false: only proves the merge is clean, pushing nothing) or lands
@@ -6391,7 +6575,7 @@ func (a *localExecAccess) submitRefreshJob(rc fwra.Context, activityID string) (
 // too, or the activity wedges), then the project's own. It writes only the activity branches,
 // never a main, so a failure on a later repo leaves nothing to undo.
 func (a *localExecAccess) refreshActivityBranch(ctx context.Context, branch string) (diagnostic string, ok bool) {
-	legs, err := a.workspaceMergeLegs(branch)
+	legs, err := a.workspaceMergeLegs(branch, false)
 	if err != nil {
 		return "local refresh: " + err.Error(), false
 	}
