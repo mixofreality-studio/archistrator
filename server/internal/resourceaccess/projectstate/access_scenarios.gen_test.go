@@ -1542,7 +1542,7 @@ func TestScenario_DesignSessionAccess_execute_a_project_activity_P7(t *testing.T
 	})
 }
 
-// TestScenario_DesignSessionAccess_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+// TestScenario_DesignSessionAccess_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
 func TestScenario_DesignSessionAccess_manage_projects_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "designSessionAccess", "manage-projects-P1", func(t *testing.T) {
@@ -1550,7 +1550,7 @@ func TestScenario_DesignSessionAccess_manage_projects_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_DesignSessionAccess_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+// TestScenario_DesignSessionAccess_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
 func TestScenario_DesignSessionAccess_manage_projects_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "designSessionAccess", "manage-projects-P2", func(t *testing.T) {
@@ -1814,7 +1814,7 @@ type inputProjectStateAccessManageProjectsP1S5 struct {
 	Research        projectstate.ResearchInput `json:"research"`
 }
 
-// TestScenario_ProjectStateAccess_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+// TestScenario_ProjectStateAccess_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
 func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "projectStateAccess", "manage-projects-P1", func(t *testing.T) {
@@ -1912,7 +1912,7 @@ func TestScenario_ProjectStateAccess_manage_projects_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_ProjectStateAccess_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+// TestScenario_ProjectStateAccess_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
 func TestScenario_ProjectStateAccess_manage_projects_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "projectStateAccess", "manage-projects-P2", func(t *testing.T) {
@@ -1960,7 +1960,7 @@ func TestScenario_ProjectStateAccess_operate_a_delivered_system_P5(t *testing.T)
 	})
 }
 
-// TestScenario_ProjectStateAccess_pause_construction_P1 — Pause Construction (use case pause-construction; path start → choose-pause → note-pause-run-state → decide-pause-plan → note-plan-cancels → record-paused → run-state-paused → stop-pump → end).
+// TestScenario_ProjectStateAccess_pause_construction_P1 — Pause Construction (use case pause-construction; path start → choose-pause → note-pause-run-state → decide-pause-plan → note-plan-cancels → record-paused → run-state-paused → stop-pump → tell-operator-paused → end).
 func TestScenario_ProjectStateAccess_pause_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "projectStateAccess", "pause-construction-P1", func(t *testing.T) {

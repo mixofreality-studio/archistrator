@@ -699,7 +699,7 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	})
 }
 
-// TestScenario_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+// TestScenario_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
 func TestScenario_manage_projects_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "sourceControlAccess", "manage-projects-P1", func(t *testing.T) {
@@ -707,7 +707,7 @@ func TestScenario_manage_projects_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → end).
+// TestScenario_manage_projects_P2 — Manage Projects — [yes] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → record-operated → obj-operating-model-operated → note-operating-model-values → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
 func TestScenario_manage_projects_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "sourceControlAccess", "manage-projects-P2", func(t *testing.T) {

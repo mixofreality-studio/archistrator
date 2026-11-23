@@ -138,7 +138,7 @@ type inputPauseConstructionP1S1 struct {
 	Ctx intervention.PauseRequestContext `json:"ctx"`
 }
 
-// TestScenario_pause_construction_P1 — Pause Construction (use case pause-construction; path start → choose-pause → note-pause-run-state → decide-pause-plan → note-plan-cancels → record-paused → run-state-paused → stop-pump → end).
+// TestScenario_pause_construction_P1 — Pause Construction (use case pause-construction; path start → choose-pause → note-pause-run-state → decide-pause-plan → note-plan-cancels → record-paused → run-state-paused → stop-pump → tell-operator-paused → end).
 func TestScenario_pause_construction_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "pause-construction-P1", func(t *testing.T) {
