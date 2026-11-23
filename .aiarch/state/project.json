@@ -2705,6 +2705,13 @@
                     "inState": "[captured in project head state]"
                   },
                   {
+                    "id": "tell-owner-project-ready",
+                    "kind": "sendSignal",
+                    "label": "The owner is shown the project in the catalog with its operating model, review policy and captured research input",
+                    "roleName": "Architect User",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -2835,6 +2842,12 @@
                   },
                   {
                     "from": "obj-research-input-captured",
+                    "to": "tell-owner-project-ready",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-owner-project-ready",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
@@ -6481,6 +6494,13 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "tell-operator-paused",
+                    "kind": "sendSignal",
+                    "label": "The operator is told construction is paused, with the reason recorded, and that the activity already running finishes",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
                     "id": "end",
                     "kind": "end",
                     "label": "",
@@ -6533,6 +6553,12 @@
                   },
                   {
                     "from": "stop-pump",
+                    "to": "tell-operator-paused",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-operator-paused",
                     "to": "end",
                     "kind": "controlFlow",
                     "guard": ""
