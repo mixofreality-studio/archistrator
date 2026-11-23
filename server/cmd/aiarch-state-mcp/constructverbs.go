@@ -40,13 +40,6 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// recordServiceContractInput carries the typed ServiceContract for the ambient
-// component. The component key is NOT an input — the construct session's
-// AIARCH_COMPONENT_ID fixes it.
-type recordServiceContractInput struct {
-	Contract map[string]any `json:"contract" jsonschema:"the complete typed ServiceContract for THIS activity's component — validated through the full server codec and the Method CI rules before it is accepted"`
-}
-
 // recordPhaseArtifactInput carries a phase-artifact payload (a PhaseArtifactPayload
 // tagged union — exactly one field set) plus the mapKey it is stored under (the
 // component/surface/resource/doc name).
@@ -154,12 +147,19 @@ func (s *Session) applyEvidenceMutation(what string, mutate func(*projectstate.P
 // lowerCamel(id)), the one key every reader of .serviceContracts uses. A Resource has no
 // contract, and a component the System does not name has nothing to record.
 func (s *Session) recordServiceContract(contract map[string]any) error {
-	if s.ComponentID == "" {
-		return fmt.Errorf("recordServiceContract needs the ambient component (AIARCH_COMPONENT_ID); this construct job has none — it is not a component activity")
-	}
 	b, err := marshalInputModel(contract)
 	if err != nil {
 		return err
+	}
+	return s.recordServiceContractJSON(b)
+}
+
+// recordServiceContractJSON is recordServiceContract over the exact bytes the agent sent. The
+// bytes are decoded, never re-marshalled from a map: a $defs schema's property order is the field
+// order modelgen emits, so sorting it changes the generated code.
+func (s *Session) recordServiceContractJSON(b []byte) error {
+	if s.ComponentID == "" {
+		return fmt.Errorf("recordServiceContract needs the ambient component (AIARCH_COMPONENT_ID); this construct job has none — it is not a component activity")
 	}
 	// Strict: a lenient decode drops a misspelled key and records its zero value. RUN-013's agent
 	// sent interface.ops, and a Utility contract with no operations was written as passing.

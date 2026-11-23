@@ -7,6 +7,7 @@ package main
 // setCritiqueVerdict and NEVER putDraftModel (a critic must not rewrite the model).
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -31,8 +32,51 @@ type getCommittedSlotInput struct {
 	Kind string `json:"kind" jsonschema:"the Method artifact kind to read the committed basis model of (e.g. mission, volatilities, coreUseCases, system)"`
 }
 
-type putDraftModelInput struct {
-	Model map[string]any `json:"model" jsonschema:"the complete typed model object for THIS design job's artifact kind — validated through the full server codec and the Method CI rules before it is accepted"`
+// putDraftModelArgDoc and recordServiceContractArgDoc describe the one object argument of the two
+// tools that take a whole typed model. Both tools are registered through addObjectArgTool, which
+// keeps the argument's bytes, so the key order an agent wrote survives into the stored model.
+const (
+	putDraftModelArgDoc         = "the complete typed model object for THIS design job's artifact kind — validated through the full server codec and the Method CI rules before it is accepted"
+	recordServiceContractArgDoc = "the complete typed ServiceContract for THIS activity's component — validated through the full server codec and the Method CI rules before it is accepted"
+)
+
+// addObjectArgTool registers a tool whose single argument arg is one JSON object that is handed
+// to fn as the exact bytes the caller sent. The typed mcp.AddTool decodes arguments into a Go map
+// and re-marshals them to apply schema defaults, which sorts every object's keys; a model that
+// carries schemas ($defs property order IS struct field order in the generated code) then changes
+// on a re-record that changed nothing. The low-level Server.AddTool leaves the arguments alone.
+func addObjectArgTool(srv *mcp.Server, tool *mcp.Tool, arg, argDoc string, fn func(context.Context, []byte) (string, error)) {
+	tool.InputSchema = map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{arg: map[string]any{"type": "object", "description": argDoc}},
+		"required":             []string{arg},
+		"additionalProperties": false,
+	}
+	srv.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		fail := func(err error) (*mcp.CallToolResult, error) {
+			var res mcp.CallToolResult
+			res.SetError(err)
+			return &res, nil
+		}
+		var args map[string]json.RawMessage
+		if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+			return fail(fmt.Errorf("validating \"arguments\": %w", err))
+		}
+		for k := range args {
+			if k != arg {
+				return fail(fmt.Errorf("validating \"arguments\": unexpected property %q; the only argument is %q", k, arg))
+			}
+		}
+		raw := bytes.TrimSpace(args[arg])
+		if len(raw) == 0 || raw[0] != '{' {
+			return fail(fmt.Errorf("validating \"arguments\": %q must be a JSON object", arg))
+		}
+		out, err := fn(ctx, raw)
+		if err != nil {
+			return fail(err)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: out}}}, nil
+	})
 }
 
 type respondToReviewCommentInput struct {
@@ -258,21 +302,17 @@ func composedVerbs(s *Session) []composedVerb {
 			}))
 		}},
 		{name: "putDraftModel", modes: []string{jobModeDraft}, register: func(srv *mcp.Server) {
-			mcp.AddTool(srv, &mcp.Tool{
+			addObjectArgTool(srv, &mcp.Tool{
 				Name: "putDraftModel",
 				Description: "Submit the complete typed model for THIS design job's artifact. It is validated through the FULL server codec AND the Method CI rules " +
 					"before it is accepted: if it fails, this returns the exact, actionable errors and writes NOTHING — fix them and call putDraftModel again. " +
 					"You never choose a slot or a kind; the ambient design job fixes them. When it succeeds, finish with publishDraft.",
-			}, textHandler(func(_ context.Context, in putDraftModelInput) (string, error) {
-				modelJSON, err := marshalInputModel(in.Model)
-				if err != nil {
-					return "", err
-				}
+			}, "model", putDraftModelArgDoc, func(_ context.Context, modelJSON []byte) (string, error) {
 				if err := s.putDraftModel(modelJSON); err != nil {
 					return "", err
 				}
 				return s.withAdmissionNotes("The draft passed the server codec and the Method CI rules and was written. Respond to any open review comments, then call publishDraft."), nil
-			}))
+			})
 		}},
 		{name: "reportUpstreamDefect", modes: []string{jobModeDraft}, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
@@ -311,19 +351,19 @@ func composedVerbs(s *Session) []composedVerb {
 		// validated in-loop through the codec + methodcheck. The ambient component/activity
 		// fix the target, so the agent never chooses a slot. ---
 		{name: "recordServiceContract", modes: construct, register: func(srv *mcp.Server) {
-			mcp.AddTool(srv, &mcp.Tool{
+			addObjectArgTool(srv, &mcp.Tool{
 				Name: "recordServiceContract",
 				Description: "Record the frozen, typed service contract for THIS activity's component into the project state (the detailed-design phase artifact). " +
 					"It is validated through the FULL server codec AND the Method CI rules before it is accepted: if it fails, this returns the exact, actionable errors and writes NOTHING — fix them and call it again. " +
 					"You never choose the component; the ambient construction job fixes it. " +
 					"The contract's shape is " + contractShape + ": every field is one the contract declares (an unknown key is refused, never dropped), and interface.operations holds at least one operation, each one a dynamic-view call into the component makes. " +
 					"The goPackage (internal/<layer>/<leaf>), the layer, and a Manager's deps are derived from the System, so leave them out. When it succeeds, finish with publishDraft.",
-			}, textHandler(func(_ context.Context, in recordServiceContractInput) (string, error) {
-				if err := s.recordServiceContract(in.Contract); err != nil {
+			}, "contract", recordServiceContractArgDoc, func(_ context.Context, contractJSON []byte) (string, error) {
+				if err := s.recordServiceContractJSON(contractJSON); err != nil {
 					return "", err
 				}
 				return s.withAdmissionNotes("The service contract passed the server codec, the Method CI rules and Tier 1 admission and was written. Call publishDraft to commit it."), nil
-			}))
+			})
 		}},
 		{name: "recordPhaseArtifact", modes: construct, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{

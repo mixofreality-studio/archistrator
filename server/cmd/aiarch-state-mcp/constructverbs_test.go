@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"maps"
 	"strings"
 	"testing"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // projectWithComponent is minimalProject with a System naming one component of kind
@@ -276,4 +279,48 @@ func TestConstructModeToolSet(t *testing.T) {
 		}
 	}
 	_ = projectstate.Project{}
+}
+
+// TestRecordServiceContract_KeepsTheAgentsSchemaKeyOrder pins that the recording tool stores a
+// $defs schema's properties in the order the agent sent them. modelgen emits struct fields in
+// property order, so a re-record that sorted them (the typed MCP tool decodes into a map)
+// reordered Finding in the generated code of an unchanged contract.
+func TestRecordServiceContract_KeepsTheAgentsSchemaKeyOrder(t *testing.T) {
+	fx, birth := admissionFixture(t)
+	s, _ := seedProject(t, birth, jobModeConstruct, 0)
+	key := conformanceRecordOrder(t, birth, fx.ServiceContracts)[0]
+	c := conformanceComponentOf(t, birth, key)
+	s.ComponentID, s.ActivityID = c.ID, "C-"+c.ID
+	contract := deepCopy(t, fx.ServiceContracts[key])
+	base, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const zed = `"Zed":{"type":"object","properties":{"ruleId":{"type":"string"},"severity":{"type":"string"},"message":{"type":"string"},"location":{"type":"string"}}},`
+	sent := json.RawMessage(strings.Replace(string(base), `"$defs":{`, `"$defs":{`+zed, 1))
+	if !strings.Contains(string(sent), zed) {
+		t.Fatal("the fixture contract carries no $defs to add to")
+	}
+	cs := connectInMemory(t, s)
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "recordServiceContract", Arguments: map[string]json.RawMessage{"contract": sent}})
+	if err != nil || res.IsError {
+		t.Fatalf("recordServiceContract: %v %+v", err, res.Content[0].(*mcp.TextContent).Text)
+	}
+	proj, _, err := s.readProject()
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	got := string(proj.ServiceContracts[key].Defs["Zed"])
+	last := -1
+	for _, k := range []string{"ruleId", "severity", "message", "location"} {
+		i := strings.Index(got, `"`+k+`"`)
+		if i < 0 || i < last {
+			t.Fatalf("the agent's property order was not kept: %s", got)
+		}
+		last = i
+	}
+	bad, _ := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "recordServiceContract", Arguments: map[string]any{"contract": "x"}})
+	if bad == nil || !bad.IsError {
+		t.Fatalf("a non-object contract must be refused: %+v", bad)
+	}
 }
