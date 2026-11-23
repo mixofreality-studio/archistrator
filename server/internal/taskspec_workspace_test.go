@@ -41,7 +41,7 @@ func TestTaskSpecDesignHealthEngineOwnsThePlatformRules(t *testing.T) {
 	if ws.Source.Dir == nil || *ws.Source.Dir != "server" {
 		t.Errorf("the workspace build runs in %v, want the module dir \"server\"", ws.Source.Dir)
 	}
-	if !slices.Contains(ws.Source.Argv, "GOWORK=../go.work") {
-		t.Errorf("the workspace build must resolve the project's go.work: %v", ws.Source.Argv)
+	if !slices.Equal(ws.Source.Argv, []string{"env", "GOWORK=@workspace", "go", "build", "./..."}) {
+		t.Errorf("the workspace build must name the run workspace the check runner expands: %v", ws.Source.Argv)
 	}
 }

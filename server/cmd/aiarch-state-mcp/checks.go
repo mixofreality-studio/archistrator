@@ -242,7 +242,16 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 	if derr != nil {
 		return r.finish(c, checkFail, 0, []byte(derr.Error()+"\n"))
 	}
-	out, err := r.exec(ctx, dir, commandEnv(moduleGraphEnv(c.Source.Argv)...), c.Source.Argv...)
+	argv := c.Source.Argv
+	if usesWorkspaceGoWork(argv) {
+		expanded, cleanup, werr := r.withWorkspaceGoWork(argv, dir)
+		if werr != nil {
+			return r.finish(c, checkFail, 0, []byte(werr.Error()+"\n"))
+		}
+		defer cleanup()
+		argv = expanded
+	}
+	out, err := r.exec(ctx, dir, commandEnv(moduleGraphEnv(argv)...), argv...)
 	status := checkPass
 	switch {
 	case err == nil && boolVal(c.Source.RequireTests) && !ranATest(out):

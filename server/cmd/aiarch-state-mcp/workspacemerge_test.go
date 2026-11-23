@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,48 +18,83 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
-// workspaceMergeFixture is a born project repo declaring one workspace repo "plat" (a sibling
-// checkout), both accepting pushes to their checked-out main as `archistrator init` repos do.
-func workspaceMergeFixture(t *testing.T) (repo, plat string, access agenticjob.AgenticJobAccess) {
-	t.Helper()
-	parent := t.TempDir()
-	plat = filepath.Join(parent, "plat")
-	if err := os.Mkdir(plat, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	inRepo(t, plat, "git", "init", "-q", "-b", "main")
-	inRepo(t, plat, "git", "config", "receive.denyCurrentBranch", "updateInstead")
-	writeRepoFile(t, plat, "README.md", []byte("plat\n"))
-	inRepo(t, plat, "git", "add", "-A")
-	inRepo(t, plat, "git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "seed")
+// platRepos declares the workspace repo "plat", a sibling checkout of the project's repo.
+const platRepos = `[{"id":"plat","relPath":"../plat"}]`
 
+// workspaceState is the fixture project's state declaring repos (a JSON array) and, when owned is
+// not empty, the ownedPaths (a JSON array) of the todo-list-access contract.
+func workspaceState(t *testing.T, repos, owned string) []byte {
+	t.Helper()
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(freshState(t), &top); err != nil {
 		t.Fatal(err)
 	}
-	// The project repo lives beside plat, so the relative path is ../plat.
-	repo = filepath.Join(parent, "app")
-	if err := os.Mkdir(repo, 0o750); err != nil {
-		t.Fatal(err)
+	top["workspaceRepos"] = json.RawMessage(repos)
+	if owned != "" {
+		var contracts map[string]map[string]json.RawMessage
+		if err := json.Unmarshal(top["serviceContracts"], &contracts); err != nil {
+			t.Fatal(err)
+		}
+		contracts[freshContract]["ownedPaths"] = json.RawMessage(owned)
+		raw, err := json.Marshal(contracts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		top["serviceContracts"] = raw
 	}
-	top["workspaceRepos"] = json.RawMessage(`[{"id":"plat","relPath":"../plat"}]`)
 	state, err := json.Marshal(top)
 	if err != nil {
 		t.Fatal(err)
 	}
-	born := bornRepo(t, state)
-	if err := os.Remove(repo); err != nil {
+	return state
+}
+
+// siblingRepo is a git repo named name beside the project's repo, accepting pushes to its
+// checked-out main as `archistrator init` repos do, seeded with files.
+func siblingRepo(t *testing.T, parent, name string, files map[string]string) string {
+	t.Helper()
+	dir := filepath.Join(parent, name)
+	if err := os.Mkdir(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
+	inRepo(t, dir, "git", "init", "-q", "-b", "main")
+	inRepo(t, dir, "git", "config", "receive.denyCurrentBranch", "updateInstead")
+	for p, body := range files {
+		writeRepoFile(t, dir, p, []byte(body))
+	}
+	inRepo(t, dir, "git", "add", "-A")
+	inRepo(t, dir, "git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "seed")
+	return dir
+}
+
+// workspaceMergeFixture is a born project repo declaring one workspace repo "plat" (a sibling
+// checkout), both accepting pushes to their checked-out main as `archistrator init` repos do.
+func workspaceMergeFixture(t *testing.T) (repo, plat string, access agenticjob.AgenticJobAccess) {
+	t.Helper()
+	repo, plat, _, access = workspaceFixtureOf(t, workspaceState(t, platRepos, ""))
+	return repo, plat, access
+}
+
+// workspaceFixtureOf is a project repo born from state, beside a sibling "plat" repo, with the
+// local executor over it. The project's repo is named app, so "../plat" is plat; repo and
+// plat are siblings of each other and of parent, the directory returned.
+func workspaceFixtureOf(t *testing.T, state []byte) (repo, plat, parent string, access agenticjob.AgenticJobAccess) {
+	t.Helper()
+	parent = t.TempDir()
+	plat = siblingRepo(t, parent, "plat", map[string]string{
+		"README.md": "plat\n", "go.mod": "module example.com/plat\n\ngo 1.21\n", "lib/lib.go": "package lib\n",
+	})
+	born := bornRepo(t, state)
+	repo = filepath.Join(parent, "app")
 	if err := os.Rename(born, repo); err != nil {
 		t.Fatal(err)
 	}
 	inRepo(t, repo, "git", "config", "receive.denyCurrentBranch", "updateInstead")
-	access, err = agenticjob.NewLocalExecAgenticJobAccess(repo, "todomvc", stateBinary(t), projectstate.StateToolVersion(), 10*time.Minute)
+	access, err := agenticjob.NewLocalExecAgenticJobAccess(repo, "todomvc", stateBinary(t), projectstate.StateToolVersion(), 10*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return repo, plat, access
+	return repo, plat, parent, access
 }
 
 // onBranch commits files on a new branch off main in dir and returns to main.
@@ -74,13 +111,23 @@ func onBranch(t *testing.T, dir, branch string, files map[string]string) {
 
 func mergeJob(t *testing.T, access agenticjob.AgenticJobAccess, activity string) agenticjob.PipelineObservation {
 	t.Helper()
-	rc := fwra.Context{Context: context.Background(), IdempotencyKey: fwra.IdempotencyKey("ws-merge-" + t.Name() + activity)}
+	return jobOf(t, access, activity, agenticjob.DispatchJobMerge)
+}
+
+var jobSeq atomic.Int64
+
+// jobOf runs the synchronous git job (merge or refresh) of an activity to its terminal observation.
+// Every call is its own submission: a retry is a new idempotency key.
+func jobOf(t *testing.T, access agenticjob.AgenticJobAccess, activity, job string) agenticjob.PipelineObservation {
+	t.Helper()
+	key := fmt.Sprintf("ws-%s-%s-%s-%d", job, t.Name(), activity, jobSeq.Add(1))
+	rc := fwra.Context{Context: context.Background(), IdempotencyKey: fwra.IdempotencyKey(key)}
 	handle, err := access.SubmitAgenticJob(rc, agenticjob.PipelineSpec{
-		ProjectID: "todomvc", ActivityID: agenticjob.ConstructionActivityID(activity), Steps: []agenticjob.PipelineStep{{Name: "merge"}},
-		DispatchInputs: map[string]string{agenticjob.DispatchInputJobKey: agenticjob.DispatchJobMerge},
+		ProjectID: "todomvc", ActivityID: agenticjob.ConstructionActivityID(activity), Steps: []agenticjob.PipelineStep{{Name: job}},
+		DispatchInputs: map[string]string{agenticjob.DispatchInputJobKey: job},
 	})
 	if err != nil {
-		t.Fatalf("submit merge: %v", err)
+		t.Fatalf("submit %s: %v", job, err)
 	}
 	return observeToTerminal(t, access, rc, handle)
 }

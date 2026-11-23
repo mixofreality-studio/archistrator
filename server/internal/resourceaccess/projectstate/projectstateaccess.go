@@ -2231,23 +2231,50 @@ func parseOwnedPath(entry string) (ownedPathEntry, error) {
 	return inWorkspaceRepo{Repo: repo, Path: dir}, nil
 }
 
-// checkWorkspaceRepos refuses a workspaceRepos list whose id is not a plain name or repeats,
-// or whose relPath is not a relative path.
+// workspaceRepoIDPattern is a workspace repo id: a plain name, so it can neither alias another
+// repo ("." / ".."), nor qualify a path ("@<id>/<dir>": no "@", "/" or ":"), nor hold a control
+// character. The agentic-job RA, which reads the declaration itself (it imports no other
+// component), holds the same pattern.
+var workspaceRepoIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// workspaceRepoProblem is why a workspaceRepos entry is not admitted, or "": the id is a plain
+// name, and the relPath is exactly "../<name>", a clean sibling of the project's repo (never the
+// repo's parent, a descendant, an unclean spelling or an absolute path). The venue resolves the
+// path and opens write access to it, so only the sibling spelling is admitted; the RA also
+// checks the resolved target against the project's own repo, which only it knows the path of.
+func workspaceRepoProblem(r WorkspaceRepo) string {
+	if !workspaceRepoIDPattern.MatchString(r.ID) {
+		return fmt.Sprintf("workspaceRepos id %q must be a plain name", r.ID)
+	}
+	if r.RelPath == "" || path.IsAbs(r.RelPath) {
+		return fmt.Sprintf("workspaceRepos[%q].relPath %q must be relative to the project's repo", r.ID, r.RelPath)
+	}
+	name, ok := strings.CutPrefix(r.RelPath, "../")
+	if !ok || name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) ||
+		strings.ContainsFunc(name, unicode.IsControl) || path.Clean(r.RelPath) != r.RelPath {
+		return fmt.Sprintf("workspaceRepos[%q].relPath %q must be a sibling of the project's repo, exactly \"../<name>\"", r.ID, r.RelPath)
+	}
+	return ""
+}
+
+// checkWorkspaceRepos refuses a workspaceRepos list holding an entry workspaceRepoProblem refuses,
+// an id declared twice, or one repo declared under two ids (two ids owning one directory would
+// defeat the one-owner overlap rule below).
 func checkWorkspaceRepos(repos []WorkspaceRepo) error {
-	seen := map[string]bool{}
+	seen, seenPath := map[string]bool{}, map[string]string{}
 	for _, r := range repos {
-		switch {
-		case r.ID == "" || r.ID == "." || r.ID == ".." || strings.ContainsAny(r.ID, `/\*?[ `):
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-				"projectstate: decode project.json: workspaceRepos id %q must be a plain name", r.ID))
-		case seen[r.ID]:
+		if why := workspaceRepoProblem(r); why != "" {
+			return fwra.New(fwra.ContractMisuse, "projectstate: decode project.json: "+why)
+		}
+		if seen[r.ID] {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
 				"projectstate: decode project.json: workspaceRepos id %q is declared twice", r.ID))
-		case r.RelPath == "" || path.IsAbs(r.RelPath):
-			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-				"projectstate: decode project.json: workspaceRepos[%q].relPath %q must be relative to the project's repo", r.ID, r.RelPath))
 		}
-		seen[r.ID] = true
+		if other, dup := seenPath[r.RelPath]; dup {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate: decode project.json: workspaceRepos %q and %q both name the repo %q", other, r.ID, r.RelPath))
+		}
+		seen[r.ID], seenPath[r.RelPath] = true, r.ID
 	}
 	return nil
 }

@@ -876,13 +876,9 @@ func (tp *taskProject) workspaceOwnedOf(contracts []string) []workspaceDir {
 	return slices.Compact(out)
 }
 
-// repoRootFromModule is the project's repo root as a path from the module dir ("" for a root module).
-func (tp *taskProject) repoRootFromModule() string {
-	if m := strings.Trim(tp.moduleDir, "/"); m != "" {
-		return strings.Repeat("../", strings.Count(m, "/")+1)
-	}
-	return ""
-}
+// workspaceGoWorkMarker is the GOWORK assignment of the workspace build check's `env` argv. The
+// check runner (aiarch-state-mcp) replaces it with a go.work written over the run's checkouts.
+const workspaceGoWorkMarker = "GOWORK=@workspace"
 
 // workspaceChecks are the checks of one workspace-repo directory: each runs in that repo's own
 // module (the command runner resolves the "@<repo>/" dir, and always runs GOWORK=off, as the
@@ -1554,9 +1550,11 @@ func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID strin
 			checks = append(checks, workspaceChecks(d)...)
 		}
 		// The workspace build: the project's own module builds against the workspace repos'
-		// edits (its go.work), where every other check judges the released pins.
+		// edits, where every other check judges the released pins. The marker is resolved by
+		// the check runner into a go.work over the run's own checkouts (absolute paths: the
+		// project's committed go.work names its siblings relative to a layout a run does not have).
 		checks = append(checks, commandCheck("build-workspace", "The project builds against its workspace repos' edits",
-			[]string{"env", "GOWORK=" + tp.repoRootFromModule() + "go.work", "go", "build", "./..."}, dir, commandCheckTimeoutSec))
+			[]string{"env", workspaceGoWorkMarker, "go", "build", "./..."}, dir, commandCheckTimeoutSec))
 	}
 	if slices.ContainsFunc(contracts, tp.modelgenGenerates) {
 		checks = append(checks, tp.genModelsCheck(contracts, dir))

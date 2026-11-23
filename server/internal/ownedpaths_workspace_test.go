@@ -42,6 +42,18 @@ func TestDecodeWorkspaceOwnedPaths(t *testing.T) {
 		{"repo id with a slash", `[{"id":"p/q","relPath":"../p"}]`, `[]`, `[]`, `must be a plain name`},
 		{"absolute relPath", `[{"id":"p","relPath":"/p"}]`, `[]`, `[]`, `must be relative`},
 		{"empty relPath", `[{"id":"p","relPath":""}]`, `[]`, `[]`, `must be relative`},
+		{"relPath is the project's own repo", `[{"id":"p","relPath":"."}]`, `[]`, `[]`, `must be a sibling`},
+		{"relPath inside the project", `[{"id":"p","relPath":"server"}]`, `[]`, `[]`, `must be a sibling`},
+		{"relPath escaping upward", `[{"id":"p","relPath":"../../../../etc"}]`, `[]`, `[]`, `must be a sibling`},
+		{"relPath is the parent", `[{"id":"p","relPath":".."}]`, `[]`, `[]`, `must be a sibling`},
+		{"relPath of a nested repo", `[{"id":"p","relPath":"../x/y"}]`, `[]`, `[]`, `must be a sibling`},
+		{"relPath spelled unclean", `[{"id":"p","relPath":"../x/."}]`, `[]`, `[]`, `must be a sibling`},
+		{"relPath with a control character", "[{\"id\":\"p\",\"relPath\":\"../x\\u0001\"}]", `[]`, `[]`, `must be a sibling`},
+		{"one repo under two ids", `[{"id":"p","relPath":"../x"},{"id":"q","relPath":"../x"}]`, `[]`, `[]`, `both name the repo "../x"`},
+		{"the dot id", `[{"id":".","relPath":"../x"}]`, `[]`, `[]`, `must be a plain name`},
+		{"an id with an at sign", `[{"id":"@p","relPath":"../x"}]`, `[]`, `[]`, `must be a plain name`},
+		{"an id with a colon", `[{"id":"p:q","relPath":"../x"}]`, `[]`, `[]`, `must be a plain name`},
+		{"an id with a control character", "[{\"id\":\"p\\u0007\",\"relPath\":\"../x\"}]", `[]`, `[]`, `must be a plain name`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

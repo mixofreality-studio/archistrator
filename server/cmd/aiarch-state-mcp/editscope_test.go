@@ -497,7 +497,7 @@ func TestActivityEditScope_FreshProjectUnion(t *testing.T) {
 	if union.StateOnly {
 		t.Fatalf("a browser surface's union must admit its files: %+v", union)
 	}
-	if bad, err := outsideScope(union, []string{"cmd/server/hooks.go", "webApp/src/todo-web-app/App.tsx"}); err != nil ||
+	if bad, err := outsideScope(union, ownPaths([]string{"cmd/server/hooks.go", "webApp/src/todo-web-app/App.tsx"})); err != nil ||
 		!slices.Equal(bad, []string{"cmd/server/hooks.go"}) {
 		t.Fatalf("the union must admit the surface's files and not the composition root: bad=%v err=%v union=%+v", bad, err, union)
 	}

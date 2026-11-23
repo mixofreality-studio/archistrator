@@ -76,6 +76,62 @@ func TestEditScope_WorkspaceRepoGlobAdmitsOnlyItsRepo(t *testing.T) {
 	}
 }
 
+// TestEditScope_AProjectPathSpelledLikeAWorkspacePathIsNotAdmitted: the repo is part of the
+// path's type, not a prefix of its text, so a file of the PROJECT's own repo literally named
+// "@plat/framework-go/methodcheck/x.go" is not the workspace repo's file and the workspace glob
+// does not admit it (it would otherwise merge to the project's own main).
+func TestEditScope_AProjectPathSpelledLikeAWorkspacePathIsNotAdmitted(t *testing.T) {
+	r := newGitRepo(t)
+	base := r.git("rev-parse", "HEAD")
+	r.commit("escape", map[string]string{
+		"@plat/framework-go/methodcheck/x.go": "package x\n",
+		".aiarch/state/project.json":          "{}\n",
+	})
+	spec := writeSpec(t, workspaceScope)
+	got := r.violationsAgainst(spec, base, r.git("rev-parse", "HEAD"), r.git("rev-parse", "main"))
+	if want := []string{"@plat/framework-go/methodcheck/x.go"}; !slices.Equal(got, want) {
+		t.Fatalf("violations = %v, want %v (the state directory stays admitted)", got, want)
+	}
+}
+
+// TestEditScope_WorkspaceStateDirIsNotTheProjectsState: the always-admitted state directory is the
+// project's own; the same path in a workspace repo is judged like any other.
+func TestEditScope_WorkspaceStateDirIsNotTheProjectsState(t *testing.T) {
+	r := newGitRepo(t)
+	base := r.git("rev-parse", "HEAD")
+	r.commit("own code", map[string]string{"server/internal/engine/designhealth/a.go": "package x\n"})
+	w, wbase := workspaceRepo(t)
+	w.commit("stray state", map[string]string{".aiarch/state/project.json": "{}\n"})
+	spec := writeSpec(t, workspaceScope)
+	rng, err := resolveEditScopeRange(r.root, base, r.git("rev-parse", "HEAD"), r.git("rev-parse", "main"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := editScopeViolations(r.root, spec, rng, w.rangeOf(wbase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"@plat/.aiarch/state/project.json"}; !slices.Equal(got, want) {
+		t.Fatalf("violations = %v, want %v", got, want)
+	}
+}
+
+// TestEditScope_AMalformedWorkspaceGlobIsRefused: "@/x" names no repo, so it must never be read
+// as the project's own "x".
+func TestEditScope_AMalformedWorkspaceGlobIsRefused(t *testing.T) {
+	r := newGitRepo(t)
+	base := r.git("rev-parse", "HEAD")
+	r.commit("x", map[string]string{"x/a.go": "package x\n"})
+	spec := writeSpec(t, review.SpecEditScope{Extra: []string{"@/x/**"}})
+	rng, err := resolveEditScopeRange(r.root, base, r.git("rev-parse", "HEAD"), r.git("rev-parse", "main"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := editScopeViolations(r.root, spec, rng); err == nil {
+		t.Fatalf("a glob naming no repo was read: violations %v", got)
+	}
+}
+
 // TestRunCommandCheckInAWorkspaceRepo: a "@<repo>/<dir>" check dir runs in that repo's
 // checkout, and one naming a repo the venue did not hand over fails the check.
 func TestRunCommandCheckInAWorkspaceRepo(t *testing.T) {

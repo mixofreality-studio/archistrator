@@ -192,20 +192,21 @@ func editScopeViolations(root, specPath string, rng editScopeRange, workspaces .
 	if err != nil {
 		return nil, err
 	}
-	changed, err := branchChangedPaths(root, rng)
+	own, err := branchChangedPaths(root, rng)
 	if err != nil {
 		return nil, err
 	}
+	changed := ownPaths(own)
 	for _, w := range workspaces {
 		wr, err := w.resolve()
 		if err != nil {
 			return nil, err
 		}
-		own, err := branchChangedPaths(w.Dir, wr)
+		paths, err := branchChangedPaths(w.Dir, wr)
 		if err != nil {
 			return nil, err
 		}
-		changed = append(changed, w.qualify(own)...)
+		changed = append(changed, w.qualify(paths)...)
 	}
 	return outsideScope(spec.EditScope, changed)
 }
@@ -229,13 +230,49 @@ func (w workspaceRange) resolve() (editScopeRange, error) {
 	return resolveEditScopeRange(w.Dir, w.Base, w.Head, w.Main, w.Main == "")
 }
 
-// qualify spells the workspace repo's changed paths as the edit-scope grammar does, "@<ID>/<path>".
-func (w workspaceRange) qualify(paths []string) []string {
-	out := make([]string, len(paths))
+// qualify types the workspace repo's changed paths as paths of that repo.
+func (w workspaceRange) qualify(paths []string) []scopedPath {
+	out := make([]scopedPath, len(paths))
 	for i, p := range paths {
-		out[i] = "@" + w.ID + "/" + p
+		out[i] = scopedPath{repo: w.ID, path: p}
 	}
 	return out
+}
+
+// scopedPath is one changed path and the repo it was changed in: repo "" is the project's own
+// repo, otherwise the id of a workspace repo. The repo is a field and never a prefix of the
+// path, so a project-repo file whose name happens to begin "@plat/..." is still a path of the
+// project's own repo, and a workspace glob (which names its repo) cannot admit it.
+type scopedPath struct{ repo, path string }
+
+// String is the path as the gate reports it: "@<repo>/<path>" for a workspace repo's.
+func (p scopedPath) String() string {
+	if p.repo == "" {
+		return p.path
+	}
+	return workspaceGlobPrefix + p.repo + "/" + p.path
+}
+
+func ownPaths(paths []string) []scopedPath {
+	out := make([]scopedPath, len(paths))
+	for i, p := range paths {
+		out[i] = scopedPath{path: p}
+	}
+	return out
+}
+
+// workspaceGlobPrefix opens an edit-scope glob that names a workspace repo ("@<repo>/<glob>").
+const workspaceGlobPrefix = "@"
+
+// splitScopeGlob reads which repo a glob is of: "@<repo>/<glob>" is that workspace repo's,
+// anything else the project's own.
+func splitScopeGlob(g string) (repo, glob string) {
+	rest, ok := strings.CutPrefix(g, workspaceGlobPrefix)
+	if !ok {
+		return "", g
+	}
+	repo, glob, _ = strings.Cut(rest, "/")
+	return repo, glob
 }
 
 // activityScopeViolations returns the sorted paths of the branch's net diff against main,
@@ -258,7 +295,7 @@ func activityScopeViolations(root, specPath string, rng editScopeRange, workspac
 	if err != nil {
 		return nil, err
 	}
-	changed := sortedKeys(net)
+	changed := ownPaths(sortedKeys(net))
 	for _, w := range workspaces {
 		wr, err := w.resolve()
 		if err != nil {
@@ -280,9 +317,11 @@ func activityScopeViolations(root, specPath string, rng editScopeRange, workspac
 	return outsideScope(spec.ActivityEditScope, changed)
 }
 
-// outsideScope returns the paths of changed (sorted) that scope does not admit; the state
-// directory is always admitted.
-func outsideScope(scope review.SpecEditScope, changed []string) ([]string, error) {
+// outsideScope returns the paths of changed that scope does not admit, sorted as the gate
+// reports them; the state directory of the project's own repo is always admitted. A glob
+// admits a path only of its own repo: "@<repo>/<glob>" the workspace repo's, any other glob
+// the project's.
+func outsideScope(scope review.SpecEditScope, changed []scopedPath) ([]string, error) {
 	var globs []string
 	if !scope.StateOnly {
 		for _, c := range scope.Components {
@@ -291,19 +330,27 @@ func outsideScope(scope review.SpecEditScope, changed []string) ([]string, error
 		globs = append(globs, scope.Extra...)
 	}
 	for _, g := range globs {
-		if !projectstate.ValidEditScopeGlob(g) {
+		repo, glob := splitScopeGlob(g)
+		if strings.HasPrefix(g, workspaceGlobPrefix) && (repo == "" || glob == "") {
+			return nil, fmt.Errorf("the spec's edit-scope glob %q names no workspace repo and glob (\"@<repo>/<glob>\")", g)
+		}
+		if !projectstate.ValidEditScopeGlob(glob) {
 			return nil, fmt.Errorf("the spec's edit-scope glob %q is not \"**\", \"<dir>/**\" or a literal path", g)
 		}
 	}
 	var bad []string
 	for _, p := range changed {
-		if strings.HasPrefix(p, statePathPrefix+"/") {
+		if p.repo == "" && strings.HasPrefix(p.path, statePathPrefix+"/") {
 			continue
 		}
-		if !slices.ContainsFunc(globs, func(g string) bool { return scopeGlobMatch(g, p) }) {
-			bad = append(bad, p)
+		if !slices.ContainsFunc(globs, func(g string) bool {
+			repo, glob := splitScopeGlob(g)
+			return repo == p.repo && scopeGlobMatch(glob, p.path)
+		}) {
+			bad = append(bad, p.String())
 		}
 	}
+	slices.Sort(bad)
 	return bad, nil
 }
 
