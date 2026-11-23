@@ -8,6 +8,8 @@ package main
 // directories, and the merge itself refuses a leg that holds anything outside main's grants.
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -114,5 +116,53 @@ func TestLocalMergeRefusesAWorkspaceLegOutsideMainsGrants(t *testing.T) {
 	}
 	if gitOut(t, repo, "rev-parse", "main") != ownBefore || gitOut(t, plat, "rev-parse", "main") != platBefore {
 		t.Error("a main moved though the merge was refused")
+	}
+}
+
+// A repo the spec does not name but which already holds the activity branch gets a worktree so the
+// gates can judge it, and that worktree is READ-ONLY to the agent: its sandbox opens neither the
+// worktree nor the repo's git dir (main ref, config), and AIARCH_WORKSPACE_ROOTS does not list it.
+func TestWorkspaceDispatch_AJudgeOnlyRepoIsNeverOpenedToTheAgent(t *testing.T) {
+	ag := installAgent(t)
+	repo, plat, _, access := workspaceFixtureOf(t, workspaceState(t, platRepos, ""))
+	onBranch(t, plat, "activity/"+freshActivity, map[string]string{"evil/x.go": "package evil\n"})
+	out := filepath.Join(t.TempDir(), "run.txt")
+	ag.does(t, fmt.Sprintf(`cp ../aiarch-settings.json %q.settings; printf '%%s\n' "$AIARCH_WORKSPACE_ROOTS" > %q; git -C %q worktree list --porcelain > %q.wt`, out, out, plat, out))
+	obs := constructionOf(t, access, activitySpec(t, repo, freshActivity, "construction"), 1)
+	if obs.Phase != agenticjob.PhaseFailed || !strings.Contains(obs.Diagnostic, "@plat/evil/x.go") {
+		t.Fatalf("the planted branch was not judged: %+v", obs)
+	}
+	// Control: the judge-only worktree existed while the agent ran, so absence below is not vacuous.
+	platRoot := resolved(t, plat)
+	var judgeWT []string
+	for _, l := range strings.Split(mustRead(t, out+".wt"), "\n") {
+		if p, ok := strings.CutPrefix(l, "worktree "); ok && resolved(t, p) != platRoot {
+			judgeWT = append(judgeWT, resolved(t, p))
+		}
+	}
+	if len(judgeWT) == 0 {
+		t.Fatalf("plat held no judge-only worktree during the run, the test proves nothing")
+	}
+	var cfg struct {
+		Sandbox struct {
+			Filesystem struct {
+				AllowWrite []string `json:"allowWrite"`
+			} `json:"filesystem"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal([]byte(mustRead(t, out+".settings")), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range cfg.Sandbox.Filesystem.AllowWrite {
+		r := resolved(t, p)
+		if slices.Contains(judgeWT, r) {
+			t.Errorf("the sandbox opens the judge-only worktree %s", r)
+		}
+		if r == platRoot || strings.HasPrefix(r, platRoot+string(filepath.Separator)) {
+			t.Errorf("the sandbox opens %s inside the judge-only repo: %v", r, cfg.Sandbox.Filesystem.AllowWrite)
+		}
+	}
+	if roots := strings.TrimSpace(mustRead(t, out)); strings.Contains(roots, "plat") {
+		t.Errorf("AIARCH_WORKSPACE_ROOTS lists the judge-only repo: %q", roots)
 	}
 }
