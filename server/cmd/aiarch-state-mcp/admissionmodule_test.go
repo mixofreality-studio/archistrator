@@ -176,3 +176,44 @@ func TestAdmitTier2_OwnProjectPasses(t *testing.T) {
 		t.Fatalf("own project Tier 2 = %s (document %d bytes):\n%s", res.Status, len(raw), log)
 	}
 }
+
+// A model with a built browser surface also has its web module built: the copied web dir is
+// regenerated from the candidate's OpenAPI and typechecked after the Go steps.
+func TestAdmitTier2_BuiltBrowserSurfaceRunsTheWebSteps(t *testing.T) {
+	candidate, err := os.ReadFile(filepath.Join("..", "..", "..", ".aiarch", "state", "project.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, _ := moduleCheckout(t, `{"envPrefix":"X"}`)
+	writeRepoFile(t, root, "webApp/package.json", []byte("{}"))
+	writeRepoFile(t, root, "webApp/src/app.ts", []byte("export {}\n"))
+	writeRepoFile(t, root, "webApp/node_modules/dep/index.js", []byte("x"))
+	var calls []execCall
+	r := checkRunner{root: root, outDir: filepath.Join(root, "out"), now: time.Now,
+		exec: func(_ context.Context, dir string, _ []string, argv ...string) ([]byte, error) {
+			calls = append(calls, execCall{dir, strings.Join(argv, " ")})
+			if argv[0] == "npm" {
+				if _, err := os.Stat(filepath.Join(dir, "src", "app.ts")); err != nil {
+					t.Errorf("%s: the web module must be copied: %v", argv, err)
+				}
+				if _, err := os.Stat(filepath.Join(dir, "node_modules")); err == nil {
+					t.Error("web node_modules must not be copied")
+				}
+			}
+			return nil, nil
+		}}
+	if res := r.runAdmissionOver(t, candidate); res.Status != checkPass {
+		t.Fatalf("status = %s", res.Status)
+	}
+	var got []string
+	for _, c := range calls {
+		got = append(got, filepath.Base(c.dir)+": "+c.argv)
+		if strings.HasPrefix(c.dir, root) {
+			t.Errorf("%s ran in the checkout, want the scratch copy", c.argv)
+		}
+	}
+	want := "server: make gen|server: go build ./...|server: go vet ./...|webApp: npm ci --no-audit --no-fund|webApp: npm run gen:api|webApp: npm run typecheck"
+	if strings.Join(got, "|") != want {
+		t.Errorf("steps = %v", got)
+	}
+}

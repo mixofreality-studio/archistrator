@@ -22,7 +22,34 @@ import (
 	"strings"
 
 	conformance "github.com/mixofreality-studio/archistrator-platform/framework-go-conformance"
+	"github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel"
 )
+
+// webSteps are the commands run in the copied web module after the Go build when the model has a
+// built browser surface: the SPA's own API generation from the regenerated OpenAPI document, then
+// its typecheck, so a candidate that reshapes a web-exposed operation and breaks the SPA is found.
+var webSteps = [][]string{
+	{"npm", "ci", "--no-audit", "--no-fund"},
+	{"npm", "run", "gen:api"},
+	{"npm", "run", "typecheck"},
+}
+
+// webModuleDirName is the web module's directory, a sibling of the Go module.
+const webModuleDirName = "webApp"
+
+// webModuleDir is the checkout-relative web module directory when the document has a built
+// browser surface and the checkout seats a web project (an unseated surface is not yet built).
+func webModuleDir(root, moduleDir string, raw []byte) (string, bool) {
+	m, err := projectmodel.Load(raw)
+	if err != nil || len(m.System.BuiltBrowserSurfaces()) == 0 {
+		return "", false
+	}
+	web := filepath.Join(filepath.Dir(moduleDir), webModuleDirName)
+	if _, err := os.Stat(filepath.Join(root, web, "package.json")); err != nil {
+		return "", false
+	}
+	return web, true
+}
 
 // moduleChainSteps are the commands run in the copied module, in order: the module's own
 // steady-state regeneration from the candidate document, then the build and vet.
@@ -84,10 +111,28 @@ func (r checkRunner) runModuleChain(ctx context.Context, moduleDir string, raw [
 	if copyErr != nil {
 		return rep, fmt.Errorf("copy the module: %w", copyErr)
 	}
-	dir := filepath.Join(scratch, moduleDir)
+	type chainStep struct {
+		dir  string
+		argv []string
+	}
+	var steps []chainStep
 	for _, argv := range moduleChainSteps {
+		steps = append(steps, chainStep{filepath.Join(scratch, moduleDir), argv})
+	}
+	if web, ok := webModuleDir(r.root, moduleDir, raw); ok {
+		if moduleDir != "." {
+			if err := copyModuleTree(filepath.Join(r.root, web), filepath.Join(scratch, web)); err != nil {
+				return rep, fmt.Errorf("copy the web module: %w", err)
+			}
+		}
+		for _, argv := range webSteps {
+			steps = append(steps, chainStep{filepath.Join(scratch, web), argv})
+		}
+	}
+	for _, st := range steps {
+		argv := st.argv
 		begin := r.now()
-		out, err := r.exec(ctx, dir, commandEnv(), argv...)
+		out, err := r.exec(ctx, st.dir, commandEnv(), argv...)
 		res := conformance.StepResult{Name: strings.Join(argv, " "), Argv: argv, Duration: r.now().Sub(begin)}
 		if err != nil {
 			res.ExitCode = stepExitCode(err)
