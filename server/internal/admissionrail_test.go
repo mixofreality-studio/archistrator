@@ -28,6 +28,8 @@ import (
 	agenticjobfake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	sourcecontrolfake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 	messagebusfake "github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus/fake"
 
@@ -133,9 +135,17 @@ type admissionRun struct {
 	stages *countingStages
 	asked  atomic.Int32
 	kind   atomic.Value
+	// config and goMod are the appgen.json and go.mod the rail handed the review Engine.
+	config, goMod atomic.Value
 }
 
 func newAdmissionRun(t *testing.T, answer []review.AdmissionProblem) *admissionRun {
+	t.Helper()
+	return newAdmissionRunOver(t, answer, nil)
+}
+
+// newAdmissionRunOver is newAdmissionRun with a source-control rail bound (nil binds none).
+func newAdmissionRunOver(t *testing.T, answer []review.AdmissionProblem, rail sourcecontrol.SourceControlAccess) *admissionRun {
 	t.Helper()
 	url := holdRepo(t, holdArrangementAt(t, projectstate.ReviewNone))
 	draftSlot := coreUseCasesSlot(t, holdArrangementAt(t, projectstate.ReviewAwaitingReview))
@@ -172,16 +182,18 @@ func newAdmissionRun(t *testing.T, answer []review.AdmissionProblem) *admissionR
 		ProposeReviewsFn: realEngine.ProposeReviews,
 		DeriveTaskSpecFn: realEngine.DeriveTaskSpec,
 		TaskSpecHashFn:   realEngine.TaskSpecHash,
-		AdmitArtifactFn: func(_ fweng.Context, _ string, kind, _, _ string) ([]review.AdmissionProblem, error) {
+		AdmitArtifactFn: func(_ fweng.Context, _ string, kind, appgenConfig, goMod string) ([]review.AdmissionProblem, error) {
 			r.asked.Add(1)
 			r.kind.Store(kind)
+			r.config.Store(appgenConfig)
+			r.goMod.Store(goMod)
 			return answer, nil
 		},
 	}
 	mgr := delivery.NewDeliveryManager(envClient{env: env}, projectstate.NewGitLocalProjectStateAccess(url), nil,
 		intervention.NewInterventionEngine(), engine, estimation.NewEstimationEngine(),
 		operationestimation.NewOperationEstimationEngine(), billing.NewBillingEngine(), designhealth.NewDesignHealthEngine(),
-		jobs, nil, projectstate.NewGitLocalGitActivityStatusAccess(url), projectstate.NewGitLocalDesignSessionAccess(url),
+		jobs, rail, projectstate.NewGitLocalGitActivityStatusAccess(url), projectstate.NewGitLocalDesignSessionAccess(url),
 		stages, bus, episode.NewLocalFSEpisodeAccess(url), 0, "tiered")
 	delivery.RegisterManagerWorker(envWorker{env: env}, mgr)
 	r.holdRun = &holdRun{env: env, mgr: mgr, ae: stages, pid: holdProject, aid: holdActivity}
@@ -331,5 +343,80 @@ func TestTier1AdmissionRail_RunsAsALocalActivityNotInTheWorkflowBody(t *testing.
 	}
 	if n := r.stages.staged.Load(); n != 0 {
 		t.Errorf("a refused draft was staged %d times", n)
+	}
+}
+
+// The rail holds the draft to the module it is built in: Tier 1 is handed the appgen.json and
+// go.mod the source-control rail serves from the project's moduleDir, not the library defaults.
+// The rail answers only the paths under the project's moduleDir, so a read of the wrong path is a
+// missing file and the Engine would be handed empty documents.
+func TestTier1AdmissionRail_HandsTheEngineTheModulesAppgenConfigAndGoMod(t *testing.T) {
+	const wantConfig = `{"variantConstructorNoError":{"messageBus/Temporal":true}}`
+	const wantMod = "module example.com/app\n\ngo 1.25\n"
+	var reads []string
+	rail := &sourcecontrolfake.FakeSourceControlAccess{
+		ProjectRepoFn: func(_ fwra.Context, id sourcecontrol.ProjectID) (sourcecontrol.ProjectRepoInfo, error) {
+			return sourcecontrol.ProjectRepoInfo{Repo: sourcecontrol.GitLocalRepoRefForProject(id), Found: true}, nil
+		},
+		GetInstallationTokenFn: func(fwra.Context, sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+			return sourcecontrol.RepoCredential{}, nil
+		},
+		ReadManagedFileFn: func(_ fwra.Context, _ sourcecontrol.RepoRef, p string, _ sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+			reads = append(reads, p)
+			switch p {
+			case "server/appgen.json":
+				return sourcecontrol.ManagedFileRead{Content: []byte(wantConfig), Found: true}, nil
+			case "server/go.mod":
+				return sourcecontrol.ManagedFileRead{Content: []byte(wantMod), Found: true}, nil
+			}
+			return sourcecontrol.ManagedFileRead{}, nil
+		},
+	}
+	r := newAdmissionRunOver(t, nil, rail)
+	r.start(t, func() {})
+	if !r.env.IsWorkflowCompleted() {
+		t.Fatal("the walk did not finish")
+	}
+	if r.asked.Load() == 0 {
+		t.Fatalf("the rail never asked the review Engine to admit the draft: %v", r.env.GetWorkflowError())
+	}
+	if got, _ := r.config.Load().(string); got != wantConfig {
+		t.Errorf("the Engine was handed appgen config %q, want %q (reads: %v)", got, wantConfig, reads)
+	}
+	if got, _ := r.goMod.Load().(string); got != wantMod {
+		t.Errorf("the Engine was handed go.mod %q, want %q (reads: %v)", got, wantMod, reads)
+	}
+}
+
+// A workflow recorded before the admission-appgen-config marker asked the Engine with empty
+// documents and made no rail read (the read left Activity commands in its history): on replay the
+// marker answers DefaultVersion and neither is read.
+func TestTier1AdmissionRail_ARecordedHistoryWithoutTheConfigMarkerAdmitsWithEmptyDocuments(t *testing.T) {
+	rail := &sourcecontrolfake.FakeSourceControlAccess{
+		ProjectRepoFn: func(_ fwra.Context, id sourcecontrol.ProjectID) (sourcecontrol.ProjectRepoInfo, error) {
+			return sourcecontrol.ProjectRepoInfo{Repo: sourcecontrol.GitLocalRepoRefForProject(id), Found: true}, nil
+		},
+		GetInstallationTokenFn: func(fwra.Context, sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
+			return sourcecontrol.RepoCredential{}, nil
+		},
+		ReadManagedFileFn: func(_ fwra.Context, _ sourcecontrol.RepoRef, p string, _ sourcecontrol.RepoCredential) (sourcecontrol.ManagedFileRead, error) {
+			t.Errorf("the pre-marker arm read %q off the rail", p)
+			return sourcecontrol.ManagedFileRead{}, nil
+		},
+	}
+	r := newAdmissionRunOver(t, nil, rail)
+	r.env.OnGetVersion("admission-appgen-config", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	r.start(t, func() {})
+	if !r.env.IsWorkflowCompleted() {
+		t.Fatal("the walk did not finish")
+	}
+	if r.asked.Load() == 0 {
+		t.Fatalf("the rail never asked the review Engine to admit the draft: %v", r.env.GetWorkflowError())
+	}
+	if got, _ := r.config.Load().(string); got != "" {
+		t.Errorf("the pre-marker arm handed the Engine appgen config %q", got)
+	}
+	if got, _ := r.goMod.Load().(string); got != "" {
+		t.Errorf("the pre-marker arm handed the Engine go.mod %q", got)
 	}
 }
