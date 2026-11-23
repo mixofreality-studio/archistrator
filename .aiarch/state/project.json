@@ -100276,7 +100276,7 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": ""
+                        "json": "not json"
                       }
                     },
                     "schemaRef": ""
@@ -100293,9 +100293,9 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "ContractMisuse"
                 },
                 "probes": []
               }
@@ -100824,7 +100824,7 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": "{\"id\": \"stp-review-admit\"}"
+                        "json": "{\"id\": \"admit-config-fixture\", \"version\": 1, \"slots\": {\"6\": {\"kind\": 6, \"model\": {\"deployment\": {\"deliveryStyle\": \"cloud\", \"containers\": [{\"key\": \"order-app\", \"name\": \"order-app\", \"components\": [\"orderManager\", \"messageBus\"]}], \"settings\": [{\"name\": \"listenAddr\", \"type\": \"string\", \"default\": \":8080\", \"env\": \"ORDER_LISTEN_ADDR\", \"description\": \"HTTP listen address.\"}], \"environments\": [{\"profile\": \"local\", \"title\": \"Local\"}], \"infrastructure\": [{\"key\": \"temporal\", \"substrate\": \"temporal\", \"profiles\": [\"local\"], \"presence\": \"required\"}], \"bindings\": [{\"component\": \"messageBus\", \"presence\": \"required\", \"perProfile\": {\"local\": {\"variant\": \"Temporal\", \"infra\": [\"temporal\"]}}}]}}}}, \"serviceContracts\": {\"orderManager\": {\"component\": \"orderManager\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/order\", \"title\": \"order contract\", \"deps\": [{\"name\": \"messageBus\", \"component\": \"messageBus\"}], \"$defs\": {\"OrderID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"OrderManager\", \"layer\": \"manager\", \"operations\": [{\"name\": \"PlaceOrder\", \"params\": [{\"name\": \"id\", \"schema\": {\"$ref\": \"#/$defs/OrderID\"}}], \"error\": true}]}}, \"messageBus\": {\"component\": \"messageBus\", \"layer\": \"Utility\", \"infra\": [\"Temporal\"], \"goPackage\": \"internal/utility/messagebus\", \"title\": \"messagebus contract\", \"$defs\": {\"ExecutionID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"MessageBus\", \"layer\": \"utility\", \"operations\": [{\"name\": \"DeliverSignal\", \"params\": [{\"name\": \"targetExecutionID\", \"schema\": {\"$ref\": \"#/$defs/ExecutionID\"}}], \"error\": true}]}}}}"
                       }
                     },
                     "schemaRef": ""
@@ -100854,14 +100854,14 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": ""
+                        "json": "module example.com/app\n\ngo 1.25\n"
                       }
                     },
                     "schemaRef": ""
                   }
                 ],
                 "expect": {
-                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
+                  "result": "[{\"consumer\": \"appgen compose\", \"path\": \"cmd/server/main.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}, {\"consumer\": \"appgen compose\", \"path\": \"internal/scenariocompose/compose.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -100994,7 +100994,7 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": "{\"id\": \"stp-review-admit\"}"
+                        "json": "{\"id\": \"admit-config-fixture\", \"version\": 1, \"slots\": {\"6\": {\"kind\": 6, \"model\": {\"deployment\": {\"deliveryStyle\": \"cloud\", \"containers\": [{\"key\": \"order-app\", \"name\": \"order-app\", \"components\": [\"orderManager\", \"messageBus\"]}], \"settings\": [{\"name\": \"listenAddr\", \"type\": \"string\", \"default\": \":8080\", \"env\": \"ORDER_LISTEN_ADDR\", \"description\": \"HTTP listen address.\"}], \"environments\": [{\"profile\": \"local\", \"title\": \"Local\"}], \"infrastructure\": [{\"key\": \"temporal\", \"substrate\": \"temporal\", \"profiles\": [\"local\"], \"presence\": \"required\"}], \"bindings\": [{\"component\": \"messageBus\", \"presence\": \"required\", \"perProfile\": {\"local\": {\"variant\": \"Temporal\", \"infra\": [\"temporal\"]}}}]}}}}, \"serviceContracts\": {\"orderManager\": {\"component\": \"orderManager\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/order\", \"title\": \"order contract\", \"deps\": [{\"name\": \"messageBus\", \"component\": \"messageBus\"}], \"$defs\": {\"OrderID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"OrderManager\", \"layer\": \"manager\", \"operations\": [{\"name\": \"PlaceOrder\", \"params\": [{\"name\": \"id\", \"schema\": {\"$ref\": \"#/$defs/OrderID\"}}], \"error\": true}]}}, \"messageBus\": {\"component\": \"messageBus\", \"layer\": \"Utility\", \"infra\": [\"Temporal\"], \"goPackage\": \"internal/utility/messagebus\", \"title\": \"messagebus contract\", \"$defs\": {\"ExecutionID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"MessageBus\", \"layer\": \"utility\", \"operations\": [{\"name\": \"DeliverSignal\", \"params\": [{\"name\": \"targetExecutionID\", \"schema\": {\"$ref\": \"#/$defs/ExecutionID\"}}], \"error\": true}]}}}}"
                       }
                     },
                     "schemaRef": ""
@@ -101031,7 +101031,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
+                  "result": "null",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -101200,16 +101200,16 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": ""
+                        "json": "go 1.25\n"
                       }
                     },
                     "schemaRef": ""
                   }
                 ],
                 "expect": {
-                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
-                  "errorExpected": false,
-                  "errorCode": ""
+                  "result": "",
+                  "errorExpected": true,
+                  "errorCode": "ContractMisuse"
                 },
                 "probes": []
               }

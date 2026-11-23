@@ -358,9 +358,9 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 		var out3 any
 		var err3 error
 		var in3 inputExecuteAProjectActivityP2S3
-		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"","goMod":""}`, &in3)
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"not json","goMod":""}`, &in3)
 		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind, in3.AppgenConfig, in3.GoMod)
-		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P2", 3, out3, err3, `{"errorExpected":true,"errorCode":"ContractMisuse"}`)
 	})
 }
 
@@ -632,9 +632,9 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var out3 any
 		var err3 error
 		var in3 inputExecuteAProjectActivityP5S3
-		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"","goMod":""}`, &in3)
+		mustUnmarshal(t, `{"project":"{\"id\": \"admit-config-fixture\", \"version\": 1, \"slots\": {\"6\": {\"kind\": 6, \"model\": {\"deployment\": {\"deliveryStyle\": \"cloud\", \"containers\": [{\"key\": \"order-app\", \"name\": \"order-app\", \"components\": [\"orderManager\", \"messageBus\"]}], \"settings\": [{\"name\": \"listenAddr\", \"type\": \"string\", \"default\": \":8080\", \"env\": \"ORDER_LISTEN_ADDR\", \"description\": \"HTTP listen address.\"}], \"environments\": [{\"profile\": \"local\", \"title\": \"Local\"}], \"infrastructure\": [{\"key\": \"temporal\", \"substrate\": \"temporal\", \"profiles\": [\"local\"], \"presence\": \"required\"}], \"bindings\": [{\"component\": \"messageBus\", \"presence\": \"required\", \"perProfile\": {\"local\": {\"variant\": \"Temporal\", \"infra\": [\"temporal\"]}}}]}}}}, \"serviceContracts\": {\"orderManager\": {\"component\": \"orderManager\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/order\", \"title\": \"order contract\", \"deps\": [{\"name\": \"messageBus\", \"component\": \"messageBus\"}], \"$defs\": {\"OrderID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"OrderManager\", \"layer\": \"manager\", \"operations\": [{\"name\": \"PlaceOrder\", \"params\": [{\"name\": \"id\", \"schema\": {\"$ref\": \"#/$defs/OrderID\"}}], \"error\": true}]}}, \"messageBus\": {\"component\": \"messageBus\", \"layer\": \"Utility\", \"infra\": [\"Temporal\"], \"goPackage\": \"internal/utility/messagebus\", \"title\": \"messagebus contract\", \"$defs\": {\"ExecutionID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"MessageBus\", \"layer\": \"utility\", \"operations\": [{\"name\": \"DeliverSignal\", \"params\": [{\"name\": \"targetExecutionID\", \"schema\": {\"$ref\": \"#/$defs/ExecutionID\"}}], \"error\": true}]}}}}","kind":"serviceContract","appgenConfig":"","goMod":"module example.com/app\n\ngo 1.25\n"}`, &in3)
 		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind, in3.AppgenConfig, in3.GoMod)
-		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P5", 3, out3, err3, `{"result":"[{\"consumer\": \"appgen compose\", \"path\": \"cmd/server/main.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}, {\"consumer\": \"appgen compose\", \"path\": \"internal/scenariocompose/compose.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 		// step 4: DeriveTaskSpec (node dispatch-task; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var out4 any
 		var err4 error
@@ -717,9 +717,9 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var out6 any
 		var err6 error
 		var in6 inputExecuteAProjectActivityP5S6
-		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"{\"variantConstructorNoError\":{\"messageBus/Temporal\":true}}","goMod":"module example.com/app\n\ngo 1.25\n"}`, &in6)
+		mustUnmarshal(t, `{"project":"{\"id\": \"admit-config-fixture\", \"version\": 1, \"slots\": {\"6\": {\"kind\": 6, \"model\": {\"deployment\": {\"deliveryStyle\": \"cloud\", \"containers\": [{\"key\": \"order-app\", \"name\": \"order-app\", \"components\": [\"orderManager\", \"messageBus\"]}], \"settings\": [{\"name\": \"listenAddr\", \"type\": \"string\", \"default\": \":8080\", \"env\": \"ORDER_LISTEN_ADDR\", \"description\": \"HTTP listen address.\"}], \"environments\": [{\"profile\": \"local\", \"title\": \"Local\"}], \"infrastructure\": [{\"key\": \"temporal\", \"substrate\": \"temporal\", \"profiles\": [\"local\"], \"presence\": \"required\"}], \"bindings\": [{\"component\": \"messageBus\", \"presence\": \"required\", \"perProfile\": {\"local\": {\"variant\": \"Temporal\", \"infra\": [\"temporal\"]}}}]}}}}, \"serviceContracts\": {\"orderManager\": {\"component\": \"orderManager\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/order\", \"title\": \"order contract\", \"deps\": [{\"name\": \"messageBus\", \"component\": \"messageBus\"}], \"$defs\": {\"OrderID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"OrderManager\", \"layer\": \"manager\", \"operations\": [{\"name\": \"PlaceOrder\", \"params\": [{\"name\": \"id\", \"schema\": {\"$ref\": \"#/$defs/OrderID\"}}], \"error\": true}]}}, \"messageBus\": {\"component\": \"messageBus\", \"layer\": \"Utility\", \"infra\": [\"Temporal\"], \"goPackage\": \"internal/utility/messagebus\", \"title\": \"messagebus contract\", \"$defs\": {\"ExecutionID\": {\"type\": \"string\"}}, \"interface\": {\"name\": \"MessageBus\", \"layer\": \"utility\", \"operations\": [{\"name\": \"DeliverSignal\", \"params\": [{\"name\": \"targetExecutionID\", \"schema\": {\"$ref\": \"#/$defs/ExecutionID\"}}], \"error\": true}]}}}}","kind":"serviceContract","appgenConfig":"{\"variantConstructorNoError\":{\"messageBus/Temporal\":true}}","goMod":"module example.com/app\n\ngo 1.25\n"}`, &in6)
 		out6, err6 = subject.AdmitArtifact(h.EngineContext(t), in6.Project, in6.Kind, in6.AppgenConfig, in6.GoMod)
-		expect(t, "execute-a-project-activity-P5", 6, out6, err6, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P5", 6, out6, err6, `{"result":"null","errorExpected":false}`)
 	})
 }
 
@@ -830,9 +830,9 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 		var out3 any
 		var err3 error
 		var in3 inputExecuteAProjectActivityP6S3
-		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"","goMod":""}`, &in3)
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"","goMod":"go 1.25\n"}`, &in3)
 		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind, in3.AppgenConfig, in3.GoMod)
-		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P6", 3, out3, err3, `{"errorExpected":true,"errorCode":"ContractMisuse"}`)
 	})
 }
 
