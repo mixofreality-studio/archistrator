@@ -2167,7 +2167,7 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	settings := claudeSettings{
 		sandboxed:       !allowUnsandboxedFromEnv(),
 		allowedDomains:  sandboxAllowedDomains(a.repoURL),
-		allowWritePaths: append([]string{workDir, gitDir, buildCacheDir(parentDir)}, workspaceSandboxPaths(workspaces)...),
+		allowWritePaths: append([]string{workDir, gitDir, buildCacheDir(parentDir), lintCacheDir(parentDir)}, workspaceSandboxPaths(workspaces)...),
 		disallowedTools: gate.deniedTools(plan.command),
 	}
 	if err := writeClaudeSettings(parentDir, settings); err != nil {
@@ -2196,8 +2196,10 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	cmd.Dir = workDir
 	// The agent's Bash tool can build: GOCACHE points inside the write allowlist, where the
 	// default cache would be denied. Only this process gets it, so the gate keeps the warm
-	// host cache. The module graph stays the job's (run_checks tidies outside the sandbox).
-	cmd.Env = append(claudeSubprocessEnv(rig), "GOCACHE="+buildCacheDir(parentDir))
+	// host cache. GOLANGCI_LINT_CACHE is per job too, inside the write allowlist, so the agent's
+	// run_checks never replays another checkout's cached lint positions. The module graph stays
+	// the job's (run_checks tidies outside the sandbox).
+	cmd.Env = append(claudeSubprocessEnv(rig), "GOCACHE="+buildCacheDir(parentDir), "GOLANGCI_LINT_CACHE="+lintCacheDir(parentDir))
 	// The prompt rides stdin, never argv (claudeCommand says why).
 	cmd.Stdin = strings.NewReader(plan.prompt + workspacePromptNote(workspaces))
 	// SIGTERM-then-bounded-pipe-close, the SAME shutdown mechanism serverchild.go's
@@ -2567,7 +2569,7 @@ func (a *localExecAccess) resolveTaskSpec(s dispatchedTaskSpec, parentDir, workD
 	g := &localGate{
 		stateMCPBin: a.stateMCPBin,
 		specPath:    filepath.Join(parentDir, localSpecFile),
-		env:         gateEnv(rig),
+		env:         gateEnv(rig, parentDir),
 		integration: s.taskID == localTaskIntegration,
 		specHash:    s.hash,
 		attempt:     firstNonEmpty(rig[rigRevisionKey], s.activityID+":"+s.taskID),
@@ -2712,9 +2714,10 @@ var gateEnvAllowlist = []string{
 
 // gateEnv is the gate subprocesses' env: the allowlisted part of this process's env with
 // the rig on top (a later entry wins in an exec env, so the rig's AIARCH_* values are the
-// ones read).
-func gateEnv(rig map[string]string) []string {
-	env := allowlistedEnv()
+// ones read). GOLANGCI_LINT_CACHE is this job's own (lintCacheDir), set after the allowlist
+// so the host's shared value can never be the one read.
+func gateEnv(rig map[string]string, parentDir string) []string {
+	env := append(allowlistedEnv(), "GOLANGCI_LINT_CACHE="+lintCacheDir(parentDir))
 	for k, v := range rig {
 		env = append(env, k+"="+v)
 	}
@@ -2798,6 +2801,13 @@ func filterDriverOverrides(configDir string) ([]string, error) {
 
 // buildCacheDir is the agent's Go build cache, beside the worktree.
 func buildCacheDir(parentDir string) string { return filepath.Join(parentDir, "gocache") }
+
+// lintCacheDir is the job's own golangci-lint cache. golangci-lint's cache stores issues by
+// absolute file path, so a cache shared across job checkouts replays paths into deleted
+// checkouts and loses //nolint and generated-file filtering; a per-job cache keeps every
+// cached position pointing at a live file. It lives under parentDir, so it is removed with
+// the job like gocache.
+func lintCacheDir(parentDir string) string { return filepath.Join(parentDir, "golangci-lint-cache") }
 
 // generateScenarioTests is step 3: the generated half of a component is the JOB's. It writes
 // the component's own contract.gen.go and fakes before the agent runs, so the agent builds
