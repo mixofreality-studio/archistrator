@@ -157,7 +157,7 @@ type inputExecuteAProjectActivityP1S3 struct {
 	GoMod        string `json:"goMod"`
 }
 
-// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance-outcome → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P1", func(t *testing.T) {
@@ -386,7 +386,7 @@ type inputExecuteAProjectActivityP3S2 struct {
 	Contracts      []string            `json:"contracts"`
 }
 
-// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers-outcome → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P3", func(t *testing.T) {
@@ -457,7 +457,7 @@ type inputExecuteAProjectActivityP4S2 struct {
 	Contracts      []string            `json:"contracts"`
 }
 
-// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision-asked → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P4", func(t *testing.T) {
@@ -544,7 +544,7 @@ type inputExecuteAProjectActivityP5S6 struct {
 	GoMod        string `json:"goMod"`
 }
 
-// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance-outcome → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P5", func(t *testing.T) {
@@ -877,7 +877,7 @@ type inputExecuteAProjectActivityP7S5 struct {
 	GoMod        string `json:"goMod"`
 }
 
-// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers-outcome → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance-outcome → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "reviewEngine", "execute-a-project-activity-P7", func(t *testing.T) {

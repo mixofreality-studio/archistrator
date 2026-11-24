@@ -76,13 +76,13 @@ type inputRetryADeclinedServiceInvoiceP1S1 struct {
 	IdempotencyKey string                `json:"idempotencyKey"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
 		var subject merchantgateway.MerchantGatewayAccess = scenariocompose.NewMerchantGatewayAccess(t, h)
 		subject = nullSubjectMerchantGatewayAccess(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
+		// step 1: ChargeCustomer (node recharge; guards retry-budget=[yes: retry], charge-ok=[yes])
 		var out1 any
 		var err1 error
 		var in1 inputRetryADeclinedServiceInvoiceP1S1
@@ -95,7 +95,7 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → z-retry-declined-recorded → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "merchantGatewayAccess", "retry-a-declined-service-invoice-P2", func(t *testing.T) {

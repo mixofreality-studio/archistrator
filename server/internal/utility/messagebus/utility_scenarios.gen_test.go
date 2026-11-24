@@ -9,7 +9,7 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 )
 
-// TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg-outcome → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "messageBus", "onboard-a-new-customer-P1", func(t *testing.T) {
@@ -33,7 +33,7 @@ func TestScenario_pause_construction_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
+// TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt-outcome → release-halt → pump-fires → continue → activity-started → end).
 func TestScenario_resume_paused_construction_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "messageBus", "resume-paused-construction-P3", func(t *testing.T) {

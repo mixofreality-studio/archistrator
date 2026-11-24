@@ -56,7 +56,7 @@ type inputExecuteAProjectActivityP5S1 struct {
 	Variance intervention.ConstructionVariance `json:"variance"`
 }
 
-// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance-outcome → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "execute-a-project-activity-P5", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	})
 }
 
-// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → operated-system-unchanged → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "operate-a-delivered-system-P4", func(t *testing.T) {
@@ -168,13 +168,13 @@ type inputRetryADeclinedServiceInvoiceP1S1 struct {
 	Failure intervention.SettlementFailure `json:"failure"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
 		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
 		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
+		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[yes])
 		var out1 any
 		var err1 error
 		var in1 inputRetryADeclinedServiceInvoiceP1S1
@@ -201,13 +201,13 @@ type inputRetryADeclinedServiceInvoiceP2S1 struct {
 	Failure intervention.SettlementFailure `json:"failure"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → z-retry-declined-recorded → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
 		var subject intervention.InterventionEngine = scenariocompose.NewInterventionEngine(t, h)
 		subject = nullSubjectInterventionEngine(subject) // the null-subject run (AIARCH_NULL_OPS) swaps the subject here
-		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[yes])
+		// step 1: DecideOnSettlementFailure (node consult-policy; guards retry-budget=[yes: retry], charge-ok=[no: declined again])
 		var out1 any
 		var err1 error
 		var in1 inputRetryADeclinedServiceInvoiceP2S1
@@ -234,7 +234,7 @@ type inputRetryADeclinedServiceInvoiceP3S1 struct {
 	Failure intervention.SettlementFailure `json:"failure"`
 }
 
-// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep-outcome → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "interventionEngine", "retry-a-declined-service-invoice-P3", func(t *testing.T) {

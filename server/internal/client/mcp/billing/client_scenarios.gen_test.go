@@ -13,7 +13,7 @@ import (
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "mcpClientBilling") }
 
-// TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg-outcome → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClientBilling", "onboard-a-new-customer-P1", func(t *testing.T) {

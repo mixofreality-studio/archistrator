@@ -26,7 +26,7 @@ type inputOperateADeliveredSystemP2S1 struct {
 	InfrastructureKind autoscaler.InfrastructureKind `json:"infrastructureKind"`
 }
 
-// TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+// TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b-outcome → merge-b → autoscale-decide → decision-nochange → operated-system-unchanged → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P2", func(t *testing.T) {
@@ -81,7 +81,7 @@ type inputOperateADeliveredSystemP3S1 struct {
 	InfrastructureKind autoscaler.InfrastructureKind `json:"infrastructureKind"`
 }
 
-// TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+// TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b-outcome → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P3", func(t *testing.T) {
@@ -136,7 +136,7 @@ type inputOperateADeliveredSystemP4S1 struct {
 	InfrastructureKind autoscaler.InfrastructureKind `json:"infrastructureKind"`
 }
 
-// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → operated-system-unchanged → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "autoscalerEngine", "operate-a-delivered-system-P4", func(t *testing.T) {

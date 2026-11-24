@@ -25,7 +25,7 @@ func TestScenario_bill_the_user_for_usage_P2(t *testing.T) {
 	})
 }
 
-// TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
+// TestScenario_onboard_a_new_customer_P1 — Onboard a New Customer — [yes] (use case onboard-a-new-customer; path start → resolve-app → registered → merge-reg-outcome → merge-reg → create-connected → bind-gateway → obj-gateway-bound → register-schedule → obj-schedule-registered → note-schedule-id → end).
 func TestScenario_onboard_a_new_customer_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "onboard-a-new-customer-P1", func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestScenario_onboard_a_new_customer_P3(t *testing.T) {
 	})
 }
 
-// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P1 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P1", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestScenario_retry_a_declined_service_invoice_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [yes] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → record-settled → cycle-settled → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P2 — Retry a Declined Service Invoice — [yes: retry] · [no: declined again] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → recharge → note-idempotency-key → charge-ok → z-retry-declined-recorded → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P2", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestScenario_retry_a_declined_service_invoice_P2(t *testing.T) {
 	})
 }
 
-// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep → cycle-awaiting-sweep → merge-out → end).
+// TestScenario_retry_a_declined_service_invoice_P3 — Retry a Declined Service Invoice — [no: exhausted] · [yes: delay] (use case retry-a-declined-service-invoice; path charge-declined → consult-policy → note-retry-history → retry-budget → tolerance → delay-sweep-outcome → delay-sweep → cycle-awaiting-sweep → merge-out → end).
 func TestScenario_retry_a_declined_service_invoice_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "billingManager", "retry-a-declined-service-invoice-P3", func(t *testing.T) {

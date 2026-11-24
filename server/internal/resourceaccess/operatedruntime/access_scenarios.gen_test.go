@@ -9,7 +9,7 @@ import (
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost"
 )
 
-// TestScenario_enforce_customer_delinquency_on_operated_systems_P3 — Enforce Customer Delinquency on Operated Systems — [yes] · [withdraw] (use case enforce-customer-delinquency-on-operated-systems; path delinquency-arrives → directive-named → read-customer-systems → action-kind → remove-runtime → merge-action → record-delinquency → system-delinquency-recorded → note-per-system → end).
+// TestScenario_enforce_customer_delinquency_on_operated_systems_P3 — Enforce Customer Delinquency on Operated Systems — [yes] · [withdraw] (use case enforce-customer-delinquency-on-operated-systems; path delinquency-arrives → directive-named → read-customer-systems → action-kind → remove-runtime → z-runtime-removed → merge-action → record-delinquency → system-delinquency-recorded → note-per-system → end).
 func TestScenario_enforce_customer_delinquency_on_operated_systems_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "enforce-customer-delinquency-on-operated-systems-P3", func(t *testing.T) {
@@ -25,7 +25,7 @@ func TestScenario_operate_a_delivered_system_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+// TestScenario_operate_a_delivered_system_P2 — Operate a Delivered System — [no] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b-outcome → merge-b → autoscale-decide → decision-nochange → operated-system-unchanged → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P2", func(t *testing.T) {
@@ -33,7 +33,7 @@ func TestScenario_operate_a_delivered_system_P2(t *testing.T) {
 	})
 }
 
-// TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
+// TestScenario_operate_a_delivered_system_P3 — Operate a Delivered System — [no] · [no: scale/pause/resume] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → merge-b-outcome → merge-b → autoscale-decide → decision-nochange → render-manifests-c → publish-c → desired-state-published-c → record-published-c → operated-system-recorded-c → autoscale-decision-note-c → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P3", func(t *testing.T) {
@@ -41,7 +41,7 @@ func TestScenario_operate_a_delivered_system_P3(t *testing.T) {
 	})
 }
 
-// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → merge-c → end-bc).
+// TestScenario_operate_a_delivered_system_P4 — Operate a Delivered System — [yes] · [yes] (use case operate-a-delivered-system; path schedule-fires → read-app-set → pull-telemetry → state-transition → record-status → operated-system-status-changed → compute-usage-recorded → intervention-outcome-note → merge-b → autoscale-decide → decision-nochange → operated-system-unchanged → merge-c → end-bc).
 func TestScenario_operate_a_delivered_system_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "operatedRuntimeAccess", "operate-a-delivered-system-P4", func(t *testing.T) {

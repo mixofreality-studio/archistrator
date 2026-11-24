@@ -13,7 +13,7 @@ import (
 
 func TestMain(m *testing.M) { scenariohost.Main(m, "mcpClient") }
 
-// TestScenario_add_a_use_case_to_an_in_flight_project_P1 — Add a Use Case to an In-Flight Project — [variation] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
+// TestScenario_add_a_use_case_to_an_in_flight_project_P1 — Add a Use Case to an In-Flight Project — [variation] · [no] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend-outcome → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → merge-out → end).
 func TestScenario_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "add-a-use-case-to-an-in-flight-project-P1", func(t *testing.T) {
@@ -21,7 +21,7 @@ func TestScenario_add_a_use_case_to_an_in_flight_project_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_add_a_use_case_to_an_in_flight_project_P2 — Add a Use Case to an In-Flight Project — [variation] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
+// TestScenario_add_a_use_case_to_an_in_flight_project_P2 — Add a Use Case to an In-Flight Project — [variation] · [yes] (use case add-a-use-case-to-an-in-flight-project; path start → capture-uc → core-check → merge-amend-outcome → merge-amend → reopen-slot → use-case-model-amendment-open → redraft-review → amended-use-case-draft-approved → commit-stale → use-case-model-recommitted → downstream-artifacts-stale → reconcile → stale-artifacts-reconciled → reconcile-ack-note → replan-check → replan → replan-trigger-recorded → replan-async-note → merge-out → end).
 func TestScenario_add_a_use_case_to_an_in_flight_project_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "add-a-use-case-to-an-in-flight-project-P2", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestScenario_download_generated_source_code_P2(t *testing.T) {
 	})
 }
 
-// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P1 — Execute a Project Activity — dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance-outcome → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P1", func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 	})
 }
 
-// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P3 — Execute a Project Activity — review · agents only · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers-outcome → dispatch-reviewers → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P3", func(t *testing.T) {
@@ -141,7 +141,7 @@ func TestScenario_execute_a_project_activity_P3(t *testing.T) {
 	})
 }
 
-// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P4 — Execute a Project Activity — review · human required · approve (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → human-decision-asked → human-decision → verdict → commit-artifact → artifact-committed → review-pr-merged → seal-project-phase → project-phase-advanced → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P4", func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestScenario_execute_a_project_activity_P4(t *testing.T) {
 	})
 }
 
-// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P5 — Execute a Project Activity — dispatch · no · yes: retry · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → retry-remain → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance-outcome → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P5", func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 	})
 }
 
-// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
+// TestScenario_execute_a_project_activity_P7 — Execute a Project Activity — review · agents only · sendBack: reopens the judged task as revision n+1 · dispatch · yes (use case execute-a-project-activity; path pump-fires → activity-eligible → activity-lifecycle-open → next-task → task-kind → propose-reviews → review-pr-open → requires-human → dispatch-reviewers-outcome → dispatch-reviewers → verdict → next-task → task-kind → dispatch-task → observe-validate → staged-artifact → attempt-episode → exit-met → merge-advance-outcome → merge-advance → record-exit → activity-exit-recorded → recompute-ev → earned-value-recomputed → note-binary-exit → end).
 func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "execute-a-project-activity-P7", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 	})
 }
 
-// TestScenario_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
+// TestScenario_manage_projects_P1 — Manage Projects — [no: self-operated] (use case manage-projects; path start → prepare-repo → authenticate-owner → authorize-create → submit-create → adopt-repo → obj-project-repo-adopted → note-name-as-identity → create-head-state → obj-project-head-state-created → operating-model → merge-model-outcome → merge-model → catalog-open → set-review-policy → obj-review-policy-set → capture-research → obj-research-input-captured → tell-owner-project-ready → end).
 func TestScenario_manage_projects_P1(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "manage-projects-P1", func(t *testing.T) {
@@ -245,7 +245,7 @@ func TestScenario_resume_paused_construction_P2(t *testing.T) {
 	})
 }
 
-// TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt → pump-fires → continue → activity-started → end).
+// TestScenario_resume_paused_construction_P3 — Resume Paused Construction — [yes] (use case resume-paused-construction; path start → see-paused → choose-resume → note-resume-run-state → halt-check → release-halt-outcome → release-halt → pump-fires → continue → activity-started → end).
 func TestScenario_resume_paused_construction_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "resume-paused-construction-P3", func(t *testing.T) {
@@ -277,7 +277,7 @@ func TestScenario_track_weekly_project_progress_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_track_weekly_project_progress_P2 — Track Weekly Project Progress — [no] · [no] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → no-trend → tracking-point-no-trend → merge-trend → record-point → progress-record-appended → off-track → merge-out → show-weekly-progress → end).
+// TestScenario_track_weekly_project_progress_P2 — Track Weekly Project Progress — [no] · [no] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → no-trend → tracking-point-no-trend → merge-trend → record-point → progress-record-appended → off-track → merge-out-outcome → merge-out → show-weekly-progress → end).
 func TestScenario_track_weekly_project_progress_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "track-weekly-project-progress-P2", func(t *testing.T) {
@@ -285,7 +285,7 @@ func TestScenario_track_weekly_project_progress_P2(t *testing.T) {
 	})
 }
 
-// TestScenario_track_weekly_project_progress_P3 — Track Weekly Project Progress — [yes] · [yes] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → project-eac → merge-trend → record-point → progress-record-appended → off-track → corrective → replan-trigger-pending → merge-out → show-weekly-progress → end).
+// TestScenario_track_weekly_project_progress_P3 — Track Weekly Project Progress — [yes] · [yes] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → project-eac → merge-trend-outcome → merge-trend → record-point → progress-record-appended → off-track → corrective → replan-trigger-pending → merge-out → show-weekly-progress → end).
 func TestScenario_track_weekly_project_progress_P3(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "track-weekly-project-progress-P3", func(t *testing.T) {
@@ -293,7 +293,7 @@ func TestScenario_track_weekly_project_progress_P3(t *testing.T) {
 	})
 }
 
-// TestScenario_track_weekly_project_progress_P4 — Track Weekly Project Progress — [yes] · [no] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → project-eac → merge-trend → record-point → progress-record-appended → off-track → merge-out → show-weekly-progress → end).
+// TestScenario_track_weekly_project_progress_P4 — Track Weekly Project Progress — [yes] · [no] (use case track-weekly-project-progress; path start → week-elapses → read-exits → compute-ev → note-binary-exits → enough-points → project-eac → merge-trend-outcome → merge-trend → record-point → progress-record-appended → off-track → merge-out-outcome → merge-out → show-weekly-progress → end).
 func TestScenario_track_weekly_project_progress_P4(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "track-weekly-project-progress-P4", func(t *testing.T) {
@@ -309,7 +309,7 @@ func TestScenario_view_the_project_state_log_P1(t *testing.T) {
 	})
 }
 
-// TestScenario_view_the_project_state_log_P2 — View the Project State Log — [no] (use case view-the-project-state-log; path start → open-history → read-commits → note-commit-naming → read-ledger → show-state-log → inspect → merge-out → project-state-unchanged → end).
+// TestScenario_view_the_project_state_log_P2 — View the Project State Log — [no] (use case view-the-project-state-log; path start → open-history → read-commits → note-commit-naming → read-ledger → show-state-log → inspect → merge-out-outcome → merge-out → project-state-unchanged → end).
 func TestScenario_view_the_project_state_log_P2(t *testing.T) {
 	h := scenariohost.Start(t)
 	h.RunScenario(t, "mcpClient", "view-the-project-state-log-P2", func(t *testing.T) {
