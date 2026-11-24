@@ -207,7 +207,7 @@ func identsOf(n ast.Node) map[string]bool {
 func hasFeedbackRefusal(fn *ast.FuncDecl) bool {
 	hit := false
 	ast.Inspect(fn, func(n ast.Node) bool {
-		if ifs, ok := n.(*ast.IfStmt); ok && identsOf(ifs.Cond)["feedback"] && mentionsSelector(ifs.Body, "fwmanager", "ContractMisuse") {
+		if ifs, ok := n.(*ast.IfStmt); ok && identsOf(ifs.Cond)["feedback"] && !identsOf(ifs.Cond)["false"] && mentionsSelector(ifs.Body, "fwmanager", "ContractMisuse") {
 			hit = true
 		}
 		return true
@@ -222,7 +222,7 @@ func hasAnswerNoteRefusal(fn *ast.FuncDecl) bool {
 	ast.Inspect(fn, func(n ast.Node) bool {
 		if ifs, ok := n.(*ast.IfStmt); ok {
 			c := identsOf(ifs.Cond)
-			if c["operatorNote"] && c["designJobModeAnswer"] && mentionsSelector(ifs.Body, "fwra", "ContractMisuse") {
+			if c["operatorNote"] && c["designJobModeAnswer"] && !c["false"] && mentionsSelector(ifs.Body, "fwra", "ContractMisuse") {
 				hit = true
 			}
 		}
