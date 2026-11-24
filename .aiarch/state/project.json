@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 606,
+  "version": 607,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -606,7 +606,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "11": {
@@ -698,7 +698,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "12": {
@@ -790,7 +790,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "13": {
@@ -882,7 +882,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "14": {
@@ -974,7 +974,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "15": {
@@ -1085,7 +1085,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "16": {
@@ -1214,7 +1214,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "2": {
@@ -2152,6 +2152,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-b-outcome",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[status unchanged since last check]"
                   }
                 ],
                 "edges": [
@@ -2211,9 +2219,15 @@
                   },
                   {
                     "from": "state-transition",
-                    "to": "merge-b",
+                    "to": "merge-b-outcome",
                     "kind": "guardedFlow",
                     "guard": "[no]"
+                  },
+                  {
+                    "from": "merge-b-outcome",
+                    "to": "merge-b",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "record-status",
@@ -2736,6 +2750,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-model-outcome",
+                    "kind": "objectNode",
+                    "label": "Operating model",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[self-operated: full palette]"
                   }
                 ],
                 "edges": [
@@ -2825,9 +2847,15 @@
                   },
                   {
                     "from": "operating-model",
-                    "to": "merge-model",
+                    "to": "merge-model-outcome",
                     "kind": "guardedFlow",
                     "guard": "[no: self-operated]"
+                  },
+                  {
+                    "from": "merge-model-outcome",
+                    "to": "merge-model",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "merge-model",
@@ -3026,6 +3054,14 @@
                     "roleName": "",
                     "linkedActorId": null,
                     "inState": "[retry attempt declined, recorded in the retry history]"
+                  },
+                  {
+                    "id": "delay-sweep-outcome",
+                    "kind": "objectNode",
+                    "label": "SettlementCycle",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[retry budget exhausted, within tolerance: sweep delayed]"
                   }
                 ],
                 "edges": [
@@ -3103,9 +3139,15 @@
                   },
                   {
                     "from": "tolerance",
-                    "to": "delay-sweep",
+                    "to": "delay-sweep-outcome",
                     "kind": "guardedFlow",
                     "guard": "[yes: delay]"
+                  },
+                  {
+                    "from": "delay-sweep-outcome",
+                    "to": "delay-sweep",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "tolerance",
@@ -3308,6 +3350,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-reg-outcome",
+                    "kind": "objectNode",
+                    "label": "Customer billing record",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[already registered: reused]"
                   }
                 ],
                 "edges": [
@@ -3385,9 +3435,15 @@
                   },
                   {
                     "from": "registered",
-                    "to": "merge-reg",
+                    "to": "merge-reg-outcome",
                     "kind": "guardedFlow",
                     "guard": "[yes]"
+                  },
+                  {
+                    "from": "merge-reg-outcome",
+                    "to": "merge-reg",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "merge-reg",
@@ -3615,6 +3671,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-amend-outcome",
+                    "kind": "objectNode",
+                    "label": "Decomposition",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[unchanged: a variation needs no re-validation]"
                   }
                 ],
                 "edges": [
@@ -3650,9 +3714,15 @@
                   },
                   {
                     "from": "core-check",
-                    "to": "merge-amend",
+                    "to": "merge-amend-outcome",
                     "kind": "guardedFlow",
                     "guard": "[variation]"
+                  },
+                  {
+                    "from": "merge-amend-outcome",
+                    "to": "merge-amend",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "merge-amend",
@@ -4234,6 +4304,22 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-out-outcome",
+                    "kind": "objectNode",
+                    "label": "Tracking point",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[variance within threshold: no corrective action]"
+                  },
+                  {
+                    "id": "merge-trend-outcome",
+                    "kind": "objectNode",
+                    "label": "Tracking point",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[recorded with estimate-at-completion and trend]"
                   }
                 ],
                 "edges": [
@@ -4275,6 +4361,12 @@
                   },
                   {
                     "from": "project-eac",
+                    "to": "merge-trend-outcome",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-trend-outcome",
                     "to": "merge-trend",
                     "kind": "controlFlow",
                     "guard": ""
@@ -4335,9 +4427,15 @@
                   },
                   {
                     "from": "off-track",
-                    "to": "merge-out",
+                    "to": "merge-out-outcome",
                     "kind": "guardedFlow",
                     "guard": "[no]"
+                  },
+                  {
+                    "from": "merge-out-outcome",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "merge-out",
@@ -4466,6 +4564,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-out-outcome",
+                    "kind": "objectNode",
+                    "label": "Project state log",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[presented, no change drilled into]"
                   }
                 ],
                 "edges": [
@@ -4531,9 +4637,15 @@
                   },
                   {
                     "from": "inspect",
-                    "to": "merge-out",
+                    "to": "merge-out-outcome",
                     "kind": "guardedFlow",
                     "guard": "[no]"
+                  },
+                  {
+                    "from": "merge-out-outcome",
+                    "to": "merge-out",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "merge-out",
@@ -5579,6 +5691,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "release-halt-outcome",
+                    "kind": "objectNode",
+                    "label": "Project run state",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[halt released: failed activities re-armed]"
                   }
                 ],
                 "edges": [
@@ -5614,9 +5734,15 @@
                   },
                   {
                     "from": "halt-check",
-                    "to": "release-halt",
+                    "to": "release-halt-outcome",
                     "kind": "guardedFlow",
                     "guard": "[yes]"
+                  },
+                  {
+                    "from": "release-halt-outcome",
+                    "to": "release-halt",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "release-halt",
@@ -6215,6 +6341,22 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-advance-outcome",
+                    "kind": "objectNode",
+                    "label": "Task attempt",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[exit criterion met]"
+                  },
+                  {
+                    "id": "dispatch-reviewers-outcome",
+                    "kind": "objectNode",
+                    "label": "Review",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[agent reviewers dispatched, no human decision required]"
                   }
                 ],
                 "edges": [
@@ -6286,9 +6428,15 @@
                   },
                   {
                     "from": "exit-met",
-                    "to": "merge-advance",
+                    "to": "merge-advance-outcome",
                     "kind": "guardedFlow",
                     "guard": "yes"
+                  },
+                  {
+                    "from": "merge-advance-outcome",
+                    "to": "merge-advance",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "exit-met",
@@ -6352,9 +6500,15 @@
                   },
                   {
                     "from": "requires-human",
-                    "to": "dispatch-reviewers",
+                    "to": "dispatch-reviewers-outcome",
                     "kind": "guardedFlow",
                     "guard": "agents only"
+                  },
+                  {
+                    "from": "dispatch-reviewers-outcome",
+                    "to": "dispatch-reviewers",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "requires-human",
@@ -6722,6 +6876,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "merge-out-outcome",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[already withdrawn: unchanged]"
                   }
                 ],
                 "edges": [
@@ -6745,6 +6907,12 @@
                   },
                   {
                     "from": "note-idempotent-withdraw",
+                    "to": "merge-out-outcome",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-out-outcome",
                     "to": "merge-out",
                     "kind": "controlFlow",
                     "guard": ""
@@ -7202,6 +7370,14 @@
                     "roleName": "",
                     "linkedActorId": null,
                     "inState": "[withdrawn: runtime removed]"
+                  },
+                  {
+                    "id": "merge-action-outcome",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[paused: runtime left running]"
                   }
                 ],
                 "edges": [
@@ -7267,6 +7443,12 @@
                   },
                   {
                     "from": "note-pause-gap",
+                    "to": "merge-action-outcome",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge-action-outcome",
                     "to": "merge-action",
                     "kind": "controlFlow",
                     "guard": ""
@@ -7417,7 +7599,7 @@
           }
         ]
       },
-      "revisions": 5,
+      "revisions": 6,
       "provenance": {
         "committedAt": "2026-11-24T08:51:13Z",
         "approvedBy": "operator",
@@ -11798,7 +11980,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "6": {
@@ -13133,7 +13315,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     },
     "9": {
@@ -13441,7 +13623,7 @@
       "staleBasis": true,
       "staleBasisCause": {
         "upstreamKind": "coreUseCases",
-        "upstreamRevision": 5
+        "upstreamRevision": 6
       }
     }
   },
