@@ -1,6 +1,6 @@
 {
   "id": "archistrator",
-  "version": 605,
+  "version": 606,
   "phase": 2,
   "owner": "dev-architect",
   "name": "Archistrator",
@@ -602,7 +602,12 @@
           "addressee": ""
         }
       ],
-      "revisions": 3
+      "revisions": 3,
+      "staleBasis": true,
+      "staleBasisCause": {
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
+      }
     },
     "11": {
       "status": 2,
@@ -692,8 +697,8 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
-        "upstreamRevision": 3
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
       }
     },
     "12": {
@@ -784,8 +789,8 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
-        "upstreamRevision": 3
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
       }
     },
     "13": {
@@ -876,8 +881,8 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
-        "upstreamRevision": 3
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
       }
     },
     "14": {
@@ -968,8 +973,8 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
-        "upstreamRevision": 3
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
       }
     },
     "15": {
@@ -1079,8 +1084,8 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
-        "upstreamRevision": 3
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
       }
     },
     "16": {
@@ -1208,8 +1213,8 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
-        "upstreamRevision": 3
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
       }
     },
     "2": {
@@ -2127,6 +2132,14 @@
                     "anchor": "record-published-c"
                   },
                   {
+                    "id": "operated-system-unchanged",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "Operator",
+                    "linkedActorId": null,
+                    "inState": "[unchanged: healthy, capacity right]"
+                  },
+                  {
                     "id": "merge-c",
                     "kind": "merge",
                     "label": "",
@@ -2240,9 +2253,15 @@
                   },
                   {
                     "from": "decision-nochange",
-                    "to": "merge-c",
+                    "to": "operated-system-unchanged",
                     "kind": "guardedFlow",
                     "guard": "[yes]"
+                  },
+                  {
+                    "from": "operated-system-unchanged",
+                    "to": "merge-c",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "decision-nochange",
@@ -2327,7 +2346,7 @@
                   "kind": "human"
                 },
                 {
-                  "id": "payment-provider",
+                  "id": "merchant-gateway-provider",
                   "role": "Merchant Gateway Provider",
                   "kind": "system"
                 }
@@ -2999,6 +3018,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "z-retry-declined-recorded",
+                    "kind": "objectNode",
+                    "label": "SettlementCycle",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[retry attempt declined, recorded in the retry history]"
                   }
                 ],
                 "edges": [
@@ -3046,9 +3073,15 @@
                   },
                   {
                     "from": "charge-ok",
-                    "to": "delay-sweep",
+                    "to": "z-retry-declined-recorded",
                     "kind": "guardedFlow",
                     "guard": "[no: declined again]"
+                  },
+                  {
+                    "from": "z-retry-declined-recorded",
+                    "to": "delay-sweep",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "record-settled",
@@ -6065,6 +6098,13 @@
                     "linkedActorId": null
                   },
                   {
+                    "id": "human-decision-asked",
+                    "kind": "sendSignal",
+                    "label": "Ask the architect user to approve or send back the staged artifact (its pull request and the reviewers' findings)",
+                    "roleName": "",
+                    "linkedActorId": "architect-user"
+                  },
+                  {
                     "id": "human-decision",
                     "kind": "action",
                     "label": "The architect user approves or sends back, with comments",
@@ -6318,9 +6358,15 @@
                   },
                   {
                     "from": "requires-human",
-                    "to": "human-decision",
+                    "to": "human-decision-asked",
                     "kind": "guardedFlow",
                     "guard": "human required"
+                  },
+                  {
+                    "from": "human-decision-asked",
+                    "to": "human-decision",
+                    "kind": "controlFlow",
+                    "guard": ""
                   },
                   {
                     "from": "dispatch-reviewers",
@@ -7070,6 +7116,13 @@
                     "anchor": "directive-named"
                   },
                   {
+                    "id": "z-directive-refused-told",
+                    "kind": "sendSignal",
+                    "label": "Delinquency directive refused: it names no action; the customer's systems are unchanged",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
                     "id": "end-refused",
                     "kind": "end",
                     "label": "",
@@ -7141,6 +7194,14 @@
                     "label": "",
                     "roleName": "",
                     "linkedActorId": null
+                  },
+                  {
+                    "id": "z-runtime-removed",
+                    "kind": "objectNode",
+                    "label": "Operated System",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "inState": "[withdrawn: runtime removed]"
                   }
                 ],
                 "edges": [
@@ -7158,6 +7219,12 @@
                   },
                   {
                     "from": "note-refused-unsaid",
+                    "to": "z-directive-refused-told",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "z-directive-refused-told",
                     "to": "end-refused",
                     "kind": "controlFlow",
                     "guard": ""
@@ -7188,6 +7255,12 @@
                   },
                   {
                     "from": "remove-runtime",
+                    "to": "z-runtime-removed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "z-runtime-removed",
                     "to": "merge-action",
                     "kind": "controlFlow",
                     "guard": ""
@@ -7344,7 +7417,12 @@
           }
         ]
       },
-      "revisions": 3
+      "revisions": 5,
+      "provenance": {
+        "committedAt": "2026-11-24T08:51:13Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
     },
     "5": {
       "status": 2,
@@ -11716,7 +11794,12 @@
           }
         ]
       },
-      "revisions": 6
+      "revisions": 6,
+      "staleBasis": true,
+      "staleBasisCause": {
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
+      }
     },
     "6": {
       "status": 2,
@@ -13047,9 +13130,10 @@
         }
       ],
       "revisions": 2,
+      "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "system",
-        "upstreamRevision": 2
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
       }
     },
     "9": {
@@ -13353,7 +13437,12 @@
           "addressee": ""
         }
       ],
-      "revisions": 3
+      "revisions": 3,
+      "staleBasis": true,
+      "staleBasisCause": {
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 5
+      }
     }
   },
   "activityExecution": {
@@ -121065,5 +121154,5 @@
       "relPath": "../archistrator-platform"
     }
   ],
-  "updatedAt": "2026-08-09T05:30:44.213963Z"
+  "updatedAt": "2026-11-24T08:51:23.992292Z"
 }
