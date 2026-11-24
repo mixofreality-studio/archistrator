@@ -422,6 +422,11 @@ func (wf *csWorkflows) produceDesignArtifact(
 ) (producedSubject, error) {
 	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt)
 	critique := tc.Task.Kind == methodassets.LifecycleTaskReview
+	// A SEND-BACK'S STEER rides the redraft's operator_note, as it does for construction. Gated
+	// on its own marker: an old history dispatched the redraft without it.
+	if !critique && workflow.GetVersion(ctx, changeDesignOperatorNoteDelivery, workflow.DefaultVersion, 1) >= 1 {
+		carryWalkFeedback(ctx, tc)
+	}
 	obs, err := wf.runDesignJob(ctx, tc, kind)
 	if err != nil {
 		// A REJECTED DISPATCH is the second of the three faults: an unresolvable repo target, an
@@ -714,6 +719,20 @@ func (wf *csWorkflows) submitDesignJob(
 	if repo != "" {
 		spec.WorkflowFile = designWorkflowFileName
 	}
+	// OPERATOR NOTES (design delivery). A design draft or critique carries the pending notes
+	// exactly as a construction dispatch does; the key is added ONLY for a non-empty block, so a
+	// no-note dispatch's inputs stay byte-identical. The version marker is called on every
+	// dispatch and the behaviour is also gated on noteDelivery, so an old history replays
+	// unchanged.
+	carryNotes := tc.State.noteDelivery &&
+		workflow.GetVersion(ctx, changeDesignOperatorNoteDelivery, workflow.DefaultVersion, 1) >= 1
+	var notes renderedNotes
+	if carryNotes {
+		notes = pendingNotesBlock(tc.State, attemptID)
+		if notes.block != "" {
+			spec.DispatchInputs[dispatchInputOperatorNote] = notes.block
+		}
+	}
 	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, spec)
 	if err != nil {
 		return pipelineHandle{}, err
@@ -721,6 +740,9 @@ func (wf *csWorkflows) submitDesignJob(
 	if agenticjob.PipelineHandleIsZero(handle) {
 		return pipelineHandle{}, temporal.NewNonRetryableApplicationError(
 			"the design dispatch for task "+tc.Task.ID+" returned an empty pipeline handle", "EmptyPipelineHandle", nil)
+	}
+	if carryNotes {
+		wf.settleCarriedNotes(ctx, tc.In.csIn(), tc.State, notes, attemptID, &tc.State.walk.gf, &tc.State.walk.headVersion)
 	}
 	return pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}, nil
 }
@@ -6676,18 +6698,42 @@ func (wf *csWorkflows) submitCarryingNotes(
 	gf *gitForward,
 	headVersion *projectstate.Version,
 ) (pipelineHandle, error) {
+	notes := pendingNotesBlock(state, attemptID)
+	spec.OperatorNote = notes.block
+	handle, err := wf.submitPipeline(ctx, spec)
+	if err != nil {
+		return pipelineHandle{}, err
+	}
+	wf.settleCarriedNotes(ctx, in, state, notes, attemptID, gf, headVersion)
+	return handle, nil
+}
+
+// pendingNotesBlock renders the pending notes NOT already carried into attemptID as the one
+// block a dispatch carries. It is the carry half shared by the construction and the design
+// submit.
+func pendingNotesBlock(state *constructState, attemptID string) renderedNotes {
 	var carry []projectstate.OperatorNote
 	for _, n := range state.pendingNotes {
 		if state.carriedTo[n.NoteID] != attemptID {
 			carry = append(carry, n)
 		}
 	}
-	notes := renderOperatorNotes(carry)
-	spec.OperatorNote = notes.block
-	handle, err := wf.submitPipeline(ctx, spec)
-	if err != nil {
-		return pipelineHandle{}, err
-	}
+	return renderOperatorNotes(carry)
+}
+
+// settleCarriedNotes is the stamp half, shared by the construction and the design submit. It
+// runs only once a submit has succeeded: it stamps delivered to attemptID each note the block
+// carried IN FULL, and drops those from the queue. A note the cap withheld and a note whose
+// stamp failed stay pending.
+func (wf *csWorkflows) settleCarriedNotes(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	notes renderedNotes,
+	attemptID string,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) {
 	delivered := map[string]bool{}
 	for _, n := range notes.whole {
 		if state.carriedTo == nil {
@@ -6716,7 +6762,6 @@ func (wf *csWorkflows) submitCarryingNotes(
 		workflow.GetLogger(ctx).Info("operator notes stay pending after this dispatch",
 			"activityId", string(in.ActivityID), "attemptId", attemptID, "pending", len(still), "withheldByTheCap", notes.withheld)
 	}
-	return handle, nil
 }
 
 // stampNoteDelivered records the note n delivered to attemptID and reports whether the

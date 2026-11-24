@@ -11424,6 +11424,14 @@ func (m *deliveryManager) DispatchActivityTask(rc fwmanager.Context, projectID P
 	// round lives at the review task. Naming the dispatch task therefore found "no review
 	// round" on every call. A task with no reviewer (the M0 row is its own gate) is its own.
 	gateTask := judgingTaskOf(lc, taskID)
+	// A NOTE IS NEVER ACCEPTED AND THEN DROPPED: a computed task (Project Design's) dispatches
+	// no agent, so a steer addressed to it has nothing to ride.
+	if feedback != nil {
+		if t, _ := lifecycleTaskByID(lc, taskID); t.Kind == methodassets.LifecycleTaskReview && t.Reviews == "" {
+			return "", newError(fwmanager.ContractMisuse,
+				"deliveryManager.DispatchActivityTask: task "+taskID+" is computed, not dispatched to an agent, so it cannot carry feedback")
+		}
+	}
 	running, err := m.cs.activityChildRunning(rc.Context, projectID, activityID)
 	if err != nil {
 		return "", err
@@ -13152,6 +13160,11 @@ const mergeGateKey = "merge"
 // changeOperatorNoteDelivery is the version marker gating note record/carry/stamp and
 // the managed-scaffold sync before a GitHub-venue dispatch.
 const changeOperatorNoteDelivery = "operator-note-delivery"
+
+// changeDesignOperatorNoteDelivery is the version marker gating note carry/stamp on a DESIGN
+// draft or critique dispatch (and a design send-back's feedback). It is read only on an
+// execution that already carries changeOperatorNoteDelivery.
+const changeDesignOperatorNoteDelivery = "design-operator-note-delivery"
 
 // ---------------------------------------------------------------------------
 // THE EXECUTION LEDGER (stage 3). Until now this workflow wrote no attempt and no
