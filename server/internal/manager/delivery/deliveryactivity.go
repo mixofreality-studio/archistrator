@@ -730,6 +730,13 @@ func (wf *csWorkflows) submitDesignJob(
 	if carryNotes {
 		notes = pendingNotesBlock(tc.State, attemptID)
 		if notes.block != "" {
+			// A note must never ride into a YAML that would reject it (§C.1.4): a repo seated
+			// before aiarch-design.yml declared operator_note answers a dispatch carrying it
+			// with 422 "Unexpected inputs provided". Converge the seated scaffold first, as
+			// construction does; a failed sync dispatches nothing.
+			if obs, ok := wf.syncScaffoldBeforeDispatch(ctx, tc.In.csIn(), &tc.State.walk.gf); !ok {
+				return pipelineHandle{}, temporal.NewNonRetryableApplicationError(obs.Diagnostic, "ManagedScaffoldSyncRefused", nil)
+			}
 			spec.DispatchInputs[dispatchInputOperatorNote] = notes.block
 		}
 	}
