@@ -114,10 +114,10 @@ type composedVerb struct {
 //     AgentHidden ops (e.g. raw CommitArtifact — merge authority stays with the
 //     server rail) are NEVER registered here; a composed verb is the write surface.
 //
-// OPERATOR NOTES (B1.4). In construct mode, a session carrying an operator note hands
+// OPERATOR NOTES (B1.4). In construct, draft and critique modes, a session carrying an operator note hands
 // it to the client as the server's Instructions — which a Claude client places in the
-// agent's system prompt — verbatim, with the instruction to act on it first. Every
-// other mode, and a construct session without a note, builds the server exactly as
+// agent's system prompt — verbatim, with the instruction to act on it first. Answer
+// mode, and any session without a note, builds the server exactly as
 // before (nil options).
 func buildServer(s *Session) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
@@ -401,11 +401,11 @@ func composedVerbs(s *Session) []composedVerb {
 				return "The report was recorded. Call publishDraft, then finish: the gate will stay red, and the system decides whether the plan re-opens.", nil
 			}))
 		}},
-		{name: getOperatorNotesTool, modes: construct, register: func(srv *mcp.Server) {
+		{name: getOperatorNotesTool, modes: operatorNoteModes(), register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: getOperatorNotesTool,
-				Description: "Return the operator's notes for THIS attempt of the activity, verbatim — the steer an operator gave when they sent a phase back, retried an escalated activity, or re-queued a failed one. " +
-					"Call it FIRST. When it returns notes, act on them before anything else: they outrank the command's defaults. When there are none it says so.",
+				Description: "Return the operator's notes for THIS attempt of the task, verbatim — the steer an operator gave when they sent a phase or a draft back, retried an escalated activity, re-queued a failed one, or dispatched a design task with notes. " +
+					"Call it FIRST. When it returns notes, act on them before anything else: they outrank the command's defaults (and, in a draft or critique, any critic verdict item that contradicts them). When there are none it says so.",
 				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.operatorNotesText(), nil }))
 		}},

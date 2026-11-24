@@ -1,9 +1,9 @@
 package main
 
 // operatornotes_test.go pins how the rig serves the operator's note (plan B1.4,
-// amendment §C.4 "Rig"): Instructions iff construct mode AND a note, the tool lists the
+// amendment §C.4 "Rig"): Instructions iff a note-carrying mode (construct, draft, critique) AND a note, the tool lists the
 // note verbatim or says "none", the step manifest keeps the tool for construct steps,
-// and every other mode is untouched. Hostile notes (quotes, backticks, ${{, $(),
+// and answer mode is untouched. Hostile notes (quotes, backticks, ${{, $(),
 // newlines, JSON metacharacters, the markers themselves) must reach the agent
 // byte-exact.
 
@@ -96,22 +96,77 @@ func TestOperatorNote_NoNoteMeansNoInstructionsAndTheToolSaysNone(t *testing.T) 
 	}
 }
 
-// TestOperatorNote_OtherModesAreUntouched: a note in the env of a design session sets
-// no instructions and registers no tool — the rig is unchanged outside construct mode.
-func TestOperatorNote_OtherModesAreUntouched(t *testing.T) {
-	for _, mode := range []string{jobModeDraft, jobModeCritique, jobModeAnswer} {
-		s, _ := seedProject(t, minimalProject(), mode, projectstate.KindMission)
-		s.OperatorNote = "act on this"
-		if serverOptions(s) != nil {
-			t.Errorf("%s: a note must not reach the server options outside construct mode", mode)
+// TestOperatorNote_DesignModesServeTheNote: a draft or critique session with a note
+// serves it verbatim in Instructions and through getOperatorNotes, and tells the agent
+// the note outranks a contradicting critic verdict item.
+func TestOperatorNote_DesignModesServeTheNote(t *testing.T) {
+	for _, mode := range []string{jobModeDraft, jobModeCritique} {
+		for name, note := range hostileOperatorNotes {
+			t.Run(mode+"/"+name, func(t *testing.T) {
+				s, _ := seedProject(t, minimalProject(), mode, projectstate.KindMission)
+				s.OperatorNote = note
+				if serverOptions(s) == nil {
+					t.Fatal("a note in a design session must reach the server options")
+				}
+				cs := connectInMemory(t, s)
+				instr := cs.InitializeResult().Instructions
+				if !strings.HasSuffix(instr, operatorNotesBlock(note)) {
+					t.Fatalf("instructions do not carry the note verbatim:\n%s", instr)
+				}
+				if !strings.Contains(instr, "critic verdict") || !strings.Contains(instr, projectstate.KindMission.String()) {
+					t.Errorf("instructions must name the artifact and say the note outranks a critic verdict:\n%s", instr)
+				}
+				res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: getOperatorNotesTool, Arguments: map[string]any{}})
+				if err != nil || res.IsError {
+					t.Fatalf("getOperatorNotes: %v %v", err, res)
+				}
+				if got := contentText(res); !strings.Contains(got, "\n"+note+"\n") {
+					t.Fatalf("getOperatorNotes did not return the note verbatim:\n%s", got)
+				}
+			})
 		}
-		if registeredMCPToolNames(t, s)[getOperatorNotesTool] {
-			t.Errorf("%s: getOperatorNotes must be construct-only", mode)
+	}
+}
+
+// TestOperatorNote_DesignModesWithoutANoteSayNone: no note (or a blank one) means no
+// Instructions and the tool says none.
+func TestOperatorNote_DesignModesWithoutANoteSayNone(t *testing.T) {
+	for _, mode := range []string{jobModeDraft, jobModeCritique} {
+		for _, note := range []string{"", "  \n\t "} {
+			s, _ := seedProject(t, minimalProject(), mode, projectstate.KindMission)
+			s.OperatorNote = note
+			if serverOptions(s) != nil {
+				t.Errorf("%s note %q: no instructions expected", mode, note)
+			}
+			cs := connectInMemory(t, s)
+			if instr := cs.InitializeResult().Instructions; instr != "" {
+				t.Errorf("%s note %q: instructions set: %q", mode, note, instr)
+			}
+			res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: getOperatorNotesTool, Arguments: map[string]any{}})
+			if err != nil || res.IsError {
+				t.Fatalf("getOperatorNotes: %v %v", err, res)
+			}
+			if got := contentText(res); got != noOperatorNotes {
+				t.Errorf("%s note %q: want %q, got %q", mode, note, noOperatorNotes, got)
+			}
 		}
-		cs := connectInMemory(t, s)
-		if instr := cs.InitializeResult().Instructions; instr != "" {
-			t.Errorf("%s: instructions set outside construct mode: %q", mode, instr)
-		}
+	}
+}
+
+// TestOperatorNote_AnswerModeIsUntouched: a note in the env of an answer session sets
+// no instructions and registers no tool — an answer job is no lifecycle task.
+func TestOperatorNote_AnswerModeIsUntouched(t *testing.T) {
+	s, _ := seedProject(t, minimalProject(), jobModeAnswer, projectstate.KindMission)
+	s.OperatorNote = "act on this"
+	if serverOptions(s) != nil {
+		t.Error("answer: a note must not reach the server options")
+	}
+	if registeredMCPToolNames(t, s)[getOperatorNotesTool] {
+		t.Error("answer: getOperatorNotes must not be registered")
+	}
+	cs := connectInMemory(t, s)
+	if instr := cs.InitializeResult().Instructions; instr != "" {
+		t.Errorf("answer: instructions set: %q", instr)
 	}
 }
 

@@ -72,11 +72,11 @@ const (
 	// session's STEP MANIFEST, which fixes the registered tool surface. The
 	// agent does not supply it; the dispatch stamps it.
 	envCommand = "AIARCH_COMMAND"
-	// envOperatorNote is the operator's steer for THIS construction attempt (a
-	// send-back, retry or re-queue note), stamped by the dispatch only when one is
+	// envOperatorNote is the operator's steer for THIS attempt (a
+	// send-back, retry, re-queue or dispatch note on a construction, draft or critique task), stamped by the dispatch only when one is
 	// pending: the local executor puts it in the rig map, the GitHub workflow builds it
 	// into the MCP config with jq from the operator_note input. It is read VERBATIM
-	// and served two ways in construct mode: as the server's instructions (the
+	// and served two ways in construct, draft and critique modes: as the server's instructions (the
 	// agent's system prompt) and through the getOperatorNotes tool. It never rides
 	// the prompt, whose positional slash-command arguments it would corrupt.
 	envOperatorNote = "AIARCH_OPERATOR_NOTE"
@@ -124,10 +124,10 @@ type Session struct {
 	// and any dispatch predating the manifest working unchanged.
 	Command string
 
-	// OperatorNote is the operator's steer for this construction attempt, VERBATIM from
+	// OperatorNote is the operator's steer for this construction, draft or critique attempt, VERBATIM from
 	// AIARCH_OPERATOR_NOTE (never trimmed or re-encoded: it is the operator's text).
-	// Empty (or whitespace-only) means no note is pending. Served only in construct
-	// mode (operatornotes.go).
+	// Empty (or whitespace-only) means no note is pending. Served in construct, draft and critique
+	// modes, never answer (operatornotes.go).
 	OperatorNote string
 
 	// wroteState is set by any state-mutating verb (putDraftModel / setCritiqueVerdict /
