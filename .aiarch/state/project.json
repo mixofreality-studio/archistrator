@@ -26176,7 +26176,9 @@
       "layer": "Engine",
       "goPackage": "internal/engine/designhealth",
       "ownedPaths": [
-        "@archistrator-platform/framework-go/methodcheck"
+        "@archistrator-platform/framework-go/methodcheck",
+        "@archistrator-platform/framework-go-conformance",
+        "@archistrator-platform/method-assets"
       ],
       "title": "design-health engine contract",
       "$defs": {
@@ -26265,7 +26267,8 @@
                 "$ref": "#/$defs/Finding"
               }
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           }
         ]
       }
