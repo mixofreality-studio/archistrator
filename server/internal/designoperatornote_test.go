@@ -13,18 +13,26 @@ import (
 // BLK-APP-DESIGN-OPERATOR-NOTE-DROPPED: an operator's note on a design draft or critique
 // (a dispatch's feedback, a human send-back) reached the draft agent in neither venue, and
 // the Manager reported success. The note now rides four seams, and each is pinned here as a
-// SOURCE gate for the same reason TestLifecyclePinStampsDAGIdentity is one: the delivery
+// SOURCE PRESENCE gate, and ONLY that. THIS IS A STATED GAP, NOT A BEHAVIORAL PIN: the delivery
 // Manager and agenticJobAccess packages admit only generated scenario tests (TestFileLayout),
 // and every scenario bound to them is skipped under ruling 8 (a full run needs arranged
-// state), so a declarative binding would pin nothing today. Each assertion below fails when
-// its seam is removed.
+// state), so no declarative binding can pin the behavior today. This gate checks that the
+// assignments, calls and refusal branches EXIST; it does not check what they do. Mutations it
+// is known NOT to catch: inverting the `notes.block != ""` guard in delivery.submitDesignJob,
+// weakening the `operatorNote != ""` guard in agenticjob.designDispatchPlan, negating
+// noteDelivery, and disabling either refusal's condition. Those need behavioral scenario
+// bindings once ruling 8's own-project rebinding (scheduled until 2026-12-31) lands; until
+// then the behavior is covered only by a paid self-host run. Each assertion below fails only
+// when its seam is removed outright.
 //
 //  1. delivery.submitDesignJob stamps DispatchInputs["operator_note"] from the pending block,
 //     converges the seated scaffold BEFORE that stamp (a repo seated before the design
 //     workflow declared the input would answer the dispatch with HTTP 422), and settles the
 //     carried notes after the submit.
 //  2. delivery.produceDesignArtifact carries a send-back's feedback into the redraft.
-//  3. delivery.DispatchActivityTask refuses feedback aimed at a computed task.
+//  3. delivery.DispatchActivityTask refuses feedback aimed at a computed task whose gate is
+//     LIVE (the walk's noRedraftAtM0 would drop it). A not-running dispatch must NOT refuse:
+//     reopenForTask keeps the note on the re-armed row, which is the SPA's M0 amend.
 //  4. agenticjob.designDispatchPlan stamps AIARCH_OPERATOR_NOTE into the rig when non-empty,
 //     and the local submitDesignJob hands it the note and refuses one on an answer job.
 func TestDesignOperatorNoteSeams(t *testing.T) {

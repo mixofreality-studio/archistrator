@@ -11424,19 +11424,20 @@ func (m *deliveryManager) DispatchActivityTask(rc fwmanager.Context, projectID P
 	// round lives at the review task. Naming the dispatch task therefore found "no review
 	// round" on every call. A task with no reviewer (the M0 row is its own gate) is its own.
 	gateTask := judgingTaskOf(lc, taskID)
-	// A NOTE IS NEVER ACCEPTED AND THEN DROPPED: a computed task (Project Design's) dispatches
-	// no agent, so a steer addressed to it has nothing to ride.
-	if feedback != nil {
-		if t, _ := lifecycleTaskByID(lc, taskID); t.Kind == methodassets.LifecycleTaskReview && t.Reviews == "" {
-			return "", newError(fwmanager.ContractMisuse,
-				"deliveryManager.DispatchActivityTask: task "+taskID+" is computed, not dispatched to an agent, so it cannot carry feedback")
-		}
-	}
 	running, err := m.cs.activityChildRunning(rc.Context, projectID, activityID)
 	if err != nil {
 		return "", err
 	}
 	if running {
+		// A NOTE IS NEVER ACCEPTED AND THEN DROPPED, on the path that would drop it: a LIVE
+		// child answers a computed task (Project Design's M0 gate, which dispatches no agent)
+		// with noRedraftAtM0, which logs and discards the note. The not-running path below
+		// does NOT drop it — reopenForTask re-arms the exited M0 row with the note as the
+		// override reason, which is the SPA's M0 "amend" (replan under a scope change).
+		if t, _ := lifecycleTaskByID(lc, taskID); feedback != nil && t.Kind == methodassets.LifecycleTaskReview && t.Reviews == "" {
+			return "", newError(fwmanager.ContractMisuse,
+				"deliveryManager.DispatchActivityTask: task "+taskID+" is computed, not dispatched to an agent, and its live gate cannot carry feedback")
+		}
 		return m.cs.RedraftTask(rc, projectID, activityID, gateTask, feedback)
 	}
 	return m.cs.reopenForTask(rc, projectID, activityID, gateTask, feedback)
