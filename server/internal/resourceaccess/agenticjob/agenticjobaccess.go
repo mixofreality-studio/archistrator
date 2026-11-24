@@ -1727,7 +1727,14 @@ func (a *localExecAccess) submitDesignJob(rc fwra.Context, spec PipelineSpec, jo
 		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["target_branch"] for a design job`)
 	}
 	artifactKind := strings.TrimSpace(spec.DispatchInputs[dispatchInputArtifactKindKey])
-	plan := designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind)
+	// The operator's steer for this attempt, passed through VERBATIM (never trimmed), as
+	// the construct arm does. An answer job is no lifecycle task, so the Manager never
+	// sends it a note: one that arrives is refused rather than silently dropped.
+	operatorNote := spec.DispatchInputs[dispatchInputOperatorNoteKey]
+	if operatorNote != "" && jobMode == designJobModeAnswer {
+		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: DispatchInputs["operator_note"] is not accepted on an answer job`)
+	}
+	plan := designDispatchPlan(a.dispatchProjectID(spec), jobMode, command, targetBranch, artifactKind, operatorNote)
 	stampTaskSpecEnvelope(plan.rig, spec.DispatchInputs)
 	// An answer job is no lifecycle task (ruling R30): no spec, no gates, the step
 	// manifest's deny list as before. Every other design job is held to its spec.
@@ -1882,7 +1889,7 @@ func agentStepOf(spec PipelineSpec) string {
 // env emit.
 //
 // operatorNote is the operator's steer for this attempt (DispatchInputs["operator_note"],
-// plan B1.4). It is stamped into the rig as AIARCH_OPERATOR_NOTE ONLY when non-empty, so
+// plan B1.4; designDispatchPlan stamps it the same way for design draft/critique). It is stamped into the rig as AIARCH_OPERATOR_NOTE ONLY when non-empty, so
 // a no-note dispatch's rig is exactly the pre-note envelope. The rig is exec env and
 // writeStateMCPConfig encodes it with json.MarshalIndent, so the note needs no quoting
 // here and can break neither the process env nor the MCP config (amendment §C, H10).
@@ -1948,21 +1955,29 @@ const rigRevisionKey = "AIARCH_REVISION"
 //     (session.go reads none), it is the cloud CHECKOUT ref only, and the local
 //     worktree-on-target_branch already reproduces the same working state — so this arm
 //     does not read it.
+//   - operatorNote is the OPTIONAL operator_note input (optional in aiarch-design.yml's
+//     draft job exactly as in aiarch-construct.yml): the operator's steer for this
+//     attempt, stamped verbatim as AIARCH_OPERATOR_NOTE ONLY when non-empty, so a no-note
+//     design dispatch's rig is unchanged.
 //   - The prompt is exactly "/<command>" (no args) — the aiarch-design.yml draft step's
 //     prompt, vs the construct step's "/<command> <component> <activity>".
-func designDispatchPlan(projectID, jobMode, command, targetBranch, artifactKind string) localDispatchPlan {
+func designDispatchPlan(projectID, jobMode, command, targetBranch, artifactKind, operatorNote string) localDispatchPlan {
+	rig := map[string]string{
+		"AIARCH_PROJECT_ID":    projectID,
+		"AIARCH_ARTIFACT_KIND": artifactKind,
+		"AIARCH_JOB_MODE":      jobMode,
+		"AIARCH_TARGET_BRANCH": targetBranch,
+		"AIARCH_COMMAND":       command,
+	}
+	if operatorNote != "" {
+		rig[rigOperatorNoteKey] = operatorNote
+	}
 	return localDispatchPlan{
 		branch:        targetBranch,
 		worktreeLabel: "design session-branch",
 		command:       command,
-		rig: map[string]string{
-			"AIARCH_PROJECT_ID":    projectID,
-			"AIARCH_ARTIFACT_KIND": artifactKind,
-			"AIARCH_JOB_MODE":      jobMode,
-			"AIARCH_TARGET_BRANCH": targetBranch,
-			"AIARCH_COMMAND":       command,
-		},
-		prompt: "/" + command,
+		rig:           rig,
+		prompt:        "/" + command,
 	}
 }
 
@@ -1993,12 +2008,13 @@ const (
 	// dispatchInputComponentIDKey is the construct-arm component the run targets; stamped
 	// as AIARCH_COMPONENT_ID and appended to the construct prompt.
 	dispatchInputComponentIDKey = "component_id"
-	// dispatchInputOperatorNoteKey is the OPTIONAL construction input carrying the
-	// operator's steer for this attempt (plan B1.4), rendered by the construction Manager
-	// and set only when a note is pending. Like every dispatch input it rides the generic
-	// DispatchInputs (no contract change): the GitHub arm passes it through as the seated
-	// construct workflow's `operator_note` input; this local arm stamps it into the rig as
-	// AIARCH_OPERATOR_NOTE (constructDispatchPlan).
+	// dispatchInputOperatorNoteKey is the OPTIONAL input of BOTH construct and design
+	// (draft/critique) dispatches carrying the operator's steer for this attempt (plan
+	// B1.4), set by the Manager only when a note is pending. Like every dispatch input it
+	// rides the generic DispatchInputs (no contract change): the GitHub arm passes it
+	// through as the seated workflow's `operator_note` input; this local arm stamps it into
+	// the rig as AIARCH_OPERATOR_NOTE (constructDispatchPlan, designDispatchPlan). An
+	// answer job takes none.
 	dispatchInputOperatorNoteKey = "operator_note"
 	// dispatchInputRevisionKey is the OPTIONAL construction input naming the attempt the
 	// job runs under ("<activity>:<task>:<n>"). The GitHub arm passes it through as the
