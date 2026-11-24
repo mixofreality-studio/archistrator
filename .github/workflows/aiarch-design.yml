@@ -202,6 +202,16 @@ on:
         description: "the attempt this job runs under; recorded as the CheckRun's revision"
         required: false
         type: string
+      # The operator's steer for THIS attempt (dispatch notes or a send-back of a
+      # draft). Free text: it is never validated as an id and never reaches a script,
+      # the prompt or an output — only the aiarch-state MCP server's env, which
+      # serves it to the agent through getOperatorNotes. The dispatching server omits
+      # it when no note is pending.
+      operator_note:
+        description: "operator steer for this attempt, delivered to the agent through the aiarch-state MCP server, never the prompt (readers of this repo can see it in the run's inputs)"
+        required: false
+        type: string
+        default: ""
 
 # The action drafts and commits the typed JSON and opens a PR, so it needs to
 # write repo contents and pull requests. The LLM call is authenticated by the
@@ -628,6 +638,7 @@ jobs:
           AIARCH_TASK_ID: ${{ inputs.task_id }}
           AIARCH_SPEC_HASH: ${{ inputs.spec_hash }}
           AIARCH_REVISION: ${{ inputs.revision }}
+          AIARCH_OPERATOR_NOTE: ${{ inputs.operator_note }}
         run: |
           jq -n \
             --arg bin "${MCP_BIN}" \
@@ -641,6 +652,7 @@ jobs:
             --arg task "${AIARCH_TASK_ID}" \
             --arg hash "${AIARCH_SPEC_HASH}" \
             --arg revision "${AIARCH_REVISION}" \
+            --arg note "${AIARCH_OPERATOR_NOTE}" \
             '{mcpServers: {"aiarch-state": {command: $bin, env: ({
                 AIARCH_PROJECT_ID: $project,
                 AIARCH_ARTIFACT_KIND: $kind,
@@ -651,7 +663,8 @@ jobs:
               } + (if $activity == "" then {} else {AIARCH_ACTIVITY_ID: $activity} end)
                 + (if $task == "" then {} else {AIARCH_TASK_ID: $task} end)
                 + (if $hash == "" then {} else {AIARCH_SPEC_HASH: $hash} end)
-                + (if $revision == "" then {} else {AIARCH_REVISION: $revision} end))}}}' \
+                + (if $revision == "" then {} else {AIARCH_REVISION: $revision} end)
+                + (if $note == "" then {} else {AIARCH_OPERATOR_NOTE: $note} end))}}}' \
             > "${RUNNER_TEMP}/aiarch-mcp.json"
 
       - name: Draft the typed Method artifact (claude-code-action)
