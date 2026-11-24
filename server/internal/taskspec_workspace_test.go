@@ -7,7 +7,8 @@ import (
 
 // TestTaskSpecDesignHealthEngineOwnsThePlatformRules pins that archistrator can direct a
 // construction task at a declared workspace repo: the component that owns the Design
-// Conformance Rules owns the platform's methodcheck tree, so its edit scope admits that tree
+// Conformance Rules owns the platform's methodcheck tree, the conformance module and
+// method-assets (392e3460), so its edit scope admits those trees and no other platform tree
 // (repo-qualified, never an unqualified or escaping path), its checks run in that repo's own
 // module, and the project's workspace build proves the app still builds against the edit.
 func TestTaskSpecDesignHealthEngineOwnsThePlatformRules(t *testing.T) {
@@ -15,6 +16,8 @@ func TestTaskSpecDesignHealthEngineOwnsThePlatformRules(t *testing.T) {
 	for _, p := range []string{
 		"@archistrator-platform/framework-go/methodcheck/rules_uc_door.go",
 		"@archistrator-platform/framework-go/methodcheck/sub/x.go",
+		"@archistrator-platform/framework-go-conformance/edgekind_test.go",
+		"@archistrator-platform/method-assets/skills/x.md",
 		"server/internal/engine/designhealth/designhealth.go",
 	} {
 		if !scopeAdmits(s.EditScope, p) {
@@ -23,7 +26,8 @@ func TestTaskSpecDesignHealthEngineOwnsThePlatformRules(t *testing.T) {
 	}
 	for _, p := range []string{
 		"@archistrator-platform/framework-go/arch/arch.go",
-		"@archistrator-platform/method-assets/skills/x.md",
+		"@archistrator-platform/framework-go-app-generator/x.go",
+		"@archistrator-platform/method-assets-extra/x.md",
 		"framework-go/methodcheck/rules_uc_door.go",
 	} {
 		if scopeAdmits(s.EditScope, p) {
