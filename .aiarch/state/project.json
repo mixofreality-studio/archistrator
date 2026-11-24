@@ -41830,6 +41830,9 @@
       "component": "reviewEngine",
       "layer": "Engine",
       "goPackage": "internal/engine/review",
+      "ownedPaths": [
+        "@archistrator-platform/framework-go-app-generator/modelgen"
+      ],
       "title": "review contract",
       "$defs": {
         "ActivityType": {
@@ -42593,7 +42596,8 @@
             "result": {
               "$ref": "#/$defs/ReviewSet"
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           },
           {
             "name": "DeriveTaskSpec",
@@ -42615,7 +42619,8 @@
             "result": {
               "$ref": "#/$defs/TaskSpec"
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           },
           {
             "name": "TaskSpecHash",
@@ -42630,7 +42635,8 @@
             "result": {
               "type": "string"
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           },
           {
             "name": "AdmitArtifact",
@@ -42670,7 +42676,8 @@
                 "$ref": "#/$defs/AdmissionProblem"
               }
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           }
         ]
       }
