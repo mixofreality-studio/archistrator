@@ -366,6 +366,13 @@ func TestAttributeRule_Table(t *testing.T) {
 		{"VOL-GLOSS", projectstate.KindVolatilities, projectstate.AttribSlot},
 		{"CUC-CARD", projectstate.KindCoreUseCases, projectstate.AttribSlot},
 		{"UC-VARIATION-REF", projectstate.KindCoreUseCases, projectstate.AttribSlot},
+		// Owned by the slot that records the rule's LAST prerequisite, not by its prefix:
+		// these UC-* rules are emitted by the architecture validator over {coreUseCases,
+		// system}, so only a System amendment can fix them (ISS-028-1).
+		{"UC-OUTCOME-AT-ASKING-SURFACE", projectstate.KindSystem, projectstate.AttribSlot},
+		{"UC-LANE-RESOLVES", projectstate.KindSystem, projectstate.AttribSlot},
+		{"UC-IO-KINDS", projectstate.KindSystem, projectstate.AttribSlot},
+		{"UC-NO-IO", projectstate.KindSystem, projectstate.AttribSlot},
 		{"USECASE-DYNAMIC-MISSING", projectstate.KindSystem, projectstate.AttribSlot},
 		{"SYSTEM-LAYER-DEGENERATE", projectstate.KindSystem, projectstate.AttribSlot},
 		{"SYS-NAME-UNIQUE", projectstate.KindSystem, projectstate.AttribSlot},

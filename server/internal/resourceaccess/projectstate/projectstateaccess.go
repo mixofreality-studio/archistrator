@@ -13096,15 +13096,18 @@ const (
 	AttribActivityExecution
 )
 
-// ruleSlotAttributionPrefixes maps a RuleID prefix to the artifact slot whose own
-// amendment fixes the finding. Attribution follows the rule's SUBJECT (the slot whose
-// content must change), which is also the slot the emitting validator is registered
-// for — so a rule that READS other slots still attributes to the referencing slot
-// (VOL-GLOSS→Volatilities, USECASE-DYNAMIC-MISSING/DV-*→System, DEP-*→
-// OperationalConcepts). Prefixes are disjoint (each ends in a dash; SYSTEM-/USECASE-
-// cannot collide with SYS-/UC- because the dash position differs). Rule families with
-// no entry (ALIGN-*, CODE-/MODEL-EDGE — the code-walk rules ValidateProjectJSON never
-// emits) fall through to AttribNone and keep full severity.
+// ruleSlotAttributionPrefixes is the FALLBACK attribution, consulted only for a rule id
+// methodcheck does not know (its prerequisite registry has no entry) or whose latest
+// prerequisite is not a design slot. The families it still serves are the ones the app
+// and the live design-health tier emit themselves: DH-, PA-, REC-, STP-, GEN-, ... For
+// every id methodcheck knows, AttributeRule derives the owner from the rule's
+// prerequisites instead (see ruleOwnerFromPrerequisites): a prefix cannot say which slot's
+// amendment can first fix a rule, because rules named for one slot's subject (UC-*) are
+// emitted by the whole-architecture validator and only become judgeable once the System is
+// recorded. Prefixes are disjoint (each ends in a dash; SYSTEM-/USECASE- cannot collide
+// with SYS-/UC- because the dash position differs). Rule families with no entry (ALIGN-*,
+// CODE-/MODEL-EDGE — the code-walk rules ValidateProjectJSON never emits) fall through to
+// AttribNone and keep full severity.
 var ruleSlotAttributionPrefixes = []struct {
 	prefix string
 	kind   ArtifactKind
@@ -13156,10 +13159,51 @@ var ruleSlotAttributionPrefixes = []struct {
 	{"GEN-", KindSystem, AttribSlot},
 }
 
+// prerequisiteRecordingOrder is the order the Method records the artifacts a methodcheck
+// rule can name as a prerequisite (methodcheck.PrerequisiteName spelling). A rule becomes
+// judgeable when the LAST of its prerequisites is recorded, so that artifact's slot owns it.
+var prerequisiteRecordingOrder = []string{
+	"mission", "glossary", "scrubbedRequirements", "volatilities", "coreUseCases", "system",
+	"operationalConcepts", "standardCheck", "serviceContracts",
+	"phaseArtifacts.testPlan", "phaseArtifacts.uiDesign",
+}
+
+// ruleOwnerFromPrerequisites derives the owning design slot of a methodcheck rule from its
+// declared prerequisites: the latest one in recording order, mapped to the ArtifactKind
+// with that wire name. ok is false when methodcheck does not know the id, it declares no
+// prerequisite, or the latest is a non-slot record (contracts, test plan, UI design) — the
+// caller then falls back to the prefix table.
+func ruleOwnerFromPrerequisites(ruleID string) (ArtifactKind, bool) {
+	prs, known := methodcheck.RulePrerequisites(methodcheck.RuleID(ruleID))
+	if !known || len(prs) == 0 {
+		return 0, false
+	}
+	latest, latestRank := "", -1
+	for _, pr := range prs {
+		name := methodcheck.PrerequisiteName(pr)
+		rank := slices.Index(prerequisiteRecordingOrder, name)
+		if rank > latestRank {
+			latest, latestRank = name, rank
+		}
+	}
+	if latestRank < 0 {
+		return 0, false
+	}
+	kind, isKind := ArtifactKindFromWireName(latest)
+	if !isKind || kind < KindMission || kind > KindStandardCheck {
+		return 0, false
+	}
+	return kind, true
+}
+
 // AttributeRule resolves a rule id to its owning slot (AttribSlot + kind), the testing
 // state (AttribTesting), the activity ledger (AttribActivityExecution), or no
-// attribution (AttribNone — full severity always).
+// attribution (AttribNone — full severity always). A rule methodcheck knows is owned by the
+// slot that records its LATEST prerequisite; the prefix table answers for the rest.
 func AttributeRule(ruleID string) (ArtifactKind, RuleAttribution) {
+	if kind, ok := ruleOwnerFromPrerequisites(ruleID); ok {
+		return kind, AttribSlot
+	}
 	for _, e := range ruleSlotAttributionPrefixes {
 		if strings.HasPrefix(ruleID, e.prefix) {
 			return e.kind, e.class

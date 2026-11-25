@@ -201,7 +201,7 @@ func (r checkRunner) runRule(ctx context.Context, c review.SpecCheck) CheckResul
 	status := checkPass
 	kept := 0
 	for _, f := range o.findings {
-		if !hasRulePrefix(string(f.RuleID), c.Source.RulePrefixes) {
+		if !ruleInScope(string(f.RuleID), ambient, hasAmbient, c.Source.RulePrefixes) {
 			continue
 		}
 		kept++
@@ -214,6 +214,18 @@ func (r checkRunner) runRule(ctx context.Context, c review.SpecCheck) CheckResul
 		log.WriteString("no findings in scope\n")
 	}
 	return r.finish(c, status, r.since(start), log.Bytes())
+}
+
+// ruleInScope reports whether a finding's rule belongs to the check. A check with a RuleSlot
+// keeps exactly the findings AttributeRule gives that slot, the same attribution the
+// slot-scoped severity policy uses, so the draft check and the write agree on what the slot
+// owns. Only a check with no RuleSlot (the TP-/ATP- checks) is scoped by prefix.
+func ruleInScope(id string, ambient projectstate.ArtifactKind, hasAmbient bool, prefixes []string) bool {
+	if hasAmbient {
+		kind, class := projectstate.AttributeRule(id)
+		return class == projectstate.AttribSlot && kind == ambient
+	}
+	return hasRulePrefix(id, prefixes)
 }
 
 // hasRulePrefix reports whether id is in scope; no prefixes means every rule.

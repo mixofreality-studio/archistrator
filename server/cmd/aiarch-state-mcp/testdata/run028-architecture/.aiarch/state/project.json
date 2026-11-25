@@ -1,0 +1,4449 @@
+{
+  "id": "todomvc-run-20261125T052743Z-d01a54d4",
+  "version": 45,
+  "phase": 0,
+  "owner": "dev-architect",
+  "name": "todomvc-run-20261125T052743Z-d01a54d4",
+  "research": {
+    "sources": [
+      {
+        "title": "Founder brief: a todo app",
+        "path": ".aiarch/state/research/00-founder-brief-a-todo-app.txt",
+        "contentBytes": 2009
+      },
+      {
+        "title": "TodoMVC behavior reference: precise functional contract",
+        "path": ".aiarch/state/research/01-todomvc-behavior-reference-precise-functional-contract.txt",
+        "contentBytes": 4020
+      }
+    ]
+  },
+  "operatingModel": "selfOperated",
+  "slots": {
+    "0": {
+      "status": 2,
+      "kind": 0,
+      "model": {
+        "vision": "A simple, durable todo list that a small team can adopt and rely on from day one.",
+        "objectives": [
+          {
+            "number": 1,
+            "statement": "A small team can start using the todo list for real work the day after it ships, with no training or setup beyond opening it."
+          },
+          {
+            "number": 2,
+            "statement": "Team members capture tasks and keep them accurate as plans change, correcting or discarding a task without losing or re-entering other work."
+          },
+          {
+            "number": 3,
+            "statement": "Finished work gets out of people's way, so a list stays focused on what is still to be done rather than cluttered with completed items."
+          },
+          {
+            "number": 4,
+            "statement": "People always know, at a glance, how much remains to be done, and can review their list as a whole, by what is outstanding, or by what is finished."
+          },
+          {
+            "number": 5,
+            "statement": "No one loses their tasks: a list is exactly as they left it whenever they come back, whatever happened in between."
+          },
+          {
+            "number": 6,
+            "statement": "The todo list fits the way the team already works, usable by people where they already work and drivable by the team's other agent tooling, so it joins existing workflows instead of standing apart."
+          }
+        ],
+        "mission": "Keep the experience deliberately minimal — add, fix, finish, sweep away — around one durable, always-current list that is kept safe on the team's behalf rather than in whatever screen happens to be open. Offer that same list, unchanged, to people in the team's usual web and embedded views and to the team's agents, so whoever or whatever touches it sees and changes the same tasks.",
+        "deliverySurfaces": [
+          {
+            "kind": "web",
+            "audience": "human",
+            "source": "a real frontend on top (an ordinary web app",
+            "objective": 1
+          },
+          {
+            "kind": "mcpApp",
+            "audience": "human",
+            "source": "plus an MCP Apps surface so it can be embedded the same way our other MCP-hosted UIs are",
+            "objective": 6
+          },
+          {
+            "kind": "rest",
+            "audience": "machine",
+            "source": "reachable both as an ordinary web API",
+            "objective": 6
+          },
+          {
+            "kind": "mcpTools",
+            "audience": "machine",
+            "source": "and as an MCP surface, so our other agent tooling can drive it too",
+            "objective": 6
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T05:39:42Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "1": {
+      "status": 2,
+      "kind": 1,
+      "model": {
+        "items": [
+          {
+            "term": "Team member",
+            "definition": "A person on the small team who keeps a todo list and adds, fixes, finishes, and sweeps away their own todos.",
+            "category": "Who"
+          },
+          {
+            "term": "Agent tooling",
+            "definition": "The team's other automated assistants that read and change the same todo list on a team member's behalf, seeing exactly what the person sees.",
+            "category": "Who"
+          },
+          {
+            "term": "Todo",
+            "definition": "One task on a list: a piece of free-text wording plus whether it is done or still to do.",
+            "category": "What"
+          },
+          {
+            "term": "Todo list",
+            "definition": "The ordered set of todos belonging to one team member, in the order they were added; the single list every view and agent works on.",
+            "category": "What"
+          },
+          {
+            "term": "Active todo",
+            "definition": "A todo that is still to be done (not yet completed).",
+            "category": "What"
+          },
+          {
+            "term": "Completed todo",
+            "definition": "A todo that has been marked done.",
+            "category": "What"
+          },
+          {
+            "term": "Add todo",
+            "definition": "Put a new, not-yet-done todo at the end of the list with the wording the team member gave; blank wording adds nothing.",
+            "category": "What"
+          },
+          {
+            "term": "Edit todo",
+            "definition": "Change an existing todo's wording in place; abandoning the change keeps the original wording, and saving blank wording removes the todo instead.",
+            "category": "What"
+          },
+          {
+            "term": "Remove todo",
+            "definition": "Take one todo off the list, whatever its state, leaving every other todo untouched.",
+            "category": "What"
+          },
+          {
+            "term": "Toggle todo",
+            "definition": "Mark one todo done, or mark a done todo as still to do, without affecting any other todo.",
+            "category": "What"
+          },
+          {
+            "term": "Toggle all",
+            "definition": "In one action mark every todo done; if every todo is already done, instead mark every todo as still to do.",
+            "category": "What"
+          },
+          {
+            "term": "Clear completed",
+            "definition": "In one action sweep every completed todo off the list, leaving active todos untouched; does nothing when nothing is completed.",
+            "category": "What"
+          },
+          {
+            "term": "Review list",
+            "definition": "Look at the list through a chosen filter, with the current filter clearly indicated; changing the filter never changes any todo.",
+            "category": "What"
+          },
+          {
+            "term": "Filter",
+            "definition": "The chosen way of reviewing the list: All (every todo), Active (only todos still to do), or Completed (only done todos).",
+            "category": "What"
+          },
+          {
+            "term": "Items left",
+            "definition": "The live count of active todos on the whole list, regardless of which filter is being viewed, current after every change.",
+            "category": "What"
+          },
+          {
+            "term": "Wording check",
+            "definition": "Deciding whether proposed todo wording is meaningful; wording that is empty or only spaces is never kept as a todo.",
+            "category": "How"
+          },
+          {
+            "term": "Aggregate toggle decision",
+            "definition": "Deciding what Toggle all does from the list's current state: complete everything unless everything is already complete, in which case reopen everything.",
+            "category": "How"
+          },
+          {
+            "term": "Filtering",
+            "definition": "Selecting which todos belong in a view from their done/still-to-do state under the chosen filter.",
+            "category": "How"
+          },
+          {
+            "term": "Active counting",
+            "definition": "Working out how many todos on the whole list are still to be done.",
+            "category": "How"
+          },
+          {
+            "term": "Record todo",
+            "definition": "Keep a newly added todo at the end of a team member's list.",
+            "category": "How"
+          },
+          {
+            "term": "Reword todo",
+            "definition": "Replace the kept wording of one existing todo.",
+            "category": "How"
+          },
+          {
+            "term": "Discard todo",
+            "definition": "Drop one kept todo from a team member's list.",
+            "category": "How"
+          },
+          {
+            "term": "Mark completion",
+            "definition": "Set whether one kept todo is done or still to do.",
+            "category": "How"
+          },
+          {
+            "term": "Mark all completion",
+            "definition": "Set every kept todo on a team member's list to done, or every one to still to do, as one change.",
+            "category": "How"
+          },
+          {
+            "term": "Sweep completed",
+            "definition": "Drop every completed todo from a team member's kept list as one change.",
+            "category": "How"
+          },
+          {
+            "term": "Recall list",
+            "definition": "Retrieve a team member's kept list exactly as it was last left, in order, with each todo's wording and done state.",
+            "category": "How"
+          },
+          {
+            "term": "Todo store",
+            "definition": "The durable place, held by the team's service rather than by any open screen, where each team member's todo list is kept so it survives closing, reloading, or restarting anything.",
+            "category": "Where"
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T05:39:42Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "10": {
+      "status": 2,
+      "kind": 10,
+      "model": {
+        "dependencies": [
+          {
+            "activity": "architecture",
+            "dependsOn": [
+              "requirements"
+            ]
+          },
+          {
+            "activity": "projectDesign",
+            "dependsOn": [
+              "architecture"
+            ]
+          }
+        ],
+        "criticalPath": [
+          "architecture",
+          "projectDesign",
+          "requirements"
+        ],
+        "milestones": [
+          {
+            "id": "M0",
+            "name": "SDP Review Approved",
+            "public": true,
+            "dependsOn": [
+              "projectDesign"
+            ]
+          }
+        ]
+      },
+      "revisions": 1,
+      "staleBasis": true,
+      "staleBasisCause": {
+        "upstreamKind": "system",
+        "upstreamRevision": 2
+      },
+      "provenance": {
+        "committedAt": "2026-11-25T05:28:01Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    },
+    "3": {
+      "status": 2,
+      "kind": 3,
+      "model": {
+        "items": [
+          {
+            "name": "Human presentation-host volatility",
+            "rationale": "WHAT: the places a team member looks at and works their todo list. Today two coexist at once: an ordinary web app and an embedded view hosted inside the team's MCP-hosted UIs (mission delivery surfaces 'web' and 'mcpApp'; objective 6, 'usable by people where they already work'). WHY volatile: different team members already work in different hosts at the same moment, and each host has its own interaction idioms (enter/escape/blur editing, how the current filter is shown, how items left is displayed). LONGEVITY: embedded-UI hosts are a young, fast-moving category (the MCP Apps host contract and its peer hosts have changed several times a year), and front-end frameworks turn over on a 1–3 year cycle, so at least one host change, or a new host such as a chat-workspace or mobile view, falls well inside the system's multi-year lifespan. LIKELIHOOD: high, with new or changed hosts arriving roughly yearly. EFFECT if unencapsulated: list rules (wording check, aggregate toggle decision, filtering, active counting) would be copied into each host and drift apart, so the same list would behave differently depending on where it is opened. That breaks the mission promise that whoever touches the list 'sees and changes the same tasks'.",
+            "axis": "allCustomersAtOneTime"
+          },
+          {
+            "name": "Machine-protocol volatility",
+            "rationale": "WHAT: the protocols through which the team's agent tooling and other programs drive the same list. Today these are an ordinary web API and an MCP tool surface (mission delivery surfaces 'rest' and 'mcpTools'; glossary 'Agent tooling'). WHY volatile: callers already differ at the same moment, with scripts on plain HTTP and agents on MCP, and each wants different granularity and vocabulary over the same operations. LONGEVITY: the MCP specification has revised its transport and tool-description model several times since 2024, and the team says it will plug this into 'our other agent tooling', whose set changes as fast as the agent ecosystem does. A protocol revision or a new caller protocol is near-certain within the system's lifespan. LIKELIHOOD: high, at least yearly. EFFECT if unencapsulated: each protocol revision would reach into the list's business rules and storage, and a protocol change could alter list behavior for humans as well. This is a separate change from human presentation hosts: it is driven by agent-ecosystem churn, not UI-host churn, and it moves at a different rate.",
+            "axis": "allCustomersAtOneTime"
+          },
+          {
+            "name": "Todo-shape volatility",
+            "rationale": "WHAT: what a todo carries beyond its wording and done state, and so what the team can review the list by. WHY volatile: the founder explicitly leaves 'the exact shape of the todo item' open. The reference contract fixes only a minimum ('at minimum: a title … and a completed flag') and lists due dates, priorities and tags as outside today's feature set, which is evidence the team already sees these as the next asks. LONGEVITY: across the history of task tools, item attributes are the most frequently extended part (dates, owners, priorities, labels, notes), typically growing within the first year of real use. The brief's 'for our team to try out' signals adoption-driven growth inside the system's lifespan. LIKELIHOOD: medium-high, within 1–2 years of adoption. EFFECT if unencapsulated: every surface, every filter, the store layout and both machine protocols would change together for each new attribute, rippling across the whole system.",
+            "axis": "sameCustomerOverTime"
+          },
+          {
+            "name": "List-access volatility",
+            "rationale": "WHAT: who may see and change which todo list. Today each team member owns one list, and agent tooling acts on that list on the member's behalf (glossary 'Todo list', 'Agent tooling'). WHY volatile: the rule already has two kinds of actor (the person and the agent acting for them), and a tool adopted by a 'small team' invites shared or delegated lists. The reference contract names multi-user sharing as outside today's feature set, so the team has already anticipated it. This concerns which records a principal may touch, keyed on the caller the platform supplies; it is not about how anyone signs in. LONGEVITY: team-adopted personal tools historically gain sharing or delegation within 1–2 years of real use, and agent-delegation scopes are tightening industry-wide right now, both inside the system's lifespan. LIKELIHOOD: medium. EFFECT if unencapsulated: ownership checks scattered across every operation (add, edit, remove, toggle, toggle all, clear completed, recall list) and every surface would all have to change at once, with a real risk of one surface exposing another member's list.",
+            "axis": "sameCustomerOverTime"
+          },
+          {
+            "name": "Todo-store volatility",
+            "rationale": "WHAT: where and how each team member's list is durably kept: the storage technology, its layout, and its safekeeping (glossary 'Todo store'). WHY volatile: objective 5 ('no one loses their tasks … whatever happened in between') and the brief's insistence on a 'real backend service, not a toy that only lives in the browser's memory' make durability central. The brief also says it must be built 'the way we build everything else here', so the store follows the team's hosting and operations choices, which this product does not control. LONGEVITY: storage engines and hosting arrangements for internal services are typically re-platformed every 2–4 years, and the first move (a trial-scale store to a production-grade one once the team adopts it) is expected early, both within the system's lifespan. LIKELIHOOD: medium-high, with at least one change of store. EFFECT if unencapsulated: storage details would leak into list rules and every surface, so a re-platform would touch the whole system and risk exactly the data loss objective 5 forbids.",
+            "axis": "sameCustomerOverTime"
+          },
+          {
+            "name": "Change-propagation volatility",
+            "rationale": "WHAT: how a change made to a list through one surface reaches everyone else currently looking at that list. WHY volatile: the mission promises 'one durable, always-current list' changed by people in web and embedded views and by agents at the same time. Today a reload is enough (the contract's persistence clause). But once agents act on a member's list while the member has it open, the expected freshness rises toward live updates. LONGEVITY: within the system's lifespan, expectations have consistently moved from refresh-to-see to pushed updates whenever an automated actor edits shared state, and agent use is growing quickly. LIKELIHOOD: medium, within 1–2 years as agent use grows. EFFECT if unencapsulated: every surface would build its own refresh or notification mechanism tied to each operation, so items left and filtered views would show stale counts and tasks. Fixing that later would mean touching every operation and every host. This change is distinct from the store (where data is kept) and from the hosts (how it is shown): it concerns when other viewers learn of a change.",
+            "axis": "sameCustomerOverTime"
+          }
+        ],
+        "rejected": [
+          {
+            "name": "Wording-check rules volatility",
+            "reason": "Whether blank or whitespace-only wording is refused (on add, and as removal on edit) is a single predicate. Any tightening, such as a length limit, is a conditional inside the list rules, not an open-ended change that needs its own component.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Aggregate toggle decision volatility",
+            "reason": "'Complete everything unless everything is already complete, then reopen everything' is the reference behavior that every TodoMVC-style list implements identically. Changing it would change what a todo list is, and any encapsulation of it would be contrived.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Filter-set volatility",
+            "reason": "All/Active/Completed is a conditional on done state today. A new way to review the list only appears when a todo gains a new attribute (due, priority, tag), so the underlying change is Todo-shape volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Items-left counting volatility",
+            "reason": "Counting active todos over the whole list, independent of the chosen filter, is a fixed calculation. Pluralization or wording of the count is display-level variation inside each presentation host.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Bulk-operation set volatility",
+            "reason": "Toggle all and Clear completed are two fixed, well-defined operations over the list. Adding another sweep-style operation is a new operation on the same rules, not a structural change that ripples through the architecture.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Finished-work retention volatility",
+            "reason": "Archiving or keeping a history of swept completed todos instead of deleting them has no grounding: the brief wants finished work 'out of their way', and undo/history is explicitly outside the feature set. Designing for it would serve a hypothetical customer.",
+            "class": "speculative"
+          },
+          {
+            "name": "List ordering volatility",
+            "reason": "Lists keep the order todos were added. Drag-to-reorder is explicitly outside the feature set, and nothing in the mission or brief suggests the team wants another ordering.",
+            "class": "speculative"
+          },
+          {
+            "name": "Undo/redo volatility",
+            "reason": "Explicitly out of scope in the behavior reference. Edit-cancel already covers the one 'change my mind' case the brief asks for, and there is no business evidence for a general history.",
+            "class": "speculative"
+          },
+          {
+            "name": "Offline-sync volatility",
+            "reason": "Explicitly out of scope, and it contradicts the brief's stance that the list lives in the team's service rather than on any client. Designing for disconnected clients would be designing for a different product.",
+            "class": "speculative"
+          },
+          {
+            "name": "Reminder/notification-channel volatility",
+            "reason": "Nothing in the brief, mission or reference asks for reminders, emails or alerts about todos. A notification block here would be a reflex addition with no business change behind it.",
+            "class": "speculative"
+          },
+          {
+            "name": "Sign-in / identity-provider volatility",
+            "reason": "How team members and agents authenticate is owned by the platform's Security utility and front door, and every operation receives the caller as the principal. Encapsulating it again would duplicate a utility, and this team's business is not identity. Which records a principal may touch is kept separately as List-access volatility.",
+            "class": "speculative"
+          },
+          {
+            "name": "Agent-permission volatility",
+            "reason": "What an agent acting on a member's behalf may see or change is the same underlying change as which principal may touch which list, so it is folded into List-access volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Editing-gesture volatility",
+            "reason": "Enter/Escape/blur for committing or abandoning an edit, and double-click to start one, are idioms of each human host. They change when a host changes, so this is folded into Human presentation-host volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Embedding-host contract volatility",
+            "reason": "Changes in how the MCP-hosted UIs embed the list view are one case of the hosts in which people work the list changing, so this is folded into Human presentation-host volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "External workflow-integration volatility",
+            "reason": "Objective 6 ('joins existing workflows') is delivered today by letting the team's agent tooling drive the list. New integrations arrive as new machine callers or protocols, so this is folded into Machine-protocol volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Hosting/deployment environment volatility",
+            "reason": "'Built the way we build everything else here': the runtime topology is platform-owned. The part that changes for this product is where the list is durably kept when hosting changes, so this is folded into Todo-store volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Backup/durability policy volatility",
+            "reason": "How the list is kept safe across restarts and failures (objective 5) is a property of how the todo store is kept, so this is folded into Todo-store volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Concurrent-edit conflict volatility",
+            "reason": "Two surfaces changing the same list at once is resolved by each operation being a single kept change. What can still change is how other viewers learn of it, so this is folded into Change-propagation volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Team-size scaling volatility",
+            "reason": "The customer is one small team trying the list out. Planning for organization-wide load has no grounding in the brief, and scaling policy belongs to the platform's operational choices.",
+            "class": "speculative"
+          },
+          {
+            "name": "Activity logging / reporting block",
+            "reason": "This is a siren-song reflex block. No stakeholder asks for reports or audit trails on todos, and items left is the only at-a-glance figure the business wants.",
+            "class": "speculative"
+          },
+          {
+            "name": "Localization volatility",
+            "reason": "The team works in one language today. Translating labels like 'items left' or filter names is string-table variation inside each presentation host, not an architectural change.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Current-filter persistence volatility",
+            "reason": "Whether the chosen filter is remembered (for example in the address) is a per-host presentation detail that changes no todo, and the reference says filtering never changes data.",
+            "class": "variableNotVolatile"
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T05:39:42Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "4": {
+      "status": 2,
+      "kind": 4,
+      "model": {
+        "decisions": [
+          {
+            "useCase": {
+              "id": "keep-the-list-current",
+              "name": "Keep the List Current",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                },
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "propose-change",
+                    "kind": "action",
+                    "label": "Team member, from whichever view they work in or through their team agent, asks for one change to their list: add, reword, remove, mark, mark all, or sweep completed",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "check-access",
+                    "kind": "action",
+                    "label": "Check the caller may change this team member's list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "may-change",
+                    "kind": "decision",
+                    "label": "May the caller change this list?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-refused",
+                    "kind": "sendSignal",
+                    "label": "Team member is told the change was refused and their list is untouched",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "apply-rules",
+                    "kind": "action",
+                    "label": "Work out the resulting change under the list rules (wording check, edit-to-blank removal, aggregate toggle decision, sweep of completed todos)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "alters-list",
+                    "kind": "decision",
+                    "label": "Does the change alter the list?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-unchanged",
+                    "kind": "sendSignal",
+                    "label": "Team member is told nothing changed (blank wording, or nothing completed to sweep)",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "keep-change",
+                    "kind": "action",
+                    "label": "Keep the change in the todo store as one change to the member's list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-left",
+                    "kind": "action",
+                    "label": "Count the items left across the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "split",
+                    "kind": "fork",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-updated",
+                    "kind": "sendSignal",
+                    "label": "Team member sees their updated list and the new items-left count",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "propagate",
+                    "kind": "action",
+                    "label": "Propagate the change to every other view and agent currently working this list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-agent",
+                    "kind": "sendSignal",
+                    "label": "Team agent working this list learns of the change and the new items-left count",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "sync",
+                    "kind": "join",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "changed-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "outcome-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "propose-change",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "propose-change",
+                    "to": "check-access",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "check-access",
+                    "to": "may-change",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "may-change",
+                    "to": "apply-rules",
+                    "kind": "guardedFlow",
+                    "guard": "[permitted]"
+                  },
+                  {
+                    "from": "may-change",
+                    "to": "tell-refused",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "apply-rules",
+                    "to": "alters-list",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "alters-list",
+                    "to": "keep-change",
+                    "kind": "guardedFlow",
+                    "guard": "[alters the list]"
+                  },
+                  {
+                    "from": "alters-list",
+                    "to": "tell-unchanged",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "keep-change",
+                    "to": "count-left",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-left",
+                    "to": "split",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "split",
+                    "to": "tell-updated",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "split",
+                    "to": "propagate",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "propagate",
+                    "to": "tell-agent",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-updated",
+                    "to": "sync",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-agent",
+                    "to": "sync",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "sync",
+                    "to": "changed-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-unchanged",
+                    "to": "changed-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "changed-merge",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-refused",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "outcome-merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "Every team that adopts the list buys one thing: a single durable list that stays true as plans change, whoever changes it and from wherever. Adding, rewording, removing, marking and sweeping are all permutations of 'propose a change, judge it by the list rules, keep it, let everyone see it', and that shape survives every foreseeable change: a new host, a new agent protocol, a richer todo, shared lists, a new store, or live updates. It is the abstraction behind six customer-stated features, not any one of them, and its flow crosses the list-access, todo-shape, todo-store, change-propagation, presentation-host and machine-protocol seams."
+          },
+          {
+            "useCase": {
+              "id": "review-what-remains",
+              "name": "Review What Remains",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "open-list",
+                    "kind": "action",
+                    "label": "Team member opens their list from whichever view they work in, choosing to see all todos, only active ones, or only completed ones",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "check-access",
+                    "kind": "action",
+                    "label": "Check the caller may see this team member's list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "may-see",
+                    "kind": "decision",
+                    "label": "May the caller see this list?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-denied",
+                    "kind": "sendSignal",
+                    "label": "Team member is told the list is not theirs to see, and nothing is shown",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "recall-list",
+                    "kind": "action",
+                    "label": "Recall the member's list from the todo store exactly as it was last left, in order",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "filter-count",
+                    "kind": "action",
+                    "label": "Select the todos the chosen filter shows and count the items left across the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "show-list",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the todos the filter shows, the current filter indicated, and how many items are left",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "outcome-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "open-list",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "open-list",
+                    "to": "check-access",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "check-access",
+                    "to": "may-see",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "may-see",
+                    "to": "recall-list",
+                    "kind": "guardedFlow",
+                    "guard": "[permitted]"
+                  },
+                  {
+                    "from": "may-see",
+                    "to": "tell-denied",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "recall-list",
+                    "to": "filter-count",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "filter-count",
+                    "to": "show-list",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "show-list",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-denied",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "outcome-merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "Knowing at a glance what is still to be done, and finding the list exactly as it was left, is the other half of what every team buys from a todo list; it is why the list exists at all. Switching filters, reading the items-left count and coming back after a restart are permutations of one act: recall the durable list and look at it through a chosen lens. That act stays the same when hosts, protocols, the todo's shape (new ways to filter), access rules or the store change, and its flow crosses exactly those seams."
+          },
+          {
+            "useCase": {
+              "id": "add-a-todo",
+              "name": "Add a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "keep-the-list-current",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "submit-wording",
+                    "kind": "action",
+                    "label": "Team member types the wording of a new todo and submits it",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "check-wording",
+                    "kind": "action",
+                    "label": "Check the wording is meaningful (not empty or only spaces)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "meaningful",
+                    "kind": "decision",
+                    "label": "Is the wording meaningful?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "append",
+                    "kind": "action",
+                    "label": "Keep a new, not-yet-done todo with that wording at the end of the member's list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-added",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the new todo at the end of the list, the entry cleared, and items left up by one",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "tell-blank",
+                    "kind": "sendSignal",
+                    "label": "Team member is told nothing was added because the wording was blank",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "submit-wording",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "submit-wording",
+                    "to": "check-wording",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "check-wording",
+                    "to": "meaningful",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "meaningful",
+                    "to": "append",
+                    "kind": "guardedFlow",
+                    "guard": "[meaningful]"
+                  },
+                  {
+                    "from": "meaningful",
+                    "to": "tell-blank",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "append",
+                    "to": "tell-added",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-added",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-blank",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Keep the List Current: the change proposed is a new todo, judged by the wording check and kept at the end of the list."
+          },
+          {
+            "useCase": {
+              "id": "fix-a-todo-s-wording",
+              "name": "Fix a todo's wording",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "keep-the-list-current",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "commit-or-abandon",
+                    "kind": "decision",
+                    "label": "Does the team member commit the new wording or abandon the edit?",
+                    "roleName": "Team Member",
+                    "linkedActorId": null,
+                    "decidedBy": "team-member"
+                  },
+                  {
+                    "id": "tell-restored",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the original wording restored; nothing was sent to the list",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "submit-edit",
+                    "kind": "action",
+                    "label": "Team member commits the new wording for one todo",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "check-wording",
+                    "kind": "action",
+                    "label": "Check the new wording is meaningful (not empty or only spaces)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "meaningful",
+                    "kind": "decision",
+                    "label": "Is the new wording meaningful?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "reword",
+                    "kind": "action",
+                    "label": "Replace the kept wording of that todo",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-reworded",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the todo with its new wording",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "discard",
+                    "kind": "action",
+                    "label": "Drop that todo from the member's list, since blank wording removes it",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-removed",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the todo removed and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "wording-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "outcome-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "commit-or-abandon",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "commit-or-abandon",
+                    "to": "submit-edit",
+                    "kind": "guardedFlow",
+                    "guard": "[committed]"
+                  },
+                  {
+                    "from": "commit-or-abandon",
+                    "to": "tell-restored",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "submit-edit",
+                    "to": "check-wording",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "check-wording",
+                    "to": "meaningful",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "meaningful",
+                    "to": "reword",
+                    "kind": "guardedFlow",
+                    "guard": "[meaningful]"
+                  },
+                  {
+                    "from": "meaningful",
+                    "to": "discard",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "reword",
+                    "to": "tell-reworded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-reworded",
+                    "to": "wording-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "discard",
+                    "to": "tell-removed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-removed",
+                    "to": "wording-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "wording-merge",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-restored",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "outcome-merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Keep the List Current: the change proposed is new wording for one todo, where the wording check turns blank wording into a removal; abandoning the edit never reaches the list."
+          },
+          {
+            "useCase": {
+              "id": "remove-a-todo",
+              "name": "Remove a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "keep-the-list-current",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-remove",
+                    "kind": "action",
+                    "label": "Team member removes one todo they no longer want, whatever its state",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "discard",
+                    "kind": "action",
+                    "label": "Drop that todo from the member's list, leaving every other todo untouched",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-removed",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the todo gone and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-remove",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-remove",
+                    "to": "discard",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "discard",
+                    "to": "tell-removed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-removed",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Keep the List Current: the change proposed is dropping one todo; no rule beyond keeping the change applies."
+          },
+          {
+            "useCase": {
+              "id": "mark-a-todo-done-or-not-done",
+              "name": "Mark a todo done or not done",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "keep-the-list-current",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-toggle",
+                    "kind": "action",
+                    "label": "Team member marks one todo done, or marks a done todo as still to do",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "mark",
+                    "kind": "action",
+                    "label": "Set whether that one todo is done, leaving every other todo untouched",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-marked",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the todo's new state and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-toggle",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-toggle",
+                    "to": "mark",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "mark",
+                    "to": "tell-marked",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-marked",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Keep the List Current: the change proposed is one todo's done state."
+          },
+          {
+            "useCase": {
+              "id": "mark-everything-done-or-undo-that",
+              "name": "Mark everything done, or undo that",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "keep-the-list-current",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-toggle-all",
+                    "kind": "action",
+                    "label": "Team member asks to mark every todo at once",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "all-done",
+                    "kind": "decision",
+                    "label": "Is every todo already done?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "complete-all",
+                    "kind": "action",
+                    "label": "Mark every todo on the member's list done as one change",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-all-done",
+                    "kind": "sendSignal",
+                    "label": "Team member sees every todo done and no items left",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "reopen-all",
+                    "kind": "action",
+                    "label": "Mark every todo on the member's list still to do as one change",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-all-open",
+                    "kind": "sendSignal",
+                    "label": "Team member sees every todo still to do and items left equal to the whole list",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-toggle-all",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-toggle-all",
+                    "to": "all-done",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "all-done",
+                    "to": "reopen-all",
+                    "kind": "guardedFlow",
+                    "guard": "[every todo done]"
+                  },
+                  {
+                    "from": "all-done",
+                    "to": "complete-all",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "complete-all",
+                    "to": "tell-all-done",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-all-done",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "reopen-all",
+                    "to": "tell-all-open",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-all-open",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Keep the List Current: the change proposed applies to every todo, with the aggregate toggle decision choosing complete-all or reopen-all."
+          },
+          {
+            "useCase": {
+              "id": "sweep-away-finished-todos",
+              "name": "Sweep away finished todos",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "keep-the-list-current",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-sweep",
+                    "kind": "action",
+                    "label": "Team member asks to sweep every finished todo off their list",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "any-completed",
+                    "kind": "decision",
+                    "label": "Is any todo completed?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "sweep",
+                    "kind": "action",
+                    "label": "Drop every completed todo from the member's list as one change, leaving active todos untouched",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-swept",
+                    "kind": "sendSignal",
+                    "label": "Team member sees only active todos remain; items left is unchanged",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "tell-nothing",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the list unchanged because nothing was finished",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-sweep",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-sweep",
+                    "to": "any-completed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "any-completed",
+                    "to": "sweep",
+                    "kind": "guardedFlow",
+                    "guard": "[some completed]"
+                  },
+                  {
+                    "from": "any-completed",
+                    "to": "tell-nothing",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "sweep",
+                    "to": "tell-swept",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-swept",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-nothing",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Keep the List Current: the change proposed removes every completed todo at once, and does nothing when none is completed."
+          },
+          {
+            "useCase": {
+              "id": "agent-changes-a-member-s-list",
+              "name": "Agent changes a member's list",
+              "actors": [
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "keep-the-list-current",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "agent-asks",
+                    "kind": "action",
+                    "label": "Team agent, acting for its team member, asks through the team's agent tooling for a change to that member's list",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "check-delegation",
+                    "kind": "action",
+                    "label": "Check the agent may change this member's list on the member's behalf",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "may-change",
+                    "kind": "decision",
+                    "label": "May the agent change this list?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-refused",
+                    "kind": "sendSignal",
+                    "label": "Team agent is told the change was refused and the list is untouched",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "keep-change",
+                    "kind": "action",
+                    "label": "Apply and keep the change under the same list rules every human view uses",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "propagate",
+                    "kind": "action",
+                    "label": "Propagate the change to the member's open views so they see it",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-agent",
+                    "kind": "sendSignal",
+                    "label": "Team agent receives the updated list and items-left count",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "agent-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "agent-asks",
+                    "to": "check-delegation",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "check-delegation",
+                    "to": "may-change",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "may-change",
+                    "to": "keep-change",
+                    "kind": "guardedFlow",
+                    "guard": "[permitted]"
+                  },
+                  {
+                    "from": "may-change",
+                    "to": "tell-refused",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "keep-change",
+                    "to": "propagate",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "propagate",
+                    "to": "tell-agent",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-agent",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-refused",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Keep the List Current entered through a machine protocol instead of a human view; the list rules, access check, store and propagation are the same."
+          },
+          {
+            "useCase": {
+              "id": "switch-how-the-list-is-viewed",
+              "name": "Switch how the list is viewed",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-what-remains",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "choose-filter",
+                    "kind": "action",
+                    "label": "Team member switches the view to All, Active, or Completed",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "select",
+                    "kind": "action",
+                    "label": "Select from the member's list the todos the chosen filter shows",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-filtered",
+                    "kind": "sendSignal",
+                    "label": "Team member sees only those todos with the chosen filter indicated; no todo changed",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "choose-filter",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "choose-filter",
+                    "to": "select",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "select",
+                    "to": "tell-filtered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-filtered",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Review What Remains: the same recall seen through a different filter; it never changes any todo."
+          },
+          {
+            "useCase": {
+              "id": "see-how-many-todos-are-left",
+              "name": "See how many todos are left",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-what-remains",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "look",
+                    "kind": "action",
+                    "label": "Team member looks at their list under any filter",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "count",
+                    "kind": "action",
+                    "label": "Count the active todos across the whole list, regardless of the filter shown",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-count",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the items-left count for the whole list",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "look",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "look",
+                    "to": "count",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count",
+                    "to": "tell-count",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-count",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Review What Remains: the items-left count is part of every review and every change outcome, not a separate business capability."
+          },
+          {
+            "useCase": {
+              "id": "come-back-to-the-list",
+              "name": "Come back to the list",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-what-remains",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "come-back",
+                    "kind": "action",
+                    "label": "Team member opens the app again after closing it, reloading, or restarting",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "recall",
+                    "kind": "action",
+                    "label": "Recall the member's list from the todo store exactly as it was last left",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "has-todos",
+                    "kind": "decision",
+                    "label": "Has the member kept any todos?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-as-left",
+                    "kind": "sendSignal",
+                    "label": "Team member sees the same todos, wording and done states as when they left",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "tell-empty",
+                    "kind": "sendSignal",
+                    "label": "Team member sees an empty list ready for a first todo",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "come-back",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "come-back",
+                    "to": "recall",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recall",
+                    "to": "has-todos",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "has-todos",
+                    "to": "tell-as-left",
+                    "kind": "guardedFlow",
+                    "guard": "[has todos]"
+                  },
+                  {
+                    "from": "has-todos",
+                    "to": "tell-empty",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "tell-as-left",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-empty",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Review What Remains: durability is a property of the todo store every review recalls from, not a distinct flow."
+          },
+          {
+            "useCase": {
+              "id": "agent-reads-a-member-s-list",
+              "name": "Agent reads a member's list",
+              "actors": [
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-what-remains",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "agent-asks",
+                    "kind": "action",
+                    "label": "Team agent, acting for its team member, asks through the team's agent tooling to see that member's list under a filter",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "check-delegation",
+                    "kind": "action",
+                    "label": "Check the agent may see this member's list on the member's behalf",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "may-see",
+                    "kind": "decision",
+                    "label": "May the agent see this list?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "recall",
+                    "kind": "action",
+                    "label": "Recall the member's list and select the todos the filter shows, with the items-left count",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-list",
+                    "kind": "sendSignal",
+                    "label": "Team agent receives exactly the todos and items-left count the member would see",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "tell-denied",
+                    "kind": "sendSignal",
+                    "label": "Team agent is told it may not see this list",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "agent-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "agent-asks",
+                    "to": "check-delegation",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "check-delegation",
+                    "to": "may-see",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "may-see",
+                    "to": "recall",
+                    "kind": "guardedFlow",
+                    "guard": "[permitted]"
+                  },
+                  {
+                    "from": "may-see",
+                    "to": "tell-denied",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "recall",
+                    "to": "tell-list",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-list",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-denied",
+                    "to": "merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of Review What Remains entered through a machine protocol; the agent sees the same list the member sees."
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T05:39:43Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "5": {
+      "status": 2,
+      "kind": 5,
+      "model": {
+        "components": [
+          {
+            "id": "todo-web-client",
+            "name": "TodoWebClient",
+            "kind": "client",
+            "layer": "client",
+            "encapsulates": "Web app for team members. Encapsulates Human presentation-host volatility. Routes to ListKeepingManager.",
+            "encapsulatesVolatilities": [
+              "Human presentation-host volatility"
+            ],
+            "atomicBusinessVerbs": null,
+            "contractKey": "todoWebClient",
+            "surface": "web"
+          },
+          {
+            "id": "todo-mcp-app-client",
+            "name": "TodoMcpAppClient",
+            "kind": "client",
+            "layer": "client",
+            "encapsulates": "Embedded MCP Apps view for team members. Encapsulates Human presentation-host volatility. Routes to ListKeepingManager.",
+            "encapsulatesVolatilities": [
+              "Human presentation-host volatility"
+            ],
+            "atomicBusinessVerbs": null,
+            "contractKey": "todoMcpAppClient",
+            "surface": "mcpApp"
+          },
+          {
+            "id": "todo-rest-client",
+            "name": "TodoRestClient",
+            "kind": "client",
+            "layer": "client",
+            "encapsulates": "Web API for team agent tooling. Encapsulates Machine-protocol volatility. Routes to ListKeepingManager.",
+            "encapsulatesVolatilities": [
+              "Machine-protocol volatility"
+            ],
+            "atomicBusinessVerbs": null,
+            "contractKey": "todoRestClient",
+            "surface": "rest"
+          },
+          {
+            "id": "todo-mcp-tools-client",
+            "name": "TodoMcpToolsClient",
+            "kind": "client",
+            "layer": "client",
+            "encapsulates": "MCP tool surface for team agents. Encapsulates Machine-protocol volatility. Routes to ListKeepingManager.",
+            "encapsulatesVolatilities": [
+              "Machine-protocol volatility"
+            ],
+            "atomicBusinessVerbs": null,
+            "contractKey": "todoMcpToolsClient",
+            "surface": "mcpTools"
+          },
+          {
+            "id": "list-keeping-manager",
+            "name": "ListKeepingManager",
+            "kind": "manager",
+            "layer": "manager",
+            "encapsulates": "Encapsulates Change-propagation volatility. Runs keep-and-review of a member's list and announces each kept change.",
+            "encapsulatesVolatilities": [
+              "Change-propagation volatility"
+            ],
+            "atomicBusinessVerbs": null,
+            "contractKey": "listKeepingManager"
+          },
+          {
+            "id": "list-ruling-engine",
+            "name": "ListRulingEngine",
+            "kind": "engine",
+            "layer": "engine",
+            "encapsulates": "Encapsulates Todo-shape volatility. Judges changes by the list rules, selects todos by filter, counts items left.",
+            "encapsulatesVolatilities": [
+              "Todo-shape volatility"
+            ],
+            "atomicBusinessVerbs": null,
+            "contractKey": "listRulingEngine"
+          },
+          {
+            "id": "access-deciding-engine",
+            "name": "AccessDecidingEngine",
+            "kind": "engine",
+            "layer": "engine",
+            "encapsulates": "Encapsulates List-access volatility. Decides whether the calling principal may see or change a given list.",
+            "encapsulatesVolatilities": [
+              "List-access volatility"
+            ],
+            "atomicBusinessVerbs": null,
+            "contractKey": "accessDecidingEngine"
+          },
+          {
+            "id": "todo-access",
+            "name": "TodoAccess",
+            "kind": "resourceAccess",
+            "layer": "resourceAccess",
+            "encapsulates": "Encapsulates Todo-store volatility. Atomic verbs over TodoStore: recallList, keepChange.",
+            "encapsulatesVolatilities": [
+              "Todo-store volatility"
+            ],
+            "atomicBusinessVerbs": [
+              "recallList",
+              "keepChange"
+            ],
+            "contractKey": "todoAccess"
+          },
+          {
+            "id": "todo-store",
+            "name": "TodoStore",
+            "kind": "resource",
+            "layer": "resource",
+            "encapsulates": "Durable store for every member's todo list. Survives restarts.",
+            "atomicBusinessVerbs": null
+          },
+          {
+            "id": "message-bus",
+            "name": "MessageBus",
+            "kind": "utility",
+            "layer": "utility",
+            "encapsulates": "Publish/subscribe messaging. Carries list-changed announcements to open views and agent sessions.",
+            "atomicBusinessVerbs": null,
+            "contractKey": "messageBus"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "todo-web-client",
+            "to": "list-keeping-manager",
+            "mode": "sync",
+            "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted | reviewList"
+          },
+          {
+            "from": "todo-mcp-app-client",
+            "to": "list-keeping-manager",
+            "mode": "sync",
+            "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted | reviewList"
+          },
+          {
+            "from": "todo-rest-client",
+            "to": "list-keeping-manager",
+            "mode": "sync",
+            "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted | reviewList"
+          },
+          {
+            "from": "todo-mcp-tools-client",
+            "to": "list-keeping-manager",
+            "mode": "sync",
+            "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted | reviewList"
+          },
+          {
+            "from": "list-keeping-manager",
+            "to": "list-ruling-engine",
+            "mode": "sync",
+            "label": "CheckWording | DecideToggleAll | SelectCompleted | SelectByFilter | CountLeft"
+          },
+          {
+            "from": "list-keeping-manager",
+            "to": "access-deciding-engine",
+            "mode": "sync",
+            "label": "MayChange | MaySee"
+          },
+          {
+            "from": "list-keeping-manager",
+            "to": "todo-access",
+            "mode": "sync",
+            "label": "recallList / keepChange"
+          },
+          {
+            "from": "todo-access",
+            "to": "todo-store",
+            "mode": "sync",
+            "label": "read kept list / write one change atomically (idempotency: change id)"
+          },
+          {
+            "from": "list-keeping-manager",
+            "to": "message-bus",
+            "mode": "sync",
+            "label": "publish(ListChanged)"
+          },
+          {
+            "from": "todo-web-client",
+            "to": "message-bus",
+            "mode": "sync",
+            "label": "subscribe(ListChanged)"
+          },
+          {
+            "from": "todo-mcp-app-client",
+            "to": "message-bus",
+            "mode": "sync",
+            "label": "subscribe(ListChanged)"
+          },
+          {
+            "from": "todo-mcp-tools-client",
+            "to": "message-bus",
+            "mode": "sync",
+            "label": "subscribe(ListChanged)"
+          }
+        ],
+        "dynamicViews": [
+          {
+            "useCaseId": "keep-the-list-current",
+            "key": "keep-the-list-current",
+            "title": "Keep the List Current",
+            "steps": [
+              {
+                "activityNodeId": "propose-change",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "AddTodo | RewordTodo | RemoveTodo | MarkTodo | MarkAllTodos | SweepCompleted — asks for one change to their list",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "AddTodo | RewordTodo | RemoveTodo | MarkTodo | MarkAllTodos | SweepCompleted — asks for one change to their list",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted — one change to the member's list",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted — one change to the member's list",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "team-agent",
+                    "to": "todo-rest-client",
+                    "mode": "sync",
+                    "label": "AddTodo | RewordTodo | RemoveTodo | MarkTodo | MarkAllTodos | SweepCompleted — asks for one change to the member's list on their behalf",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-agent",
+                    "to": "todo-mcp-tools-client",
+                    "mode": "sync",
+                    "label": "AddTodo | RewordTodo | RemoveTodo | MarkTodo | MarkAllTodos | SweepCompleted — asks for one change to the member's list on their behalf",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-rest-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted — one change to the member's list",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-tools-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted — one change to the member's list",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "check-access",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "apply-rules",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CheckWording | DecideToggleAll | SelectCompleted — works out the resulting change under the list rules"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "keep-change",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(ListChange)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "count-left",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "propagate",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "subscribe(ListChanged) → the member's open web views receive the change and items left"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "subscribe(ListChanged) → the member's open MCP Apps views receive the change and items left"
+                  },
+                  {
+                    "from": "todo-mcp-tools-client",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "subscribe(ListChanged) → agent sessions working this list receive the change and items left"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "review-what-remains",
+            "key": "review-what-remains",
+            "title": "Review What Remains",
+            "steps": [
+              {
+                "activityNodeId": "open-list",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "ReviewList — opens their list under All, Active or Completed",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "ReviewList — opens their list under All, Active or Completed",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "check-access",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MaySee(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "recall-list",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "filter-count",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "SelectByFilter(list, filter) → todos the filter shows"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "add-a-todo",
+            "key": "add-a-todo",
+            "title": "Add a todo",
+            "steps": [
+              {
+                "activityNodeId": "submit-wording",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "AddTodo — submits the wording of a new todo",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "AddTodo — submits the wording of a new todo",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo(wording) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo(wording) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "check-wording",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CheckWording(wording) → meaningful or blank"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "append",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(TodoAdded)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "fix-a-todo-s-wording",
+            "key": "fix-a-todo-s-wording",
+            "title": "Fix a todo's wording",
+            "steps": [
+              {
+                "activityNodeId": "commit-or-abandon",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "EditWording | AbandonEdit — edits one todo's wording in place, then commits it or abandons the edit",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "EditWording | AbandonEdit — edits one todo's wording in place, then commits it or abandons the edit",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "submit-edit",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "RewordTodo — commits new wording for one todo",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "RewordTodo — commits new wording for one todo",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "rewordTodo(todoId, wording) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "rewordTodo(todoId, wording) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "check-wording",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CheckWording(wording) → meaningful or blank"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "reword",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(TodoReworded)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "discard",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(TodoDiscarded)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "remove-a-todo",
+            "key": "remove-a-todo",
+            "title": "Remove a todo",
+            "steps": [
+              {
+                "activityNodeId": "ask-remove",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "RemoveTodo — removes one todo",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "RemoveTodo — removes one todo",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "removeTodo(todoId) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "removeTodo(todoId) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "discard",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(TodoDiscarded)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "mark-a-todo-done-or-not-done",
+            "key": "mark-a-todo-done-or-not-done",
+            "title": "Mark a todo done or not done",
+            "steps": [
+              {
+                "activityNodeId": "ask-toggle",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "MarkTodo — marks one todo done or still to do",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "MarkTodo — marks one todo done or still to do",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "markTodo(todoId, done) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "markTodo(todoId, done) → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "mark",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(TodoMarked)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "mark-everything-done-or-undo-that",
+            "key": "mark-everything-done-or-undo-that",
+            "title": "Mark everything done, or undo that",
+            "steps": [
+              {
+                "activityNodeId": "ask-toggle-all",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "MarkAllTodos — marks every todo at once",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "MarkAllTodos — marks every todo at once",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "markAllTodos() → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "markAllTodos() → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "all-done",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "DecideToggleAll(list) → complete all or reopen all"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "complete-all",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(AllCompleted)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "reopen-all",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(AllReopened)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "sweep-away-finished-todos",
+            "key": "sweep-away-finished-todos",
+            "title": "Sweep away finished todos",
+            "steps": [
+              {
+                "activityNodeId": "ask-sweep",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "SweepCompleted — sweeps finished todos off their list",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "SweepCompleted — sweeps finished todos off their list",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "sweepCompleted() → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "sweepCompleted() → updated list, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "any-completed",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "SelectCompleted(list) → completed todos"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "sweep",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(CompletedSwept)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged)"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "agent-changes-a-member-s-list",
+            "key": "agent-changes-a-member-s-list",
+            "title": "Agent changes a member's list",
+            "steps": [
+              {
+                "activityNodeId": "agent-asks",
+                "calls": [
+                  {
+                    "from": "team-agent",
+                    "to": "todo-rest-client",
+                    "mode": "sync",
+                    "label": "AddTodo | RewordTodo | RemoveTodo | MarkTodo | MarkAllTodos | SweepCompleted — asks for one change to the member's list on their behalf",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-agent",
+                    "to": "todo-mcp-tools-client",
+                    "mode": "sync",
+                    "label": "AddTodo | RewordTodo | RemoveTodo | MarkTodo | MarkAllTodos | SweepCompleted — asks for one change to the member's list on their behalf",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-rest-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted — one change to the member's list",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-tools-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "addTodo | rewordTodo | removeTodo | markTodo | markAllTodos | sweepCompleted — one change to the member's list",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "check-delegation",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MayChange(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "keep-change",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CheckWording | DecideToggleAll | SelectCompleted — works out the resulting change under the list rules"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "keepChange(ListChange)"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "write one change to the member's list atomically (idempotency: change id)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "propagate",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "message-bus",
+                    "mode": "sync",
+                    "label": "publish(ListChanged) → the member's open views receive it through their subscribe(ListChanged), as drawn in Keep the List Current"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "switch-how-the-list-is-viewed",
+            "key": "switch-how-the-list-is-viewed",
+            "title": "Switch how the list is viewed",
+            "steps": [
+              {
+                "activityNodeId": "choose-filter",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "ReviewList — switches the view to All, Active or Completed",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "ReviewList — switches the view to All, Active or Completed",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MaySee(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "select",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "SelectByFilter(list, filter) → todos the filter shows"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "see-how-many-todos-are-left",
+            "key": "see-how-many-todos-are-left",
+            "title": "See how many todos are left",
+            "steps": [
+              {
+                "activityNodeId": "look",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "ReviewList — looks at their list under any filter",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "ReviewList — looks at their list under any filter",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MaySee(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "count",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "SelectByFilter(list, filter) → todos the filter shows"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "come-back-to-the-list",
+            "key": "come-back-to-the-list",
+            "title": "Come back to the list",
+            "steps": [
+              {
+                "activityNodeId": "come-back",
+                "calls": [
+                  {
+                    "from": "team-member",
+                    "to": "todo-web-client",
+                    "mode": "sync",
+                    "label": "ReviewList — opens the app again after leaving it",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-member",
+                    "to": "todo-mcp-app-client",
+                    "mode": "sync",
+                    "label": "ReviewList — opens the app again after leaving it",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-web-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-app-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MaySee(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "recall",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "SelectByFilter(list, filter) → todos the filter shows"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "agent-reads-a-member-s-list",
+            "key": "agent-reads-a-member-s-list",
+            "title": "Agent reads a member's list",
+            "steps": [
+              {
+                "activityNodeId": "agent-asks",
+                "calls": [
+                  {
+                    "from": "team-agent",
+                    "to": "todo-rest-client",
+                    "mode": "sync",
+                    "label": "ReviewList — asks to see the member's list under a filter on their behalf",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "team-agent",
+                    "to": "todo-mcp-tools-client",
+                    "mode": "sync",
+                    "label": "ReviewList — asks to see the member's list under a filter on their behalf",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "todo-rest-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "todo-mcp-tools-client",
+                    "to": "list-keeping-manager",
+                    "mode": "sync",
+                    "label": "reviewList(filter) → todos shown, items left",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "check-delegation",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "access-deciding-engine",
+                    "mode": "sync",
+                    "label": "MaySee(principal, list owner) → permitted or refused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "recall",
+                "calls": [
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "todo-access",
+                    "mode": "sync",
+                    "label": "recallList(owner) → todos in the order added"
+                  },
+                  {
+                    "from": "todo-access",
+                    "to": "todo-store",
+                    "mode": "sync",
+                    "label": "read the member's kept list (consistent snapshot)"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "SelectByFilter(list, filter) → todos the filter shows"
+                  },
+                  {
+                    "from": "list-keeping-manager",
+                    "to": "list-ruling-engine",
+                    "mode": "sync",
+                    "label": "CountLeft(list) → items left across the whole list"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T05:57:58Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "9": {
+      "status": 2,
+      "kind": 9,
+      "model": {
+        "activities": [
+          {
+            "name": "requirements",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Requirements"
+          },
+          {
+            "name": "architecture",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Architecture \u0026 Call Chains"
+          },
+          {
+            "name": "projectDesign",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Project Design (SDP Review · M0)"
+          }
+        ]
+      },
+      "revisions": 1,
+      "staleBasis": true,
+      "staleBasisCause": {
+        "upstreamKind": "system",
+        "upstreamRevision": 2
+      },
+      "provenance": {
+        "committedAt": "2026-11-25T05:28:01Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    }
+  },
+  "activityExecution": {
+    "architecture": {
+      "activityID": "architecture",
+      "type": "architecture",
+      "lifecyclePin": {
+        "typeKey": "architecture",
+        "assetsVersion": "dag-sha256:8065d0bd807db1dc"
+      },
+      "startedAt": "2026-11-25T05:39:44.540786Z",
+      "attempts": [
+        {
+          "attemptId": "architecture:architectureDraft:1",
+          "task": "architectureDraft",
+          "phase": "architecture",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-25T05:47:45.836107Z",
+          "endedAt": "2026-11-25T05:47:45.836107Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "architecture:architectureDraft:System@v34"
+          },
+          "detail": "drafted system on activity/architecture",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:47:45.836107Z"
+          }
+        },
+        {
+          "attemptId": "architecture:architectureReview:1",
+          "task": "architectureReview",
+          "phase": "architecture",
+          "attempt": 1,
+          "actor": "human",
+          "startedAt": "2026-11-25T05:50:53.860984Z",
+          "endedAt": "2026-11-25T05:50:53.860984Z",
+          "outcome": "rejected",
+          "evidence": {
+            "kind": "git",
+            "ref": "architecture:architectureDraft:System@v34"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:50:53.860984Z"
+          }
+        },
+        {
+          "attemptId": "architecture:architectureDraft:2",
+          "task": "architectureDraft",
+          "phase": "architecture",
+          "attempt": 2,
+          "actor": "agent",
+          "startedAt": "2026-11-25T05:55:55.461233Z",
+          "endedAt": "2026-11-25T05:55:55.461233Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "architecture:architectureDraft:System@v35"
+          },
+          "detail": "drafted system on activity/architecture",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:55:55.461233Z"
+          }
+        },
+        {
+          "attemptId": "architecture:architectureReview:2",
+          "task": "architectureReview",
+          "phase": "architecture",
+          "attempt": 2,
+          "actor": "system",
+          "startedAt": "2026-11-25T05:57:56.991461Z",
+          "endedAt": "2026-11-25T05:57:56.991461Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "architecture:architectureDraft:System@v35"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:57:56.991461Z"
+          }
+        }
+      ],
+      "reviews": [
+        {
+          "roundId": "architecture:architectureReview:1",
+          "taskId": "architectureReview",
+          "reviews": "architectureDraft",
+          "artifactKind": "system",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "architecture:architectureDraft:System@v34"
+          },
+          "reviewers": [
+            {
+              "role": "architect",
+              "actor": "architect",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "system-architect",
+              "actor": "system-architect",
+              "verdict": "sendBack",
+              "summary": "REQUIRED\n\nR1. Propagation has no delivery seam (TodoListManager → MessageBus, the `propagate` step in keep-the-list-current and agent-changes-a-member-s-list). The Manager claims Change-propagation volatility and publishes ListChanged, but nothing receives it. No Client relates to MessageBus, and no view shows an open view or agent receiving the announcement. Yet the use cases promise `tell-agent` and \"propagate to the member's open views\". Fix one of two ways:\n(a) Add Client → MessageBus `subscribe(ListChanged)` relationships for the surfaces holding open views or agent sessions, and draw the receipt in the `propagate` fragment.\n(b) State an explicit deferral of the delivery mechanism to .operationalConcepts (pub/sub) on the draft.\nDo not mark the edge ambient. Propagation is business work.\n\nR2. The same change ops are drawn at different granularities (cross-view symmetry). In keep-the-list-current and agent-changes-a-member-s-list, the change ops do MayChange → recallList → rule → keepChange → CountLeft → publish. The six human variation views of the SAME Manager ops leave most of that out:\n- add-a-todo, fix-a-todo-s-wording, remove-a-todo, mark-a-todo-done-or-not-done, mark-everything-done-or-undo-that and sweep-away-finished-todos omit MayChange, CountLeft and publish.\n- remove-a-todo and mark-a-todo-done-or-not-done also omit recallList.\nAll of them return \"updated list, items left\".\nFix by folding the calls into the EXISTING step fragments; do not add nodes or reshape use cases:\n- MayChange in the entry step after Client → Manager.\n- CountLeft and publish in the keep step.\n- recallList where the op needs the list.\nIf an op genuinely skips a call, record why.\n\nR3. reviewList(filter) has the same problem. review-what-remains and agent-reads-a-member-s-list draw MaySee → recallList → SelectByFilter → CountLeft. The other views of the same op leave calls out:\n- switch-how-the-list-is-viewed omits MaySee and CountLeft.\n- see-how-many-todos-are-left omits MaySee and SelectByFilter.\n- come-back-to-the-list omits MaySee, SelectByFilter and CountLeft.\nMake the realization uniform across all five views, folding the calls into the existing steps.\n\nCOMMENTS (non-blocking)\n\nC1. The name TodoListManager is a domain noun and does not say which volatility it hides (Change-propagation). Acceptable for a single Manager; ListKeepingManager would read truer.\n\nC2. Clients share surface volatilities in pairs (web + mcpApp, rest + mcpTools). Fine as one host per Client; ratify a facet group if supported.\n\nC3. The `commit-or-abandon` label in fix-a-todo-s-wording uses the Manager verb RewordTodo for a Client-local gesture. Prefer Client vocabulary (EditWording / AbandonEdit).\n\nC4. Passing:\n- Layer fit and every committed volatility homed.\n- Business-verb ResourceAccess.\n- Golden ratio 1M:2E.\n- No designed authentication (MayChange/MaySee take the platform principal).\n- No note demotions.\n- All use cases have titled views.\n- Actor doors match the mission surfaces.",
+              "attemptId": "architecture:architectureDraft:1",
+              "at": "2026-11-25T05:49:46Z"
+            },
+            {
+              "reviewerRole": "human",
+              "actor": "operator",
+              "verdict": "sendBack",
+              "summary": "system-architect: REQUIRED\n\nR1. Propagation has no delivery seam (TodoListManager → MessageBus, the `propagate` step in keep-the-list-current and agent-changes-a-member-s-list). The Manager claims Change-propagation volatility and publishes ListChanged, but nothing receives it. No Client relates to MessageBus, and no view shows an open view or agent receiving the announcement. Yet the use cases promise `tell-agent` and \"propagate to the member's open views\". Fix one of two ways:\n(a) Add Client → MessageBus `subscribe(ListChanged)` relationships for the surfaces holding open views or agent sessions, and draw the receipt in the `propagate` fragment.\n(b) State an explicit deferral of the delivery mechanism to .operationalConcepts (pub/sub) on the draft.\nDo not mark the edge ambient. Propagation is business work.\n\nR2. The same change ops are drawn at different granularities (cross-view symmetry). In keep-the-list-current and agent-changes-a-member-s-list, the change ops do MayChange → recallList → rule → keepChange → CountLeft → publish. The six human variation views of the SAME Manager ops leave most of that out:\n- add-a-todo, fix-a-todo-s-wording, remove-a-todo, mark-a-todo-done-or-not-done, mark-everything-done-or-undo-that and sweep-away-finished-todos omit MayChange, CountLeft and publish.\n- remove-a-todo and mark-a-todo-done-or-not-done also omit recallList.\nAll of them return \"updated list, items left\".\nFix by folding the calls into the EXISTING step fragments; do not add nodes or reshape use cases:\n- MayChange in the entry step after Client → Manager.\n- CountLeft and publish in the keep step.\n- recallList where the op needs the list.\nIf an op genuinely skips a call, record why.\n\nR3. reviewList(filter) has the same problem. review-what-remains and agent-reads-a-member-s-list draw MaySee → recallList → SelectByFilter → CountLeft. The other views of the same op leave calls out:\n- switch-how-the-list-is-viewed omits MaySee and CountLeft.\n- see-how-many-todos-are-left omits MaySee and SelectByFilter.\n- come-back-to-the-list omits MaySee, SelectByFilter and CountLeft.\nMake the realization uniform across all five views, folding the calls into the existing steps.\n\nCOMMENTS (non-blocking)\n\nC1. The name TodoListManager is a domain noun and does not say which volatility it hides (Change-propagation). Acceptable for a single Manager; ListKeepingManager would read truer.\n\nC2. Clients share surface volatilities in pairs (web + mcpApp, rest + mcpTools). Fine as one host per Client; ratify a facet group if supported.\n\nC3. The `commit-or-abandon` label in fix-a-todo-s-wording uses the Manager verb RewordTodo for a Client-local gesture. Prefer Client vocabulary (EditWording / AbandonEdit).\n\nC4. Passing:\n- Layer fit and every committed volatility homed.\n- Business-verb ResourceAccess.\n- Golden ratio 1M:2E.\n- No designed authentication (MayChange/MaySee take the platform principal).\n- No note demotions.\n- All use cases have titled views.\n- Actor doors match the mission surfaces.",
+              "attemptId": "architecture:architectureDraft:1",
+              "at": "2026-11-25T05:50:53Z"
+            }
+          ],
+          "outcome": "sentBack",
+          "decidedBy": "operator",
+          "openedAt": "2026-11-25T05:47:46Z",
+          "decidedAt": "2026-11-25T05:50:53.694431Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:47:46.000225Z"
+          }
+        },
+        {
+          "roundId": "architecture:architectureReview:2",
+          "taskId": "architectureReview",
+          "reviews": "architectureDraft",
+          "artifactKind": "system",
+          "round": 2,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "architecture:architectureDraft:System@v35"
+          },
+          "reviewers": [
+            {
+              "role": "architect",
+              "actor": "architect",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "system-architect",
+              "actor": "system-architect",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "architecture:architectureDraft:2",
+              "at": "2026-11-25T05:57:56Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-25T05:55:55Z",
+          "decidedAt": "2026-11-25T05:57:56.820191Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:55:55.632659Z"
+          }
+        }
+      ],
+      "version": 12
+    },
+    "requirements": {
+      "activityID": "requirements",
+      "type": "requirements",
+      "lifecyclePin": {
+        "typeKey": "requirements",
+        "assetsVersion": "dag-sha256:18f0bd68719c9d57"
+      },
+      "startedAt": "2026-11-25T05:28:02.117709Z",
+      "completedAt": "2026-11-25T05:39:43.204937Z",
+      "attempts": [
+        {
+          "attemptId": "requirements:missionDraft:1",
+          "task": "missionDraft",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-25T05:28:48.733093Z",
+          "endedAt": "2026-11-25T05:28:48.733093Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "detail": "drafted mission on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:28:48.733093Z"
+          }
+        },
+        {
+          "attemptId": "requirements:missionReview:1",
+          "task": "missionReview",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-25T05:29:19.771496Z",
+          "endedAt": "2026-11-25T05:29:19.771496Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:29:19.771496Z"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryDraft:1",
+          "task": "glossaryDraft",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-25T05:30:05.72182Z",
+          "endedAt": "2026-11-25T05:30:05.72182Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "detail": "drafted glossary on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:30:05.72182Z"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryReview:1",
+          "task": "glossaryReview",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-25T05:30:36.843439Z",
+          "endedAt": "2026-11-25T05:30:36.843439Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:30:36.843439Z"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesDraft:1",
+          "task": "volatilitiesDraft",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-25T05:32:37.924582Z",
+          "endedAt": "2026-11-25T05:32:37.924582Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "detail": "drafted volatilities on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:32:37.924582Z"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesReview:1",
+          "task": "volatilitiesReview",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-25T05:32:38.309729Z",
+          "endedAt": "2026-11-25T05:32:38.309729Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:32:38.309729Z"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesDraft:1",
+          "task": "coreUseCasesDraft",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-25T05:38:39.663716Z",
+          "endedAt": "2026-11-25T05:38:39.663716Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "detail": "drafted coreUseCases on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:38:39.663716Z"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesReview:1",
+          "task": "coreUseCasesReview",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-25T05:39:40.96486Z",
+          "endedAt": "2026-11-25T05:39:40.96486Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:39:40.96486Z"
+          }
+        }
+      ],
+      "reviews": [
+        {
+          "roundId": "requirements:missionReview:1",
+          "taskId": "missionReview",
+          "reviews": "missionDraft",
+          "artifactKind": "mission",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:missionDraft:1",
+              "at": "2026-11-25T05:29:19Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-25T05:28:48Z",
+          "decidedAt": "2026-11-25T05:29:19.660498Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:28:48.856106Z"
+          }
+        },
+        {
+          "roundId": "requirements:glossaryReview:1",
+          "taskId": "glossaryReview",
+          "reviews": "glossaryDraft",
+          "artifactKind": "glossary",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:glossaryDraft:1",
+              "at": "2026-11-25T05:30:36Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-25T05:30:05Z",
+          "decidedAt": "2026-11-25T05:30:36.723381Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:30:05.843896Z"
+          }
+        },
+        {
+          "roundId": "requirements:volatilitiesReview:1",
+          "taskId": "volatilitiesReview",
+          "reviews": "volatilitiesDraft",
+          "artifactKind": "volatilities",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-25T05:32:38Z",
+          "decidedAt": "2026-11-25T05:32:38.189615Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:32:38.045512Z"
+          }
+        },
+        {
+          "roundId": "requirements:coreUseCasesReview:1",
+          "taskId": "coreUseCasesReview",
+          "reviews": "coreUseCasesDraft",
+          "artifactKind": "coreUseCases",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:coreUseCasesDraft:1",
+              "at": "2026-11-25T05:39:40Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-25T05:38:39Z",
+          "decidedAt": "2026-11-25T05:39:40.820451Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T05:38:39.793229Z"
+          }
+        }
+      ],
+      "version": 21
+    }
+  },
+  "testingState": {
+    "checkRuns": [
+      {
+        "id": "local-requirements:missionDraft:1-1795584526761",
+        "activity": "requirements",
+        "task": "missionDraft",
+        "revision": "requirements:missionDraft:1",
+        "specHash": "42ad1b2e95425c2e64afdff412041b93d0646c56c67f5d5fcb6f4c424e8c6204",
+        "startedAt": "2026-11-25T05:28:46.760882721Z",
+        "endedAt": "2026-11-25T05:28:46.769967Z",
+        "artifact": ".aiarch/test-results/local-requirements:missionDraft:1-1795584526761",
+        "results": [
+          {
+            "checkId": "rule:mission",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 0,
+            "outputRef": "check-results/checks/rule_mission.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:missionReview:1-1795584546149",
+        "activity": "requirements",
+        "task": "missionReview",
+        "revision": "requirements:missionReview:1",
+        "specHash": "79d9174bc025794e41237f406dd955ff7fe8eb7e4aa086fbb0726d29ed5f5e5b",
+        "startedAt": "2026-11-25T05:29:06.149264633Z",
+        "endedAt": "2026-11-25T05:29:06.157821Z",
+        "artifact": ".aiarch/test-results/local-requirements:missionReview:1-1795584546149",
+        "results": [
+          {
+            "checkId": "rule:mission",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 0,
+            "outputRef": "check-results/checks/rule_mission.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:glossaryDraft:1-1795584603631",
+        "activity": "requirements",
+        "task": "glossaryDraft",
+        "revision": "requirements:glossaryDraft:1",
+        "specHash": "6860577c516be1d15ce0cda2605300bef35bf31985eb1de57c1c470cf6ebc36c",
+        "startedAt": "2026-11-25T05:30:03.62991868Z",
+        "endedAt": "2026-11-25T05:30:03.640651Z",
+        "artifact": ".aiarch/test-results/local-requirements:glossaryDraft:1-1795584603631",
+        "results": [
+          {
+            "checkId": "rule:glossary",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 1,
+            "outputRef": "check-results/checks/rule_glossary.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:glossaryReview:1-1795584623346",
+        "activity": "requirements",
+        "task": "glossaryReview",
+        "revision": "requirements:glossaryReview:1",
+        "specHash": "46dd21938446b3eda19aceb48243568eae50b213388bd514b5eb4fdefb88966c",
+        "startedAt": "2026-11-25T05:30:23.344540871Z",
+        "endedAt": "2026-11-25T05:30:23.355225Z",
+        "artifact": ".aiarch/test-results/local-requirements:glossaryReview:1-1795584623346",
+        "results": [
+          {
+            "checkId": "rule:glossary",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 1,
+            "outputRef": "check-results/checks/rule_glossary.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:volatilitiesDraft:1-1795584756948",
+        "activity": "requirements",
+        "task": "volatilitiesDraft",
+        "revision": "requirements:volatilitiesDraft:1",
+        "specHash": "d1c1717a47b5039bdf86d1921ccfa4014951120b449d3c770d3f52ffdd2d82d3",
+        "startedAt": "2026-11-25T05:32:36.945744867Z",
+        "endedAt": "2026-11-25T05:32:36.957249Z",
+        "artifact": ".aiarch/test-results/local-requirements:volatilitiesDraft:1-1795584756948",
+        "results": [
+          {
+            "checkId": "rule:volatilities",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 2,
+            "outputRef": "check-results/checks/rule_volatilities.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:coreUseCasesDraft:1-1795585082954",
+        "activity": "requirements",
+        "task": "coreUseCasesDraft",
+        "revision": "requirements:coreUseCasesDraft:1",
+        "specHash": "89baf6487baa3a0f2ffa6a33010b6c344978311f13d4eb3f32bf89c2ebb766f2",
+        "startedAt": "2026-11-25T05:38:02.945068048Z",
+        "endedAt": "2026-11-25T05:38:02.963786Z",
+        "artifact": ".aiarch/test-results/local-requirements:coreUseCasesDraft:1-1795585082954",
+        "results": [
+          {
+            "checkId": "rule:coreUseCases",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 9,
+            "outputRef": "check-results/checks/rule_coreUseCases.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:coreUseCasesReview:1-1795585174829",
+        "activity": "requirements",
+        "task": "coreUseCasesReview",
+        "revision": "requirements:coreUseCasesReview:1",
+        "specHash": "306e567a6a168fceb38f5ecfd5bc0896e67378b0e481b474a242fa2fdca5f422",
+        "startedAt": "2026-11-25T05:39:34.821707375Z",
+        "endedAt": "2026-11-25T05:39:34.838896Z",
+        "artifact": ".aiarch/test-results/local-requirements:coreUseCasesReview:1-1795585174829",
+        "results": [
+          {
+            "checkId": "rule:coreUseCases",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 7,
+            "outputRef": "check-results/checks/rule_coreUseCases.log"
+          }
+        ]
+      },
+      {
+        "id": "local-architecture:architectureDraft:1-1795585607448",
+        "activity": "architecture",
+        "task": "architectureDraft",
+        "revision": "architecture:architectureDraft:1",
+        "specHash": "8820df98c5e8c90950f3aee5a194acee49f48d5baaec0022a73423307daa3a80",
+        "startedAt": "2026-11-25T05:46:47.422284722Z",
+        "endedAt": "2026-11-25T05:46:47.458098Z",
+        "artifact": ".aiarch/test-results/local-architecture:architectureDraft:1-1795585607448",
+        "results": [
+          {
+            "checkId": "rule:system",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 25,
+            "outputRef": "check-results/checks/rule_system.log"
+          }
+        ]
+      },
+      {
+        "id": "local-architecture:architectureReview:1-1795585760156",
+        "activity": "architecture",
+        "task": "architectureReview",
+        "revision": "architecture:architectureReview:1",
+        "specHash": "3db442bc5222d6ad2bbe926f1eee6e88356df3badf87599a3330215f076e8ae7",
+        "startedAt": "2026-11-25T05:49:20.142510813Z",
+        "endedAt": "2026-11-25T05:49:20.165012Z",
+        "artifact": ".aiarch/test-results/local-architecture:architectureReview:1-1795585760156",
+        "results": [
+          {
+            "checkId": "rule:system",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 13,
+            "outputRef": "check-results/checks/rule_system.log"
+          }
+        ]
+      },
+      {
+        "id": "local-architecture:architectureDraft:2-1795586153508",
+        "activity": "architecture",
+        "task": "architectureDraft",
+        "revision": "architecture:architectureDraft:2",
+        "specHash": "8820df98c5e8c90950f3aee5a194acee49f48d5baaec0022a73423307daa3a80",
+        "startedAt": "2026-11-25T05:55:53.480947414Z",
+        "endedAt": "2026-11-25T05:55:53.5181Z",
+        "artifact": ".aiarch/test-results/local-architecture:architectureDraft:2-1795586153508",
+        "results": [
+          {
+            "checkId": "rule:system",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 27,
+            "outputRef": "check-results/checks/rule_system.log"
+          }
+        ]
+      },
+      {
+        "id": "local-architecture:architectureReview:2-1795586226987",
+        "activity": "architecture",
+        "task": "architectureReview",
+        "revision": "architecture:architectureReview:2",
+        "specHash": "3db442bc5222d6ad2bbe926f1eee6e88356df3badf87599a3330215f076e8ae7",
+        "startedAt": "2026-11-25T05:57:06.971944009Z",
+        "endedAt": "2026-11-25T05:57:06.996886Z",
+        "artifact": ".aiarch/test-results/local-architecture:architectureReview:2-1795586226987",
+        "results": [
+          {
+            "checkId": "rule:system",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 15,
+            "outputRef": "check-results/checks/rule_system.log"
+          }
+        ]
+      }
+    ]
+  },
+  "reviewPolicy": {
+    "preset": "vibes"
+  },
+  "updatedAt": "2026-11-25T05:57:58.636648Z"
+}
