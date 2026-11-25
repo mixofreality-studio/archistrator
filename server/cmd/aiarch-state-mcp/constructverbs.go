@@ -728,6 +728,9 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 			// The one acceptance plan belongs to no component: whatever key the agent sent, it is
 			// filed as .phaseArtifacts.acceptancePlan and the key it is spoken of by is acceptance.
 			key = projectstate.AcceptanceContract
+			if err := projectstate.VacuousAcceptancePlanRefusal(p, *pl.AcceptancePlan); err != nil {
+				return err
+			}
 		}
 		if pl.TestPlan != nil {
 			var err error

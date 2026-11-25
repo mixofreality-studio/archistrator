@@ -464,6 +464,8 @@ ApproveOverPMCoverageRefusal
 AcceptanceContract
 ClientContractKeys
 AcceptanceResidual
+SystemAcceptanceResidual
+VacuousAcceptancePlanRefusal
 AcceptanceScenarios
 AcceptanceRoute
 AcceptanceRouteInfo

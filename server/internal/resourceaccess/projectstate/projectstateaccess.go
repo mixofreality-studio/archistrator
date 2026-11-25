@@ -12867,6 +12867,68 @@ func AcceptanceResidual(p *Project) ([]scenario.Residual, error) {
 	return scenario.AcceptanceResidual(all, clients), nil
 }
 
+// SystemAcceptanceResidual is the acceptance residual of the committed design projected over the
+// committed System's own Client components (sorted ids), independent of which service contracts are
+// recorded. No committed System or core use cases yields no residual and a nil error.
+func SystemAcceptanceResidual(p *Project) ([]scenario.Residual, error) {
+	if p == nil {
+		return nil, errors.New("projectstate.SystemAcceptanceResidual: nil project")
+	}
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return nil, err
+	}
+	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
+	if !ok {
+		return nil, nil
+	}
+	var clients []string
+	for _, c := range sys.Components {
+		if c.Kind == CompClient {
+			clients = append(clients, c.ID)
+		}
+	}
+	sort.Strings(clients)
+	all, err := scenario.Derive(in)
+	if err != nil {
+		return nil, fmt.Errorf("projectstate.SystemAcceptanceResidual: %w", err)
+	}
+	return scenario.AcceptanceResidual(all, clients), nil
+}
+
+// VacuousAcceptancePlanRefusal refuses an acceptance plan that binds nothing while the committed
+// design's own residual is non-empty: an empty plan may not pass on an empty projection of the
+// recorded contracts. It is nil when rec has at least one binding.
+func VacuousAcceptancePlanRefusal(p *Project, rec AcceptancePlanRecord) error {
+	if len(rec.Bindings) > 0 {
+		return nil
+	}
+	residual, err := SystemAcceptanceResidual(p)
+	if err != nil {
+		return err
+	}
+	if len(residual) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var ids []string
+	for _, r := range residual {
+		if !seen[r.Scenario] {
+			seen[r.Scenario] = true
+			ids = append(ids, r.Scenario)
+		}
+	}
+	sort.Strings(ids)
+	named := ids
+	more := ""
+	if len(ids) > 10 {
+		named = ids[:10]
+		more = fmt.Sprintf(" and %d more", len(ids)-10)
+	}
+	return fmt.Errorf("the acceptance plan binds nothing while the committed design has %d residual acceptance variants no single client plan covers: %s%s; call listAcceptanceScenarios after the client and manager contracts are recorded and bind each variant",
+		len(ids), strings.Join(named, ", "), more)
+}
+
 // AcceptanceScenarios is the residual variants themselves, sorted by variant id: what the
 // acceptance plan binds. A variant covered by one client projection is not among them.
 func AcceptanceScenarios(p *Project) ([]scenario.Scenario, error) {

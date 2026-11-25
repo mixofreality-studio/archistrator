@@ -115,6 +115,32 @@ func TestListAcceptanceScenarios_ReturnsResidualWithReasons(t *testing.T) {
 	t.Errorf("work-the-list-P1@todoApi must be residual as a laterOutcome: %s", out)
 }
 
+func TestRecordPhaseArtifact_VacuousAcceptancePlanIsRefused(t *testing.T) {
+	raw, err := conformance.Fixture("todomvc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok, err := projectstate.DecodeProjectJSON(raw, projectstate.ProjectID("todomvc"))
+	if err != nil || !ok {
+		t.Fatalf("decode the todomvc fixture: ok=%v err=%v", ok, err)
+	}
+	p.ServiceContracts = nil
+	s, _ := seedProject(t, p, jobModeConstruct, 0)
+	s.ActivityID = "N-ATP"
+	err = s.recordPhaseArtifact("acceptance", map[string]any{
+		"acceptancePlan": map[string]any{"principals": map[string]any{}, "bindings": []any{}},
+	})
+	if err == nil {
+		t.Fatal("an acceptance plan with no bindings must be refused while the System has a residual")
+	}
+	if !strings.Contains(err.Error(), "binds nothing") || !strings.Contains(err.Error(), "@") {
+		t.Errorf("the refusal must name a residual variant: %v", err)
+	}
+	if s.wroteState {
+		t.Error("a refused plan must leave the checkout untouched")
+	}
+}
+
 func TestListAcceptanceScenariosIsRegisteredReadOnlyInConstructMode(t *testing.T) {
 	s := &Session{Mode: jobModeConstruct}
 	found := false
