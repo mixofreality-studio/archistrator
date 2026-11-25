@@ -1864,8 +1864,11 @@ const acceptancePlanActivityName = "N-ATP"
 
 // acceptancePlanActivity is the noncoding N-ATP activity (Amendment C): the test engineer binds
 // the use-case paths no single client plan covers. It belongs to no component (it plans the whole
-// system's acceptance), so it has no ComponentID and no architecture edge: the source rule hangs it
-// off M0 alone, and it runs beside construction.
+// system's acceptance), so it has no ComponentID and no architecture relationship. It no longer
+// runs beside construction: it runs after the client and manager work whose contracts its residual
+// is projected over (acceptanceResidualEdges), because a residual read before any client contract
+// exists is empty by construction (ISS-028-3). Only a system with no client and no manager leaves
+// it to the source rule, which hangs it off M0.
 func acceptancePlanActivity() DerivedActivity {
 	const effort = 5
 	return DerivedActivity{
@@ -2050,6 +2053,42 @@ func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 	}
 }
 
+// acceptanceResidualEdges adds the raw edges of N-ATP: the derived activity of every client
+// component and the coding activity of every manager component, the activities that record the
+// contracts its residual (AcceptanceScenarios over the recorded client keys) reads. A component
+// with no derived activity contributes nothing. The edges are raw, so transitiveReduction drops
+// any manager a client app already depends on. With none, the source rule hangs N-ATP off M0.
+func acceptanceResidualEdges(raw map[string][]string, system SystemView, byComponent map[string]string, acts []DerivedActivity) {
+	hasATP := false
+	for _, a := range acts {
+		if a.Name == acceptancePlanActivityName {
+			hasATP = true
+			break
+		}
+	}
+	if !hasATP {
+		return
+	}
+	seen := map[string]bool{}
+	var preds []string
+	for _, c := range system.Components {
+		if c.Kind != "client" && c.Kind != "manager" {
+			continue
+		}
+		name, ok := byComponent[c.ID]
+		if !ok || seen[name] {
+			continue
+		}
+		seen[name] = true
+		preds = append(preds, name)
+	}
+	if len(preds) == 0 {
+		return
+	}
+	sort.Strings(preds)
+	raw[acceptancePlanActivityName] = append(raw[acceptancePlanActivityName], preds...)
+}
+
 // deriveDependencies builds the network edges: the transitively reduced architecture
 // edges, then the one general rule no relationship expresses — the source rule (every
 // activity with no other predecessor after M0). There is no sink EDGE any more: the
@@ -2059,7 +2098,9 @@ func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 // The design prefix's own chain is appended AFTER the source rule, which is exempt from
 // it (see addSourceEdges): the prefix runs upstream of M0, where the rule does not apply.
 func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDependency {
-	raw := architectureEdges(system, activityForComponent(acts))
+	byComponent := activityForComponent(acts)
+	raw := architectureEdges(system, byComponent)
+	acceptanceResidualEdges(raw, system, byComponent, acts)
 	reduced := transitiveReduction(raw)
 	addSourceEdges(reduced, acts)
 	for _, d := range designPrefixDependencies() {
