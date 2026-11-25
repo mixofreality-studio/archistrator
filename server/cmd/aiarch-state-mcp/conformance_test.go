@@ -34,6 +34,17 @@ type conformanceFixtureDoc struct {
 // project has once its System is committed and nothing has been constructed.
 func conformanceBirth(t *testing.T, raw []byte) projectstate.Project {
 	t.Helper()
+	var anyProject projectstate.ProjectID
+	proj, _, err := projectstate.DecodeProjectJSON(conformanceBirthRaw(t, raw), anyProject)
+	if err != nil {
+		t.Fatalf("the stripped fixture does not decode: %v", err)
+	}
+	return proj
+}
+
+// conformanceBirthRaw is the bytes conformanceBirth decodes.
+func conformanceBirthRaw(t *testing.T, raw []byte) []byte {
+	t.Helper()
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
@@ -44,12 +55,7 @@ func conformanceBirth(t *testing.T, raw []byte) projectstate.Project {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var anyProject projectstate.ProjectID
-	proj, _, err := projectstate.DecodeProjectJSON(stripped, anyProject)
-	if err != nil {
-		t.Fatalf("the stripped fixture does not decode: %v", err)
-	}
-	return proj
+	return stripped
 }
 
 // conformanceComponentOf is the System component whose contract is filed under key.
@@ -212,7 +218,11 @@ func TestConformanceFixture_FirstContractRecordsOnAFreshProject(t *testing.T) {
 				t.Fatal(err)
 			}
 			birth := conformanceBirth(t, raw)
-			if left := uncontractedComponents(birth); len(left) == 0 {
+			born, ok, derr := methodcheck.DecodeProject(conformanceBirthRaw(t, raw))
+			if derr != nil || !ok {
+				t.Fatalf("decode the birth state: %v (ok=%v)", derr, ok)
+			}
+			if left := methodcheck.UncontractedComponents(born); len(left) == 0 {
 				t.Fatal("a fresh project has contract-bearing components with no contract")
 			}
 			first := conformanceRecordOrder(t, birth, fx.ServiceContracts)[0]
