@@ -8,6 +8,7 @@ package main
 // predate rules it now enforces.
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -170,5 +171,70 @@ func TestKeepCommittedOwner(t *testing.T) {
 	sc = projectstate.ServiceContract{}
 	if err := keepCommittedOwner("x", projectstate.ServiceContract{}, false, &sc); err != nil || sc.Component != "" {
 		t.Fatalf("a first record gets no owner invented: %q %v", sc.Component, err)
+	}
+}
+
+// ValidateContract reports only its first finding, so an amendment must not hide a NEW violation
+// behind one the committed contract already carries.
+func TestCanonicalizeAmendment_NewFindingBehindAnOldOneIsRefused(t *testing.T) {
+	proj := run011Project(t)
+	base := proj.ServiceContracts["todoListAccess"]
+	base.Interface.Operations = append([]projectstate.ContractOperation(nil), base.Interface.Operations...)
+	base.Interface.Operations = append(base.Interface.Operations, projectstate.ContractOperation{
+		Name:   "Decide",
+		Params: []projectstate.ContractParam{{Name: "decision", Schema: []byte(`{"type":"string"}`)}},
+		Error:  true,
+	})
+	last := len(base.Interface.Operations) - 1
+
+	// a new reserved param added to the op that already carries a reserved one
+	amended := base
+	amended.Interface.Operations = append([]projectstate.ContractOperation(nil), base.Interface.Operations...)
+	amended.Interface.Operations[last].Params = append(append([]projectstate.ContractParam(nil), base.Interface.Operations[last].Params...),
+		projectstate.ContractParam{Name: "ctx", Schema: []byte(`{"type":"string"}`)})
+	if err := canonicalizeAmendment("todoListAccess", &amended, base, true); err == nil {
+		t.Fatal("a new reserved param behind a committed one must be refused")
+	}
+
+	// a bad $def added beside a committed finding
+	withBad := base
+	withBad.Defs = map[string]json.RawMessage{"Zzz-bad": json.RawMessage(`{"type":"string"}`)}
+	for k, v := range base.Defs {
+		withBad.Defs[k] = v
+	}
+	if err := canonicalizeAmendment("todoListAccess", &withBad, base, true); err == nil {
+		t.Fatal("a new bad $def behind a committed finding must be refused")
+	}
+
+	// a committed bad $def name is carried by its own stand-in: refused as a first record is
+	committed := base
+	committed.Defs = map[string]json.RawMessage{"Aaa-bad": json.RawMessage(`{"type":"string"}`)}
+	for k, v := range base.Defs {
+		committed.Defs[k] = v
+	}
+	same := committed
+	if err := canonicalizeAmendment("todoListAccess", &same, committed, true); err == nil {
+		t.Fatal("a committed invalid $def name must not be waved through")
+	}
+
+	// the committed finding sits in an untouched op; a clean new op is admitted
+	clean := base
+	clean.Interface.Operations = append(append([]projectstate.ContractOperation(nil), base.Interface.Operations...), projectstate.ContractOperation{Name: "Fine", Error: true})
+	if err := canonicalizeAmendment("todoListAccess", &clean, base, true); err != nil {
+		t.Fatalf("a clean new op beside an untouched committed finding: %v", err)
+	}
+
+	// removing a $def an untouched op still refs
+	gone := base
+	gone.Defs = map[string]json.RawMessage{"Gone": json.RawMessage(`{"type":"string"}`)}
+	for k, v := range base.Defs {
+		gone.Defs[k] = v
+	}
+	gone.Interface.Operations = append([]projectstate.ContractOperation(nil), base.Interface.Operations...)
+	gone.Interface.Operations[last].Result = json.RawMessage(`{"$ref":"#/$defs/Gone"}`)
+	dangling := gone
+	dangling.Defs = base.Defs
+	if err := canonicalizeAmendment("todoListAccess", &dangling, gone, true); err == nil {
+		t.Fatal("an untouched op whose $ref names no $def must be refused")
 	}
 }

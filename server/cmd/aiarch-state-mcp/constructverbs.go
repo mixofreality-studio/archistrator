@@ -268,34 +268,128 @@ func keepCommittedOwner(key string, committed projectstate.ServiceContract, hadC
 // canonicalizeAmendment is canonicalizeContract for a record that may amend a committed contract.
 // ValidateContract has no notion of "already committed", so a committed contract that predates a
 // rule (a ResourceAccess with a goPackage and no infra; a param name the generator later
-// reserved) would block every amendment of it. An amendment is not refused for a finding the
-// committed contract carries verbatim: it did not introduce it. ValidateContract reports only its
-// first finding, so the amendment is also validated with every operation it leaves byte-identical
-// to the committed one removed: what remains (new or changed operations, the interface, the
-// binding) must raise no finding of its own, or one the committed contract raises identically.
-// A first record is refused as before.
+// reserved) would block every amendment of it. ValidateContract also reports only its FIRST
+// finding, so no comparison of first findings can tell a new violation from an old one: a new
+// one that sorts after an old one is masked. An amendment is therefore judged by its own parts,
+// each held to the full ValidateContract rules exactly as a first record is: the probe keeps
+// every new or changed operation and $def verbatim, and replaces each operation and $def that is
+// byte-identical to the committed one (the part the amendment did not write) with a clean stand-in
+// of the same name, so the committed contract's findings in those parts cannot mask or be
+// mistaken for the amendment's. An infra-less ResourceAccess whose committed contract is also
+// infra-less is probed with a placeholder infra: that hole is the one finding the amendment does
+// not own, and the placeholder never reaches the recorded contract. Refused, as strictly as a
+// first record: any finding in a changed part (a changed operation keeps its committed params, so
+// one that carries a reserved param is refused until it is renamed), a committed name that is
+// itself invalid (its stand-in would carry it), a $ref left dangling by a removed $def, and
+// dropping every $def. A first record, and an amendment of a committed contract that raised no
+// finding, are validated whole.
 func canonicalizeAmendment(key string, sc *projectstate.ServiceContract, committed projectstate.ServiceContract, hadCommitted bool) error {
 	err := canonicalizeContract(key, sc)
 	if err == nil || !hadCommitted {
 		return err
 	}
 	old := committed
-	oldErr := canonicalizeContract(key, &old)
-	if oldErr == nil || oldErr.Error() != err.Error() {
+	if canonicalizeContract(key, &old) == nil {
 		return err
 	}
-	delta := *sc
-	delta.Interface.Operations = slices.DeleteFunc(slices.Clone(sc.Interface.Operations), func(op projectstate.ContractOperation) bool {
+	if len(committed.Defs) > 0 && len(sc.Defs) == 0 {
+		return err
+	}
+	probe, perr := amendmentProbe(*sc, committed)
+	if perr != nil {
+		return perr
+	}
+	return canonicalizeContract(key, &probe)
+}
+
+// amendmentProbe is the contract canonicalizeAmendment validates in place of an amendment: the
+// amendment's own parts verbatim and the committed ones neutralized (see canonicalizeAmendment).
+func amendmentProbe(sc, committed projectstate.ServiceContract) (projectstate.ServiceContract, error) {
+	probe := sc
+	probe.Interface.Operations = make([]projectstate.ContractOperation, len(sc.Interface.Operations))
+	probe.Defs = make(map[string]json.RawMessage, len(sc.Defs))
+	var kept []any
+	for i, op := range sc.Interface.Operations {
 		// readOnly is derived after validation (markReadOnlyOperations), never authored.
-		return slices.ContainsFunc(committed.Interface.Operations, func(c projectstate.ContractOperation) bool {
+		same := slices.ContainsFunc(committed.Interface.Operations, func(c projectstate.ContractOperation) bool {
 			c.ReadOnly = op.ReadOnly
 			return reflect.DeepEqual(c, op)
 		})
-	})
-	if deltaErr := canonicalizeContract(key, &delta); deltaErr != nil && deltaErr.Error() != oldErr.Error() {
-		return deltaErr
+		if !same {
+			probe.Interface.Operations[i] = op
+			continue
+		}
+		probe.Interface.Operations[i] = projectstate.ContractOperation{Name: op.Name, Error: true}
+		kept = append(kept, op)
+	}
+	for name, def := range sc.Defs {
+		if old, ok := committed.Defs[name]; ok && jsonEqual(old, def) {
+			probe.Defs[name] = json.RawMessage(`{"type":"string"}`)
+			kept = append(kept, def)
+			continue
+		}
+		probe.Defs[name] = def
+	}
+	if err := danglingRef(kept, sc.Defs); err != nil {
+		return probe, err
+	}
+	if len(probe.Defs) == 0 && sc.GoPackage != "" {
+		// The committed contract had none either: that finding is the committed one's.
+		probe.Defs["AmendmentProbe"] = json.RawMessage(`{"type":"string"}`)
+	}
+	if len(sc.Infra) == 0 && len(committed.Infra) == 0 && strings.EqualFold(sc.Layer, "resourceaccess") {
+		probe.Infra = []string{modelgen.ApprovedInfra()[0]}
+	}
+	return probe, nil
+}
+
+// danglingRef refuses a $ref, in a part of the contract an amendment left alone, that names no
+// $def of the amended contract (the amendment removed or renamed it).
+func danglingRef(untouched []any, defs map[string]json.RawMessage) error {
+	for _, part := range untouched {
+		raw, err := json.Marshal(part)
+		if err != nil {
+			return fmt.Errorf("recordServiceContract: encode the contract: %w", err)
+		}
+		var doc any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return fmt.Errorf("recordServiceContract: encode the contract: %w", err)
+		}
+		for _, ref := range refsIn(doc) {
+			if _, ok := defs[ref[strings.LastIndex(ref, "/")+1:]]; !ok {
+				return fmt.Errorf("recordServiceContract: $ref %q names no type in this contract's $defs; declare it there or correct the reference — fix the field and call recordServiceContract again", ref)
+			}
+		}
 	}
 	return nil
+}
+
+// refsIn is every "$ref" string anywhere in a decoded JSON document.
+func refsIn(node any) []string {
+	var out []string
+	switch n := node.(type) {
+	case map[string]any:
+		if ref, ok := n["$ref"].(string); ok {
+			out = append(out, ref)
+		}
+		for _, v := range n {
+			out = append(out, refsIn(v)...)
+		}
+	case []any:
+		for _, v := range n {
+			out = append(out, refsIn(v)...)
+		}
+	}
+	return out
+}
+
+// jsonEqual reports whether two raw JSON values are the same document, whatever their spacing.
+func jsonEqual(a, b json.RawMessage) bool {
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
 
 // markReadOnlyOperations sets each operation's readOnly flag from its name and layer, the one
