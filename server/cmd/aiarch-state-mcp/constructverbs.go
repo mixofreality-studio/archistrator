@@ -83,6 +83,14 @@ func writeGateErrors(raw []byte, proj projectstate.Project) ([]methodcheck.Findi
 // writing only if BOTH pass. On any failure NOTHING is written and a typed error is
 // returned (surfaced to the agent as a self-correctable IsError result).
 func (s *Session) applyConstructionMutation(what string, mutate func(*projectstate.Project) error, admitKinds ...string) error {
+	return s.applyConstructionMutationThen(what, mutate, nil, admitKinds...)
+}
+
+// applyConstructionMutationThen is applyConstructionMutation with an `after` refusal that runs
+// once the Method-rule write gate has passed. A refusal a Method rule owns names its slot and
+// routes the agent to that slot's amendment; a refusal the agent can act on itself must not
+// shadow it, so it is ordered after the gate.
+func (s *Session) applyConstructionMutationThen(what string, mutate func(*projectstate.Project) error, after func(*projectstate.Project) error, admitKinds ...string) error {
 	proj, _, err := s.readProject()
 	if err != nil {
 		return err
@@ -112,6 +120,11 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 		s.recordRefusal(what, errs)
 		return fmt.Errorf("the %s change violates %d Method rule(s) that the required CI check enforces — fix them and record again:\n%s",
 			what, len(errs), formatFindings(errs))
+	}
+	if after != nil {
+		if err := after(&proj); err != nil {
+			return err
+		}
 	}
 	// Tier 1: every generator that reads what was just recorded emits it, and the siblings
 	// typecheck (admission.go). Last, so the cheaper refusals above come first.
@@ -722,15 +735,12 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 	if err := refuseSystemEvidence("recordPhaseArtifact", pl); err != nil {
 		return err
 	}
-	return s.applyConstructionMutation("phase artifact", func(p *projectstate.Project) error {
+	return s.applyConstructionMutationThen("phase artifact", func(p *projectstate.Project) error {
 		key := strings.TrimSpace(mapKey)
 		if pl.AcceptancePlan != nil {
 			// The one acceptance plan belongs to no component: whatever key the agent sent, it is
 			// filed as .phaseArtifacts.acceptancePlan and the key it is spoken of by is acceptance.
 			key = projectstate.AcceptanceContract
-			if err := projectstate.VacuousAcceptancePlanRefusal(p, *pl.AcceptancePlan); err != nil {
-				return err
-			}
 		}
 		if pl.TestPlan != nil {
 			var err error
@@ -742,6 +752,12 @@ func (s *Session) recordPhaseArtifact(mapKey string, payload map[string]any) err
 		projectstate.ApplyPhaseArtifactPayload(p, key, pl)
 		if pl.UIDesign != nil {
 			return projectstate.RecordBrowserContract(p, s.ComponentID)
+		}
+		return nil
+	}, func(p *projectstate.Project) error {
+		// After the Method-rule gate: a residual a design slot owns is reported by its rule.
+		if pl.AcceptancePlan != nil {
+			return projectstate.VacuousAcceptancePlanRefusal(p, *pl.AcceptancePlan)
 		}
 		return nil
 	}, phaseArtifactKinds(pl)...)

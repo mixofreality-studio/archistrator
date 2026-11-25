@@ -125,6 +125,9 @@ func TestRecordPhaseArtifact_VacuousAcceptancePlanIsRefused(t *testing.T) {
 		t.Fatalf("decode the todomvc fixture: ok=%v err=%v", ok, err)
 	}
 	p.ServiceContracts = nil
+	// A plan filed against no contract is TP-KEY's refusal; this test pins the vacuous gate,
+	// which runs after the Method-rule gate, so the state under test carries no test plans.
+	p.PhaseArtifacts.TestPlan = nil
 	s, _ := seedProject(t, p, jobModeConstruct, 0)
 	s.ActivityID = "N-ATP"
 	err = s.recordPhaseArtifact("acceptance", map[string]any{
