@@ -1380,6 +1380,15 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 				Detail: "dispatched " + tc.Task.Command + " for " + tc.Phase.ID,
 			}, nil
 		}
+		if defect := upstreamDesignDefectOf(obs.Cause); defect != nil &&
+			workflow.GetVersion(ctx, changeUpstreamDesignDefect, workflow.DefaultVersion, 1) >= 1 {
+			// No attempt can cure a defect in a design slot the work is built on, so none is spent
+			// and none is retried: the activity ends here, and its detail says what to amend.
+			subject, gerr := wf.constructionGaveUp(ctx, tc, deferred,
+				projectstate.ActivityOutcomeUnknown, projectstate.UpstreamDesignDefect, upstreamDesignDefectDetail(defect))
+			subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
+			return subject, gerr
+		}
 		verdict, held, waited, spent, verr := wf.judgeFailedDispatch(ctx, tc, obs, attempt, dispatches, deferred, typed, &streak)
 		if waited {
 			continue // a host fault, waited out: dispatch again
@@ -1538,6 +1547,44 @@ func (wf *csWorkflows) judgeFailedDispatch(
 	return verdict, held, false, verdict == varianceRedispatch && err == nil, err
 }
 
+// changeUpstreamDesignDefect versions the construction loop's end of an activity on a refusal a
+// committed design slot owns: a new command in an existing history.
+const changeUpstreamDesignDefect = "blk282-upstream-design-defect"
+
+// upstreamDesignDefectOf is the refusal a failed dispatch's cause carries when it is a committed design
+// slot's defect rather than the work's: the Method write gate refused a write, and every Error finding it
+// named is owned by a design slot (a construction task's artifact is never one, so the slot is always
+// another one). Nil for any other cause, for a refusal with no finding, and for one with a finding no
+// design slot owns: that refusal the agent can still fix.
+func upstreamDesignDefectOf(c agenticjob.FailureCause) *agenticjob.WriteRefused {
+	wr, ok := c.(*agenticjob.WriteRefused)
+	if !ok || len(wr.Findings) == 0 {
+		return nil
+	}
+	for _, f := range wr.Findings {
+		if f.OwnerSlot == "" {
+			return nil
+		}
+	}
+	return wr
+}
+
+// upstreamDesignDefectDetail is the failure detail of an activity ended by a design slot's defect: the
+// slots to amend, every rule id and the first finding's message.
+func upstreamDesignDefectDetail(wr *agenticjob.WriteRefused) string {
+	var slots, rules []string
+	for _, f := range wr.Findings {
+		if !slices.Contains(slots, f.OwnerSlot) {
+			slots = append(slots, f.OwnerSlot)
+		}
+		if !slices.Contains(rules, f.RuleID) {
+			rules = append(rules, f.RuleID)
+		}
+	}
+	return fmt.Sprintf("upstream design defect: the committed %s design (%s) refuses the %s write, and no attempt can cure it; amend it first: %s",
+		strings.Join(slots, ", "), strings.Join(rules, ", "), wr.Verb, wr.Findings[0].Message)
+}
+
 // hostFaultStreak is the run of consecutive host faults the construction loop is waiting out: when the
 // first of them was seen, and how long to wait before the next dispatch.
 type hostFaultStreak struct {
@@ -1598,6 +1645,11 @@ func (wf *csWorkflows) settleFailureCause(
 		} else {
 			obs.Cause = &agenticjob.UnknownCause{Detail: "the gate reported red checks but no check run on the branch holds them for attempt " + attemptID}
 		}
+	}
+	if upstreamDesignDefectOf(obs.Cause) != nil {
+		// A refusal a committed design slot owns is the root, whatever the tree looked like: it ends
+		// the activity at the loop, and a repeat of it is no reason to call it noProgress.
+		return obs
 	}
 	if obs.ReachedModel && obs.ProgressFingerprint != "" && len(tc.State.pendingNotes) == 0 &&
 		obs.ProgressFingerprint == tc.State.lastFingerprint[tc.Task.ID] {

@@ -398,7 +398,7 @@ func TestCause_SwitchExhaustive(t *testing.T) {
 	class := map[string]string{
 		"modelUnreachable": "host", "rateLimited": "host", "runnerLost": "host", "infraTimeout": "host",
 		"agentGaveUp": "agent", "noProgress": "agent", "toolRefusedByPolicy": "agent",
-		"gateRed": "gate", "unknown": "unknown",
+		"writeRefused": "agent", "gateRed": "gate", "unknown": "unknown",
 	}
 	for _, contract := range []string{"agenticJobAccess", "activityExecutionAccess"} {
 		sum := doc.ServiceContracts[contract].Defs["FailureCause"].Sum

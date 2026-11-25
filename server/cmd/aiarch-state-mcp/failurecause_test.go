@@ -45,6 +45,9 @@ type fakeClaude struct {
 	stdout     string
 	stderr     string
 	exit       int
+	// refusal is the line the agent's aiarch-state session appends to the refusals sidecar the venue
+	// names in AIARCH_REFUSALS_FILE when the write gate refuses a write ("" for no refusal).
+	refusal string
 }
 
 // install puts the script on PATH as `claude`, and returns the repo's state it commits when it breaks.
@@ -70,6 +73,9 @@ func (f fakeClaude) install(t *testing.T) {
 		fmt.Fprintf(&script, "cp %q .aiarch/state/project.json\n", brokenPath)
 		script.WriteString("git add .aiarch/state/project.json\n")
 		script.WriteString("git -c user.name=agent -c user.email=agent@example.com commit -q -m 'agent: change the state'\n")
+	}
+	if f.refusal != "" {
+		fmt.Fprintf(&script, "cat >>\"$AIARCH_REFUSALS_FILE\" <<'REFUSAL'\n%s\nREFUSAL\n", f.refusal)
 	}
 	fmt.Fprintf(&script, "cat <<'STREAM'\n%s\nSTREAM\n", f.stdout)
 	if f.stderr != "" {
@@ -186,6 +192,47 @@ func TestAgenticJob_RedChecksAreGateRed(t *testing.T) {
 	}
 	if obs.ProgressFingerprint == nil || *obs.ProgressFingerprint == "" {
 		t.Error("a red run that reached the model left no progress fingerprint")
+	}
+}
+
+// A run whose state write the Method write gate refused, and that then committed nothing, is a
+// refused write and no longer an agent that gave up: its cause names the refusal's findings, and the
+// diagnostic names the rule ids and the first message (ISS-028-2: RUN-028's ten N-ATP attempts each ended
+// agentGaveUp, the eight UC-OUTCOME-AT-ASKING-SURFACE refusals visible only in the agent's own prose).
+func TestAgenticJob_RefusedWriteIsWriteRefused(t *testing.T) {
+	refusal := `{"verb":"phase artifact","findings":[` +
+		`{"ruleId":"UC-OUTCOME-AT-ASKING-SURFACE","severity":"error","message":"UC-3 has no outcome at its asking surface","ownerSlot":"coreUseCases"},` +
+		`{"ruleId":"UC-ACTOR-PRESENT","severity":"error","message":"UC-4 names no actor","ownerSlot":"coreUseCases"}]}`
+	obs, _ := runLocalSRS(t, fakeClaude{stdout: streamReached, exit: 0, refusal: refusal})
+	if obs.Phase != agenticjob.PhaseFailed {
+		t.Fatalf("phase = %d (%s), want failed", obs.Phase, obs.Diagnostic)
+	}
+	wr, ok := causeOf(obs).(*agenticjob.WriteRefused)
+	if !ok {
+		t.Fatalf("cause = %T, want *WriteRefused (diagnostic %q)", causeOf(obs), obs.Diagnostic)
+	}
+	if wr.Verb != "phase artifact" || len(wr.Findings) != 2 {
+		t.Fatalf("cause = %+v, want verb %q with the two findings", wr, "phase artifact")
+	}
+	if f := wr.Findings[0]; f.RuleID != "UC-OUTCOME-AT-ASKING-SURFACE" || f.OwnerSlot != "coreUseCases" ||
+		f.Message != "UC-3 has no outcome at its asking surface" || f.Severity != "error" {
+		t.Errorf("first finding = %+v", f)
+	}
+	for _, want := range []string{"UC-OUTCOME-AT-ASKING-SURFACE", "UC-ACTOR-PRESENT", "UC-3 has no outcome at its asking surface"} {
+		if !strings.Contains(obs.Diagnostic, want) {
+			t.Errorf("the diagnostic %q does not name %q", obs.Diagnostic, want)
+		}
+	}
+	if obs.FaultClass != agenticjob.FaultAgent {
+		t.Errorf("fault class = %q, want agent", obs.FaultClass)
+	}
+}
+
+// A run that reached the model, committed nothing and met no refusal is still an agent that gave up.
+func TestAgenticJob_NoRefusalStaysAgentGaveUp(t *testing.T) {
+	obs, _ := runLocalSRS(t, fakeClaude{stdout: streamReached, exit: 0})
+	if _, ok := causeOf(obs).(*agenticjob.AgentGaveUp); !ok {
+		t.Fatalf("cause = %T, want *AgentGaveUp (diagnostic %q)", causeOf(obs), obs.Diagnostic)
 	}
 }
 

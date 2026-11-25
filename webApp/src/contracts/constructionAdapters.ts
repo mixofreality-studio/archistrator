@@ -72,6 +72,7 @@ export const FAILURE_REASON_LABEL: Record<FailureReason, string> = {
   dependencyCycle: 'Dependency cycle',
   activityUnclassifiable: 'Activity unclassifiable',
   noProgress: 'No progress',
+  upstreamDesignDefect: 'Upstream design defect',
 };
 
 /**

@@ -513,6 +513,7 @@ export const FAILURE_REASON_GO_VARNAMES = [
   'FailureReasonDependencyCycle',
   'FailureReasonActivityUnclassifiable',
   'FailureReasonNoProgress',
+  'FailureReasonUpstreamDesignDefect',
 ] as const;
 
 export type FailureReasonGoVarname = (typeof FAILURE_REASON_GO_VARNAMES)[number];
@@ -533,6 +534,7 @@ export const FAILURE_REASON_APP_STRINGS = [
   'dependencyCycle',
   'activityUnclassifiable',
   'noProgress',
+  'upstreamDesignDefect',
 ] as const;
 
 export type FailureReason = (typeof FAILURE_REASON_APP_STRINGS)[number];
@@ -551,6 +553,7 @@ export const FAILURE_REASON_APP_TO_ORDINAL: Readonly<Record<FailureReason, numbe
   dependencyCycle: 8,
   activityUnclassifiable: 9,
   noProgress: 10,
+  upstreamDesignDefect: 11,
 };
 // --- HealthState ---------------------------------------------------------
 // Sources: OperationsHealthState

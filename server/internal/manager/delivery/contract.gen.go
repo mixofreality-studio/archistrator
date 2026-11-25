@@ -604,6 +604,7 @@ const (
 	FailureReasonDependencyCycle        FailureReason = 8
 	FailureReasonActivityUnclassifiable FailureReason = 9
 	FailureReasonNoProgress             FailureReason = 10
+	FailureReasonUpstreamDesignDefect   FailureReason = 11
 )
 
 type Finding struct {

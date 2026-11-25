@@ -2108,6 +2108,9 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	// fresh per submit, so mutating it is race-free.
 	rig := plan.rig
 	rig["AIARCH_STATE_ROOT"] = workDir
+	// The sidecar the agent's state session appends a refused write to (writerefusals.go): beside the
+	// worktree, never in it, so a sweeping commit of the worktree can neither include nor lose it.
+	rig[rigRefusalsKey] = refusalsPath(parentDir)
 
 	// Steps 1–3 of the local sequence (see the doc comment): the task spec the agent
 	// runs on, and the gate inputs captured before the agent can move any ref. They run
@@ -4213,6 +4216,8 @@ func (a *localExecAccess) awaitCompletion(
 	a.gitMu.Unlock()
 	a.removeWorkspaceWorktrees(scope.workspaces)
 
+	// Read before the parent dir goes: the sidecar lives in it.
+	refusal := readWriteRefusals(refusalsPath(scope.parentDir))
 	_ = os.RemoveAll(scope.parentDir)
 
 	// The TRACE-INTEGRITY marker: whether the captured artifact is complete is a fact
@@ -4247,6 +4252,9 @@ func (a *localExecAccess) awaitCompletion(
 			// leading sentence — do not print it twice.
 			stderrForDetail = ""
 		}
+		// A refused write is why a run that committed nothing committed nothing: say so, with the rule
+		// ids and the first message, ahead of whatever the agent said about it.
+		diagnostic += refusalSuffix(agentFailed, refusal)
 		if detail := claudeOutputDetail(stdout.String(), stderrForDetail); detail != "" {
 			diagnostic += localExecDetailSeparator + detail
 		}
@@ -4276,7 +4284,7 @@ func (a *localExecAccess) awaitCompletion(
 	if status == localRunFailed {
 		run.cause, run.faultClass = classifyLocal(localOutcome{
 			timedOut: timedOut, reachedModel: reachedModel, agentFailed: agentFailed,
-			stderr: stderr.String(), detail: diagnostic, gate: verdict,
+			stderr: stderr.String(), detail: diagnostic, gate: verdict, refusal: refusal,
 		})
 		run.gateFailures = verdict.redChecks
 	}
@@ -4428,6 +4436,8 @@ type localOutcome struct {
 	stderr, detail string
 	// gate is what the gates found.
 	gate gateVerdict
+	// refusal is the state write the Method write gate refused during the run, nil when none was.
+	refusal *WriteRefused
 }
 
 // classifyLocal says why a failed local run failed, and whose fault it is. The model not having been
@@ -4439,6 +4449,7 @@ type localOutcome struct {
 //	model unreached                       modelUnreachable host
 //	edit-scope gate red                   toolRefusedByPolicy{paths}  agent
 //	checks red                            gateRed{checks}  gate
+//	agent failed after a refused write    writeRefused{verb, findings}  agent
 //	agent exit non-zero or no commits     agentGaveUp      agent
 //	anything else                         unknown
 //
@@ -4456,6 +4467,8 @@ func classifyLocal(o localOutcome) (FailureCause, FaultClass) {
 		cause = &ToolRefusedByPolicy{Paths: slices.Clone(o.gate.scopePaths)}
 	case o.gate.checksRed:
 		cause = &GateRed{Checks: slices.Clone(o.gate.redChecks)}
+	case o.agentFailed && o.refusal != nil:
+		cause = o.refusal
 	case o.agentFailed:
 		cause = &AgentGaveUp{Detail: o.detail}
 	default:
@@ -4483,7 +4496,7 @@ func faultClassFor(cause FailureCause) FaultClass {
 	switch cause.(type) {
 	case *ModelUnreachable, *RateLimited, *RunnerLost, *InfraTimeout:
 		return FaultHost
-	case *AgentGaveUp, *NoProgressCause, *ToolRefusedByPolicy:
+	case *AgentGaveUp, *NoProgressCause, *ToolRefusedByPolicy, *WriteRefused:
 		return FaultAgent
 	case *GateRed:
 		return FaultGate
@@ -7344,4 +7357,85 @@ func writeStateMCPConfig(dir, stateMCPBin string, rig map[string]string) error {
 		return fwra.Wrap(fwra.Infrastructure, err, "localexec: write mcp config file")
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// THE WRITE-REFUSAL CHANNEL, the venue half. The agent's aiarch-state session appends each state
+// write the Method write gate refuses to a sidecar file, one WriteRefused JSON line per refusal, at
+// the path the dispatch stamps in AIARCH_REFUSALS_FILE; the run reads it after the agent and turns it
+// into the failed run's typed cause and the sentence its diagnostic carries. Without the channel a
+// refusal reached supervision only inside the agent's own prose, and ten attempts that could not
+// succeed were each classified agentGaveUp.
+// ---------------------------------------------------------------------------
+
+// rigRefusalsKey is the dispatch's env name for the refusals sidecar; refusalsFileName its file in the
+// run's parent dir, which sits outside the worktree and is removed with the run.
+const (
+	rigRefusalsKey   = "AIARCH_REFUSALS_FILE"
+	refusalsFileName = "write-refusals.jsonl"
+)
+
+// maxRefusalLine bounds one sidecar line: a refusal of every rule of a large state is still one line.
+const maxRefusalLine = 16 << 20
+
+// refusalsPath is where the run whose parent dir is parentDir keeps its refusals.
+func refusalsPath(parentDir string) string { return filepath.Join(parentDir, refusalsFileName) }
+
+// readWriteRefusals is every refusal the run's sessions recorded, folded into one cause: the first
+// refusal's verb and every finding in the order recorded, a finding a later refusal repeats (the
+// agent tried the same write again) named once. Nil when the sidecar is absent, empty or holds no
+// finding. A line that is not a refusal is skipped: the sidecar is evidence, and one bad line must
+// not hide the rest.
+func readWriteRefusals(path string) *WriteRefused {
+	raw, err := os.ReadFile(path) //nolint:gosec // the path is the run's own sidecar
+	if err != nil {
+		return nil
+	}
+	var out WriteRefused
+	sc := bufio.NewScanner(bytes.NewReader(raw))
+	sc.Buffer(make([]byte, 0, 64<<10), maxRefusalLine)
+	for sc.Scan() {
+		var line WriteRefused
+		if json.Unmarshal(sc.Bytes(), &line) != nil {
+			continue
+		}
+		if out.Verb == "" {
+			out.Verb = line.Verb
+		}
+		for _, f := range line.Findings {
+			if !slices.Contains(out.Findings, f) {
+				out.Findings = append(out.Findings, f)
+			}
+		}
+	}
+	if len(out.Findings) == 0 {
+		return nil
+	}
+	return &out
+}
+
+// refusalSuffix is what a failed run's diagnostic gains for its refusals: "" unless the agent itself
+// failed after a write was refused, else the refusal's sentence behind its separator.
+func refusalSuffix(agentFailed bool, wr *WriteRefused) string {
+	if !agentFailed || wr == nil {
+		return ""
+	}
+	return "; " + refusalDiagnostic(wr)
+}
+
+// refusalDiagnostic is the sentence a failed run's diagnostic carries for its refusals: the rule ids,
+// then the first finding's message, so an operator reads what refused the write without opening the
+// agent's trace.
+func refusalDiagnostic(wr *WriteRefused) string {
+	if wr == nil || len(wr.Findings) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(wr.Findings))
+	for _, f := range wr.Findings {
+		if !slices.Contains(ids, f.RuleID) {
+			ids = append(ids, f.RuleID)
+		}
+	}
+	return fmt.Sprintf("the Method write gate refused the agent's %s write (%s): %s",
+		wr.Verb, strings.Join(ids, ", "), wr.Findings[0].Message)
 }

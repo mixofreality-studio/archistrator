@@ -329,6 +329,7 @@ const FAILURE_CAUSE: Readonly<Record<FailureReason, string>> = {
   componentUnresolved: 'The plan names a component that isn’t in the design',
   activityUnclassifiable: 'The plan gives this activity no buildable type',
   noProgress: 'No progress: two attempts changed nothing and failed the same way',
+  upstreamDesignDefect: 'A committed design slot refused the work: it needs an amendment',
   dependencyUnresolved: 'The plan depends on an activity that doesn’t exist',
   dependencyCycle: 'The plan has a dependency loop',
 };

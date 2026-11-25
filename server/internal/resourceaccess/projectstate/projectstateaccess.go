@@ -8558,6 +8558,13 @@ func (p ActivityConstructionPhase) String() string {
 // identically, so more budget cannot help. The repair is a changed input: a note, a
 // send-back, or a fix to the platform. Appended, because stored values are integers.
 //
+// UpstreamDesignDefect — a state write of the activity was refused by the Method write gate for
+// findings that only committed design slots own, so no attempt of this activity can cure it. The
+// activity ends at the first such refusal, with no retry. FailureDetail names the slots to amend,
+// every rule id and the first finding's message. Repair: amend the named design slot, then
+// re-run. Appended, because stored values are integers. Same terminal/non-intervention treatment
+// as ComponentUnresolved.
+//
 // ActivityUnclassifiable — an eligible activity could not be dispatched because its
 // authored (workerClass, coding) pair matches no ClassifyActivity rule, so no
 // ActivityType — and therefore no phase profile and no slash command — can be
@@ -8589,6 +8596,8 @@ func (r FailureReason) String() string {
 		return "noProgress"
 	case ActivityUnclassifiable:
 		return "activityUnclassifiable"
+	case UpstreamDesignDefect:
+		return "upstreamDesignDefect"
 	case FailureReasonUnknown:
 		return "unknown"
 	}

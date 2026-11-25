@@ -80,6 +80,11 @@ const (
 	// agent's system prompt) and through the getOperatorNotes tool. It never rides
 	// the prompt, whose positional slash-command arguments it would corrupt.
 	envOperatorNote = "AIARCH_OPERATOR_NOTE"
+	// envRefusalsFile names the sidecar this session appends each write-gate refusal to, one
+	// JSON line per refusal (refusals.go). The local venue stamps it, outside the worktree, and
+	// reads it after the run: the refusal is otherwise visible only in the agent's own words. The
+	// cloud arm stamps none, and a session without one refuses exactly the same.
+	envRefusalsFile = "AIARCH_REFUSALS_FILE"
 )
 
 // statePathPrefix + projectFile mirror the projectstate git substrate's reserved
@@ -129,6 +134,9 @@ type Session struct {
 	// Empty (or whitespace-only) means no note is pending. Served in construct, draft and critique
 	// modes, never answer (operatornotes.go).
 	OperatorNote string
+
+	// RefusalsFile is the sidecar the venue reads refusals from (AIARCH_REFUSALS_FILE), "" for none.
+	RefusalsFile string
 
 	// wroteState is set by any state-mutating verb (putDraftModel / setCritiqueVerdict /
 	// respondToReviewComment) so publishDraft can refuse a no-op publish (nothing drafted
@@ -196,6 +204,7 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		SpecHash:     strings.TrimSpace(getenv(envSpecHash)),
 		Command:      strings.TrimSpace(getenv(envCommand)),
 		OperatorNote: getenv(envOperatorNote),
+		RefusalsFile: strings.TrimSpace(getenv(envRefusalsFile)),
 		git:          runGit,
 	}
 

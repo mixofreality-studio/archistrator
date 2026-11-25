@@ -109,6 +109,7 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 		return ferr
 	}
 	if len(errs) > 0 {
+		s.recordRefusal(what, errs)
 		return fmt.Errorf("the %s change violates %d Method rule(s) that the required CI check enforces — fix them and record again:\n%s",
 			what, len(errs), formatFindings(errs))
 	}

@@ -648,6 +648,9 @@ func (*ToolRefusedByPolicy) Kind() FailureCauseKind { return FailureToolRefusedB
 func (*GateRed) isFailureCause()        {}
 func (*GateRed) Kind() FailureCauseKind { return FailureGateRed }
 
+func (*WriteRefused) isFailureCause()        {}
+func (*WriteRefused) Kind() FailureCauseKind { return FailureWriteRefused }
+
 func (*UnknownCause) isFailureCause()        {}
 func (*UnknownCause) Kind() FailureCauseKind { return FailureUnknown }
 
@@ -677,6 +680,8 @@ func kindStringFailureCause(k FailureCauseKind) (string, bool) {
 		return "toolRefusedByPolicy", true
 	case FailureGateRed:
 		return "gateRed", true
+	case FailureWriteRefused:
+		return "writeRefused", true
 	case FailureUnknown:
 		return "unknown", true
 	default:
@@ -721,6 +726,8 @@ func newFailureCauseForKind(kind string) (FailureCause, bool) {
 		return &ToolRefusedByPolicy{}, true
 	case "gateRed":
 		return &GateRed{}, true
+	case "writeRefused":
+		return &WriteRefused{}, true
 	case "unknown":
 		return &UnknownCause{}, true
 	default:
@@ -759,6 +766,7 @@ const (
 	FailureNoProgress          FailureCauseKind = "noProgress"
 	FailureToolRefusedByPolicy FailureCauseKind = "toolRefusedByPolicy"
 	FailureGateRed             FailureCauseKind = "gateRed"
+	FailureWriteRefused        FailureCauseKind = "writeRefused"
 	FailureUnknown             FailureCauseKind = "unknown"
 )
 
@@ -776,6 +784,7 @@ const (
 	DependencyCycle        FailureReason = 8
 	ActivityUnclassifiable FailureReason = 9
 	NoProgress             FailureReason = 10
+	UpstreamDesignDefect   FailureReason = 11
 )
 
 type GateRed struct {
@@ -1046,6 +1055,13 @@ type RefValue struct {
 	Step  int    `json:"step"`
 	Path  string `json:"path"`
 	Probe *int   `json:"probe,omitempty"`
+}
+
+type RefusedFinding struct {
+	RuleID    string `json:"ruleId"`
+	Severity  string `json:"severity"`
+	Message   string `json:"message"`
+	OwnerSlot string `json:"ownerSlot"`
 }
 
 type RejectedVolatility struct {
@@ -2030,6 +2046,11 @@ type WorkerRateSpec struct {
 	ModelID             string  `json:"modelId"`
 	MegatokensInPerDay  float64 `json:"megatokensInPerDay"`
 	MegatokensOutPerDay float64 `json:"megatokensOutPerDay"`
+}
+
+type WriteRefused struct {
+	Verb     string           `json:"verb"`
+	Findings []RefusedFinding `json:"findings"`
 }
 
 // ActivityExecutionAccess is the generated service-contract interface for this component.

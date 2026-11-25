@@ -17730,7 +17730,7 @@
           "x-go-base": "int"
         },
         "FailureCause": {
-          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy), the gate (gateRed) or nobody known (unknown).",
+          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy, writeRefused), the gate (gateRed) or nobody known (unknown).",
           "oneOf": [
             {
               "type": "object",
@@ -17864,6 +17864,22 @@
               "type": "object",
               "properties": {
                 "kind": {
+                  "const": "writeRefused"
+                },
+                "model": {
+                  "$ref": "#/$defs/WriteRefused"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
                   "const": "unknown"
                 },
                 "model": {
@@ -17924,6 +17940,11 @@
                 "kindConst": "FailureGateRed"
               },
               {
+                "kind": "writeRefused",
+                "type": "WriteRefused",
+                "kindConst": "FailureWriteRefused"
+              },
+              {
                 "kind": "unknown",
                 "type": "UnknownCause",
                 "kindConst": "FailureUnknown"
@@ -17942,6 +17963,7 @@
             "noProgress",
             "toolRefusedByPolicy",
             "gateRed",
+            "writeRefused",
             "unknown"
           ],
           "x-enum-varnames": [
@@ -17953,6 +17975,7 @@
             "FailureNoProgress",
             "FailureToolRefusedByPolicy",
             "FailureGateRed",
+            "FailureWriteRefused",
             "FailureUnknown"
           ]
         },
@@ -17969,7 +17992,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -17982,7 +18006,8 @@
             "DependencyUnresolved",
             "DependencyCycle",
             "ActivityUnclassifiable",
-            "NoProgress"
+            "NoProgress",
+            "UpstreamDesignDefect"
           ],
           "x-go-base": "int"
         },
@@ -18722,6 +18747,56 @@
         },
         "Version": {
           "type": "integer"
+        },
+        "WriteRefused": {
+          "type": "object",
+          "description": "The agent reached the model and a state write it made was refused by the Method write gate: verb names the aiarch-state verb and findings every Error finding that refused it, each attributed to the design slot that owns its rule. A refusal whose findings a committed upstream design slot owns is that slot's defect, not the agent's.",
+          "properties": {
+            "verb": {
+              "type": "string"
+            },
+            "findings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/RefusedFinding"
+              }
+            }
+          },
+          "required": [
+            "verb",
+            "findings"
+          ],
+          "additionalProperties": false
+        },
+        "RefusedFinding": {
+          "type": "object",
+          "description": "One Error finding that refused a state write.",
+          "properties": {
+            "ruleId": {
+              "type": "string",
+              "x-go-name": "RuleID"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "ownerSlot": {
+              "type": "string",
+              "description": "The design slot that owns the rule, empty when the rule has no design-slot owner."
+            }
+          },
+          "required": [
+            "ruleId",
+            "severity",
+            "message",
+            "ownerSlot"
+          ],
+          "additionalProperties": false
         }
       },
       "interface": {
@@ -19395,7 +19470,7 @@
           "additionalProperties": false
         },
         "FailureCause": {
-          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy), the gate (gateRed) or nobody known (unknown).",
+          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy, writeRefused), the gate (gateRed) or nobody known (unknown).",
           "oneOf": [
             {
               "type": "object",
@@ -19529,6 +19604,22 @@
               "type": "object",
               "properties": {
                 "kind": {
+                  "const": "writeRefused"
+                },
+                "model": {
+                  "$ref": "#/$defs/WriteRefused"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
                   "const": "unknown"
                 },
                 "model": {
@@ -19589,6 +19680,11 @@
                 "kindConst": "FailureGateRed"
               },
               {
+                "kind": "writeRefused",
+                "type": "WriteRefused",
+                "kindConst": "FailureWriteRefused"
+              },
+              {
                 "kind": "unknown",
                 "type": "UnknownCause",
                 "kindConst": "FailureUnknown"
@@ -19607,6 +19703,7 @@
             "noProgress",
             "toolRefusedByPolicy",
             "gateRed",
+            "writeRefused",
             "unknown"
           ],
           "x-enum-varnames": [
@@ -19618,6 +19715,7 @@
             "FailureNoProgress",
             "FailureToolRefusedByPolicy",
             "FailureGateRed",
+            "FailureWriteRefused",
             "FailureUnknown"
           ]
         },
@@ -20066,6 +20164,56 @@
           },
           "required": [
             "detail"
+          ],
+          "additionalProperties": false
+        },
+        "WriteRefused": {
+          "type": "object",
+          "description": "The agent reached the model and a state write it made was refused by the Method write gate: verb names the aiarch-state verb and findings every Error finding that refused it, each attributed to the design slot that owns its rule. A refusal whose findings a committed upstream design slot owns is that slot's defect, not the agent's.",
+          "properties": {
+            "verb": {
+              "type": "string"
+            },
+            "findings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/RefusedFinding"
+              }
+            }
+          },
+          "required": [
+            "verb",
+            "findings"
+          ],
+          "additionalProperties": false
+        },
+        "RefusedFinding": {
+          "type": "object",
+          "description": "One Error finding that refused a state write.",
+          "properties": {
+            "ruleId": {
+              "type": "string",
+              "x-go-name": "RuleID"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "ownerSlot": {
+              "type": "string",
+              "description": "The design slot that owns the rule, empty when the rule has no design-slot owner."
+            }
+          },
+          "required": [
+            "ruleId",
+            "severity",
+            "message",
+            "ownerSlot"
           ],
           "additionalProperties": false
         }
@@ -23428,7 +23576,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -23441,7 +23590,8 @@
             "FailureReasonDependencyUnresolved",
             "FailureReasonDependencyCycle",
             "FailureReasonActivityUnclassifiable",
-            "FailureReasonNoProgress"
+            "FailureReasonNoProgress",
+            "FailureReasonUpstreamDesignDefect"
           ],
           "x-go-base": "int"
         },
@@ -30518,7 +30668,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -30531,7 +30682,8 @@
             "FailureReasonDependencyUnresolved",
             "FailureReasonDependencyCycle",
             "FailureReasonActivityUnclassifiable",
-            "FailureReasonNoProgress"
+            "FailureReasonNoProgress",
+            "FailureReasonUpstreamDesignDefect"
           ],
           "x-go-base": "int"
         },
@@ -38392,7 +38544,8 @@
             7,
             8,
             9,
-            10
+            10,
+            11
           ],
           "x-enum-varnames": [
             "FailureReasonUnknown",
@@ -38405,7 +38558,8 @@
             "DependencyUnresolved",
             "DependencyCycle",
             "ActivityUnclassifiable",
-            "NoProgress"
+            "NoProgress",
+            "UpstreamDesignDefect"
           ],
           "x-go-base": "int"
         },

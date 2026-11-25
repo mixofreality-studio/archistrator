@@ -13023,7 +13023,7 @@ func faultClassOf(c agenticjob.FailureCause) agenticjob.FaultClass {
 	switch c.(type) {
 	case *agenticjob.ModelUnreachable, *agenticjob.RateLimited, *agenticjob.RunnerLost, *agenticjob.InfraTimeout:
 		return agenticjob.FaultHost
-	case *agenticjob.AgentGaveUp, *agenticjob.NoProgressCause, *agenticjob.ToolRefusedByPolicy:
+	case *agenticjob.AgentGaveUp, *agenticjob.NoProgressCause, *agenticjob.ToolRefusedByPolicy, *agenticjob.WriteRefused:
 		return agenticjob.FaultAgent
 	case *agenticjob.GateRed:
 		return agenticjob.FaultGate
