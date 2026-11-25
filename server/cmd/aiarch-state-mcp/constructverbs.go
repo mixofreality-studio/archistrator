@@ -31,6 +31,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/appgen"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/modelgen"
@@ -183,6 +185,10 @@ func (s *Session) recordServiceContractJSON(b []byte) error {
 		if err != nil {
 			return err
 		}
+		if key, err = facetKey(*p, comp, key, sc); err != nil {
+			return err
+		}
+		committed, hadCommitted := p.ServiceContracts[key]
 		if err := refuseClientContract(*p, s.ComponentID, sc); err != nil {
 			return err
 		}
@@ -198,7 +204,7 @@ func (s *Session) recordServiceContractJSON(b []byte) error {
 		if err := depsFromSystem(*p, comp, &sc); err != nil {
 			return err
 		}
-		if err := canonicalizeContract(key, &sc); err != nil {
+		if err := canonicalizeAmendment(key, &sc, committed, hadCommitted); err != nil {
 			return err
 		}
 		markReadOnlyOperations(&sc)
@@ -211,6 +217,49 @@ func (s *Session) recordServiceContractJSON(b []byte) error {
 		}
 		return nil
 	}, string(appgen.KindServiceContract))
+}
+
+// facetKey is the key the contract is filed under. A component may own several contract facets
+// (projectStateAccess files projectStateAccess, activityExecutionAccess, designSessionAccess and
+// gitActivityStatusAccess), each keyed by lowerCamel(its interface name); a contract whose
+// interface names a committed facet of the ambient component amends that facet, not the
+// component's primary key. A key a different component owns is refused. Any other name files under
+// the component's own key, as before.
+func facetKey(p projectstate.Project, c projectstate.Component, key string, sc projectstate.ServiceContract) (string, error) {
+	name := sc.Interface.Name
+	if name == "" {
+		return key, nil
+	}
+	r, size := utf8.DecodeRuneInString(name)
+	facet := string(unicode.ToLower(r)) + name[size:]
+	if facet == key {
+		return key, nil
+	}
+	existing, ok := p.ServiceContracts[facet]
+	if !ok {
+		return key, nil
+	}
+	if existing.Component != key && existing.Component != c.ID {
+		return "", fmt.Errorf("recordServiceContract: interface %q is filed under contract key %q, which belongs to component %q, not to %q; record a contract for this component's own interface", name, facet, existing.Component, c.ID)
+	}
+	return facet, nil
+}
+
+// canonicalizeAmendment is canonicalizeContract for a record that may amend a committed contract.
+// A ResourceAccess committed with a goPackage and no infra (project data from before ValidateContract
+// required one) is not refused again for a finding the amendment did not introduce; a first record
+// of one still is.
+func canonicalizeAmendment(key string, sc *projectstate.ServiceContract, committed projectstate.ServiceContract, hadCommitted bool) error {
+	exempt := hadCommitted && len(sc.Infra) == 0 && len(committed.Infra) == 0 && committed.GoPackage != ""
+	if !exempt {
+		return canonicalizeContract(key, sc)
+	}
+	// ValidateContract has no notion of "already committed"; satisfy only its infra presence
+	// check for the validation, then restore the contract's own (empty) binding.
+	sc.Infra = []string{modelgen.ApprovedInfra()[0]}
+	err := canonicalizeContract(key, sc)
+	sc.Infra = nil
+	return err
 }
 
 // markReadOnlyOperations sets each operation's readOnly flag from its name and layer, the one
@@ -240,6 +289,11 @@ const contractShape = "{title, $defs, interface:{name, operations:[{name, params
 // under the layer's directory, even if it is not the derived one; anything else would pass
 // modelgen's prefix check and fail to compile, so it is refused. A stub with none is left alone.
 func goPackageFromSystem(p projectstate.Project, c projectstate.Component, key string, sc *projectstate.ServiceContract) error {
+	if committed, ok := p.ServiceContracts[key]; ok && sc.GoPackage == "" && committed.GoPackage != "" {
+		// An amendment keeps the committed package: a component's facets share one, which the
+		// derivation below would call held by the others.
+		sc.GoPackage = committed.GoPackage
+	}
 	layer, ok := modelgen.CanonicalLayer(sc.Layer)
 	if !ok {
 		return fmt.Errorf("recordServiceContract: component %q's layer %q has no package directory", c.ID, sc.Layer)

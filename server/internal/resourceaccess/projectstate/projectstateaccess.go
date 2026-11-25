@@ -13883,7 +13883,8 @@ var TemporalClientDep = ContractDep{Name: "client", GoType: "client.Client", GoI
 // an edge to from the Manager, in relationship order, without duplicates, each named and keyed by
 // the target's contract key. A Resource is reached through its ResourceAccess and a peer Manager
 // through the bus, so neither is a dep; an edge's mode does not matter. A target whose recorded
-// contract has no Go package is external and built nowhere, so it is no constructor param. A
+// contract has no Go package, or that the System marks buildStatus external and that has no
+// contract at all, is external and built nowhere, so it is no constructor param. A
 // target with no recorded contract yet is refused, naming it and its activity: the network orders
 // a Manager's dependency activities before it. The deps are the design's, as the layer is: nobody
 // authors them.
@@ -13909,6 +13910,11 @@ func ManagerDepsFromSystem(p Project, componentID string) ([]ContractDep, error)
 		seen[r.To] = true
 		key, _ := ContractKeyFor(target)
 		sc, recorded := p.ServiceContracts[key]
+		if !recorded && target.BuildStatus != nil && *target.BuildStatus == "external" {
+			// Supplied outside the project and never contracted (the ambient Manager -> logging
+			// edge): nothing builds it here, so its contract is no constructor param.
+			continue
+		}
 		if !recorded {
 			return nil, fmt.Errorf("the Manager %q depends on %s %q, which has no recorded contract (%s); its constructor takes that contract's interface, so record %q's contract first",
 				componentID, target.Kind, target.ID, componentActivityPhrase(p, target.ID), key)
