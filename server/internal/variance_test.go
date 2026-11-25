@@ -125,6 +125,7 @@ type varianceRun struct {
 	env     *testsuite.TestWorkflowEnvironment
 	mgr     delivery.DeliveryManager
 	ae      projectstate.ActivityExecutionAccess
+	ps      projectstate.ProjectStateAccess
 	started time.Time
 	// jobs is how many construction jobs were submitted.
 	jobs *int
@@ -163,13 +164,14 @@ func newVarianceRun(t *testing.T, repoRuns map[string][][2]string, script []agen
 			return nil
 		},
 	}
-	mgr := delivery.NewDeliveryManager(envClient{env: env}, projectstate.NewGitLocalProjectStateAccess(url), nil,
+	ps := projectstate.NewGitLocalProjectStateAccess(url)
+	mgr := delivery.NewDeliveryManager(envClient{env: env}, ps, nil,
 		intervention.NewInterventionEngine(), review.NewReviewEngine(), estimation.NewEstimationEngine(),
 		operationestimation.NewOperationEstimationEngine(), billing.NewBillingEngine(), designhealth.NewDesignHealthEngine(),
 		jobs, nil, projectstate.NewGitLocalGitActivityStatusAccess(url), projectstate.NewGitLocalDesignSessionAccess(url),
 		ae, bus, episode.NewLocalFSEpisodeAccess(url), 0, "tiered")
 	delivery.RegisterManagerWorker(envWorker{env: env}, mgr)
-	return &varianceRun{env: env, mgr: mgr, ae: ae, jobs: &submitted}
+	return &varianceRun{env: env, mgr: mgr, ae: ae, ps: ps, jobs: &submitted}
 }
 
 // attempts is the srs task's attempt ledger, oldest first.
