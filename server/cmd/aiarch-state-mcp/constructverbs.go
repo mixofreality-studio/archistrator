@@ -201,7 +201,7 @@ func (s *Session) recordServiceContractJSON(b []byte) error {
 		if err := refuseOpLessContract(s.ComponentID, sc); err != nil {
 			return err
 		}
-		if err := depsFromSystem(*p, comp, &sc); err != nil {
+		if err := depsFromSystem(*p, comp, committed, &sc); err != nil {
 			return err
 		}
 		if err := canonicalizeAmendment(key, &sc, committed, hadCommitted); err != nil {
@@ -441,7 +441,14 @@ func layerFromSystem(c projectstate.Component, sc *projectstate.ServiceContract)
 // the agent supplies (a config scalar, a resolver func) is kept after the client; the client
 // itself is kept once. A supplied component dep is the design's to name, so one the System does
 // not draw, or draws under another name, is refused rather than silently replaced.
-func depsFromSystem(p projectstate.Project, c projectstate.Component, sc *projectstate.ServiceContract) error {
+//
+// An amendment of a committed Manager contract starts from that contract's deps (committedDeps):
+// its constructor is built by hand against them, so their names, their order and the facets of a
+// drawn component they take (the System draws one edge to a component, whatever number of contract
+// facets it owns) survive a record that did not change the design. A committed component dep that
+// no longer follows a drawn edge is dropped; a drawn edge the committed deps do not cover is
+// appended as derived.
+func depsFromSystem(p projectstate.Project, c projectstate.Component, committed projectstate.ServiceContract, sc *projectstate.ServiceContract) error {
 	if c.Kind != projectstate.CompManager {
 		return nil
 	}
@@ -455,23 +462,87 @@ func depsFromSystem(p projectstate.Project, c projectstate.Component, sc *projec
 		want[d.Component] = d
 		drawn = append(drawn, d.Component)
 	}
-	deps := []projectstate.ContractDep{derived[0]}
-	for _, d := range sc.Deps {
-		switch {
-		case d.Component == "" && (d.Name == derived[0].Name || (d.GoType == derived[0].GoType && d.GoImport == derived[0].GoImport)):
-			if d != derived[0] {
-				return fmt.Errorf("recordServiceContract: Manager %q's dep %q is the Temporal client, which is %+v; leave it out and record again", c.ID, d.Name, derived[0])
-			}
-		case d.Component == "":
-			deps = append(deps, d)
-		case want[d.Component] != d:
-			return fmt.Errorf("recordServiceContract: Manager %q's dep %+v is not one the System draws: its deps follow the design's edges, one per Engine, ResourceAccess and Utility it calls, named by contract key (%s); leave the component deps out, they are derived, and record again",
-				c.ID, d, strings.Join(drawn, ", "))
+	kept := committedDeps(p, committed, want)
+	covered := map[string]bool{}
+	for _, d := range kept {
+		if d.Component != "" {
+			covered[drawnOwner(p, d.Component)] = true
 		}
 	}
-	deps = append(deps, derived[1:]...)
+	kept, err = suppliedDeps(c.ID, sc.Deps, derived[0], want, drawn, kept)
+	if err != nil {
+		return err
+	}
+	deps := append([]projectstate.ContractDep{derived[0]}, kept...)
+	for _, d := range derived[1:] {
+		if !covered[d.Component] {
+			deps = append(deps, d)
+		}
+	}
 	sc.Deps = deps
 	return nil
+}
+
+// suppliedDeps folds the deps the agent sent into kept: a plain dep the committed contract does not
+// already carry by name is appended, the client must be the derived one, and a component dep must be
+// a derived dep or one already kept; any other is refused.
+func suppliedDeps(managerID string, supplied []projectstate.ContractDep, client projectstate.ContractDep, want map[string]projectstate.ContractDep, drawn []string, kept []projectstate.ContractDep) ([]projectstate.ContractDep, error) {
+	byName := map[string]projectstate.ContractDep{}
+	for _, d := range kept {
+		byName[d.Name] = d
+	}
+	for _, d := range supplied {
+		switch {
+		case d.Component == "" && (d.Name == client.Name || (d.GoType == client.GoType && d.GoImport == client.GoImport)):
+			if d != client {
+				return nil, fmt.Errorf("recordServiceContract: Manager %q's dep %q is the Temporal client, which is %+v; leave it out and record again", managerID, d.Name, client)
+			}
+		case d.Component == "":
+			if _, ok := byName[d.Name]; !ok {
+				kept = append(kept, d)
+				byName[d.Name] = d
+			}
+		case want[d.Component] == d, byName[d.Name] == d:
+		default:
+			return nil, fmt.Errorf("recordServiceContract: Manager %q's dep %+v is not one the System draws: its deps follow the design's edges, one per Engine, ResourceAccess and Utility it calls, named by contract key (%s); leave the component deps out, they are derived, and record again",
+				managerID, d, strings.Join(drawn, ", "))
+		}
+	}
+	return kept, nil
+}
+
+// committedDeps is the committed Manager contract's deps but the Temporal client: each plain dep,
+// and each component dep that still follows a drawn edge (its component is a drawn target, or a
+// contract facet that target owns). A project with no committed contract has none.
+func committedDeps(p projectstate.Project, committed projectstate.ServiceContract, drawn map[string]projectstate.ContractDep) []projectstate.ContractDep {
+	var out []projectstate.ContractDep
+	for _, d := range committed.Deps {
+		switch {
+		case d.Component == "" && d.GoType == projectstate.TemporalClientDep.GoType && d.GoImport == projectstate.TemporalClientDep.GoImport:
+		case d.Component == "":
+			out = append(out, d)
+		default:
+			if _, ok := drawn[drawnOwner(p, d.Component)]; ok {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// drawnOwner is the contract key a dep on contract key k is drawn by: k itself, or, when k is a
+// facet another recorded contract's component owns under a different key, that component's key.
+func drawnOwner(p projectstate.Project, k string) string {
+	sc, ok := p.ServiceContracts[k]
+	if !ok || sc.Component == "" || sc.Component == k {
+		return k
+	}
+	if comp, _, err := contractComponent(p, sc.Component); err == nil {
+		if key, ok := projectstate.ContractKeyFor(comp); ok {
+			return key
+		}
+	}
+	return sc.Component
 }
 
 // contractComponent resolves the System component componentID, and the key its contract is
