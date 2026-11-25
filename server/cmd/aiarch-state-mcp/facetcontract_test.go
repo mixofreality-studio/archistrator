@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
 
@@ -236,5 +237,72 @@ func TestCanonicalizeAmendment_NewFindingBehindAnOldOneIsRefused(t *testing.T) {
 	dangling.Defs = base.Defs
 	if err := canonicalizeAmendment("todoListAccess", &dangling, gone, true); err == nil {
 		t.Fatal("an untouched op whose $ref names no $def must be refused")
+	}
+}
+
+// ownProjectSession is the dog-food project as a construct session for the component whose id is
+// component, over a copy in a temp state root.
+func ownProjectSession(t *testing.T, component string) *Session {
+	t.Helper()
+	s := newSessionFromFixture(t, "../../../.aiarch/state/project.json")
+	s.ComponentID, s.ActivityID = component, "C-"+component
+	return s
+}
+
+// Through the verb, over the own project: a committed contract re-recorded in compact JSON (the
+// committed one is pretty-printed, so its raw schemas differ in spacing only) is not refused for
+// the findings it already carries.
+func TestRecordServiceContractJSON_OwnProjectReRecordsCommittedContractCompact(t *testing.T) {
+	spyAdmission(t, func(string) []review.AdmissionProblem { return nil })
+	s := ownProjectSession(t, "delivery-manager")
+	proj, _, err := s.readProject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := proj.ServiceContracts["deliveryManager"]
+	sc.Component, sc.GoPackage, sc.Deps = "", "", nil
+	raw, err := json.Marshal(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.recordServiceContractJSON(raw); err != nil {
+		t.Fatalf("re-recording the committed deliveryManager contract: %v", err)
+	}
+}
+
+// Through the verb, over a component owning several facets: an amendment naming a facet is filed
+// under that facet's key and the component's primary key is left untouched.
+func TestRecordServiceContractJSON_AmendsAFacetNotThePrimaryKey(t *testing.T) {
+	spyAdmission(t, func(string) []review.AdmissionProblem { return nil })
+	s := ownProjectSession(t, "project-state-access")
+	before, _, err := s.readProject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facet := before.ServiceContracts["activityExecutionAccess"]
+	primary := before.ServiceContracts["projectStateAccess"]
+	facet.Component, facet.GoPackage, facet.Deps = "", "", nil
+	defs := map[string]json.RawMessage{"AmendedProbe": json.RawMessage(`{"type":"string"}`)}
+	for k, v := range facet.Defs {
+		defs[k] = v
+	}
+	facet.Defs = defs
+	raw, err := json.Marshal(facet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.recordServiceContractJSON(raw); err != nil {
+		t.Fatalf("amending activityExecutionAccess: %v", err)
+	}
+	after, _, err := s.readProject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got := after.ServiceContracts["activityExecutionAccess"].Defs["AmendedProbe"]; !got {
+		t.Error("the facet was not amended under its own key")
+	}
+	if after.ServiceContracts["projectStateAccess"].Interface.Name != primary.Interface.Name ||
+		len(after.ServiceContracts["projectStateAccess"].Defs) != len(primary.Defs) {
+		t.Error("the primary projectStateAccess contract was overwritten by a facet amendment")
 	}
 }

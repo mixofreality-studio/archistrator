@@ -313,7 +313,7 @@ func amendmentProbe(sc, committed projectstate.ServiceContract) (projectstate.Se
 		// readOnly is derived after validation (markReadOnlyOperations), never authored.
 		same := slices.ContainsFunc(committed.Interface.Operations, func(c projectstate.ContractOperation) bool {
 			c.ReadOnly = op.ReadOnly
-			return reflect.DeepEqual(c, op)
+			return operationsEqual(c, op)
 		})
 		if !same {
 			probe.Interface.Operations[i] = op
@@ -341,6 +341,18 @@ func amendmentProbe(sc, committed projectstate.ServiceContract) (projectstate.Se
 		probe.Infra = []string{modelgen.ApprovedInfra()[0]}
 	}
 	return probe, nil
+}
+
+// operationsEqual reports whether two operations are the same document, whatever the spacing of
+// their raw param and result schemas: a committed operation is decoded from the pretty-printed
+// project.json, an amendment arrives compact.
+func operationsEqual(a, b projectstate.ContractOperation) bool {
+	x, errA := json.Marshal(a)
+	y, errB := json.Marshal(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return jsonEqual(x, y)
 }
 
 // danglingRef refuses a $ref, in a part of the contract an amendment left alone, that names no
