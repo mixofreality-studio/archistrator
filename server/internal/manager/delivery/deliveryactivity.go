@@ -1382,12 +1382,7 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 		}
 		if defect := upstreamDesignDefectOf(obs.Cause); defect != nil &&
 			workflow.GetVersion(ctx, changeUpstreamDesignDefect, workflow.DefaultVersion, 1) >= 1 {
-			// No attempt can cure a defect in a design slot the work is built on, so none is spent
-			// and none is retried: the activity ends here, and its detail says what to amend.
-			subject, gerr := wf.constructionGaveUp(ctx, tc, deferred,
-				projectstate.ActivityOutcomeUnknown, projectstate.UpstreamDesignDefect, upstreamDesignDefectDetail(defect))
-			subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
-			return subject, gerr
+			return wf.endOnUpstreamDesignDefect(ctx, tc, deferred, attemptID, obs, defect)
 		}
 		verdict, held, waited, spent, verr := wf.judgeFailedDispatch(ctx, tc, obs, attempt, dispatches, deferred, typed, &streak)
 		if waited {
@@ -1420,6 +1415,31 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 			return wf.constructionExited(ctx, tc, deferred, attemptID, obs, verdict)
 		}
 	}
+}
+
+// endOnUpstreamDesignDefect is the construction loop's answer to a refusal a committed design slot
+// owns. No attempt can cure a defect in a design slot the work is built on, so none is spent and
+// none is retried. Where one committed slot alone owns the refusal, its amendment is the cure and
+// the task holds for it (routeUpstreamDesignDefect); otherwise the activity ends here, and its
+// detail says what to amend and why it was not routed.
+func (wf *csWorkflows) endOnUpstreamDesignDefect(
+	ctx workflow.Context, tc taskContext, deferred []routedSignal, attemptID string, obs csPipelineObservation,
+	defect *agenticjob.WriteRefused,
+) (producedSubject, error) {
+	detail := upstreamDesignDefectDetail(defect)
+	if workflow.GetVersion(ctx, changeUpstreamDesignRoute, workflow.DefaultVersion, 1) >= 1 {
+		wf.reofferDeferred(ctx, tc, deferred)
+		deferred = nil
+		routed, ok, err := wf.routeUpstreamDesignDefect(ctx, tc, attemptID, obs, defect)
+		if ok || err != nil {
+			return routed, err
+		}
+		detail += "; not routed: " + routed.Detail
+	}
+	subject, err := wf.constructionGaveUp(ctx, tc, deferred,
+		projectstate.ActivityOutcomeUnknown, projectstate.UpstreamDesignDefect, detail)
+	subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
+	return subject, err
 }
 
 // changeChildPumpHalted fences the child's side of the pump's halt signal (ISS-028-2): reading
@@ -1551,11 +1571,18 @@ func (wf *csWorkflows) judgeFailedDispatch(
 // committed design slot owns: a new command in an existing history.
 const changeUpstreamDesignDefect = "blk282-upstream-design-defect"
 
+// changeUpstreamDesignRoute versions the route that, before that end, sends a refusal one committed
+// design slot alone owns back to the slot's amendment (ISS-028-2): new commands in an existing
+// history, and a "not routed" detail on the end.
+const changeUpstreamDesignRoute = "iss0282-upstream-design-route"
+
 // upstreamDesignDefectOf is the refusal a failed dispatch's cause carries when it is a committed design
 // slot's defect rather than the work's: the Method write gate refused a write, and every Error finding it
 // named is owned by a design slot (a construction task's artifact is never one, so the slot is always
 // another one). Nil for any other cause, for a refusal with no finding, and for one with a finding no
-// design slot owns: that refusal the agent can still fix.
+// design slot owns: that refusal the agent can still fix. The caller routes the refusal to the owning
+// slot's amendment when exactly one slot owns it (routeUpstreamDesignDefect), and ends the activity
+// otherwise.
 func upstreamDesignDefectOf(c agenticjob.FailureCause) *agenticjob.WriteRefused {
 	wr, ok := c.(*agenticjob.WriteRefused)
 	if !ok || len(wr.Findings) == 0 {
@@ -8182,6 +8209,13 @@ func replanHold(reports []projectstate.PlanDefectReport, current map[string]stri
 // that owns it. So the draft alleges (reportUpstreamDefect) and stops, and this section decides
 // whether the allegation re-opens the upstream gate.
 //
+// A construction task reaches the same route from the other side (ISS-028-2): when the Method
+// write gate refuses its write only on findings ONE committed design slot owns, no attempt can
+// cure it, and the slot's own gate is re-opened with the findings as the change request
+// (routeUpstreamDesignDefect). The allegation there is the gate's refusal, not a report, so its
+// admission is derived from the lifecycles and the committed slot, and the round itself is this
+// one's.
+//
 // It re-opens through that gate, never around it (system-architect ruling): the upstream
 // activity's walk re-opens the gate's judged pair, so the amendment is drafted against the
 // architect's rationale, critiqued by the PM and committed by the human gate. The reporting
@@ -8229,6 +8263,11 @@ type upstreamAdmission struct {
 	nodes  []projectstate.UpstreamNode
 	trips  int64
 	note   string
+	// kind is the committed slot whose review thread carries the note, and marker the text that
+	// dedups it there: the core use cases and the report's own marker for a report, the owning
+	// slot and the write refusal's marker for a construction write refusal.
+	kind   projectstate.ArtifactKind
+	marker string
 }
 
 // upstreamVerdict is what the judgement decided: admit, refuse (the redraft may correct the
@@ -8293,6 +8332,164 @@ func (wf *csWorkflows) routeUpstreamDefect(
 	return subject, true, eerr
 }
 
+// upstreamSlotLabel is how a note names the committed slot it amends: the core use cases in words,
+// every other slot by its wire name.
+func upstreamSlotLabel(kind projectstate.ArtifactKind) string {
+	if kind == projectstate.KindCoreUseCases {
+		return "core use cases"
+	}
+	return kind.WireName()
+}
+
+// maxWriteRefusalFindingsNoted caps the findings a write refusal's note spells out.
+const maxWriteRefusalFindingsNoted = 20
+
+// routeUpstreamDesignDefect is the route's entry from the construction arm (ISS-028-2): the Method
+// write gate refused the task's write, only on findings one committed design slot owns. It admits
+// the refusal (admitWriteRefusal), asks the variance Engine, and holds the task for the slot's
+// amendment through the design arm's round. routed=false means the refusal went nowhere, and
+// subject.Detail then holds why; the caller ends the activity as before. The attempt is already
+// on the ledger (dispatchConstructionOnce resolved it), so it is never recorded again here.
+func (wf *csWorkflows) routeUpstreamDesignDefect(
+	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation, defect *agenticjob.WriteRefused,
+) (producedSubject, bool, error) {
+	notRouted := func(reason string) (producedSubject, bool, error) {
+		return producedSubject{Detail: reason}, false, nil
+	}
+	if halt := wf.pumpHaltedBeforeDispatch(ctx, tc); halt != nil {
+		return notRouted("the project pump halted on " + string(halt.HaltedOn) + " at " + halt.HaltedAt.UTC().Format(time.RFC3339))
+	}
+	main, err := wf.readProject(ctx, tc.In.ProjectID)
+	if err != nil {
+		return notRouted("the committed project could not be read: " + err.Error())
+	}
+	adm, reason := admitWriteRefusal(&main, string(tc.In.ActivityID), tc.Task, attemptID, defect)
+	if adm == nil {
+		return notRouted(reason)
+	}
+	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()},
+		intervention.ConstructionVariance{
+			// Fed from the ACTIVITY id, as runTaskVariance feeds it.
+			ProjectID:    intervention.ProjectID(tc.In.ActivityID),
+			ActivityID:   intervention.ActivityID(tc.In.ActivityID),
+			Kind:         intervention.UpstreamDefectReported,
+			AttemptCount: adm.trips,
+			Policy:       wf.InterventionPolicy,
+		})
+	if derr != nil {
+		return notRouted("the variance policy could not be asked: " + fwmanager.MapError(derr).Error())
+	}
+	if directive != intervention.VarianceSendBack {
+		return notRouted("the variance policy does not send it back")
+	}
+	subject := producedSubject{
+		AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, EpisodeID: episodeIDOf(obs), AttemptRecorded: true,
+		Detail: upstreamDesignDefectDetail(defect) + "; sent back to " + string(adm.target) + "." + adm.route.Gate + ": " + adm.note,
+	}
+	subject, rerr := wf.holdForUpstreamRound(ctx, tc, attemptID, subject, *adm)
+	return subject, true, rerr
+}
+
+// admitWriteRefusal is a construction write refusal's admission: pure over main, so it replays
+// deterministically. It is nil, with the reason, unless
+//
+//   - exactly one design slot owns the refusal's findings, and that slot is committed on main;
+//   - exactly one gate of the method assets judges that slot (a dispatch task drafting it and the
+//     review task that reviews it): the route;
+//   - the route's target is the one upstreamTarget finds; and
+//   - no earlier attempt of this activity's this task already bounced it: one round trip per task.
+func admitWriteRefusal(
+	main *projectstate.Project, activity string, task methodassets.LifecycleTask, attemptID string, defect *agenticjob.WriteRefused,
+) (*upstreamAdmission, string) {
+	wire, reason := writeRefusalOwner(defect)
+	if reason != "" {
+		return nil, reason
+	}
+	kind, _ := projectstate.ArtifactKindFromWireName(wire)
+	if pdSlotFor(*main, kind).Status != projectstate.ReviewCommitted {
+		return nil, "the " + wire + " is not committed on main"
+	}
+	routes := gatesJudging(kind)
+	if len(routes) != 1 {
+		return nil, "the method assets give " + strconv.Itoa(len(routes)) + " gates that judge the " + wire + ", want exactly one"
+	}
+	target, reason := upstreamTarget(main, activity, routes[0])
+	if reason != "" {
+		return nil, reason
+	}
+	earlier := upstreamNotePrefix(target) + activity + ":" + task.ID + ":"
+	if slices.ContainsFunc(main.ActivityExecution[string(target)].OperatorNotes, func(n projectstate.OperatorNote) bool {
+		return strings.HasPrefix(n.NoteID, earlier)
+	}) {
+		return nil, "an earlier attempt of this task already sent the " + wire + " back once"
+	}
+	return &upstreamAdmission{
+		route: routes[0], target: target, kind: kind, marker: "[write refusal " + attemptID + "]",
+		report: projectstate.UpstreamDefectReport{Revision: attemptID},
+		note:   writeRefusalNote(activity, task.ID, attemptID, defect, wire),
+	}, ""
+}
+
+// writeRefusalOwner is the one design slot that owns a refusal's findings, as its wire name, or why
+// there is not exactly one.
+func writeRefusalOwner(defect *agenticjob.WriteRefused) (string, string) {
+	var owners []string
+	for _, f := range defect.Findings {
+		if !slices.Contains(owners, f.OwnerSlot) {
+			owners = append(owners, f.OwnerSlot)
+		}
+	}
+	slices.Sort(owners)
+	if len(owners) != 1 {
+		return "", "the refusal's findings are owned by " + strconv.Itoa(len(owners)) + " design slots (" + strings.Join(owners, ", ") + "), not one"
+	}
+	if _, ok := projectstate.ArtifactKindFromWireName(owners[0]); !ok {
+		return "", "the finding's owner " + owners[0] + " is not a design slot"
+	}
+	return owners[0], ""
+}
+
+// gatesJudging is every gate of the method assets that judges a design slot: a review task whose
+// target is a dispatch task drafting it, in lifecycle order.
+func gatesJudging(kind projectstate.ArtifactKind) []methodassets.UpstreamRoute {
+	var routes []methodassets.UpstreamRoute
+	for _, lc := range methodassets.Lifecycles() {
+		for _, d := range lc.Tasks {
+			if k, isSlot := designSlotOfTask(lc, d); d.Kind != methodassets.LifecycleTaskDispatch || !isSlot || k != kind {
+				continue
+			}
+			for _, r := range lc.Tasks {
+				route := methodassets.UpstreamRoute{ActivityType: lc.Type, Gate: r.ID}
+				if r.Kind == methodassets.LifecycleTaskReview && r.Reviews == d.ID && !slices.Contains(routes, route) {
+					routes = append(routes, route)
+				}
+			}
+		}
+	}
+	return routes
+}
+
+// writeRefusalNote is what the slot's amendment is sent back with: the findings the committed slot
+// owns, as the gate worded them, and the behavior the amendment must keep.
+func writeRefusalNote(activity, task, attemptID string, defect *agenticjob.WriteRefused, wire string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "The %s construction task %s cannot record its work: the Method write gate refused the %s write on Error findings the committed %s owns:",
+		activity, task, defect.Verb, wire)
+	noted := 0
+	for _, f := range defect.Findings {
+		if f.OwnerSlot != wire || noted == maxWriteRefusalFindingsNoted {
+			continue
+		}
+		noted++
+		fmt.Fprintf(&b, " %s: %s;", f.RuleID, f.Message)
+	}
+	if more := len(defect.Findings) - noted; more > 0 {
+		fmt.Fprintf(&b, " and %d more;", more)
+	}
+	fmt.Fprintf(&b, " Amend the %s so these findings clear, keeping the user-visible behavior it describes. [write refusal %s]", wire, attemptID)
+	return b.String()
+}
+
 // upstreamReportAt is the report an attempt filed, if it filed one.
 func upstreamReportAt(p *projectstate.Project, activity, attemptID string) (projectstate.UpstreamDefectReport, bool) {
 	for _, r := range p.UpstreamDefects {
@@ -8338,6 +8535,7 @@ func judgeUpstreamDefect(
 	return upstreamVerdict{admitted: &upstreamAdmission{
 		report: report, route: route, target: target, nodes: nodes, trips: int64(len(trips)),
 		note: upstreamDefectNote(activity, task.ID, report, nodes),
+		kind: projectstate.KindCoreUseCases, marker: "[upstream defect report " + report.Revision + "]",
 	}}
 }
 
@@ -8496,8 +8694,17 @@ func (wf *csWorkflows) runUpstreamRound(
 		return subject, err
 	}
 	subject.AttemptRecorded = true
+	return wf.holdForUpstreamRound(ctx, tc, attemptID, subject, adm)
+}
+
+// holdForUpstreamRound is the round once the attempt it answers is on the ledger: the note is
+// seeded on the slot's thread, the upstream walk runs, and the task redrafts at the next
+// revision once the gate passes again. Whatever stops it short of that holds for a human.
+func (wf *csWorkflows) holdForUpstreamRound(
+	ctx workflow.Context, tc taskContext, attemptID string, subject producedSubject, adm upstreamAdmission,
+) (producedSubject, error) {
 	if err := wf.seedUpstreamComment(ctx, tc.In.ProjectID, adm); err != nil {
-		return wf.escalateRecordedUpstream(ctx, tc, subject, "the note could not be put on the core use cases' thread: "+err.Error())
+		return wf.escalateRecordedUpstream(ctx, tc, subject, "the note could not be put on the "+upstreamSlotLabel(adm.kind)+"' thread: "+err.Error())
 	}
 	workflow.GetLogger(ctx).Info("delivery.upstreamDefect.sentBack", "activityId", tc.In.ActivityID,
 		"target", adm.target, "gate", adm.route.Gate, "trips", adm.trips)
@@ -8516,8 +8723,8 @@ func (wf *csWorkflows) seedUpstreamComment(ctx workflow.Context, projectID Proje
 	if err != nil {
 		return err
 	}
-	marker := "[upstream defect report " + adm.report.Revision + "]"
-	thread := main.CoreUseCases.ReviewThread
+	marker := adm.marker
+	thread := pdSlotFor(main, adm.kind).ReviewThread
 	if slices.ContainsFunc(thread, func(c projectstate.ReviewComment) bool { return strings.Contains(c.Text, marker) }) {
 		return nil
 	}
@@ -8526,12 +8733,12 @@ func (wf *csWorkflows) seedUpstreamComment(ctx workflow.Context, projectID Proje
 		round = max(round, c.Round+1)
 	}
 	comment := projectstate.ReviewComment{
-		Anchor: "$.coreUseCases", AnchorText: "the committed core use cases", Text: adm.note,
+		Anchor: "$." + adm.kind.WireName(), AnchorText: "the committed " + upstreamSlotLabel(adm.kind), Text: adm.note,
 		AuthorRole: gateActorSystem, Type: projectstate.ReviewCommentTypeChangeRequest, Addressee: projectstate.ReviewAddresseeArchitect,
 	}
 	_, err = wf.applyRecovering(ctx, projectID, wf.readVersion(ctx, projectID), func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(projectID), expected, "",
-			projectstate.KindCoreUseCases, round, []projectstate.ReviewComment{comment}, nil)
+			adm.kind, round, []projectstate.ReviewComment{comment}, nil)
 	})
 	return err
 }
