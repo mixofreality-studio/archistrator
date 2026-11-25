@@ -12889,6 +12889,23 @@ func SystemAcceptanceResidual(p *Project) ([]scenario.Residual, error) {
 		}
 	}
 	sort.Strings(clients)
+	// Every System component is a call endpoint, recorded or not: a component without a recorded
+	// contract still enters the derivation as one, so a client->manager call is a component call
+	// and not an actor stimulus into the manager.
+	recorded := map[string]bool{}
+	for key, ct := range in.Contracts {
+		recorded[scenario.Normalize(key)] = true
+		recorded[scenario.Normalize(ct.Component)] = true
+		if ct.FacetOf != "" {
+			recorded[scenario.Normalize(ct.FacetOf)] = true
+		}
+	}
+	for _, c := range sys.Components {
+		if recorded[scenario.Normalize(c.ID)] {
+			continue
+		}
+		in.Contracts[c.ID] = scenario.Contract{Component: c.ID, Client: c.Kind == CompClient}
+	}
 	all, err := scenario.Derive(in)
 	if err != nil {
 		return nil, fmt.Errorf("projectstate.SystemAcceptanceResidual: %w", err)
