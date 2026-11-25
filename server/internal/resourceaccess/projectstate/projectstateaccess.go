@@ -13910,7 +13910,7 @@ func ManagerDepsFromSystem(p Project, componentID string) ([]ContractDep, error)
 		seen[r.To] = true
 		key, _ := ContractKeyFor(target)
 		sc, recorded := p.ServiceContracts[key]
-		if !recorded && target.BuildStatus != nil && *target.BuildStatus == "external" {
+		if uncontractedExternal(target, recorded) {
 			// Supplied outside the project and never contracted (the ambient Manager -> logging
 			// edge): nothing builds it here, so its contract is no constructor param.
 			continue
@@ -13925,6 +13925,11 @@ func ManagerDepsFromSystem(p Project, componentID string) ([]ContractDep, error)
 		deps = append(deps, ContractDep{Name: key, Component: key})
 	}
 	return deps, nil
+}
+
+// uncontractedExternal is whether target is marked buildStatus external and has no recorded contract.
+func uncontractedExternal(target Component, recorded bool) bool {
+	return !recorded && target.BuildStatus != nil && *target.BuildStatus == "external"
 }
 
 // managerDepKind is whether a Manager's edge to a component of kind k is a constructor dep.
