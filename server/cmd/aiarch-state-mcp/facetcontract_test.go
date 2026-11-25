@@ -120,3 +120,55 @@ func TestManagerDepsFromSystem_SkipsAnExternalUtilityWithNoContract(t *testing.T
 		}
 	}
 }
+
+// A committed contract that carries a finding ValidateContract now raises (a reserved param name)
+// can be re-recorded; an amendment that introduces a different finding, and a first record, cannot.
+func TestCanonicalizeAmendment_AllowsAnyFindingTheCommittedContractCarries(t *testing.T) {
+	proj := run011Project(t)
+	committed := proj.ServiceContracts["todoListAccess"]
+	committed.Interface.Operations = append([]projectstate.ContractOperation(nil), committed.Interface.Operations...)
+	committed.Interface.Operations = append(committed.Interface.Operations, projectstate.ContractOperation{
+		Name:   "Decide",
+		Params: []projectstate.ContractParam{{Name: "decision", Schema: []byte(`{"type":"string"}`)}},
+		Error:  true,
+	})
+
+	same := committed
+	if err := canonicalizeAmendment("todoListAccess", &same, committed, true); err != nil {
+		t.Fatalf("re-recording a committed contract's own finding: %v", err)
+	}
+	first := committed
+	if err := canonicalizeAmendment("todoListAccess", &first, projectstate.ServiceContract{}, false); err == nil {
+		t.Fatal("a first record carrying the finding must be refused")
+	}
+	other := committed
+	other.Interface.Operations = append(append([]projectstate.ContractOperation(nil), committed.Interface.Operations...), projectstate.ContractOperation{
+		Name:   "Other",
+		Params: []projectstate.ContractParam{{Name: "ctx", Schema: []byte(`{"type":"string"}`)}},
+		Error:  true,
+	})
+	if err := canonicalizeAmendment("todoListAccess", &other, committed, true); err == nil {
+		t.Fatal("an amendment introducing a different finding must be refused")
+	}
+}
+
+// An amended facet keeps its committed owner; a supplied owner naming another component is refused.
+func TestKeepCommittedOwner(t *testing.T) {
+	committed := projectstate.ServiceContract{Component: "projectStateAccess"}
+	sc := projectstate.ServiceContract{}
+	if err := keepCommittedOwner("activityExecutionAccess", committed, true, &sc); err != nil || sc.Component != "projectStateAccess" {
+		t.Fatalf("owner = %q, %v; want the committed one", sc.Component, err)
+	}
+	sc = projectstate.ServiceContract{Component: "projectStateAccess"}
+	if err := keepCommittedOwner("activityExecutionAccess", committed, true, &sc); err != nil {
+		t.Fatalf("the committed owner supplied verbatim: %v", err)
+	}
+	sc = projectstate.ServiceContract{Component: "other"}
+	if err := keepCommittedOwner("activityExecutionAccess", committed, true, &sc); err == nil || !strings.Contains(err.Error(), "projectStateAccess") {
+		t.Fatalf("another owner must be refused: %v", err)
+	}
+	sc = projectstate.ServiceContract{}
+	if err := keepCommittedOwner("x", projectstate.ServiceContract{}, false, &sc); err != nil || sc.Component != "" {
+		t.Fatalf("a first record gets no owner invented: %q %v", sc.Component, err)
+	}
+}

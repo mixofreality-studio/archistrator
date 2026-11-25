@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"go/token"
 	"os"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -189,6 +190,9 @@ func (s *Session) recordServiceContractJSON(b []byte) error {
 			return err
 		}
 		committed, hadCommitted := p.ServiceContracts[key]
+		if err := keepCommittedOwner(key, committed, hadCommitted, &sc); err != nil {
+			return err
+		}
 		if err := refuseClientContract(*p, s.ComponentID, sc); err != nil {
 			return err
 		}
@@ -245,21 +249,53 @@ func facetKey(p projectstate.Project, c projectstate.Component, key string, sc p
 	return facet, nil
 }
 
-// canonicalizeAmendment is canonicalizeContract for a record that may amend a committed contract.
-// A ResourceAccess committed with a goPackage and no infra (project data from before ValidateContract
-// required one) is not refused again for a finding the amendment did not introduce; a first record
-// of one still is.
-func canonicalizeAmendment(key string, sc *projectstate.ServiceContract, committed projectstate.ServiceContract, hadCommitted bool) error {
-	exempt := hadCommitted && len(sc.Infra) == 0 && len(committed.Infra) == 0 && committed.GoPackage != ""
-	if !exempt {
-		return canonicalizeContract(key, sc)
+// keepCommittedOwner sets the owner of an amended contract from the committed one. The owner is
+// the contract key the component's facets hang off (a facet's component field), which the verb's
+// advertised shape does not carry, so an agent amending a facet would otherwise store it with no
+// owner and every rule that reads the owner would lose it. A supplied owner that names another
+// component is refused rather than replaced.
+func keepCommittedOwner(key string, committed projectstate.ServiceContract, hadCommitted bool, sc *projectstate.ServiceContract) error {
+	if !hadCommitted || committed.Component == "" {
+		return nil
 	}
-	// ValidateContract has no notion of "already committed"; satisfy only its infra presence
-	// check for the validation, then restore the contract's own (empty) binding.
-	sc.Infra = []string{modelgen.ApprovedInfra()[0]}
+	if sc.Component != "" && sc.Component != committed.Component {
+		return fmt.Errorf("recordServiceContract: contract %q belongs to component %q, not %q; the owner is the design's, so leave component out", key, committed.Component, sc.Component)
+	}
+	sc.Component = committed.Component
+	return nil
+}
+
+// canonicalizeAmendment is canonicalizeContract for a record that may amend a committed contract.
+// ValidateContract has no notion of "already committed", so a committed contract that predates a
+// rule (a ResourceAccess with a goPackage and no infra; a param name the generator later
+// reserved) would block every amendment of it. An amendment is not refused for a finding the
+// committed contract carries verbatim: it did not introduce it. ValidateContract reports only its
+// first finding, so the amendment is also validated with every operation it leaves byte-identical
+// to the committed one removed: what remains (new or changed operations, the interface, the
+// binding) must raise no finding of its own, or one the committed contract raises identically.
+// A first record is refused as before.
+func canonicalizeAmendment(key string, sc *projectstate.ServiceContract, committed projectstate.ServiceContract, hadCommitted bool) error {
 	err := canonicalizeContract(key, sc)
-	sc.Infra = nil
-	return err
+	if err == nil || !hadCommitted {
+		return err
+	}
+	old := committed
+	oldErr := canonicalizeContract(key, &old)
+	if oldErr == nil || oldErr.Error() != err.Error() {
+		return err
+	}
+	delta := *sc
+	delta.Interface.Operations = slices.DeleteFunc(slices.Clone(sc.Interface.Operations), func(op projectstate.ContractOperation) bool {
+		// readOnly is derived after validation (markReadOnlyOperations), never authored.
+		return slices.ContainsFunc(committed.Interface.Operations, func(c projectstate.ContractOperation) bool {
+			c.ReadOnly = op.ReadOnly
+			return reflect.DeepEqual(c, op)
+		})
+	})
+	if deltaErr := canonicalizeContract(key, &delta); deltaErr != nil && deltaErr.Error() != oldErr.Error() {
+		return deltaErr
+	}
+	return nil
 }
 
 // markReadOnlyOperations sets each operation's readOnly flag from its name and layer, the one
