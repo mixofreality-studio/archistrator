@@ -100361,7 +100361,7 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": "{\"id\": \"stp-review-admit\"}"
+                        "json": "{\"id\": \"stp-review-admit\", \"serviceContracts\": {\"x\": {\"component\": \"x\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/x\", \"title\": \"x\", \"interface\": {\"name\": \"X\", \"layer\": \"manager\", \"operations\": [{\"name\": \"Op\", \"params\": [], \"error\": true}]}}}}"
                       }
                     },
                     "schemaRef": ""
@@ -100398,7 +100398,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
+                  "result": "[{\"consumer\": \"modelgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -101825,7 +101825,7 @@
                     "value": {
                       "kind": "literal",
                       "model": {
-                        "json": "{\"id\": \"stp-review-admit\"}"
+                        "json": "{\"id\": \"stp-review-admit\", \"serviceContracts\": {\"x\": {\"component\": \"x\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/x\", \"title\": \"x\", \"interface\": {\"name\": \"X\", \"layer\": \"manager\", \"operations\": [{\"name\": \"Op\", \"params\": [], \"error\": true}]}}}}"
                       }
                     },
                     "schemaRef": ""
@@ -101862,7 +101862,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
+                  "result": "[{\"consumer\": \"modelgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },

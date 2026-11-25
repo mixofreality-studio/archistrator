@@ -245,9 +245,9 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 		var out3 any
 		var err3 error
 		var in3 inputExecuteAProjectActivityP1S3
-		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"","goMod":""}`, &in3)
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\", \"serviceContracts\": {\"x\": {\"component\": \"x\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/x\", \"title\": \"x\", \"interface\": {\"name\": \"X\", \"layer\": \"manager\", \"operations\": [{\"name\": \"Op\", \"params\": [], \"error\": true}]}}}}","kind":"serviceContract","appgenConfig":"","goMod":""}`, &in3)
 		out3, err3 = subject.AdmitArtifact(h.EngineContext(t), in3.Project, in3.Kind, in3.AppgenConfig, in3.GoMod)
-		expect(t, "execute-a-project-activity-P1", 3, out3, err3, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P1", 3, out3, err3, `{"result":"[{\"consumer\": \"modelgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 	})
 }
 
@@ -1013,9 +1013,9 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 		var out5 any
 		var err5 error
 		var in5 inputExecuteAProjectActivityP7S5
-		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\"}","kind":"serviceContract","appgenConfig":"","goMod":""}`, &in5)
+		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-admit\", \"serviceContracts\": {\"x\": {\"component\": \"x\", \"layer\": \"Manager\", \"goPackage\": \"internal/manager/x\", \"title\": \"x\", \"interface\": {\"name\": \"X\", \"layer\": \"manager\", \"operations\": [{\"name\": \"Op\", \"params\": [], \"error\": true}]}}}}","kind":"serviceContract","appgenConfig":"","goMod":""}`, &in5)
 		out5, err5 = subject.AdmitArtifact(h.EngineContext(t), in5.Project, in5.Kind, in5.AppgenConfig, in5.GoMod)
-		expect(t, "execute-a-project-activity-P7", 5, out5, err5, `{"result":"[{\"consumer\": \"nullgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P7", 5, out5, err5, `{"result":"[{\"consumer\": \"modelgen\", \"path\": \"\", \"severity\": \"local\", \"tier\": \"tier1\"}]","errorExpected":false}`)
 	})
 }
 
