@@ -18185,6 +18185,33 @@
           ],
           "additionalProperties": false
         },
+        "RefusedFinding": {
+          "type": "object",
+          "description": "One Error finding that refused a state write.",
+          "properties": {
+            "ruleId": {
+              "type": "string",
+              "x-go-name": "RuleID"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "ownerSlot": {
+              "type": "string",
+              "description": "The design slot that owns the rule, empty when the rule has no design-slot owner."
+            }
+          },
+          "required": [
+            "ruleId",
+            "severity",
+            "message",
+            "ownerSlot"
+          ],
+          "additionalProperties": false
+        },
         "RepoCredential": {
           "type": "object",
           "properties": {
@@ -18768,33 +18795,6 @@
           "required": [
             "verb",
             "findings"
-          ],
-          "additionalProperties": false
-        },
-        "RefusedFinding": {
-          "type": "object",
-          "description": "One Error finding that refused a state write.",
-          "properties": {
-            "ruleId": {
-              "type": "string",
-              "x-go-name": "RuleID"
-            },
-            "severity": {
-              "type": "string"
-            },
-            "message": {
-              "type": "string"
-            },
-            "ownerSlot": {
-              "type": "string",
-              "description": "The design slot that owns the rule, empty when the rule has no design-slot owner."
-            }
-          },
-          "required": [
-            "ruleId",
-            "severity",
-            "message",
-            "ownerSlot"
           ],
           "additionalProperties": false
         }
@@ -20009,6 +20009,33 @@
           ],
           "additionalProperties": false
         },
+        "RefusedFinding": {
+          "type": "object",
+          "description": "One Error finding that refused a state write.",
+          "properties": {
+            "ruleId": {
+              "type": "string",
+              "x-go-name": "RuleID"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "ownerSlot": {
+              "type": "string",
+              "description": "The design slot that owns the rule, empty when the rule has no design-slot owner."
+            }
+          },
+          "required": [
+            "ruleId",
+            "severity",
+            "message",
+            "ownerSlot"
+          ],
+          "additionalProperties": false
+        },
         "RepoTarget": {
           "type": "object",
           "properties": {
@@ -20187,33 +20214,6 @@
           "required": [
             "verb",
             "findings"
-          ],
-          "additionalProperties": false
-        },
-        "RefusedFinding": {
-          "type": "object",
-          "description": "One Error finding that refused a state write.",
-          "properties": {
-            "ruleId": {
-              "type": "string",
-              "x-go-name": "RuleID"
-            },
-            "severity": {
-              "type": "string"
-            },
-            "message": {
-              "type": "string"
-            },
-            "ownerSlot": {
-              "type": "string",
-              "description": "The design slot that owns the rule, empty when the rule has no design-slot owner."
-            }
-          },
-          "required": [
-            "ruleId",
-            "severity",
-            "message",
-            "ownerSlot"
           ],
           "additionalProperties": false
         }
