@@ -9,10 +9,13 @@ package main
 //	                                 checkout — its hand-written implementation file and a
 //	                                 generated scenarios file are both present — while its
 //	                                 row records no completion: no binary exit and no
-//	                                 passed Construction gate (codeReview). The code says
-//	                                 the work happened; the ledger says it did not, so the
-//	                                 pump would dispatch the activity again and earned value
-//	                                 under-reads.
+//	                                 passed Construction gate (codeReview) anywhere in its
+//	                                 append-only attempt ledger, current or past. The code
+//	                                 says the work happened; the ledger says it did not, so
+//	                                 the pump would dispatch the activity again and earned
+//	                                 value under-reads. A reopened activity (a change request
+//	                                 re-dispatching a task after codeReview passed) still
+//	                                 records the construction it did, so it is not unrecorded.
 //	REC-TESTING-UNQUALIFIED  (Error) an activity whose lifecycle binds a test plan, whose
 //	                                 latest `testing` attempt PASSED, without the CheckRun
 //	                                 that pass must stand on (spec 2026-10-02 §1 T4, §6.5):
@@ -138,7 +141,7 @@ func activityRecordFindings(proj projectstate.Project, repo checkout, project co
 		}
 		loc := &methodcheck.Location{Ordinal: i, Section: "activityExecution." + item.Name}
 
-		if f, err := builtUnrecorded(proj, item, components, row, hasRow, resolved, repo); err != nil {
+		if f, err := builtUnrecorded(proj, item, components, row, hasRow, repo); err != nil {
 			return nil, fmt.Errorf("%s: %w", item.Name, err)
 		} else if f != "" {
 			out = append(out, methodcheck.Finding{RuleID: ruleBuiltUnrecorded, Severity: methodcheck.SeverityError, Message: f, Location: loc})
@@ -171,9 +174,14 @@ func committedActivityPlan(proj projectstate.Project) (*projectstate.ActivityLis
 // KIND; every other component has a key, so a fresh project's components are in reach the
 // moment their contract is recorded. A client with no goPackage is a UI app whose code
 // this arm does not read.
+//
+// "No completion" means no binary exit (completedAt) and no passed Construction gate
+// (codeReview) anywhere in the attempt ledger. A reopened activity (a change request
+// re-dispatching a task after codeReview passed) still records the construction it did,
+// so it is not unrecorded.
 func builtUnrecorded(
 	proj projectstate.Project, item projectstate.ActivityItem, components map[string]projectstate.Component,
-	row projectstate.ActivityExecution, hasRow bool, resolved []projectstate.PhaseCompletion, repo checkout,
+	row projectstate.ActivityExecution, hasRow bool, repo checkout,
 ) (string, error) {
 	component, ok := components[item.ComponentID]
 	if !ok {
@@ -191,21 +199,26 @@ func builtUnrecorded(
 	if err != nil || !built {
 		return "", err
 	}
-	if hasRow && (row.CompletedAt != nil || phaseCompleted(resolved, projectstate.MethodPhaseConstruction)) {
+	if hasRow && (row.CompletedAt != nil || constructionEverPassed(row.Attempts)) {
 		return "", nil
 	}
 	record := "has no .activityExecution row"
 	if hasRow {
-		record = "records neither a binary exit (completedAt) nor a passed Construction gate (codeReview)"
+		record = "records neither a binary exit (completedAt) nor any passed Construction gate (codeReview) in its attempt ledger"
 	}
 	return fmt.Sprintf(
 		"activity %s builds component %q, which is built on this checkout (%s), but its record %s — the ledger says the work never happened, so the pump would dispatch it again; record the construction it did (its attempts) or remove the code",
 		item.Name, component.ID, strings.Join(files, " + "), record), nil
 }
 
-// phaseCompleted reports whether the resolved phase set carries phase as completed.
-func phaseCompleted(resolved []projectstate.PhaseCompletion, phase projectstate.ActivityMethodPhase) bool {
-	return slices.ContainsFunc(resolved, func(pc projectstate.PhaseCompletion) bool { return pc.Phase == phase && pc.Completed })
+// constructionEverPassed reports whether the append-only attempt ledger holds ANY attempt
+// of the Construction gate task (codeReview) that passed, current or past. A reopen clears
+// the current completion but never erases that history.
+func constructionEverPassed(attempts []projectstate.TaskAttempt) bool {
+	gate := projectstate.GateTaskFor(projectstate.MethodPhaseConstruction)
+	return slices.ContainsFunc(attempts, func(a projectstate.TaskAttempt) bool {
+		return a.Task == gate && a.Outcome == projectstate.OutcomePassed
+	})
 }
 
 // testingUnqualified is the REC-TESTING-UNQUALIFIED message for one activity, "" when the

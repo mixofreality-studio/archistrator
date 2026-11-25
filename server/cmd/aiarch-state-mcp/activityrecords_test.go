@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -183,6 +184,26 @@ func TestRECBuiltUnrecorded_RowWithoutAPassedCodeReview(t *testing.T) {
 	ledger = append(ledger, attempt(projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected, projectstate.EvidenceRef{}))
 	p.ActivityExecution[recActivity] = projectstate.ActivityExecution{ActivityID: recActivity, Attempts: ledger}
 	onlyFinding(t, p, builtTaskAccess(), ruleBuiltUnrecorded, "records neither a binary exit")
+}
+
+func TestRECBuiltUnrecorded_AReopenedConstructionStaysRecorded(t *testing.T) {
+	p := recProject()
+	// Passed codeReview, then a reopen: construction attempt 2 and a pending codeReview 2.
+	passed := throughIntegration()[:8]
+	ledger := slices.Concat(passed,
+		[]projectstate.TaskAttempt{
+			attempt(projectstate.TaskConstruction, 2, projectstate.OutcomePassed, projectstate.EvidenceRef{}),
+			attempt(projectstate.TaskCodeReview, 2, "", projectstate.EvidenceRef{})})
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{recActivity: {ActivityID: recActivity, Attempts: ledger}}
+	noFinding(t, p, builtTaskAccess(), ruleBuiltUnrecorded)
+
+	// The same passed ledger followed by a REJECTED codeReview 2 is still recorded.
+	ledger = slices.Concat(passed,
+		[]projectstate.TaskAttempt{
+			attempt(projectstate.TaskConstruction, 2, projectstate.OutcomePassed, projectstate.EvidenceRef{}),
+			attempt(projectstate.TaskCodeReview, 2, projectstate.OutcomeRejected, projectstate.EvidenceRef{})})
+	p.ActivityExecution[recActivity] = projectstate.ActivityExecution{ActivityID: recActivity, Attempts: ledger}
+	noFinding(t, p, builtTaskAccess(), ruleBuiltUnrecorded)
 }
 
 func TestRECBuiltUnrecorded_ACompletionRecordSatisfiesIt(t *testing.T) {
