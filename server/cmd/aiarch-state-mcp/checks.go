@@ -213,7 +213,57 @@ func (r checkRunner) runRule(ctx context.Context, c review.SpecCheck) CheckResul
 	if kept == 0 {
 		log.WriteString("no findings in scope\n")
 	}
+	// A prefix-scoped check (no RuleSlot, e.g. rule:tp / rule:atp) must also agree with the
+	// state write gate, which refuses on every Error in the whole document: an Error outside
+	// the prefixes is invisible above yet fatal to the write the task is about to make.
+	if !hasAmbient && len(c.Source.RulePrefixes) > 0 {
+		outside, gerr := writeGateErrorsOutside(r.root, c.Source.RulePrefixes)
+		if gerr != nil {
+			return r.finish(c, checkFail, r.since(start), []byte("rule check: "+gerr.Error()+"\n"))
+		}
+		if len(outside) > 0 {
+			status = checkFail
+			fmt.Fprintf(&log, "the state write gate also refuses (%d Error(s) outside %s):\n",
+				len(outside), strings.Join(c.Source.RulePrefixes, ", "))
+			for _, f := range outside {
+				log.WriteString(formatGateFinding(f) + "\n")
+			}
+		}
+	}
 	return r.finish(c, status, r.since(start), log.Bytes())
+}
+
+// writeGateErrorsOutside is the checkout's write-gate Errors (writeGateErrors over its
+// committed state document) whose rule id is outside prefixes. A document that does not exist
+// or is empty has none; one that does not decode is the same hard failure validateFindings
+// reports.
+func writeGateErrorsOutside(root string, prefixes []string) ([]methodcheck.Finding, error) {
+	path := filepath.Join(root, statePathPrefix, projectFile)
+	raw, err := os.ReadFile(path) //nolint:gosec // path is the caller's checkout root joined to a constant
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	proj, ok, err := projectstate.DecodeProjectJSON(raw, "")
+	if err != nil {
+		return nil, fmt.Errorf("the committed project state does not decode (the server would reject it on read-back): %w", err)
+	}
+	if !ok {
+		return nil, nil
+	}
+	errs, err := writeGateErrors(raw, proj)
+	if err != nil {
+		return nil, err
+	}
+	var outside []methodcheck.Finding
+	for _, f := range errs {
+		if !hasRulePrefix(string(f.RuleID), prefixes) {
+			outside = append(outside, f)
+		}
+	}
+	return outside, nil
 }
 
 // ruleInScope reports whether a finding's rule belongs to the check. A check with a RuleSlot

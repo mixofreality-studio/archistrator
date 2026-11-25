@@ -56,6 +56,23 @@ type recordTestingStateInput struct {
 	Payload map[string]any `json:"payload" jsonschema:"a PhaseArtifactPayload with EXACTLY ONE testing-state field set (HarnessModule, PerfHarness, QualityGate, Defect, or QualityAuditReport); a CheckRun is refused — the venue's record-check-run step records runs"`
 }
 
+// writeGateErrors is the ONE whole-document Method gate every state write is held to:
+// methodcheck over the encoded document, then the gate severity policies in WHOLE-DOCUMENT
+// mode (a construct session works on a component + activity, not a Phase-1/2 artifact slot,
+// so there is no ambient slot to scope to — staleness applies, slot-scoping does not;
+// earmark: if construction ever meets grandfathered design-slot defects the way the design
+// rail did, extending the ambient concept to the construction targets is a founder
+// decision), keeping only the Errors. applyConstructionMutation refuses on any of them, and
+// a state-recording task's prefix-scoped rule check (runRule) reports the ones it would
+// otherwise hide, so the check and the write cannot disagree.
+func writeGateErrors(raw []byte, proj projectstate.Project) ([]methodcheck.Finding, error) {
+	findings, err := methodcheck.ValidateProjectJSON(raw, methodcheckOptions())
+	if err != nil {
+		return nil, fmt.Errorf("the Method coherence check failed: %w", err)
+	}
+	return filterErrorFindings(applyGateSeverityPolicies(proj, 0, false, findings)), nil
+}
+
 // applyConstructionMutation is the shared validate-then-write core for the construction
 // verbs — the construction analogue of putDraftModel's gates. It reads the checkout,
 // applies the caller's typed mutation, then re-encodes and validates the WHOLE aggregate
@@ -84,18 +101,11 @@ func (s *Session) applyConstructionMutation(what string, mutate func(*projectsta
 		// code, so the whole list is shown to the agent at once, never just the first.
 		return fmt.Errorf("the %s change would leave a state no generator can load; fix every problem below and record again:\n%w", what, lerr)
 	}
-	findings, ferr := methodcheck.ValidateProjectJSON(newBytes, methodcheckOptions())
+	errs, ferr := writeGateErrors(newBytes, proj)
 	if ferr != nil {
-		return fmt.Errorf("the Method coherence check failed: %w", ferr)
+		return ferr
 	}
-	// Same gate severity policy seam as putDraftModel and the CI `validate` subcommand
-	// (staleness.go), in WHOLE-DOCUMENT mode: a construct session works on a component +
-	// activity, not a Phase-1/2 artifact slot, so there is no ambient slot to scope to —
-	// staleness applies, slot-scoping does not (earmark: if construction ever meets
-	// grandfathered design-slot defects the way the design rail did, extending the
-	// ambient concept to the construction targets is a founder decision).
-	findings = applyGateSeverityPolicies(proj, 0, false, findings)
-	if errs := filterErrorFindings(findings); len(errs) > 0 {
+	if len(errs) > 0 {
 		return fmt.Errorf("the %s change violates %d Method rule(s) that the required CI check enforces — fix them and record again:\n%s",
 			what, len(errs), formatFindings(errs))
 	}
