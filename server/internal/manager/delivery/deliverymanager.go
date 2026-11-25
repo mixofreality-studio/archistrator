@@ -8971,6 +8971,9 @@ type walkRun struct {
 	// policy is the committed ReviewPolicy this run gates against, snapshotted at start
 	// and NEVER re-read mid-walk — the same discipline the retired rail's parameter has.
 	policy projectstate.ReviewPolicy
+	// pumpHalt is the halt the pump announced to this activity, nil until it does. It is carried
+	// across ContinueAsNew in walkSnapshot.PumpHalt and read only behind changePumpHaltedSignal.
+	pumpHalt *pumpHaltedSignal
 }
 
 // walkTaskState is one task's position in the walk. It is WALK-LOCAL: the durable truth is the
@@ -9089,6 +9092,8 @@ type walkSnapshot struct {
 	// PlanDefects are admitted reports whose send-back round has not opened yet, by the task
 	// that reported them. The plan baseline they are judged against is on the activity branch.
 	PlanDefects map[string]string `json:"planDefects,omitempty"`
+	// PumpHalt is the halt the project's pump announced to this activity, if it did (ISS-028-2).
+	PumpHalt *pumpHaltedSignal `json:"pumpHalt,omitempty"`
 }
 
 // The four signal kinds the router forwards. They are the message's discriminator, not a
@@ -14342,6 +14347,10 @@ const (
 	// failWalk deliberately does NOT send it; see pumpReconcile for why that asymmetry is
 	// what keeps G-P12 alive for a child whose future the pump no longer holds.
 	signalActivityFinished = "activityFinished"
+	// signalPumpHalted is pump → child (pumpHaltedSignal), sent once when the pump records its
+	// FIRST halt to every other in-flight child, so a supervision loop learns that the project
+	// has stopped and dispatches nothing more (ISS-028-2).
+	signalPumpHalted = "pumpHalted"
 )
 
 // ExecutionKinds — the registered workflow names (constructionManager.md §6.2).

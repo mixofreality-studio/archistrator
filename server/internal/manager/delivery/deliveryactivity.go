@@ -1347,6 +1347,11 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 	dispatches, attempt := 0, 0
 	streak := hostFaultStreak{wait: hostFaultBackoffStart}
 	for {
+		if halt := wf.pumpHaltedBeforeDispatch(ctx, tc); halt != nil {
+			return wf.constructionGaveUp(ctx, tc, deferred,
+				projectstate.ActivityOutcomeUnknown, projectstate.PipelineCancelled,
+				pumpHaltDetail(halt, dispatches+1))
+		}
 		if attempt >= maxVarianceAttempts {
 			// Terminal: the supervision budget is spent. failVarianceExhausted's own record.
 			return wf.constructionGaveUp(ctx, tc, deferred,
@@ -1406,6 +1411,49 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 			return wf.constructionExited(ctx, tc, deferred, attemptID, obs, verdict)
 		}
 	}
+}
+
+// changeChildPumpHalted fences the child's side of the pump's halt signal (ISS-028-2): reading
+// the signal, carrying it across a continue, and stopping the supervision loop on it. Its
+// DefaultVersion arm is the walk that never heard of a halt, which is what a history recorded
+// before the change replays as.
+const changeChildPumpHalted = "delivery-child-pump-halted"
+
+// observePumpHalt drains the pump's halt announcements into the walk and returns the halt the
+// walk holds, nil when the pump has not halted. The first announcement wins. It only reads what
+// is already buffered (ReceiveAsync), so it never parks the caller.
+func observePumpHalt(ctx workflow.Context, state *constructState) *pumpHaltedSignal {
+	if workflow.GetVersion(ctx, changeChildPumpHalted, workflow.DefaultVersion, 1) < 1 {
+		return nil
+	}
+	ch := workflow.GetSignalChannel(ctx, signalPumpHalted)
+	for {
+		var msg pumpHaltedSignal
+		if !ch.ReceiveAsync(&msg) {
+			break
+		}
+		if state.walk.pumpHalt == nil {
+			state.walk.pumpHalt = &msg
+		}
+	}
+	return state.walk.pumpHalt
+}
+
+// pumpHaltedBeforeDispatch is the supervision loop's check, made before it opens or dispatches
+// anything: the halt the pump announced, or nil to go on.
+func (wf *csWorkflows) pumpHaltedBeforeDispatch(ctx workflow.Context, tc taskContext) *pumpHaltedSignal {
+	halt := observePumpHalt(ctx, tc.State)
+	if halt != nil {
+		workflow.GetLogger(ctx).Warn("delivery.construction.pumpHalted",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "haltedOn", string(halt.HaltedOn))
+	}
+	return halt
+}
+
+// pumpHaltDetail names the halt a supervision loop stopped on and the dispatch it did not make.
+func pumpHaltDetail(halt *pumpHaltedSignal, dispatch int) string {
+	return "the project pump halted on " + string(halt.HaltedOn) + " at " + halt.HaltedAt.UTC().Format(time.RFC3339) +
+		" (" + halt.Cause + "); construction supervision stopped before dispatch " + strconv.Itoa(dispatch)
 }
 
 // dispatchConstructionOnce is ONE dispatch of a construction task: the numbered attempt opened
@@ -1733,6 +1781,10 @@ func (wf *csWorkflows) runTaskVariance(
 func (wf *csWorkflows) escalateTaskVariance(
 	ctx workflow.Context, tc taskContext, detail string, deferred []routedSignal,
 ) (varianceVerdict, []routedSignal, error) {
+	// A halted pump parks no operator wait: the loop's next top-of-iteration check ends the activity.
+	if wf.pumpHaltedBeforeDispatch(ctx, tc) != nil {
+		return varianceRedispatch, deferred, nil
+	}
 	tc.State.setTaskView(tc.Task.ID, func(v *taskViewState) { v.redraftExhausted = false })
 	// Named at the moment of escalation, not only at its terminal: an operator who opens the log
 	// because an activity is waiting on them must be able to read WHAT they are being asked about.
@@ -2485,6 +2537,9 @@ func (wf *csWorkflows) DeliveryActivityWorkflow(ctx workflow.Context, in deliver
 	// store would absorb the new dispatch as a replay of the old one.
 	seedTaskAttempts(state, snap.ActivityExecution[string(in.ActivityID)])
 	ws := wf.seedWalkFromLedger(ctx, in, lc, snap)
+	if in.Resume != nil && workflow.GetVersion(ctx, changeChildPumpHalted, workflow.DefaultVersion, 1) >= 1 {
+		state.walk.pumpHalt = in.Resume.PumpHalt
+	}
 	if err := wf.openReopenedGate(ctx, in, lc, ws, state); err != nil {
 		return err
 	}
@@ -2578,9 +2633,11 @@ func (wf *csWorkflows) walkTasks(
 		// gate or a poll, so the snapshot is complete and nothing is abandoned
 		// mid-dispatch.
 		if inflight == 0 && shouldContinueAsNew(ctx) {
+			snap := ws.snapshot()
+			snap.PumpHalt = observePumpHalt(ctx, state)
 			return workflow.NewContinueAsNewError(ctx, executionKindDeliveryActivity,
 				deliveryActivityInput{ProjectID: in.ProjectID, ActivityID: in.ActivityID,
-					Activity: in.Activity, Resume: ws.snapshot()})
+					Activity: in.Activity, Resume: snap})
 		}
 	}
 }

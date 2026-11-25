@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -590,6 +591,52 @@ func (st *pumpState) haltOn(ctx workflow.Context, in pumpInput, id ActivityID, c
 	st.Halt = &pumpHalt{ActivityID: id, Cause: cause, HaltedAt: workflow.Now(ctx), HeadVersion: head, Failed: []ActivityID{id}}
 	logger.Error("pump: HALTED — the cascade stops on a failed activity and the pump parks until ResumeProject",
 		"projectId", string(in.ProjectID), "activityId", string(id), "headVersion", int64(head), "err", cause)
+	st.tellChildrenHalted(ctx, in)
+}
+
+// changePumpHaltedSignal fences the pump → child halt signal (ISS-028-2). Its DefaultVersion arm
+// is the pump that halted without telling anyone, which is what a history recorded before the
+// change replays as.
+const changePumpHaltedSignal = "delivery-pump-halted-signal"
+
+// pumpHaltedSignal is the pump → child message that the project's pump has halted. It is what a
+// sibling's supervision loop reads to stop dispatching: the halt itself lives only in the pump's
+// own execution, and a child that is not told keeps spending agent runs that can no longer
+// advance the project.
+type pumpHaltedSignal struct {
+	HaltedOn ActivityID `json:"haltedOn"`
+	Cause    string     `json:"cause"`
+	HaltedAt time.Time  `json:"haltedAt"`
+}
+
+// tellChildrenHalted tells every in-flight child, other than the one the halt names, that the
+// pump has halted. It runs ONLY when the halt was just recorded (the first halt wins), in
+// dispatch order, and it never changes the halt: a child that has already closed is logged and
+// skipped, and any other delivery fault is logged and does not fail the pump — a halt must not
+// starve another child's merge tail, and the child's own supervision still ends at its budget.
+func (st *pumpState) tellChildrenHalted(ctx workflow.Context, in pumpInput) {
+	if st.Halt == nil || workflow.GetVersion(ctx, changePumpHaltedSignal, workflow.DefaultVersion, 1) < 1 {
+		return
+	}
+	logger := workflow.GetLogger(ctx)
+	msg := pumpHaltedSignal{HaltedOn: st.Halt.ActivityID, Cause: st.Halt.Cause, HaltedAt: st.Halt.HaltedAt}
+	for _, id := range st.inFlight() {
+		if id == st.Halt.ActivityID {
+			continue
+		}
+		err := workflow.SignalExternalWorkflow(ctx, deliveryActivityWorkflowID(in.ProjectID, id), "",
+			signalPumpHalted, msg).Get(ctx, nil)
+		var unknown *temporal.UnknownExternalWorkflowExecutionError
+		switch {
+		case err == nil:
+		case errors.As(err, &unknown) || isNotFound(err):
+			logger.Info("pump: an in-flight child had already closed when the halt was announced; skipped",
+				"projectId", string(in.ProjectID), "activityId", string(id))
+		default:
+			logger.Error("pump: the halt could not be announced to an in-flight child; it will run to its own end",
+				"projectId", string(in.ProjectID), "activityId", string(id), "err", err.Error())
+		}
+	}
 }
 
 // changePumpDrainHalt fences the drain halt (FIX-016). Its DefaultVersion arm is the pump that
@@ -671,6 +718,7 @@ func (wf *csWorkflows) pumpDrain(
 	}
 	*dispatch = pumpDispatch{Decided: true, Dispatched: false, Halt: st.Halt.toContract()}
 	*decide = false
+	st.tellChildrenHalted(ctx, in)
 	workflow.GetLogger(ctx).Error("pump: HALTED — the network drained with activities that gave up; only ResumeProject returns them",
 		"projectId", string(in.ProjectID), "activityId", string(first), "failed", len(giveUps))
 	return pumpDrainHalted, nil
