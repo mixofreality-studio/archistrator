@@ -455,14 +455,13 @@
           {
             "activity": "M-ACCEPT",
             "dependsOn": [
-              "N-ATP",
-              "U-SPA-web-client"
+              "N-ATP"
             ]
           },
           {
             "activity": "N-ATP",
             "dependsOn": [
-              "M0"
+              "U-SPA-web-client"
             ]
           },
           {
@@ -514,6 +513,7 @@
           "C-operated-runtime-access",
           "C-operations-manager",
           "M-ACCEPT",
+          "N-ATP",
           "R-operated-runtime",
           "U-SPA-web-client",
           "architecture",
@@ -602,11 +602,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 3,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 4,
+      "provenance": {
+        "committedAt": "2026-11-25T17:49:22Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     },
     "11": {
@@ -621,20 +621,8 @@
             "minorUnits": 1350,
             "currency": "USD"
           },
-          "project-manager": {
-            "minorUnits": 4500,
-            "currency": "USD"
-          },
-          "qa-engineer": {
-            "minorUnits": 1350,
-            "currency": "USD"
-          },
           "senior-developer": {
             "minorUnits": 2250,
-            "currency": "USD"
-          },
-          "software-tester": {
-            "minorUnits": 1350,
             "currency": "USD"
           },
           "system-architect": {
@@ -643,10 +631,6 @@
           },
           "test-engineer": {
             "minorUnits": 1350,
-            "currency": "USD"
-          },
-          "ui-designer": {
-            "minorUnits": 2250,
             "currency": "USD"
           }
         },
@@ -694,11 +678,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 1,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T17:49:37Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     },
     "12": {
@@ -713,20 +697,8 @@
             "minorUnits": 1350,
             "currency": "USD"
           },
-          "project-manager": {
-            "minorUnits": 4500,
-            "currency": "USD"
-          },
-          "qa-engineer": {
-            "minorUnits": 1350,
-            "currency": "USD"
-          },
           "senior-developer": {
             "minorUnits": 2250,
-            "currency": "USD"
-          },
-          "software-tester": {
-            "minorUnits": 1350,
             "currency": "USD"
           },
           "system-architect": {
@@ -735,10 +707,6 @@
           },
           "test-engineer": {
             "minorUnits": 1350,
-            "currency": "USD"
-          },
-          "ui-designer": {
-            "minorUnits": 2250,
             "currency": "USD"
           }
         },
@@ -786,11 +754,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 1,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T17:50:07Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     },
     "13": {
@@ -805,20 +773,8 @@
             "minorUnits": 1350,
             "currency": "USD"
           },
-          "project-manager": {
-            "minorUnits": 4500,
-            "currency": "USD"
-          },
-          "qa-engineer": {
-            "minorUnits": 1350,
-            "currency": "USD"
-          },
           "senior-developer": {
             "minorUnits": 2250,
-            "currency": "USD"
-          },
-          "software-tester": {
-            "minorUnits": 1350,
             "currency": "USD"
           },
           "system-architect": {
@@ -827,10 +783,6 @@
           },
           "test-engineer": {
             "minorUnits": 1350,
-            "currency": "USD"
-          },
-          "ui-designer": {
-            "minorUnits": 2250,
             "currency": "USD"
           }
         },
@@ -878,11 +830,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 1,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T17:50:23Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     },
     "14": {
@@ -897,20 +849,8 @@
             "minorUnits": 1350,
             "currency": "USD"
           },
-          "project-manager": {
-            "minorUnits": 4500,
-            "currency": "USD"
-          },
-          "qa-engineer": {
-            "minorUnits": 1350,
-            "currency": "USD"
-          },
           "senior-developer": {
             "minorUnits": 2250,
-            "currency": "USD"
-          },
-          "software-tester": {
-            "minorUnits": 1350,
             "currency": "USD"
           },
           "system-architect": {
@@ -919,10 +859,6 @@
           },
           "test-engineer": {
             "minorUnits": 1350,
-            "currency": "USD"
-          },
-          "ui-designer": {
-            "minorUnits": 2250,
             "currency": "USD"
           }
         },
@@ -970,11 +906,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 1,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T17:49:52Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     },
     "15": {
@@ -984,12 +920,25 @@
         "rows": [
           {
             "solutionKind": "normalSolution",
-            "criticalityRisk": 0.6477272727272727,
-            "activityRisk": 0.7813852813852814,
-            "composite": 0.714556277056277,
-            "durationDays": 737.5,
+            "criticalityRisk": 0.6083333333333333,
+            "activityRisk": 0.6148148148148148,
+            "composite": 0.611574074074074,
+            "durationDays": 507.5,
             "totalCost": {
-              "minorUnits": 5375000,
+              "minorUnits": 3113500,
+              "currency": "USD"
+            },
+            "included": true,
+            "exclusionReason": ""
+          },
+          {
+            "solutionKind": "decompressedSolution",
+            "criticalityRisk": 0.35,
+            "activityRisk": 0.4256410256410257,
+            "composite": 0.38782051282051283,
+            "durationDays": 577.5,
+            "totalCost": {
+              "minorUnits": 3463500,
               "currency": "USD"
             },
             "included": true,
@@ -997,42 +946,29 @@
           },
           {
             "solutionKind": "subcriticalSolution",
-            "criticalityRisk": 0.6704545454545454,
-            "activityRisk": 0.8422865013774105,
-            "composite": 0.7563705234159779,
-            "durationDays": 887.5,
+            "criticalityRisk": 0.675,
+            "activityRisk": 0.5,
+            "composite": 0.5875,
+            "durationDays": 560,
             "totalCost": {
-              "minorUnits": 6125000,
-              "currency": "USD"
-            },
-            "included": false,
-            "exclusionReason": "composite risk 0.756 exceeds the 0.75 ceiling"
-          },
-          {
-            "solutionKind": "compressedSolution",
-            "criticalityRisk": 0.678030303030303,
-            "activityRisk": 0.9156879802812816,
-            "composite": 0.7968591416557923,
-            "durationDays": 533.3333333333334,
-            "totalCost": {
-              "minorUnits": 5659526,
-              "currency": "USD"
-            },
-            "included": false,
-            "exclusionReason": "composite risk 0.797 exceeds the 0.75 ceiling"
-          },
-          {
-            "solutionKind": "decompressedSolution",
-            "criticalityRisk": 0.375,
-            "activityRisk": 0.6077441077441077,
-            "composite": 0.49137205387205385,
-            "durationDays": 787.5,
-            "totalCost": {
-              "minorUnits": 5625000,
+              "minorUnits": 3376000,
               "currency": "USD"
             },
             "included": true,
             "exclusionReason": ""
+          },
+          {
+            "solutionKind": "compressedSolution",
+            "criticalityRisk": 0.7666666666666667,
+            "activityRisk": 0.6472222222222223,
+            "composite": 0.7069444444444445,
+            "durationDays": 326.66666666666663,
+            "totalCost": {
+              "minorUnits": 2773813,
+              "currency": "USD"
+            },
+            "included": false,
+            "exclusionReason": "compressed 36% below the normal option, past the 30% death-zone bound"
           }
         ],
         "tooRiskyThreshold": 0.75,
@@ -1081,11 +1017,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 1,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T17:50:39Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     },
     "16": {
@@ -1094,80 +1030,81 @@
       "model": {
         "options": [
           {
-            "optionId": "opt-normal",
+            "optionId": "NormalSolution",
             "solutionKind": "normalSolution",
-            "durationDays": 737.5,
+            "durationDays": 507.5,
             "buildCost": {
-              "minorUnits": 5375000,
+              "minorUnits": 3113500,
               "currency": "USD"
             },
-            "compositeRisk": 0.714556277056277,
+            "compositeRisk": 0.611574074074074,
             "projectedMonthlyCost": {
-              "minorUnits": 800000,
+              "minorUnits": 5346,
               "currency": "USD"
             },
             "expectedPerCycleNet": {
-              "minorUnits": 120000,
+              "minorUnits": -5346,
               "currency": "USD"
             }
           },
           {
-            "optionId": "opt-subcritical",
-            "solutionKind": "subcriticalSolution",
-            "durationDays": 887.5,
-            "buildCost": {
-              "minorUnits": 6125000,
-              "currency": "USD"
-            },
-            "compositeRisk": 0.7563705234159779,
-            "projectedMonthlyCost": {
-              "minorUnits": 800000,
-              "currency": "USD"
-            },
-            "expectedPerCycleNet": {
-              "minorUnits": 120000,
-              "currency": "USD"
-            }
-          },
-          {
-            "optionId": "opt-compressed",
-            "solutionKind": "compressedSolution",
-            "durationDays": 533.3333333333334,
-            "buildCost": {
-              "minorUnits": 5659526,
-              "currency": "USD"
-            },
-            "compositeRisk": 0.7968591416557923,
-            "projectedMonthlyCost": {
-              "minorUnits": 800000,
-              "currency": "USD"
-            },
-            "expectedPerCycleNet": {
-              "minorUnits": 120000,
-              "currency": "USD"
-            }
-          },
-          {
-            "optionId": "opt-decompressed",
+            "optionId": "DecompressedSolution",
             "solutionKind": "decompressedSolution",
-            "durationDays": 787.5,
+            "durationDays": 577.5,
             "buildCost": {
-              "minorUnits": 5625000,
+              "minorUnits": 3463500,
               "currency": "USD"
             },
-            "compositeRisk": 0.49137205387205385,
+            "compositeRisk": 0.38782051282051283,
             "projectedMonthlyCost": {
-              "minorUnits": 800000,
+              "minorUnits": 5346,
               "currency": "USD"
             },
             "expectedPerCycleNet": {
-              "minorUnits": 120000,
+              "minorUnits": -5346,
+              "currency": "USD"
+            }
+          },
+          {
+            "optionId": "SubcriticalSolution",
+            "solutionKind": "subcriticalSolution",
+            "durationDays": 560,
+            "buildCost": {
+              "minorUnits": 3376000,
+              "currency": "USD"
+            },
+            "compositeRisk": 0.5875,
+            "projectedMonthlyCost": {
+              "minorUnits": 5346,
+              "currency": "USD"
+            },
+            "expectedPerCycleNet": {
+              "minorUnits": -5346,
+              "currency": "USD"
+            }
+          },
+          {
+            "optionId": "CompressedSolution",
+            "solutionKind": "compressedSolution",
+            "durationDays": 326.66666666666663,
+            "buildCost": {
+              "minorUnits": 2773813,
+              "currency": "USD"
+            },
+            "compositeRisk": 0.7069444444444445,
+            "projectedMonthlyCost": {
+              "minorUnits": 5346,
+              "currency": "USD"
+            },
+            "expectedPerCycleNet": {
+              "minorUnits": -5346,
               "currency": "USD"
             }
           }
         ],
-        "recommendation": "opt-decompressed",
-        "rationale": "recommend decompressedSolution: lowest in-band composite risk 0.491 (App C exclusions applied)"
+        "recommendation": "DecompressedSolution",
+        "rationale": "recommend DecompressedSolution: lowest in-band composite risk (0.388) at 577.5 days (App C risk-crossover exclusions applied)",
+        "chosenOption": "DecompressedSolution"
       },
       "reviewThread": [
         {
@@ -1210,11 +1147,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 1,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-25T17:50:55Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     },
     "2": {
@@ -13619,11 +13556,11 @@
           "addressee": ""
         }
       ],
-      "revisions": 3,
-      "staleBasis": true,
-      "staleBasisCause": {
-        "upstreamKind": "coreUseCases",
-        "upstreamRevision": 6
+      "revisions": 4,
+      "provenance": {
+        "committedAt": "2026-11-25T17:49:07Z",
+        "approvedBy": "operator",
+        "draftedBy": "platform:deterministic-project-design"
       }
     }
   },
@@ -17432,8 +17369,19 @@
       "type": "projectDesign",
       "lifecyclePin": {
         "typeKey": "projectDesign",
-        "assetsVersion": "v0.10.4"
+        "assetsVersion": "dag-sha256:0c40c5fe510c0af1"
       },
+      "lifecyclePinHistory": [
+        {
+          "pin": {
+            "typeKey": "projectDesign",
+            "assetsVersion": "v0.10.4"
+          },
+          "supersededAt": "2026-11-25T17:46:26.351976Z"
+        }
+      ],
+      "startedAt": "2026-11-25T17:46:26.351976Z",
+      "completedAt": "2026-11-25T17:51:13.864503Z",
       "attempts": [
         {
           "attemptId": "projectDesign:sdpReview:1",
@@ -17452,9 +17400,65 @@
             "generatedAt": "2026-10-05T01:12:29.070481Z",
             "basis": "committed design artifacts: planningAssumptions (5 resources, committed); activityList (28 activities, committed); network (27 dependencies, 5 milestones, committed); normalSolution (staffing cap 6, committed); subcriticalSolution (staffing cap 4, committed); compressedSolution (staffing cap 6, committed); decompressedSolution (staffing cap 6, committed); riskModel (4 rows, committed); sdpReview (4 options, committed)"
           }
+        },
+        {
+          "attemptId": "projectDesign:sdpReview:2",
+          "task": "sdpReview",
+          "phase": "sdp",
+          "attempt": 2,
+          "actor": "agent",
+          "startedAt": "2026-11-25T17:46:33.047501Z",
+          "endedAt": "2026-11-25T17:48:51.89695Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "projectDesign:sdpReview:SdpReview@v651"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T17:46:33.047501Z"
+          }
         }
       ],
-      "version": 1
+      "reviews": [
+        {
+          "roundId": "projectDesign:sdpReview:2",
+          "taskId": "sdpReview",
+          "reviews": "sdpReview",
+          "artifactKind": "sdpReview",
+          "round": 2,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "projectDesign:sdpReview:SdpReview@v651"
+          },
+          "reviewers": [
+            {
+              "role": "human",
+              "actor": "operator",
+              "required": true
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "human",
+              "actor": "operator",
+              "verdict": "approve",
+              "summary": "ISS-028-3 re-plan: approve the recomputed plan (N-ATP now follows U-SPA-web-client); option unchanged (the recommendation).",
+              "attemptId": "projectDesign:sdpReview:2",
+              "at": "2026-11-25T17:48:30Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "operator",
+          "openedAt": "2026-11-25T17:47:46Z",
+          "decidedAt": "2026-11-25T17:48:37.212691Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-25T17:47:46.786949Z"
+          }
+        }
+      ],
+      "version": 11
     },
     "requirements": {
       "activityID": "requirements",
