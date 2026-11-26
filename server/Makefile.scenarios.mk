@@ -10,16 +10,18 @@
 # go.mod pins, not an @version of its own, so a pin bump moves it with the rest of
 # the codegen.
 #
-#   gen-tests        — (re)write every *_scenarios.gen_test.go and
+#   gen-tests        — (re)write the scenario test subject the tests import
+#                      (internal/scenariocompose/compose.gen.go, `go tool appgen
+#                      scenariocompose`) and every *_scenarios.gen_test.go and
 #                      uitests/generated/**/*.spec.gen.ts from the committed
 #                      per-component test plans; prune generated files the plan
-#                      no longer produces. Nothing it writes is agent-owned: the
-#                      subject of every scenario is built by the generated
-#                      internal/scenariocompose package, and there are no hooks.
-#   gen-tests-check  — drift gate: fails on a stale or orphan generated file, or on
-#                      a hooks file (retired: ARCH-TEST-COMPOSE). testgen -check
-#                      compares on its own, so unlike the other gen-*-check gates
-#                      there is no git diff.
+#                      no longer produces. Nothing it writes is agent-owned, and
+#                      there are no hooks.
+#   gen-tests-check  — drift gate over both the subject and the tests: fails on a
+#                      stale or orphan generated file, or on a hooks file (retired:
+#                      ARCH-TEST-COMPOSE). appgen and testgen -check compare on
+#                      their own, so unlike the other gen-*-check gates there is
+#                      no git diff.
 #   test-scenarios   — run every TestScenario_* as a `go test -json` stream into
 #                      test-results/go-test.jsonl (what the venue uploads); exits
 #                      with go test's status, which a bare `| tee` would mask
@@ -51,11 +53,14 @@
 .PHONY: gen-tests gen-tests-check test-scenarios test-discriminate surface-check test-web
 
 TESTGEN := github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator/cmd/testgen
+SCENARIOCOMPOSE_ARGS := -project ../.aiarch/state/project.json -root .
 
 gen-tests:
+	GOWORK=off go tool appgen scenariocompose $(SCENARIOCOMPOSE_ARGS)
 	GOWORK=off go run $(TESTGEN)
 
 gen-tests-check:
+	GOWORK=off go tool appgen scenariocompose $(SCENARIOCOMPOSE_ARGS) -check
 	GOWORK=off go run $(TESTGEN) -check
 
 test-discriminate:

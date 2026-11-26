@@ -101305,7 +101305,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "[{\"consumer\": \"appgen compose\", \"path\": \"cmd/server/main.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}, {\"consumer\": \"appgen compose\", \"path\": \"internal/scenariocompose/compose.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
+                  "result": "[{\"consumer\": \"appgen compose\", \"path\": \"cmd/server/main.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}, {\"consumer\": \"appgen scenariocompose\", \"path\": \"internal/scenariocompose/compose.gen.go\", \"severity\": \"local\", \"tier\": \"tier1\"}]",
                   "errorExpected": false,
                   "errorCode": ""
                 },
