@@ -111,6 +111,12 @@ func runEditScope(args []string) error {
 	if err != nil {
 		return exitError{2, err}
 	}
+	if bad, err = admitRegeneratedTests(wd, *spec, rng, bad); err != nil {
+		return exitError{2, err}
+	}
+	if stray, err = admitRegeneratedTests(wd, *spec, rng, stray); err != nil {
+		return exitError{2, err}
+	}
 	drift, err := generatedDriftViolations(wd, *spec, rng)
 	if err != nil {
 		return exitError{2, err}

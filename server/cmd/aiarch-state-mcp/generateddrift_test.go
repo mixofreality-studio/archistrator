@@ -100,3 +100,46 @@ func TestGate_GeneratedPathMustEqualRegeneration(t *testing.T) {
 	head := r.commit("hand edit", map[string]string{target: string(raw) + "// tweaked by hand\n"})
 	wantExit(t, r.runGate(specFile, "--base", base, "--head", head, "--no-main"), 1, "EDIT-GENERATED-DRIFT", target)
 }
+
+// TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated: an integration task's job writes the
+// scenario tests and the agent commits them with its wiring (service-integration step 6). The scope
+// refuses every test-code path, so the gate admits exactly the ones whose committed bytes equal what
+// testgen writes; a hand edit of one, or a test file the generator never writes, is still outside
+// the scope.
+func TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated(t *testing.T) {
+	r, specFile, base, _ := driftRepo(t)
+	raw, err := os.ReadFile(filepath.Join(r.root, ".aiarch/state/project.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := appgen.ConsumerNamed(testGenerator)
+	if !ok {
+		t.Fatalf("no consumer %q", testGenerator)
+	}
+	out, err := c.Emit(appgen.Input{Project: raw, ModulePath: "example.com/app", Config: appgen.DefaultConfig(), Tree: os.DirFS(r.root)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	var target string
+	for _, f := range out {
+		if projectstate.IsTestCodePath(f.Path) && filepath.Ext(f.Path) == ".go" {
+			files[f.Path] = string(f.Content)
+			target = f.Path
+		}
+	}
+	if target == "" {
+		t.Fatal("testgen wrote no Go scenario test over the todomvc fixture")
+	}
+
+	head := r.commit("the job's generated tests", files)
+	if err := r.runGate(specFile, "--base", base, "--head", head, "--no-main"); err != nil {
+		t.Fatalf("generated scenario tests byte-equal to regeneration must be admitted: %v", err)
+	}
+
+	edited := r.commit("hand edit", map[string]string{target: files[target] + "// tweaked by hand\n"})
+	wantExit(t, r.runGate(specFile, "--base", base, "--head", edited, "--no-main"), 1, "lie outside the task's edit scope", target)
+
+	stray := r.commit("a test file no generator writes", map[string]string{"internal/manager/list/extra_scenarios.gen_test.go": "package list\n"})
+	wantExit(t, r.runGate(specFile, "--base", base, "--head", stray, "--no-main"), 1, "lie outside the task's edit scope", "extra_scenarios.gen_test.go")
+}

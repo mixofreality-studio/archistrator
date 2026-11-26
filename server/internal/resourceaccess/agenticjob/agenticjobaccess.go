@@ -6328,7 +6328,7 @@ func attemptMergeActivityBranch(leg mergeLeg, branch string, land bool) (diagnos
 		return diag, false
 	}
 	if leg.tidy {
-		if diag := tidyMergedModule(cloneDir, branch+" into "+localMainBranch); diag != "" {
+		if diag := canonicalizeMerge(cloneDir, branch+" into "+localMainBranch); diag != "" {
 			return diag, false
 		}
 	}
@@ -6424,6 +6424,73 @@ func tidyMergedModule(cloneDir, what string) string {
 	return ""
 }
 
+// THE SCENARIO TEST SUBJECT IS A WHOLE-TREE DERIVATION, SO A MERGE RE-DERIVES IT.
+//
+// internal/scenariocompose/compose.gen.go (appgen scenariocompose) builds every component the tree
+// holds, so its text is a function of the WHOLE module, not of the activity that committed it:
+// two integrations running in parallel (an Engine and a ResourceAccess) each insert their own
+// import and constructor at the same anchors of the one file, which a text merge calls a conflict
+// that no resolver can settle by choosing a side. It is the same shape go.sum has, and is handled
+// the same way: the merge unions the two texts (a merge attribute seated in the throwaway clone, so
+// no project needs a .gitattributes line) and the merge tail then regenerates the file from the
+// merged tree, as it tidies the merged module. Nothing here edits a file by hand.
+
+// cloneAttributesFile is the clone-relative scratch file holding attributes no checked-out
+// .gitattributes can override or omit.
+const cloneAttributesFile = ".git/info/attributes"
+
+// scenarioSubjectRel is the module-relative path of the generated scenario test subject
+// (composegen.ScenarioComposeFile, which the project's own go.mod pins; the RA names it here so the
+// merge tail stays free of the generator's packages).
+const scenarioSubjectRel = "internal/scenariocompose/compose.gen.go"
+
+// scenarioSubjectMergeAttribute unions the subject's two sides in whatever module dir it lives.
+const scenarioSubjectMergeAttribute = "**/" + scenarioSubjectRel + " merge=union\n" + scenarioSubjectRel + " merge=union"
+
+// regenerateMergedSubject holds the scenario test subject current across a merge: when the merge
+// changed it against its first parent, regenerate it from the merged tree and fold the result into
+// the merge commit. A project whose merge left it alone costs one diff. A regeneration that
+// fails is an honest conflict: nothing is pushed. what names the merge in that diagnostic.
+func regenerateMergedSubject(cloneDir, what string) string {
+	moduleDir, err := projectModuleDir(cloneDir)
+	if err != nil {
+		return "local merge: read the module dir: " + err.Error()
+	}
+	subject := path.Join(filepath.ToSlash(moduleDir), scenarioSubjectRel)
+	//nolint:gosec // G204: git is the fixed binary; subject is the module dir's fixed subject path.
+	changed, err := gitExec(cloneDir, exec.Command("git", "diff", "--name-only", "HEAD^1", "HEAD", "--", subject))
+	if err != nil {
+		return "local merge: diff the merged scenario test subject: " + err.Error()
+	}
+	if strings.TrimSpace(changed) == "" {
+		return ""
+	}
+	state, err := filepath.Rel(filepath.Join(cloneDir, moduleDir), filepath.Join(cloneDir, filepath.FromSlash(localStateDocPath)))
+	if err != nil {
+		return "local merge: locate the state document from the module dir: " + err.Error()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), mergeTidyTimeout)
+	defer cancel()
+	//nolint:gosec // G204: go is the fixed binary; the arguments are the fixed subcommand and the state document's relative path.
+	gen := exec.CommandContext(ctx, "go", "tool", "appgen", "scenariocompose", "-project", filepath.ToSlash(state), "-root", ".")
+	gen.Dir = filepath.Join(cloneDir, moduleDir)
+	gen.Env = append(allowlistedEnv(), "GOWORK=off", "GOTOOLCHAIN=local")
+	gen.WaitDelay = localExecWaitDelay
+	if out, err := gen.CombinedOutput(); err != nil {
+		return "local merge: merge conflict merging " + what +
+			": the merged scenario test subject does not regenerate: " + err.Error() + ": " + outputTail(string(out), 500)
+	}
+	if _, err := gitExec(cloneDir, exec.Command("git", "add", "--", subject)); err != nil { //nolint:gosec // G204: as above
+		return "local merge: stage the regenerated scenario test subject: " + err.Error()
+	}
+	if _, err := gitExec(cloneDir, exec.Command("git",
+		"-c", "user.name=aiarch", "-c", "user.email=aiarch@local",
+		"commit", "--amend", "--no-edit", "--allow-empty")); err != nil {
+		return "local merge: fold the regenerated scenario test subject into the merge: " + err.Error()
+	}
+	return ""
+}
+
 // mergePinnedHead runs the real --no-ff merge of the pinned activity-branch tip into the
 // clone's main. The merge commit needs an author identity independent of whatever global
 // config the host machine carries — pinned explicitly (-c), same spirit as the workflow
@@ -6496,6 +6563,9 @@ func cloneMainForMerge(parentDir, repoPath string) (cloneDir string, clone *git.
 	clone, err = openSharedRepo(cloneDir)
 	if err != nil {
 		return "", nil, "local merge: clone failed: " + err.Error()
+	}
+	if err := writeCloneScratch(cloneDir, cloneAttributesFile, scenarioSubjectMergeAttribute+"\n"); err != nil {
+		return "", nil, "local merge: clone failed: seat the merge attributes: " + err.Error()
 	}
 	if _, err := clone.CreateRemote(&gitconfig.RemoteConfig{Name: localMergeRemote, URLs: []string{remoteURL}}); err != nil {
 		return "", nil, "local merge: clone failed: configure " + localMergeRemote + ": " + err.Error()
@@ -6737,7 +6807,17 @@ func mergeMainIntoPinnedHead(cloneDir, branch string, tidy bool) string {
 	if !tidy {
 		return ""
 	}
-	return tidyMergedModule(cloneDir, localMainBranch+" into "+branch)
+	return canonicalizeMerge(cloneDir, localMainBranch+" into "+branch)
+}
+
+// canonicalizeMerge brings what a text merge cannot settle back to its canonical form: the merged
+// module (tidyMergedModule) and the merged scenario test subject (regenerateMergedSubject). "" is
+// success; anything else is the refusal, with nothing pushed.
+func canonicalizeMerge(cloneDir, what string) string {
+	if diag := tidyMergedModule(cloneDir, what); diag != "" {
+		return diag
+	}
+	return regenerateMergedSubject(cloneDir, what)
 }
 
 // ---------------------------------------------------------------------------

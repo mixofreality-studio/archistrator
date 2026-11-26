@@ -226,6 +226,39 @@ func requireInScopeExcept(t *testing.T, repo string, spec review.TaskSpec, ignor
 	}
 }
 
+// requireGateAdmitsGeneratedTests commits what `make gen-tests` wrote (the generated scenario tests,
+// browser specs and the scenariocompose subject they import) and holds that commit, base..HEAD, to
+// the REAL edit-scope gate: the scope refuses every test-code path, and the gate admits only the ones
+// the generator writes byte for byte, which is what the integration command has the agent commit.
+// A path the gate does not admit fails here, so the job cannot be green where the gate is red.
+func requireGateAdmitsGeneratedTests(t *testing.T, repo string, spec review.TaskSpec, base string) {
+	t.Helper()
+	inRepo(t, repo, "git", "add", "-A")
+	inRepo(t, repo, "git", "commit", "-q", "-m", "generate the scenario tests")
+	b, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	specFile := filepath.Join(t.TempDir(), "spec.json")
+	if err := os.WriteFile(specFile, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rng, err := resolveEditScopeRange(repo, base, "HEAD", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := editScopeViolations(repo, specFile, rng)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bad, err = admitRegeneratedTests(repo, specFile, rng, bad); err != nil {
+		t.Fatal(err)
+	}
+	if len(bad) > 0 {
+		t.Errorf("%s/%s: the edit-scope gate refuses what the job's gen-tests wrote and the agent commits: %v", spec.Activity, spec.Task, bad)
+	}
+}
+
 // requireNothingLeftBehind holds a gate to leaving a clean checkout. Agents commit with
 // `git add -A`, so anything a check drops in the tree lands in their commit and fails their own
 // edit scope: a built server binary, a compiler's scratch.
@@ -283,9 +316,9 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	inRepo(t, repo, "git", "commit", "-q", "-m", "generate the composition")
 	// The scenario tests are the job's, generated from the reviewed plans once the composition
 	// exists; the agent's own changes (hooks.go, the module graph) are what the scope holds it to.
+	base := strings.TrimSpace(inRepo(t, repo, "git", "rev-parse", "HEAD"))
 	inRepo(t, repo, "make", "gen-tests")
-	requireInScopeExcept(t, repo, spec, "uitests/generated/", ".gen_test.go") // the Go tests and the subject they import, both the job's
-	inRepo(t, repo, "git", "commit", "-q", "-m", "generate the scenario tests")
+	requireGateAdmitsGeneratedTests(t, repo, spec, base)
 	for _, want := range []string{
 		"cmd/server/main.gen.go", "cmd/server/config.gen.go", "cmd/server/hooks.go",
 		"cmd/server/authz.gen.go", "cmd/server/authz.gen_test.go", "cmd/server/policy.gen.go",
@@ -542,8 +575,9 @@ func TestFreshEngineAndResourceIntegrationOwnTheScenarioSubject(t *testing.T) {
 	if len(engine.Generate) != 0 {
 		t.Fatalf("an engine's integration must not generate the server: %+v", engine.Generate)
 	}
+	base := strings.TrimSpace(inRepo(t, repo, "git", "rev-parse", "HEAD"))
 	inRepo(t, repo, "make", "gen-tests")
-	requireInScopeExcept(t, repo, engine, "uitests/generated/", ".gen_test.go")
+	requireGateAdmitsGeneratedTests(t, repo, engine, base)
 	for _, absent := range []string{"cmd/server/main.gen.go", "cmd/server/config.gen.go", "api/openapi.yaml"} {
 		if _, err := os.Stat(filepath.Join(repo, absent)); err == nil {
 			t.Errorf("the pre-step composed the server: %s exists", absent)
