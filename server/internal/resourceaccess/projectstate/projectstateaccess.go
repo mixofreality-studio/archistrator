@@ -12532,8 +12532,9 @@ func UseCaseCoverageOf(p *Project, draftCoreUseCases bool) ([]UseCaseCoverage, e
 // recordedArtifactsOf answers, for p, whether a rule prerequisite is recorded: the same question
 // methodcheck.ValidateProject asks before it keeps a rule's findings (RUN-025), over the typed project.
 // With draftCoreUseCases the draft the critique is judging counts as the core use cases, as it does for
-// the derivation itself. Both switches are exhaustive over methodcheck's sealed Prerequisite sum, so a
-// new prerequisite fails the build here.
+// the derivation itself. Both switches name every variant of methodcheck's sealed Prerequisite sum
+// explicitly (the sum is declared in another module, so the linter cannot enforce it: a new variant
+// must be added to both by hand).
 func recordedArtifactsOf(p *Project, draftCoreUseCases bool) func(methodcheck.Prerequisite) bool {
 	return func(pr methodcheck.Prerequisite) bool {
 		if kind, isSlot := prerequisiteSlot(pr); isSlot {
@@ -12547,6 +12548,8 @@ func recordedArtifactsOf(p *Project, draftCoreUseCases bool) func(methodcheck.Pr
 		switch pr.(type) {
 		case methodcheck.RequiresContracts:
 			return len(p.ServiceContracts) > 0
+		case methodcheck.RequiresContractsSettled:
+			return contractsSettled(p)
 		case methodcheck.RequiresTestPlan:
 			return p.PhaseArtifacts != nil && len(p.PhaseArtifacts.TestPlan) > 0
 		case methodcheck.RequiresUIDesign:
@@ -12558,6 +12561,21 @@ func recordedArtifactsOf(p *Project, draftCoreUseCases bool) func(methodcheck.Pr
 		}
 		return false
 	}
+}
+
+// contractsSettled answers methodcheck.RequiresContractsSettled over the typed project by decoding it
+// into methodcheck's own view, so the window's closing signal is the one definition. A project that
+// does not decode is not settled.
+func contractsSettled(p *Project) bool {
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return false
+	}
+	mp, ok, err := methodcheck.DecodeProject(raw)
+	if err != nil || !ok {
+		return false
+	}
+	return len(methodcheck.ContractsStillToCome(mp)) == 0
 }
 
 // prerequisiteSlot is the artifact slot a prerequisite names, false for a prerequisite that is a
@@ -12580,8 +12598,9 @@ func prerequisiteSlot(pr methodcheck.Prerequisite) (ArtifactKind, bool) {
 		return KindOperationalConcepts, true
 	case methodcheck.RequiresStandardCheck:
 		return KindStandardCheck, true
-	case methodcheck.RequiresContracts, methodcheck.RequiresTestPlan, methodcheck.RequiresUIDesign:
-		// records of their own
+	case methodcheck.RequiresContracts, methodcheck.RequiresContractsSettled,
+		methodcheck.RequiresTestPlan, methodcheck.RequiresUIDesign:
+		// records of their own, or construction progress
 	}
 	return 0, false
 }
