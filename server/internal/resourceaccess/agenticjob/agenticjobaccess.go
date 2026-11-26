@@ -2049,7 +2049,9 @@ const (
 //     nothing here merges main into it: the walk's refresh job did that BEFORE the hash,
 //     FIX-038) — and REFUSE the run when its hash
 //     differs from the dispatched one; capture the edit-scope base and main SHAs (R26);
-//  3. for the integration task, generate the scenario tests;
+//  3. generate the component's generated half (and, for the integration task, its scenario
+//     tests) and COMMIT it onto the branch as the job's own platform-authored commit; the
+//     gate's base is the tip after that commit, so the agent's diff never holds it;
 //  4. run the agent on the spec's model and built-in tool allowlist;
 //  5. the edit-scope gate;
 //  6. the check gate;
@@ -2123,6 +2125,9 @@ func (a *localExecAccess) dispatch(run *localRun, plan localDispatchPlan, episod
 	if err != nil || why != "" {
 		return why, err
 	}
+	// One base for the run: the tip after the job committed its generated output (the edit
+	// scope's base and the "agent advanced the branch" anchor), never the pre-generation tip.
+	beforeSHA = gate.baseOr(beforeSHA)
 	if gate.isJob() {
 		// The gates run off the submit path and the run's phase is theirs: succeeded iff every
 		// gate is green, a red check being the run's verdict and not a reason it never started.
@@ -2413,8 +2418,10 @@ func excludeCheckOutput(workDir string) error {
 
 // prepareGate is steps 1–3 of the local sequence for a gated run: check output kept out
 // of commits, the task spec resolved and held to the dispatched hash with the edit-scope
-// SHAs captured, and the integration task's scenario tests generated. It returns the
-// gate (its genFailure set when the tests could not be generated) — nil for an ungated
+// SHAs captured, and the job's generated output written and committed onto the branch (the
+// gate's baseSHA is then the tip after that commit). It returns the
+// gate (its genFailure set when the output could not be generated or committed, and nothing
+// committed then) — nil for an ungated
 // (answer-job) run — or why the job refuses to start the agent, or a genuine pre-spawn error.
 func (a *localExecAccess) prepareGate(s dispatchedTaskSpec, parentDir, workDir, branch, beforeSHA string, rig map[string]string) (*localGate, string, error) {
 	if !s.gated() {
@@ -2429,7 +2436,56 @@ func (a *localExecAccess) prepareGate(s dispatchedTaskSpec, parentDir, workDir, 
 	}
 	g.branch, g.baseSHA = branch, beforeSHA
 	g.genFailure = generateScenarioTests(g, workDir)
+	if g.genFailure == "" {
+		// The job owns what it generated end to end: it commits it here, before any agent runs,
+		// and the gate's base moves to the tip after that commit. That one base is the edit
+		// scope's and the run's "did the agent advance the branch" anchor (dispatch reads it
+		// back from the gate), so the agent's diff never holds the job's output.
+		tip, err := a.commitGeneratedOutput(g, workDir)
+		if err != nil {
+			g.genFailure = "the job's generated output could not be committed: " + singleLine(outputTail(err.Error(), 600))
+		} else {
+			g.baseSHA = tip
+		}
+	}
 	return g, "", nil
+}
+
+// commitGeneratedOutput commits what generateScenarioTests left in the worktree as a
+// platform-authored commit on the activity branch and returns the branch tip after it. It
+// stages every change in the worktree root (the check output dirs are excluded already)
+// through the isolated checkoutGit, so no hook, global config or filter driver runs, and
+// commits ONLY when something is staged: a re-dispatch over a branch that already holds the
+// output regenerates the same bytes and commits nothing. The commit moves a ref of the shared
+// repository, so it is made under gitMu.
+func (a *localExecAccess) commitGeneratedOutput(g *localGate, workDir string) (string, error) {
+	a.gitMu.Lock()
+	defer a.gitMu.Unlock()
+	add, err := checkoutGit(workDir, "add", "-A")
+	if err != nil {
+		return "", err
+	}
+	if _, err := gitExec(workDir, add); err != nil {
+		return "", err
+	}
+	// `diff --cached --quiet` exits 1 when something is staged, 0 when nothing is.
+	if _, err := gitExec(workDir, gateGit("diff", "--cached", "--quiet")); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			return "", err
+		}
+		commit, cerr := checkoutGit(workDir,
+			"-c", "user.name=aiarch", "-c", "user.email=aiarch@local", "-c", "commit.gpgsign=false",
+			"commit", "--no-verify", "--quiet", "-F", "-")
+		if cerr != nil {
+			return "", cerr
+		}
+		commit.Stdin = strings.NewReader("aiarch: the job's generated output for " + g.branch + " (" + g.attempt + ")\n")
+		if _, err := gitExec(workDir, commit); err != nil {
+			return "", err
+		}
+	}
+	return revParseBranch(a.repoPath, g.branch)
 }
 
 // gateWithoutAgent finishes a gated run whose agent never started (its scenario tests
@@ -2466,6 +2522,15 @@ func (a *localExecAccess) gateWithoutAgent(run *localRun, scope completionScope)
 // specKindJob is the task spec's identity.kind of a venue job (methodassets.LifecycleTaskJob; the RA
 // decodes the spec itself and imports neither projectstate nor the lifecycle data).
 const specKindJob = "job"
+
+// baseOr is the gate's base (the branch tip after the job's generated-output commit), or
+// fallback for an ungated (nil-gate) run.
+func (g *localGate) baseOr(fallback string) string {
+	if g == nil {
+		return fallback
+	}
+	return g.baseSHA
+}
 
 // isJob reports whether the gated run is a venue job: one no agent runs.
 func (g *localGate) isJob() bool { return g != nil && g.job }
@@ -2815,9 +2880,11 @@ func lintCacheDir(parentDir string) string { return filepath.Join(parentDir, "go
 // generateScenarioTests is step 3: the generated half of a component is the JOB's. It writes
 // the component's own contract.gen.go and fakes before the agent runs, so the agent builds
 // against the real generated surface and never improvises a generator. For the integration
-// task it also generates the black-box scenario tests from the reviewed plan (the agent wires
-// the component, fills the hooks and commits the generated tests with its wiring). It returns
-// why generation failed (the agent then never starts, the gates still run), or "".
+// task it also generates the black-box scenario tests from the reviewed plan. The job writes
+// AND commits this generated half (prepareGate commits it right after this returns "") before
+// the agent runs: the agent writes no test code and never commits generated output; it wires
+// the component and fills the hooks. It returns why generation failed (the agent then never
+// starts, nothing is committed, the gates still run), or "".
 func generateScenarioTests(g *localGate, workDir string) string {
 	if !g.integration && len(g.contracts) == 0 && len(g.generators) == 0 {
 		return ""
@@ -2976,7 +3043,8 @@ func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 
 	// The check gate judges exactly what the gated branch holds: the worktree back on that
 	// branch — whatever the agent left checked out — with nothing the agent left
-	// uncommitted, and no stale results from the agent's own run_checks calls.
+	// uncommitted, and no stale results from the agent's own run_checks calls. The reset keeps
+	// the job's generated output: the job committed it onto the branch before the agent ran.
 	if err := resetToBranchTip(workDir, g.branch); err != nil {
 		v.failures = append(v.failures, "the checks could not run: "+err.Error())
 		return v
