@@ -41993,7 +41993,8 @@
         "@archistrator-platform/framework-go-app-generator/composegen",
         "@archistrator-platform/framework-go-app-generator/appgen",
         "@archistrator-platform/framework-go-app-generator/clientgen",
-        "@archistrator-platform/framework-go-app-generator/webgen"
+        "@archistrator-platform/framework-go-app-generator/webgen",
+        "@archistrator-platform/framework-go-app-generator/cmd/appgen"
       ],
       "title": "review contract",
       "$defs": {
