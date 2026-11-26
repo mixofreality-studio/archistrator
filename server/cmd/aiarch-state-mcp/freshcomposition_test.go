@@ -202,12 +202,24 @@ func runGenerators(t *testing.T, repo string, spec review.TaskSpec) {
 // requireInScope holds every path the task changed to the task's edit scope.
 func requireInScope(t *testing.T, repo string, spec review.TaskSpec) {
 	t.Helper()
+	requireInScopeExcept(t, repo, spec)
+}
+
+// requireInScopeExcept is requireInScope that leaves the paths containing any given fragment to their own
+// gates: `make gen-tests` writes every component's generated tests (*.gen_test.go) and testgen's
+// browser and acceptance specs (uitests/generated), whatever the layer. They are the job's, not the
+// task's, and no integration scope holds them; the scenario subject they import is the task's.
+func requireInScopeExcept(t *testing.T, repo string, spec review.TaskSpec, ignore ...string) {
+	t.Helper()
 	globs := slices.Clone(spec.EditScope.Extra)
 	for _, c := range spec.EditScope.Components {
 		globs = append(globs, c.Paths...)
 	}
 	inRepo(t, repo, "git", "add", "-A")
 	for p := range strings.FieldsSeq(inRepo(t, repo, "git", "diff", "--cached", "--name-only")) {
+		if slices.ContainsFunc(ignore, func(prefix string) bool { return strings.Contains(p, prefix) }) {
+			continue
+		}
 		if !slices.ContainsFunc(globs, func(g string) bool { return projectstate.EditScopeGlobMatch(g, p) }) {
 			t.Errorf("%s/%s wrote %s, which its edit scope does not admit: %v", spec.Activity, spec.Task, p, globs)
 		}
@@ -272,7 +284,7 @@ func TestFreshManagerIntegrationComposesTheServer(t *testing.T) {
 	// The scenario tests are the job's, generated from the reviewed plans once the composition
 	// exists; the agent's own changes (hooks.go, the module graph) are what the scope holds it to.
 	inRepo(t, repo, "make", "gen-tests")
-	inRepo(t, repo, "git", "add", "-A")
+	requireInScopeExcept(t, repo, spec, "uitests/generated/", ".gen_test.go") // the Go tests and the subject they import, both the job's
 	inRepo(t, repo, "git", "commit", "-q", "-m", "generate the scenario tests")
 	for _, want := range []string{
 		"cmd/server/main.gen.go", "cmd/server/config.gen.go", "cmd/server/hooks.go",
@@ -510,6 +522,37 @@ func TestFreshResourceIntegrationGeneratesNoServer(t *testing.T) {
 	if slices.ContainsFunc(spec.Checks, func(c review.SpecCheck) bool { return c.ID == "command:build-server" }) {
 		t.Error("a resource access must not be held to a server that does not exist yet")
 	}
+}
+
+// An Engine's or a ResourceAccess's integration composes no server, yet the job's `make gen-tests`
+// pre-step writes the scenario tests together with the scenariocompose subject they import
+// (ISS-031-1). Every integration's edit scope admits that subject, and the tree the pre-step
+// leaves builds and vets with the tests present and no cmd/server composition generated.
+func TestFreshEngineAndResourceIntegrationOwnTheScenarioSubject(t *testing.T) {
+	const subject = "internal/scenariocompose/compose.gen.go"
+	repo := composedRepo(t)
+	for _, activity := range []string{"C-access-granting-engine", freshActivity, freshManagerActivity} {
+		spec := activitySpec(t, repo, activity, "integration")
+		globs := slices.Clone(spec.EditScope.Extra)
+		if !slices.ContainsFunc(globs, func(g string) bool { return projectstate.EditScopeGlobMatch(g, subject) }) {
+			t.Errorf("%s integration's edit scope does not admit %s: %v", activity, subject, globs)
+		}
+	}
+	engine := activitySpec(t, repo, "C-access-granting-engine", "integration")
+	if len(engine.Generate) != 0 {
+		t.Fatalf("an engine's integration must not generate the server: %+v", engine.Generate)
+	}
+	inRepo(t, repo, "make", "gen-tests")
+	requireInScopeExcept(t, repo, engine, "uitests/generated/", ".gen_test.go")
+	for _, absent := range []string{"cmd/server/main.gen.go", "cmd/server/config.gen.go", "api/openapi.yaml"} {
+		if _, err := os.Stat(filepath.Join(repo, absent)); err == nil {
+			t.Errorf("the pre-step composed the server: %s exists", absent)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, subject)); err != nil {
+		t.Fatalf("make gen-tests did not write the scenario subject: %v", err)
+	}
+	inRepo(t, repo, "go", "vet", "./...")
 }
 
 // A machine client takes the machineClient lifecycle and has a Go package; a browser surface takes the

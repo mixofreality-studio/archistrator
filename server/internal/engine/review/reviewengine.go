@@ -1047,6 +1047,21 @@ func (tp *taskProject) compositionScope() ([]string, error) {
 	return slices.Compact(paths), nil
 }
 
+// scenarioSubjectScope is the test subject the job's `make gen-tests` writes with the generated
+// scenario tests (appgen scenariocompose): every integration, whatever its layer, owns the paths
+// that consumer's manifest names, because the tests it commits import them. It rides in no other
+// scope: a ResourceAccess or Engine integration composes no server yet still needs the subject.
+func (tp *taskProject) scenarioSubjectScope() ([]string, error) {
+	outs, err := tp.emit("appgen scenariocompose", nil)
+	if err != nil {
+		return nil, err
+	}
+	paths := plan.Paths(outs, plan.Generated{})
+	paths = append(paths, plan.Paths(outs, plan.Seam{})...)
+	slices.Sort(paths)
+	return slices.Compact(paths), nil
+}
+
 // ---- the glob grammar ----
 
 // validEditScopeGlob reports whether g is in the edit-scope glob grammar the gate matches:
@@ -1601,6 +1616,11 @@ func (tp *taskProject) serviceScopeAndChecks(integration bool, componentID strin
 		// (the composition root's seeded hooks.go and what appgen writes) and none of the
 		// generated scenario tests, which the job generates from the reviewed plan.
 		scope.Extra = append(scope.Extra, tp.inModule("cmd/server/hooks.go"))
+		subject, err := tp.scenarioSubjectScope()
+		if err != nil {
+			return SpecEditScope{}, nil, err
+		}
+		scope.Extra = append(scope.Extra, subject...)
 		checks = append(checks,
 			commandCheck("gen-tests-check", "Generated tests are current", []string{"make", "gen-tests-check"}, dir, commandCheckTimeoutSec),
 			// TP-DISCRIMINATE: every scenario must fail once its operation is nulled.
