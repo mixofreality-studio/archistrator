@@ -6189,9 +6189,10 @@ type PlanDefectReport struct {
 	Baseline map[string]string `json:"baseline"`
 }
 
-// UpstreamDefectReport is one design draft's report that committed nodes of an UPSTREAM
-// artifact have no call to make: the architecture draft could not honestly realize them, so
-// the use-case model, not the architecture, is what is wrong (system-architect ruling on
+// UpstreamDefectReport is one design draft's report that an UPSTREAM artifact is defective:
+// committed nodes that have no call to make (unrealizable nodes) and/or core-use-case rule
+// findings no System can discharge (RUN-030). The architecture draft could not honestly
+// realize them, so the use-case model, not the architecture, is what is wrong (system-architect ruling on
 // FIX-044). An allegation and nothing more: it writes no upstream slot. The Manager admits it
 // mechanically and re-opens the upstream gate's judged pair, so the amendment goes through
 // that gate's critique and human commit. The agent names Gate, NodeRefs and Rationale; the
@@ -6316,48 +6317,9 @@ func upstreamMustRealize(k ActivityNodeKind) bool {
 	return false
 }
 
-// AdmitUpstreamNodes is the mechanical admission of a report's node references against the
-// artifact the route's gate judges, as p has it committed. Every reference must resolve to a
-// node of a committed use case, of a kind the architecture must realize, and none may repeat.
-// Only the core use cases carry activity nodes, so a route to any other gate admits nothing.
-func AdmitUpstreamNodes(p *Project, route methodassets.UpstreamRoute, refs []UpstreamNodeRef) ([]UpstreamNode, error) {
-	kind, err := upstreamGateKind(route)
-	if err != nil {
-		return nil, err
-	}
-	if kind != KindCoreUseCases {
-		return nil, fmt.Errorf("gate %s judges %s, which has no activity nodes to name", route.Gate, kind.WireName())
-	}
-	if len(refs) == 0 {
-		return nil, fmt.Errorf("name at least one node (nodeRefs)")
-	}
-	if p.CoreUseCases.Status != ReviewCommitted {
-		return nil, fmt.Errorf("the core use cases are not committed, so there is nothing upstream to report against")
-	}
-	cuc, ok := p.CoreUseCases.Model.(*CoreUseCases)
-	if !ok || cuc == nil {
-		return nil, fmt.Errorf("the committed core use cases carry no model")
-	}
-	seen := map[string]bool{}
-	out := make([]UpstreamNode, 0, len(refs))
-	for _, ref := range refs {
-		n, err := resolveUpstreamNode(cuc, ref)
-		if err != nil {
-			return nil, err
-		}
-		key := n.UseCaseID + "/" + n.NodeID
-		if seen[key] {
-			return nil, fmt.Errorf("node %s is named twice", key)
-		}
-		seen[key] = true
-		out = append(out, n)
-	}
-	return out, nil
-}
-
 // AdmitUpstreamDefects is the mechanical admission of a report against the artifact the route's
-// gate judges, as p has it committed. Node references are admitted as AdmitUpstreamNodes
-// admits them (the kind is kept). A rule reference is admitted only when its rule is a
+// gate judges, as p has it committed. Every node reference must resolve to a node of a
+// committed use case, of a kind a call chain must realize (the kind is kept). A rule reference is admitted only when its rule is a
 // core-use-case rule, its use case resolves in the committed core use cases and the verb's
 // stamp (Finding) is present. At least one reference in all, and none repeats: a node by
 // use case and node, a rule by rule, use case and scenario.
