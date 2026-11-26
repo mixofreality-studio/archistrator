@@ -13791,8 +13791,11 @@ func ValidEditScopeGlob(g string) bool {
 // That is every Playwright file the runner executes under uitests/ (everything under generated/,
 // any *.spec.ts, any hooks.ts; the project's manifests stay wiring), the Go scenario tests testgen generates from the reviewed plan (*_scenarios.gen_test.go,
 // null.gen_test.go), and the once-seeded hooks files the old binding model had agents fill
-// (*_hooks_test.go). The platform's pre-step regenerates the generated ones and gen-tests-check
-// holds them current, so excluding them from every scope costs the agent nothing.
+// (*_hooks_test.go). The job generates AND commits the generated ones before the agent runs, so
+// they are never in an agent's per-attempt diff; gen-tests-check holds them current, and the
+// activity-level net diff against main admits them only byte-equal to regeneration
+// (admitRegeneratedTests). An agent writes no test code, so excluding them from every scope costs
+// it nothing.
 // The grammar has no exclusion syntax; this is the one built-in exclusion, applied by
 // EditScopeGlobMatch to every glob, "**" included.
 func IsTestCodePath(p string) bool {

@@ -101,13 +101,10 @@ func TestGate_GeneratedPathMustEqualRegeneration(t *testing.T) {
 	wantExit(t, r.runGate(specFile, "--base", base, "--head", head, "--no-main"), 1, "EDIT-GENERATED-DRIFT", target)
 }
 
-// TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated: an integration task's job writes the
-// scenario tests and the agent commits them with its wiring (service-integration step 6). The scope
-// refuses every test-code path, so the gate admits exactly the ones whose committed bytes equal what
-// testgen writes; a hand edit of one, or a test file the generator never writes, is still outside
-// the scope.
-func TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated(t *testing.T) {
-	r, specFile, base, _ := driftRepo(t)
+// scenarioTestFiles is the Go scenario tests testgen writes over the repo's project document
+// (path -> bytes) and one of their paths.
+func scenarioTestFiles(t *testing.T, r gitRepo) (map[string]string, string) {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(r.root, ".aiarch/state/project.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +128,17 @@ func TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated(t *testing.T) 
 	if target == "" {
 		t.Fatal("testgen wrote no Go scenario test over the todomvc fixture")
 	}
+	return files, target
+}
+
+// TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated: an integration task's job writes the
+// scenario tests and COMMITS them before the agent runs (the job's own commit). The scope
+// refuses every test-code path, so the gate admits exactly the ones whose committed bytes equal what
+// testgen writes; a hand edit of one, or a test file the generator never writes, is still outside
+// the scope.
+func TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated(t *testing.T) {
+	r, specFile, base, _ := driftRepo(t)
+	files, target := scenarioTestFiles(t, r)
 
 	head := r.commit("the job's generated tests", files)
 	if err := r.runGate(specFile, "--base", base, "--head", head, "--no-main"); err != nil {
@@ -142,4 +150,49 @@ func TestGate_JobGeneratedScenarioTestsAreAdmittedWhenRegenerated(t *testing.T) 
 
 	stray := r.commit("a test file no generator writes", map[string]string{"internal/manager/list/extra_scenarios.gen_test.go": "package list\n"})
 	wantExit(t, r.runGate(specFile, "--base", base, "--head", stray, "--no-main"), 1, "lie outside the task's edit scope", "extra_scenarios.gen_test.go")
+}
+
+// TestGate_TheActivityNetDiffAdmitsTheJobsTestsOnlyByteEqualToRegeneration: the branch of an
+// integration activity holds the job's commit of the testgen output, then the agent's wiring
+// commit. The activity-level net diff against main (--main) holds the job's tests, which the scope
+// refuses as test code; they are admitted because they equal regeneration, and the same branch
+// after the agent hand-edits one of them is refused. The per-attempt diff (base = the tip after
+// the job's commit) never holds them.
+func TestGate_TheActivityNetDiffAdmitsTheJobsTestsOnlyByteEqualToRegeneration(t *testing.T) {
+	r, specFile, base, _ := driftRepo(t)
+	r.git("branch", "-f", "main", base) // main is the seeded project; the branch adds the job's and the agent's commits
+	files, target := scenarioTestFiles(t, r)
+	jobTip := r.commit("aiarch: the job's generated output", files)
+	wired := r.commit("agent wiring", map[string]string{"internal/manager/list/listmanager.go": "package list\n"})
+
+	rng, err := resolveEditScopeRange(r.root, jobTip, wired, base, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stray, err := activityScopeViolations(r.root, specFile, rng)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(stray, target) {
+		t.Fatalf("the net diff against main does not hold the job's test %s as outside the scope: %v", target, stray)
+	}
+	if stray, err = admitRegeneratedTests(r.root, specFile, rng, stray); err != nil || len(stray) != 0 {
+		t.Fatalf("the job's tests, equal to regeneration, were not admitted in the net diff: %v, %v", stray, err)
+	}
+	if err := r.runGate(specFile, "--base", jobTip, "--head", wired, "--main", base); err != nil {
+		t.Fatalf("job commit + agent wiring commit must pass the gate with --main: %v", err)
+	}
+
+	edited := r.commit("hand edit", map[string]string{target: files[target] + "// tweaked by hand\n"})
+	rng, err = resolveEditScopeRange(r.root, wired, edited, base, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stray, err = activityScopeViolations(r.root, specFile, rng); err != nil {
+		t.Fatal(err)
+	}
+	if stray, err = admitRegeneratedTests(r.root, specFile, rng, stray); err != nil || !slices.Contains(stray, target) {
+		t.Fatalf("the hand-edited test %s was admitted in the net diff: %v, %v", target, stray, err)
+	}
+	wantExit(t, r.runGate(specFile, "--base", wired, "--head", edited, "--main", base), 1, "lie outside the edit scope of every task", target)
 }

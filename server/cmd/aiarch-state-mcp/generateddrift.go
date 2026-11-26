@@ -156,15 +156,16 @@ func moduleLine(gomod string) (string, error) {
 const testGenerator = "testgen"
 
 // integrationCommands are the task commands whose job generates the scenario tests before the agent
-// runs and whose agent commits them with its wiring.
+// runs and commits itself.
 var integrationCommands = []string{"service-integration", "frontend-integration"}
 
 // admitRegeneratedTests drops from violations the test-code paths (projectstate.IsTestCodePath) an
 // integration task's job generated: a changed path whose committed bytes at head equal what testgen
 // writes over the same project document. The agent writes no test code, and a path it wrote or
 // edited by hand differs from regeneration, so it stays a violation; the generated tests the job
-// itself wrote and the agent committed (the command's step 6) are the job's output, held current
-// by the same regeneration the drift check above uses. Workspace paths (named "@<repo>/...") are
+// itself wrote and committed before the agent ran are the job's output (they reach this list only
+// through the activity-level net diff, never an agent's per-attempt diff), held current by the same
+// regeneration the drift check above uses. Workspace paths (named "@<repo>/...") are
 // never admitted. A task that is not an integration, or a list holding no test-code path, costs
 // nothing; otherwise root must be a checkout of head.
 func admitRegeneratedTests(root, specPath string, rng editScopeRange, violations []string) ([]string, error) {
