@@ -8710,7 +8710,7 @@ func upstreamDefectNote(activity, task string, report projectstate.UpstreamDefec
 		b.WriteString(" Amend each named node so that an action is a place where some component makes a NEW call: a node that only returns or renders a result an earlier node produced, or refuses on a verdict an earlier check returned, is a note or a decision outcome. Keep the user-visible behavior (what the user sees or is told); reclassify it, never delete it.")
 	}
 	if rules {
-		b.WriteString(" Amend the shape of each named use case so the named rule clears on the core use cases alone (e.g. give each actor's entry its own path to its own reply instead of merging entries and re-splitting by who asked), keeping the user-visible behavior.")
+		b.WriteString(" Amend the shape of each named use case so the cause the finding names is gone from the use case itself (e.g. give each actor's entry its own path to its own reply instead of merging entries and re-splitting by who asked, and let one node show one actor acting on one Client), keeping the user-visible behavior; the architecture draft is re-dispatched against the amendment and its System is checked against the rule again.")
 	}
 	fmt.Fprintf(&b, " [upstream defect report %s]", report.Revision)
 	return b.String()
