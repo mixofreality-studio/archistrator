@@ -320,6 +320,8 @@ func composedVerbs(s *Session) []composedVerb {
 				Description: "Report that nodes of a COMMITTED upstream artifact cannot be honestly realized: an action/timeEvent/acceptEvent node at which no component makes a new call, " +
 					"because it only returns or renders a result an earlier node produced, or refuses on a verdict an earlier check already returned. You may not change the upstream artifact: " +
 					"the system sends it back through its own review with your rationale, and re-dispatches this draft once the amendment is committed. Only the gates your task declares are accepted. " +
+					"A second class: a core-use-case rule finding (ruleFindings: {ruleId, useCase, scenario?}) that your draft's putDraftModel refusal named, which no System can discharge because the use case's own shape is the defect; " +
+					"name only what the refusal reported. " +
 					"A missing component or edge is not an upstream defect: fix the decomposition in your own draft. Call publishDraft after it, and finish without a draft.",
 			}, textHandler(func(_ context.Context, in reportUpstreamDefectInput) (string, error) {
 				return s.reportUpstreamDefect(in)

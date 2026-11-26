@@ -1,0 +1,2623 @@
+{
+  "id": "todomvc-run-20261126T042817Z-bd9b31f7",
+  "version": 35,
+  "phase": 0,
+  "owner": "dev-architect",
+  "name": "todomvc-run-20261126T042817Z-bd9b31f7",
+  "research": {
+    "sources": [
+      {
+        "title": "Founder brief: a todo app",
+        "path": ".aiarch/state/research/00-founder-brief-a-todo-app.txt",
+        "contentBytes": 2009
+      },
+      {
+        "title": "TodoMVC behavior reference: precise functional contract",
+        "path": ".aiarch/state/research/01-todomvc-behavior-reference-precise-functional-contract.txt",
+        "contentBytes": 4020
+      }
+    ]
+  },
+  "operatingModel": "selfOperated",
+  "slots": {
+    "0": {
+      "status": 2,
+      "kind": 0,
+      "model": {
+        "vision": "A simple, dependable todo list that a small team can start using tomorrow.",
+        "objectives": [
+          {
+            "number": 1,
+            "statement": "Let a user capture a task, correct its wording, and remove it, without friction or deleting and re-adding."
+          },
+          {
+            "number": 2,
+            "statement": "Let a user track progress by marking tasks done and undone, one at a time or all at once."
+          },
+          {
+            "number": 3,
+            "statement": "Keep the list uncluttered by letting finished work be swept away in a single action."
+          },
+          {
+            "number": 4,
+            "statement": "Let a user review the list as everything, only what remains, or only what is done, while always seeing how much is left to do."
+          },
+          {
+            "number": 5,
+            "statement": "Ensure users never lose their todos between visits, whether they close the tab, restart their device, or the system itself restarts."
+          },
+          {
+            "number": 6,
+            "statement": "Let the team's existing agent tooling and hosted workspaces drive and embed the same todo experience that people use directly."
+          }
+        ],
+        "mission": "Keep the list in one durable place of record and offer the same small set of list actions identically to people in a browser, to people inside the team's hosted workspaces, and to the team's agents. Hold the experience deliberately to the well-known TodoMVC behavior, exactly and nothing more, so it is usable on day one without training.",
+        "deliverySurfaces": [
+          {
+            "kind": "rest",
+            "audience": "machine",
+            "source": "reachable both as an ordinary web API",
+            "objective": 6
+          },
+          {
+            "kind": "mcpTools",
+            "audience": "machine",
+            "source": "and as an MCP surface, so our other agent tooling can drive it too",
+            "objective": 6
+          },
+          {
+            "kind": "web",
+            "audience": "human",
+            "source": "a real frontend on top (an ordinary web app",
+            "objective": 4
+          },
+          {
+            "kind": "mcpApp",
+            "audience": "human",
+            "source": "plus an MCP Apps surface so it can be embedded the same way our other MCP-hosted UIs are",
+            "objective": 6
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-26T04:39:21Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "1": {
+      "status": 2,
+      "kind": 1,
+      "model": {
+        "items": [
+          {
+            "term": "Team Member",
+            "definition": "A person on the team who keeps a todo list and works it directly.",
+            "category": "Who"
+          },
+          {
+            "term": "Workspace User",
+            "definition": "A team member who works the same todo list from inside one of the team's hosted workspaces where the list experience is embedded.",
+            "category": "Who"
+          },
+          {
+            "term": "Team Agent",
+            "definition": "One of the team's automated assistants that performs the same list actions on a member's behalf.",
+            "category": "Who"
+          },
+          {
+            "term": "Todo",
+            "definition": "A single task on the list, made up of its wording (title) and whether it is done.",
+            "category": "What"
+          },
+          {
+            "term": "Todo List",
+            "definition": "The ordered collection of todos a member keeps, in the order they were added.",
+            "category": "What"
+          },
+          {
+            "term": "Title",
+            "definition": "The free-text wording of a todo; never blank.",
+            "category": "What"
+          },
+          {
+            "term": "Completed",
+            "definition": "The state of a todo that has been marked done; its opposite is Active.",
+            "category": "What"
+          },
+          {
+            "term": "Active",
+            "definition": "The state of a todo that is still left to do (not completed).",
+            "category": "What"
+          },
+          {
+            "term": "Add Todo",
+            "definition": "Put a new, active todo with the given wording at the end of the list; blank wording adds nothing.",
+            "category": "What"
+          },
+          {
+            "term": "Reword Todo",
+            "definition": "Change an existing todo's wording in place; abandoning the change keeps the original, and rewording to blank removes the todo.",
+            "category": "What"
+          },
+          {
+            "term": "Remove Todo",
+            "definition": "Take one todo off the list regardless of whether it is done, leaving every other todo untouched.",
+            "category": "What"
+          },
+          {
+            "term": "Toggle Todo",
+            "definition": "Flip one todo between completed and active without affecting any other todo.",
+            "category": "What"
+          },
+          {
+            "term": "Toggle All",
+            "definition": "Mark every todo completed in one action, or, when every todo is already completed, mark every todo active again.",
+            "category": "What"
+          },
+          {
+            "term": "Clear Completed",
+            "definition": "Sweep every completed todo off the list in one action, leaving active todos untouched.",
+            "category": "What"
+          },
+          {
+            "term": "Review List",
+            "definition": "Look at the list through a chosen view while seeing how many todos remain.",
+            "category": "What"
+          },
+          {
+            "term": "View Filter",
+            "definition": "The member's choice of which todos to see: All, Active, or Completed; choosing a view never changes any todo.",
+            "category": "What"
+          },
+          {
+            "term": "Items Left",
+            "definition": "The live count of active todos on the whole list, independent of the view filter in use.",
+            "category": "What"
+          },
+          {
+            "term": "Wording Validation",
+            "definition": "Deciding whether submitted wording is meaningful, treating empty or whitespace-only text as blank.",
+            "category": "How"
+          },
+          {
+            "term": "Aggregate Toggle Decision",
+            "definition": "Deciding whether Toggle All should mark everything completed or everything active, based on whether every todo is already completed.",
+            "category": "How"
+          },
+          {
+            "term": "View Selection",
+            "definition": "Choosing which todos belong in the All, Active, or Completed view.",
+            "category": "How"
+          },
+          {
+            "term": "Active Counting",
+            "definition": "Counting how many todos on the whole list are still active.",
+            "category": "How"
+          },
+          {
+            "term": "Append Todo",
+            "definition": "Record a new todo at the end of the list of record.",
+            "category": "How"
+          },
+          {
+            "term": "Retitle Todo",
+            "definition": "Record a new wording for one existing todo.",
+            "category": "How"
+          },
+          {
+            "term": "Mark Completion",
+            "definition": "Record whether one todo, or every todo at once, is completed.",
+            "category": "How"
+          },
+          {
+            "term": "Discard Todos",
+            "definition": "Take one todo, or every completed todo, off the list of record.",
+            "category": "How"
+          },
+          {
+            "term": "Recall List",
+            "definition": "Retrieve the whole list of record as it was last left, with every todo's wording and completion state.",
+            "category": "How"
+          },
+          {
+            "term": "List of Record",
+            "definition": "The single durable place where the todo list lives, so it is the same on every return and survives closing the app, restarting a device, or a restart of the system itself.",
+            "category": "Where"
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-26T04:39:21Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "10": {
+      "status": 2,
+      "kind": 10,
+      "model": {
+        "dependencies": [
+          {
+            "activity": "architecture",
+            "dependsOn": [
+              "requirements"
+            ]
+          },
+          {
+            "activity": "projectDesign",
+            "dependsOn": [
+              "architecture"
+            ]
+          }
+        ],
+        "criticalPath": [
+          "architecture",
+          "projectDesign",
+          "requirements"
+        ],
+        "milestones": [
+          {
+            "id": "M0",
+            "name": "SDP Review Approved",
+            "public": true,
+            "dependsOn": [
+              "projectDesign"
+            ]
+          }
+        ]
+      },
+      "revisions": 1,
+      "staleBasis": true,
+      "staleBasisCause": {
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 2
+      },
+      "provenance": {
+        "committedAt": "2026-11-26T04:28:25Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    },
+    "3": {
+      "status": 2,
+      "kind": 3,
+      "model": {
+        "items": [
+          {
+            "name": "List-of-record storage volatility",
+            "rationale": "WHAT: the technology and hosting behind the List of Record — the one durable place the todo list lives (Recall List, Append Todo, Retitle Todo, Mark Completion, Discard Todos all land on it). WHY volatile: the founder wants something 'a small team could start using tomorrow' yet built 'the way we build everything else here', backed by a real service that survives a system restart. A day-one trial store and the team's standard managed store are rarely the same thing; a trial that succeeds is migrated to the house database, and storage engines and hosted offerings in a team platform are typically swapped or upgraded every 1–3 years. LONGEVITY GROUNDING: persistence technology is among the fastest-churning choices in a service's life (multiple migrations over a typical 3–5 year lifespan), so at that historical rate at least one change falls inside this system's horizon. LIKELIHOOD: high (likely within the first year if the trial is adopted). EFFECT if unencapsulated: every list action and the durability promise of objective 5 would carry storage-specific code, so a store change would ripple through all six list actions and every delivery surface that reaches them.",
+            "axis": "sameCustomerOverTime"
+          },
+          {
+            "name": "Access-channel volatility",
+            "rationale": "WHAT: the variety of ways the same list is worked at the same moment — Team Members in an ordinary browser web app, Workspace Users inside hosted workspaces through an embedded MCP Apps UI, and Team Agents through an ordinary web API and MCP tools (mission delivery surfaces rest, mcpTools, web, mcpApp). WHY volatile: these audiences do not use the system identically today — people need presentation, edit gestures (Enter/Escape/blur), the visible View Filter and the live Items Left; agents need a machine contract; embedding hosts impose their own rendering and refresh constraints — yet the mission demands the same small set of list actions behave identically across all of them. The set itself is open-ended: the team already runs four channel kinds and adds new hosts and agent tools as its tooling grows. LONGEVITY GROUNDING: the brief states this team builds everything with both API and MCP surfaces, i.e. it has adopted new channel kinds within the last couple of years and continues to; at that rate further hosts/surfaces arrive within the system's lifespan. LIKELIHOOD: certain today (four channels at once) and recurring as new hosts appear. EFFECT if unencapsulated: TodoMVC rules (blank wording, toggle-all decision, view selection, active counting) would be re-implemented per channel and drift, breaking the 'identically to everyone' mission and multiplying every behavior fix by the number of channels.",
+            "axis": "allCustomersAtOneTime"
+          },
+          {
+            "name": "Agent-and-host protocol volatility",
+            "rationale": "WHAT: the evolution, over time, of the wire protocols through which Team Agents drive the list and hosted workspaces embed it — the MCP protocol for agent tools and the MCP Apps extension for embedded UIs. WHY volatile: unlike the number of channels (Access-channel volatility, the other axis), this is the SAME channel changing under the same customer. LONGEVITY GROUNDING: MCP has shipped dated specification revisions several times a year since its late-2024 introduction (transport, auth and capability changes between revisions), and the MCP Apps embedding extension is newer still; at that historical rate multiple breaking or capability-changing revisions fall inside even a one-to-two-year horizon for this system. LIKELIHOOD: high — expect a revision the team's hosts adopt within months. EFFECT if unencapsulated: protocol shape would leak into list behavior, so each spec revision would force changes to the list actions themselves and risk agents and embedded workspaces diverging from what people see in the browser (objective 6).",
+            "axis": "sameCustomerOverTime"
+          }
+        ],
+        "rejected": [
+          {
+            "name": "Todo shape volatility (due dates, priorities, tags/categories)",
+            "reason": "The behavior contract explicitly puts due dates, priorities and tags out of scope and the mission holds the experience to TodoMVC 'exactly and nothing more'; designing for richer todo fields would be designing for a different product.",
+            "class": "speculative"
+          },
+          {
+            "name": "List ordering volatility (drag-to-reorder)",
+            "reason": "The Todo List is defined as kept in the order todos were added; reorder is explicitly out of scope and nothing in this team's brief evidences it.",
+            "class": "speculative"
+          },
+          {
+            "name": "Undo/redo history volatility",
+            "reason": "Explicitly excluded by the behavior contract; Reword Todo's cancel-restores-original is a single in-edit rule, not a history mechanism.",
+            "class": "speculative"
+          },
+          {
+            "name": "Offline sync volatility",
+            "reason": "Explicitly out of scope, and the founder wants the backend service — not the client — to be the List of Record, so client-side offline replicas contradict the stated direction.",
+            "class": "speculative"
+          },
+          {
+            "name": "List sharing / collaboration volatility",
+            "reason": "Multi-user sharing is explicitly out of scope; each Team Member keeps their own list and Team Agents act on a member's behalf, keyed on the principal the platform supplies — no business evidence of shared team lists.",
+            "class": "speculative"
+          },
+          {
+            "name": "Authentication / identity volatility",
+            "reason": "Who is acting is owned by the platform's Security utility and front door (caller arrives as rc.Principal); encapsulating sign-in here would duplicate a utility, and this business is not an identity provider.",
+            "class": "speculative"
+          },
+          {
+            "name": "Wording validation rule volatility",
+            "reason": "Blank detection (empty or whitespace-only) is a single trim-and-check conditional; even a tweak to the rule stays inside one function and does not ripple.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "View filter set volatility",
+            "reason": "All/Active/Completed is the fixed TodoMVC contract every implementation shares identically, and the mission forbids going beyond it; View Selection is a simple predicate over the completed flag.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Toggle-all rule volatility",
+            "reason": "The Aggregate Toggle Decision (all completed → mark all active, otherwise mark all completed) is the canonical TodoMVC rule every competitor implements identically; changing it would change the nature of the product.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Clear-completed semantics volatility",
+            "reason": "Sweeping every completed todo while leaving active ones untouched is identical across all TodoMVC implementations; there is no plausible business variation.",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Items-left counting volatility",
+            "reason": "Active Counting is a count of todos with completed=false over the whole list; at most a pluralization conditional varies, handled in code.",
+            "class": "variableNotVolatile"
+          },
+          {
+            "name": "Edit gesture volatility (Enter / Escape / blur)",
+            "reason": "The commit/cancel gestures are presentation details that differ by surface (browser vs embedded host vs agent tool, which has no gesture at all); this is the same underlying change as Access-channel volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Embedding host variance",
+            "reason": "Different hosted workspaces rendering and sizing the embedded list differently is one facet of the variety of channels at one time — folded into Access-channel volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Agent tool granularity volatility",
+            "reason": "Agents wanting a differently-shaped action contract than people is the machine side of the same channel variety — folded into Access-channel volatility; the list actions themselves stay the same.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Cross-surface change propagation volatility",
+            "reason": "How an open view on one surface learns that an agent or another surface changed the list (polling, push, host notifications) differs by channel and by protocol revision — folded into Access-channel volatility and Agent-and-host protocol volatility rather than a separate entry.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Durability guarantee volatility (survive tab close / device / system restart)",
+            "reason": "The restart-survival promise of objective 5 is delivered by, and changes only with, the List of Record — the same underlying change as List-of-record storage volatility.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Deployment / hosting topology volatility",
+            "reason": "The founder requires it be built 'the way we build everything else here'; deployment topology is the team's uniform platform doctrine applied identically to every service, not a per-project choice this design should encapsulate (it is settled in operational concepts against the platform runtime doctrine).",
+            "class": "natureOfTheBusiness"
+          },
+          {
+            "name": "Concurrent edit conflict policy volatility",
+            "reason": "A member's single list worked by that member and their agents is small and low-contention; TodoMVC has no conflict semantics and no evidence suggests the team needs a pluggable conflict policy.",
+            "class": "speculative"
+          },
+          {
+            "name": "Scale / load volatility",
+            "reason": "The audience is one small team trialling the app; designing for large-scale load is for a hypothetical customer, not this one.",
+            "class": "speculative"
+          },
+          {
+            "name": "Localization / language volatility",
+            "reason": "A single team's internal trial with no stated markets or languages; any label translation is a resource-file variable, not an architectural seam.",
+            "class": "speculative"
+          },
+          {
+            "name": "Activity logging / reporting block",
+            "reason": "Siren-song habit (ch. 2 §3.6): no objective asks for logs, analytics or reports on todos; adding a reporting block would be by reflex, not by business volatility.",
+            "class": "speculative"
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-26T04:39:21Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "4": {
+      "status": 2,
+      "kind": 4,
+      "model": {
+        "decisions": [
+          {
+            "useCase": {
+              "id": "shape-the-list",
+              "name": "Shape the List",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                },
+                {
+                  "id": "workspace-user",
+                  "role": "Workspace User"
+                },
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start-team-member",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "team-member-asks",
+                    "kind": "action",
+                    "label": "Team Member asks for a change to their list from the web app (add, reword, remove, toggle, toggle all, or clear completed)",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "start-workspace-user",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "workspace-user-asks",
+                    "kind": "action",
+                    "label": "Workspace User asks for a change to the list from the view embedded in their hosted workspace",
+                    "roleName": "Workspace User",
+                    "linkedActorId": "workspace-user"
+                  },
+                  {
+                    "id": "start-team-agent",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "team-agent-asks",
+                    "kind": "action",
+                    "label": "Team Agent asks for a change to its member's list through an MCP tool or the web API",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "request-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "apply-change",
+                    "kind": "action",
+                    "label": "Apply the requested change to the member's list of record under the TodoMVC list rules (blank wording adds nothing or removes the todo; toggle-all follows the aggregate toggle decision)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-left",
+                    "kind": "action",
+                    "label": "Count the items left (active todos) on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "which-surface",
+                    "kind": "decision",
+                    "label": "Which surface asked?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-team-member",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees their list as it now stands in the web app, with the live items-left count",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "tell-workspace-user",
+                    "kind": "sendSignal",
+                    "label": "Workspace User sees the list as it now stands in the embedded workspace view, with the live items-left count",
+                    "roleName": "Workspace User",
+                    "linkedActorId": "workspace-user"
+                  },
+                  {
+                    "id": "tell-team-agent",
+                    "kind": "sendSignal",
+                    "label": "Team Agent receives the resulting list and items-left count as a machine result",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "outcome-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start-team-member",
+                    "to": "team-member-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "team-member-asks",
+                    "to": "request-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "start-workspace-user",
+                    "to": "workspace-user-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "workspace-user-asks",
+                    "to": "request-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "start-team-agent",
+                    "to": "team-agent-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "team-agent-asks",
+                    "to": "request-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "request-merge",
+                    "to": "apply-change",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "apply-change",
+                    "to": "count-left",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-left",
+                    "to": "which-surface",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "which-surface",
+                    "to": "tell-team-member",
+                    "kind": "guardedFlow",
+                    "guard": "[web app]"
+                  },
+                  {
+                    "from": "tell-team-member",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "which-surface",
+                    "to": "tell-workspace-user",
+                    "kind": "guardedFlow",
+                    "guard": "[hosted workspace]"
+                  },
+                  {
+                    "from": "tell-workspace-user",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "which-surface",
+                    "to": "tell-team-agent",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "tell-team-agent",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "outcome-merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "Every customer of this system, whether a person in a browser, a person in a hosted workspace or an agent, comes to change one durable list under one fixed rule set; capture, reword, remove, complete, toggle-all and sweep are all permutations of that single act. It is nearly immutable (TodoMVC's contract is held 'exactly and nothing more'), and the differentiator is not any one action but that the same change behaves identically on every channel and lands on the same list of record, so it crosses all three committed volatilities: storage, access channel and agent/host protocol."
+          },
+          {
+            "useCase": {
+              "id": "review-the-list",
+              "name": "Review the List",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                },
+                {
+                  "id": "workspace-user",
+                  "role": "Workspace User"
+                },
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "core",
+              "variationOf": null,
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start-team-member",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "team-member-asks",
+                    "kind": "action",
+                    "label": "Team Member opens or returns to their list in the web app and chooses a view",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "start-workspace-user",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "workspace-user-asks",
+                    "kind": "action",
+                    "label": "Workspace User opens the list embedded in their hosted workspace and chooses a view",
+                    "roleName": "Workspace User",
+                    "linkedActorId": "workspace-user"
+                  },
+                  {
+                    "id": "start-team-agent",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "team-agent-asks",
+                    "kind": "action",
+                    "label": "Team Agent asks for its member's list, or one view of it, through an MCP tool or the web API",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "request-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "recall-view",
+                    "kind": "action",
+                    "label": "Recall the member's list of record as it was last left, selecting the todos in the chosen view (All, Active or Completed) and counting the items left on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "which-surface",
+                    "kind": "decision",
+                    "label": "Which surface asked?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-team-member",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the todos in the chosen view with the current filter indicated and the items-left count for the whole list",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "tell-workspace-user",
+                    "kind": "sendSignal",
+                    "label": "Workspace User sees the chosen view of the list embedded in their workspace, with the filter indicated and the items-left count",
+                    "roleName": "Workspace User",
+                    "linkedActorId": "workspace-user"
+                  },
+                  {
+                    "id": "tell-team-agent",
+                    "kind": "sendSignal",
+                    "label": "Team Agent receives the todos in the chosen view and the items-left count as a machine result",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "outcome-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start-team-member",
+                    "to": "team-member-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "team-member-asks",
+                    "to": "request-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "start-workspace-user",
+                    "to": "workspace-user-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "workspace-user-asks",
+                    "to": "request-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "start-team-agent",
+                    "to": "team-agent-asks",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "team-agent-asks",
+                    "to": "request-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "request-merge",
+                    "to": "recall-view",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recall-view",
+                    "to": "which-surface",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "which-surface",
+                    "to": "tell-team-member",
+                    "kind": "guardedFlow",
+                    "guard": "[web app]"
+                  },
+                  {
+                    "from": "tell-team-member",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "which-surface",
+                    "to": "tell-workspace-user",
+                    "kind": "guardedFlow",
+                    "guard": "[hosted workspace]"
+                  },
+                  {
+                    "from": "tell-workspace-user",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "which-surface",
+                    "to": "tell-team-agent",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "tell-team-agent",
+                    "to": "outcome-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "outcome-merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "",
+            "essenceRationale": "Every customer needs to see the one list exactly as they last left it, through a view that never alters it, with how much is left always in sight; returning after a closed tab or restart, switching filters, glancing at items left and opening the embedded view are all permutations of that one act. It is the durability promise made visible, unchanged for as long as the product exists, and its value is that every channel sees the same list of record the same way, so it crosses the storage, access-channel and agent/host protocol volatilities."
+          },
+          {
+            "useCase": {
+              "id": "add-a-todo",
+              "name": "Add a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "shape-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "submit-new",
+                    "kind": "action",
+                    "label": "Team Member submits wording for a new todo",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "check-wording",
+                    "kind": "action",
+                    "label": "Check whether the submitted wording is blank (empty or whitespace-only)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "is-meaningful",
+                    "kind": "decision",
+                    "label": "Wording meaningful?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "append-todo",
+                    "kind": "action",
+                    "label": "Append an active todo with that wording to the end of the list of record",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-after-add",
+                    "kind": "action",
+                    "label": "Count the items left on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-added",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the new todo at the end of the list, the entry field cleared and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "tell-not-added",
+                    "kind": "sendSignal",
+                    "label": "Team Member is told nothing was added; the list is unchanged",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "add-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "submit-new",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "submit-new",
+                    "to": "check-wording",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "check-wording",
+                    "to": "is-meaningful",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "is-meaningful",
+                    "to": "append-todo",
+                    "kind": "guardedFlow",
+                    "guard": "[meaningful]"
+                  },
+                  {
+                    "from": "is-meaningful",
+                    "to": "tell-not-added",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "append-todo",
+                    "to": "count-after-add",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-after-add",
+                    "to": "tell-added",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-added",
+                    "to": "add-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-not-added",
+                    "to": "add-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "add-merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of shaping the list: the change is 'append', with the blank-wording rule as its one alternative path."
+          },
+          {
+            "useCase": {
+              "id": "reword-a-todo",
+              "name": "Reword a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "shape-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "finish-edit",
+                    "kind": "action",
+                    "label": "Team Member finishes editing a todo's wording, committing it (Enter or leaving the field) or abandoning it (Escape)",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "committed",
+                    "kind": "decision",
+                    "label": "Edit committed?",
+                    "roleName": "",
+                    "linkedActorId": null,
+                    "decidedBy": "team-member"
+                  },
+                  {
+                    "id": "check-new-wording",
+                    "kind": "action",
+                    "label": "Check whether the new wording is blank (empty or whitespace-only)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "new-meaningful",
+                    "kind": "decision",
+                    "label": "New wording meaningful?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "retitle-todo",
+                    "kind": "action",
+                    "label": "Record the new wording for that todo on the list of record",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-reworded",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the todo with its new wording in place",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "discard-blank",
+                    "kind": "action",
+                    "label": "Remove the todo from the list of record instead of saving blank wording",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-after-blank",
+                    "kind": "action",
+                    "label": "Count the items left on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-removed-blank",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the todo gone from the list and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "wording-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-restored",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the original wording restored; nothing was saved",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "edit-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "finish-edit",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "finish-edit",
+                    "to": "committed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "committed",
+                    "to": "check-new-wording",
+                    "kind": "guardedFlow",
+                    "guard": "[committed]"
+                  },
+                  {
+                    "from": "committed",
+                    "to": "tell-restored",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "check-new-wording",
+                    "to": "new-meaningful",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "new-meaningful",
+                    "to": "retitle-todo",
+                    "kind": "guardedFlow",
+                    "guard": "[meaningful]"
+                  },
+                  {
+                    "from": "new-meaningful",
+                    "to": "discard-blank",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "retitle-todo",
+                    "to": "tell-reworded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-reworded",
+                    "to": "wording-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "discard-blank",
+                    "to": "count-after-blank",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-after-blank",
+                    "to": "tell-removed-blank",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-removed-blank",
+                    "to": "wording-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "wording-merge",
+                    "to": "edit-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-restored",
+                    "to": "edit-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "edit-merge",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of shaping the list: the change is 'retitle', with abandon-restores and blank-removes as its alternative paths."
+          },
+          {
+            "useCase": {
+              "id": "remove-a-todo",
+              "name": "Remove a todo",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "shape-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-remove",
+                    "kind": "action",
+                    "label": "Team Member removes one todo, whether or not it is done",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "discard-one",
+                    "kind": "action",
+                    "label": "Take that one todo off the list of record, leaving every other todo untouched",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-after-remove",
+                    "kind": "action",
+                    "label": "Count the items left on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-removed",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the todo gone and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-remove",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-remove",
+                    "to": "discard-one",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "discard-one",
+                    "to": "count-after-remove",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-after-remove",
+                    "to": "tell-removed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-removed",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of shaping the list: the change is 'discard one todo'; no new behavior beyond the shared change flow."
+          },
+          {
+            "useCase": {
+              "id": "mark-a-todo-done-or-not-done",
+              "name": "Mark a todo done or not done",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "shape-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-toggle",
+                    "kind": "action",
+                    "label": "Team Member marks one todo done, or unmarks it",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "mark-one",
+                    "kind": "action",
+                    "label": "Record that one todo's flipped completion state on the list of record",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-after-toggle",
+                    "kind": "action",
+                    "label": "Count the items left on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-toggled",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the todo's new state, no other todo changed, and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-toggle",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-toggle",
+                    "to": "mark-one",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "mark-one",
+                    "to": "count-after-toggle",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-after-toggle",
+                    "to": "tell-toggled",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-toggled",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of shaping the list: the change is 'flip one completion flag'."
+          },
+          {
+            "useCase": {
+              "id": "mark-everything-done-or-undo-that",
+              "name": "Mark everything done, or undo that",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "shape-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-toggle-all",
+                    "kind": "action",
+                    "label": "Team Member activates toggle-all",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "recall-states",
+                    "kind": "action",
+                    "label": "Recall every todo's completion state from the list of record",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "all-completed",
+                    "kind": "decision",
+                    "label": "Every todo already completed?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "mark-all-active",
+                    "kind": "action",
+                    "label": "Record every todo as active on the list of record",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "list-all-active",
+                    "kind": "objectNode",
+                    "label": "Todo List",
+                    "roleName": "Team Member",
+                    "linkedActorId": null,
+                    "inState": "[all active]"
+                  },
+                  {
+                    "id": "mark-all-completed",
+                    "kind": "action",
+                    "label": "Record every todo as completed on the list of record",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "list-all-completed",
+                    "kind": "objectNode",
+                    "label": "Todo List",
+                    "roleName": "Team Member",
+                    "linkedActorId": null,
+                    "inState": "[all completed]"
+                  },
+                  {
+                    "id": "toggle-merge",
+                    "kind": "merge",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-after-all",
+                    "kind": "action",
+                    "label": "Count the items left on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-toggled-all",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the list with every todo's new state and items left updated",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-toggle-all",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-toggle-all",
+                    "to": "recall-states",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recall-states",
+                    "to": "all-completed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "all-completed",
+                    "to": "mark-all-active",
+                    "kind": "guardedFlow",
+                    "guard": "[all completed]"
+                  },
+                  {
+                    "from": "all-completed",
+                    "to": "mark-all-completed",
+                    "kind": "guardedFlow",
+                    "guard": "[else]"
+                  },
+                  {
+                    "from": "mark-all-active",
+                    "to": "list-all-active",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "list-all-active",
+                    "to": "toggle-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "mark-all-completed",
+                    "to": "list-all-completed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "list-all-completed",
+                    "to": "toggle-merge",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "toggle-merge",
+                    "to": "count-after-all",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-after-all",
+                    "to": "tell-toggled-all",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-toggled-all",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of shaping the list: the change is the aggregate toggle, whose rule is fixed TodoMVC behavior, not a separate business pillar."
+          },
+          {
+            "useCase": {
+              "id": "sweep-away-finished-todos",
+              "name": "Sweep away finished todos",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "shape-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "ask-clear",
+                    "kind": "action",
+                    "label": "Team Member clears completed todos",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "discard-completed",
+                    "kind": "action",
+                    "label": "Take every completed todo off the list of record, leaving active todos untouched (no effect when none are completed)",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-cleared",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees only active todos remain; items left is unchanged",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "ask-clear",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "ask-clear",
+                    "to": "discard-completed",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "discard-completed",
+                    "to": "tell-cleared",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-cleared",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of shaping the list: the change is 'discard every completed todo'."
+          },
+          {
+            "useCase": {
+              "id": "let-agent-tooling-drive-the-list",
+              "name": "Let agent tooling drive the list",
+              "actors": [
+                {
+                  "id": "team-agent",
+                  "role": "Team Agent"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "shape-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "agent-invokes",
+                    "kind": "action",
+                    "label": "Team Agent invokes a list action as an MCP tool or web API call on its member's behalf",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "apply-agent-change",
+                    "kind": "action",
+                    "label": "Apply the change to the member's list of record under the same TodoMVC list rules people get",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "count-after-agent",
+                    "kind": "action",
+                    "label": "Count the items left on the whole list",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-agent",
+                    "kind": "sendSignal",
+                    "label": "Team Agent receives the resulting list and items-left count as a machine result",
+                    "roleName": "Team Agent",
+                    "linkedActorId": "team-agent"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "agent-invokes",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "agent-invokes",
+                    "to": "apply-agent-change",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "apply-agent-change",
+                    "to": "count-after-agent",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "count-after-agent",
+                    "to": "tell-agent",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-agent",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A channel permutation of shaping the list: the same change arriving through MCP tools or the web API; the channel is an access-channel volatility, not a new behavior."
+          },
+          {
+            "useCase": {
+              "id": "switch-between-everything-what-s-left-and-what-s-done",
+              "name": "Switch between everything, what's left, and what's done",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "choose-filter",
+                    "kind": "action",
+                    "label": "Team Member chooses to see All, Active or Completed todos",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "recall-filtered",
+                    "kind": "action",
+                    "label": "Recall the todos in the chosen view and the items-left count for the whole list from the list of record, changing no todo",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-filtered",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees only the chosen view's todos, the filter indicated, and items left for the whole list",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "choose-filter",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "choose-filter",
+                    "to": "recall-filtered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recall-filtered",
+                    "to": "tell-filtered",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-filtered",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of reviewing the list: the same recall with a different View Filter."
+          },
+          {
+            "useCase": {
+              "id": "see-how-many-todos-are-left",
+              "name": "See how many todos are left",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "glance-list",
+                    "kind": "action",
+                    "label": "Team Member looks at their list",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "recall-count",
+                    "kind": "action",
+                    "label": "Recall the list and count its active todos, regardless of the view in use",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-count",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees at a glance how many todos are left to do",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "glance-list",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "glance-list",
+                    "to": "recall-count",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recall-count",
+                    "to": "tell-count",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-count",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "Part of every review of the list: items left is shown alongside whichever view is chosen, not a separate act."
+          },
+          {
+            "useCase": {
+              "id": "come-back-to-the-same-list-later",
+              "name": "Come back to the same list later",
+              "actors": [
+                {
+                  "id": "team-member",
+                  "role": "Team Member"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "reopen-app",
+                    "kind": "action",
+                    "label": "Team Member reopens the app after closing the tab, restarting their device, or a restart of the system",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "recall-last",
+                    "kind": "action",
+                    "label": "Recall the whole list of record as it was last left, with every todo's wording and completion state",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-same-list",
+                    "kind": "sendSignal",
+                    "label": "Team Member sees the same list, wording and states they left",
+                    "roleName": "Team Member",
+                    "linkedActorId": "team-member"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "reopen-app",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "reopen-app",
+                    "to": "recall-last",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recall-last",
+                    "to": "tell-same-list",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-same-list",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A permutation of reviewing the list: the durability promise is the review flow reading the list of record after a break; storage is a volatility, not a use case."
+          },
+          {
+            "useCase": {
+              "id": "work-the-list-inside-a-hosted-workspace",
+              "name": "Work the list inside a hosted workspace",
+              "actors": [
+                {
+                  "id": "workspace-user",
+                  "role": "Workspace User"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "review-the-list",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "open-embedded",
+                    "kind": "action",
+                    "label": "Workspace User opens the list experience embedded in their hosted workspace",
+                    "roleName": "Workspace User",
+                    "linkedActorId": "workspace-user"
+                  },
+                  {
+                    "id": "recall-embedded",
+                    "kind": "action",
+                    "label": "Recall the member's list of record with the chosen view and the items-left count",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "tell-embedded",
+                    "kind": "sendSignal",
+                    "label": "Workspace User sees the same list, view and items left as in the web app, embedded in their workspace",
+                    "roleName": "Workspace User",
+                    "linkedActorId": "workspace-user"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "open-embedded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "open-embedded",
+                    "to": "recall-embedded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "recall-embedded",
+                    "to": "tell-embedded",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "tell-embedded",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A channel permutation of reviewing (and from there shaping) the list: the embedded MCP Apps surface is an access-channel volatility, not a new behavior."
+          }
+        ]
+      },
+      "revisions": 2,
+      "provenance": {
+        "committedAt": "2026-11-26T04:39:21Z",
+        "approvedBy": "operator",
+        "draftedBy": "delivery:agentic-design"
+      }
+    },
+    "9": {
+      "status": 2,
+      "kind": 9,
+      "model": {
+        "activities": [
+          {
+            "name": "requirements",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Requirements"
+          },
+          {
+            "name": "architecture",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Architecture \u0026 Call Chains"
+          },
+          {
+            "name": "projectDesign",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Project Design (SDP Review · M0)"
+          }
+        ]
+      },
+      "revisions": 1,
+      "staleBasis": true,
+      "staleBasisCause": {
+        "upstreamKind": "coreUseCases",
+        "upstreamRevision": 2
+      },
+      "provenance": {
+        "committedAt": "2026-11-26T04:28:25Z",
+        "approvedBy": "platform:project-birth",
+        "draftedBy": "platform:design-prefix-derivation"
+      }
+    }
+  },
+  "activityExecution": {
+    "architecture": {
+      "activityID": "architecture",
+      "type": "architecture",
+      "lifecyclePin": {
+        "typeKey": "architecture",
+        "assetsVersion": "dag-sha256:8065d0bd807db1dc"
+      },
+      "startedAt": "2026-11-26T04:39:23.48611Z",
+      "completedAt": "2026-11-26T04:45:24.450108Z",
+      "failureReason": 4,
+      "failureDetail": "task architectureDraft failed: the design job for task architectureDraft reached terminal phase failed: run completed but produced no commits on the target branch; check rule:system did not pass (fail) — claude output: success: I couldn't produce a System draft, and nothing was recorded or published. The blocker is in the committed core use cases, not the System, and I had no tool that would let me file it. **What's wrong upstream.** In both core use cases, \"Shape the List\" and \"Review the List\", the three entries (web app, hosted-workspace view, agent API/tools) merge into one flow. That flow then splits again at a `which-surface` decision into three replies: `tell-team-member`, `tell-workspace-user` and `tel… (type: DesignJobFailed, retryable: false)",
+      "attempts": [
+        {
+          "attemptId": "architecture:architectureDraft:1",
+          "task": "architectureDraft",
+          "phase": "architecture",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-26T04:45:24.285397Z",
+          "endedAt": "2026-11-26T04:45:24.285397Z",
+          "outcome": "failed",
+          "evidence": {},
+          "detail": "the design job for task architectureDraft reached terminal phase failed: run completed but produced no commits on the target branch; check rule:system did not pass (fail) — claude output: success: I couldn't produce a System draft, and nothing was recorded or published. The blocker is in the committed core use cases, not the System, and I had no tool that would let me file it. **What's wrong upstream.** In both core use cases, \"Shape the List\" and \"Review the List\", the three entries (web app, hosted-workspace view, agent API/tools) merge into one flow. That flow then splits again at a `which-surface` decision into three replies: `tell-team-member`, `tell-workspace-user` and `tel…",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:45:24.285397Z"
+          }
+        }
+      ],
+      "version": 3
+    },
+    "requirements": {
+      "activityID": "requirements",
+      "type": "requirements",
+      "lifecyclePin": {
+        "typeKey": "requirements",
+        "assetsVersion": "dag-sha256:18f0bd68719c9d57"
+      },
+      "startedAt": "2026-11-26T04:28:26.109566Z",
+      "completedAt": "2026-11-26T04:39:22.145112Z",
+      "attempts": [
+        {
+          "attemptId": "requirements:missionDraft:1",
+          "task": "missionDraft",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-26T04:29:12.632108Z",
+          "endedAt": "2026-11-26T04:29:12.632108Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "detail": "drafted mission on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:29:12.632108Z"
+          }
+        },
+        {
+          "attemptId": "requirements:missionReview:1",
+          "task": "missionReview",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-26T04:29:43.684603Z",
+          "endedAt": "2026-11-26T04:29:43.684603Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:29:43.684603Z"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryDraft:1",
+          "task": "glossaryDraft",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-26T04:30:44.680159Z",
+          "endedAt": "2026-11-26T04:30:44.680159Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "detail": "drafted glossary on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:30:44.680159Z"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryReview:1",
+          "task": "glossaryReview",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-26T04:31:15.679461Z",
+          "endedAt": "2026-11-26T04:31:15.679461Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:31:15.679461Z"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesDraft:1",
+          "task": "volatilitiesDraft",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-26T04:33:16.754996Z",
+          "endedAt": "2026-11-26T04:33:16.754996Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "detail": "drafted volatilities on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:33:16.754996Z"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesReview:1",
+          "task": "volatilitiesReview",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-26T04:33:17.137794Z",
+          "endedAt": "2026-11-26T04:33:17.137794Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:33:17.137794Z"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesDraft:1",
+          "task": "coreUseCasesDraft",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "agent",
+          "startedAt": "2026-11-26T04:38:18.441493Z",
+          "endedAt": "2026-11-26T04:38:18.441493Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "detail": "drafted coreUseCases on activity/requirements",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:38:18.441493Z"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesReview:1",
+          "task": "coreUseCasesReview",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "system",
+          "startedAt": "2026-11-26T04:39:19.814167Z",
+          "endedAt": "2026-11-26T04:39:19.814167Z",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "git",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:39:19.814167Z"
+          }
+        }
+      ],
+      "reviews": [
+        {
+          "roundId": "requirements:missionReview:1",
+          "taskId": "missionReview",
+          "reviews": "missionDraft",
+          "artifactKind": "mission",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:missionDraft:Mission@v9"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:missionDraft:1",
+              "at": "2026-11-26T04:29:43Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-26T04:29:12Z",
+          "decidedAt": "2026-11-26T04:29:43.572713Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:29:12.758954Z"
+          }
+        },
+        {
+          "roundId": "requirements:glossaryReview:1",
+          "taskId": "glossaryReview",
+          "reviews": "glossaryDraft",
+          "artifactKind": "glossary",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:glossaryDraft:Glossary@v10"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:glossaryDraft:1",
+              "at": "2026-11-26T04:31:15Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-26T04:30:44Z",
+          "decidedAt": "2026-11-26T04:31:15.56022Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:30:44.792466Z"
+          }
+        },
+        {
+          "roundId": "requirements:volatilitiesReview:1",
+          "taskId": "volatilitiesReview",
+          "reviews": "volatilitiesDraft",
+          "artifactKind": "volatilities",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:volatilitiesDraft:Volatilities@v11"
+          },
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-26T04:33:16Z",
+          "decidedAt": "2026-11-26T04:33:17.018436Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:33:16.874937Z"
+          }
+        },
+        {
+          "roundId": "requirements:coreUseCasesReview:1",
+          "taskId": "coreUseCasesReview",
+          "reviews": "coreUseCasesDraft",
+          "artifactKind": "coreUseCases",
+          "round": 1,
+          "subjectRef": {
+            "kind": "commit",
+            "ref": "requirements:coreUseCasesDraft:CoreUseCases@v12"
+          },
+          "reviewers": [
+            {
+              "role": "productManager",
+              "actor": "productManager",
+              "required": false
+            }
+          ],
+          "verdicts": [
+            {
+              "reviewerRole": "product-manager",
+              "actor": "product-manager",
+              "verdict": "approve",
+              "summary": "",
+              "attemptId": "requirements:coreUseCasesDraft:1",
+              "at": "2026-11-26T04:39:19Z"
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "system",
+          "openedAt": "2026-11-26T04:38:18Z",
+          "decidedAt": "2026-11-26T04:39:19.675867Z",
+          "provenance": {
+            "origin": "observed",
+            "generatedAt": "2026-11-26T04:38:18.586231Z"
+          }
+        }
+      ],
+      "version": 21
+    }
+  },
+  "testingState": {
+    "checkRuns": [
+      {
+        "id": "local-requirements:missionDraft:1-1795667347451",
+        "activity": "requirements",
+        "task": "missionDraft",
+        "revision": "requirements:missionDraft:1",
+        "specHash": "42ad1b2e95425c2e64afdff412041b93d0646c56c67f5d5fcb6f4c424e8c6204",
+        "startedAt": "2026-11-26T04:29:07.450736585Z",
+        "endedAt": "2026-11-26T04:29:07.459914Z",
+        "artifact": ".aiarch/test-results/local-requirements:missionDraft:1-1795667347451",
+        "results": [
+          {
+            "checkId": "rule:mission",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 0,
+            "outputRef": "check-results/checks/rule_mission.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:missionReview:1-1795667374147",
+        "activity": "requirements",
+        "task": "missionReview",
+        "revision": "requirements:missionReview:1",
+        "specHash": "79d9174bc025794e41237f406dd955ff7fe8eb7e4aa086fbb0726d29ed5f5e5b",
+        "startedAt": "2026-11-26T04:29:34.146611963Z",
+        "endedAt": "2026-11-26T04:29:34.156216Z",
+        "artifact": ".aiarch/test-results/local-requirements:missionReview:1-1795667374147",
+        "results": [
+          {
+            "checkId": "rule:mission",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 0,
+            "outputRef": "check-results/checks/rule_mission.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:glossaryDraft:1-1795667431477",
+        "activity": "requirements",
+        "task": "glossaryDraft",
+        "revision": "requirements:glossaryDraft:1",
+        "specHash": "6860577c516be1d15ce0cda2605300bef35bf31985eb1de57c1c470cf6ebc36c",
+        "startedAt": "2026-11-26T04:30:31.475397347Z",
+        "endedAt": "2026-11-26T04:30:31.487425Z",
+        "artifact": ".aiarch/test-results/local-requirements:glossaryDraft:1-1795667431477",
+        "results": [
+          {
+            "checkId": "rule:glossary",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 1,
+            "outputRef": "check-results/checks/rule_glossary.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:glossaryReview:1-1795667462589",
+        "activity": "requirements",
+        "task": "glossaryReview",
+        "revision": "requirements:glossaryReview:1",
+        "specHash": "46dd21938446b3eda19aceb48243568eae50b213388bd514b5eb4fdefb88966c",
+        "startedAt": "2026-11-26T04:31:02.588273123Z",
+        "endedAt": "2026-11-26T04:31:02.597992Z",
+        "artifact": ".aiarch/test-results/local-requirements:glossaryReview:1-1795667462589",
+        "results": [
+          {
+            "checkId": "rule:glossary",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 1,
+            "outputRef": "check-results/checks/rule_glossary.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:volatilitiesDraft:1-1795667590773",
+        "activity": "requirements",
+        "task": "volatilitiesDraft",
+        "revision": "requirements:volatilitiesDraft:1",
+        "specHash": "d1c1717a47b5039bdf86d1921ccfa4014951120b449d3c770d3f52ffdd2d82d3",
+        "startedAt": "2026-11-26T04:33:10.772254406Z",
+        "endedAt": "2026-11-26T04:33:10.782615Z",
+        "artifact": ".aiarch/test-results/local-requirements:volatilitiesDraft:1-1795667590773",
+        "results": [
+          {
+            "checkId": "rule:volatilities",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 1,
+            "outputRef": "check-results/checks/rule_volatilities.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:coreUseCasesDraft:1-1795667851814",
+        "activity": "requirements",
+        "task": "coreUseCasesDraft",
+        "revision": "requirements:coreUseCasesDraft:1",
+        "specHash": "89baf6487baa3a0f2ffa6a33010b6c344978311f13d4eb3f32bf89c2ebb766f2",
+        "startedAt": "2026-11-26T04:37:31.803784916Z",
+        "endedAt": "2026-11-26T04:37:31.825596Z",
+        "artifact": ".aiarch/test-results/local-requirements:coreUseCasesDraft:1-1795667851814",
+        "results": [
+          {
+            "checkId": "rule:coreUseCases",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 10,
+            "outputRef": "check-results/checks/rule_coreUseCases.log"
+          }
+        ]
+      },
+      {
+        "id": "local-requirements:coreUseCasesReview:1-1795667957891",
+        "activity": "requirements",
+        "task": "coreUseCasesReview",
+        "revision": "requirements:coreUseCasesReview:1",
+        "specHash": "306e567a6a168fceb38f5ecfd5bc0896e67378b0e481b474a242fa2fdca5f422",
+        "startedAt": "2026-11-26T04:39:17.884228419Z",
+        "endedAt": "2026-11-26T04:39:17.901065Z",
+        "artifact": ".aiarch/test-results/local-requirements:coreUseCasesReview:1-1795667957891",
+        "results": [
+          {
+            "checkId": "rule:coreUseCases",
+            "kind": "rule",
+            "status": "pass",
+            "durationMs": 7,
+            "outputRef": "check-results/checks/rule_coreUseCases.log"
+          }
+        ]
+      }
+    ]
+  },
+  "reviewPolicy": {
+    "preset": "vibes"
+  },
+  "updatedAt": "2026-11-26T04:45:24.473186Z"
+}

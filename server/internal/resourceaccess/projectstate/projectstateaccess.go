@@ -6205,9 +6205,46 @@ type UpstreamDefectReport struct {
 	// ActivityType and Gate are the route the reporting task's lifecycle declares.
 	ActivityType string            `json:"activityType"`
 	Gate         string            `json:"gate"`
-	NodeRefs     []UpstreamNodeRef `json:"nodeRefs"`
+	NodeRefs     []UpstreamNodeRef `json:"nodeRefs,omitempty"`
+	// RuleFindings are the core-use-case rule findings the report names (UpstreamRuleRef):
+	// the second class of upstream defect, beside the unrealizable nodes.
+	RuleFindings []UpstreamRuleRef `json:"ruleFindings,omitempty"`
 	Rationale    string            `json:"rationale"`
 }
+
+// UpstreamRuleRef names one core-use-case rule finding a design draft's refusal reported: the
+// rule, the use case (by name or id) and, for a path finding, the scenario. Finding is the
+// refusal's own message, which the verb stamps (StampUpstreamRuleRefs): the agent never
+// supplies it, and admission holds that it is there.
+type UpstreamRuleRef struct {
+	RuleID   string `json:"ruleId"`
+	UseCase  string `json:"useCase"`
+	Scenario string `json:"scenario,omitempty"`
+	Finding  string `json:"finding,omitempty"`
+}
+
+// UpstreamDefect is one admitted defect of a report: an unrealizable node, or a core-use-case
+// rule finding no System can discharge.
+//
+//sumtype:decl
+type UpstreamDefect interface {
+	upstreamDefect()
+}
+
+// UnrealizableNode is the node class of UpstreamDefect.
+type UnrealizableNode struct{ UpstreamNode }
+
+// UseCaseRuleFinding is the rule class of UpstreamDefect, resolved: the use case by id and name.
+type UseCaseRuleFinding struct {
+	RuleID      string
+	UseCaseID   string
+	UseCaseName string
+	Scenario    string
+	Finding     string
+}
+
+func (UnrealizableNode) upstreamDefect()   {}
+func (UseCaseRuleFinding) upstreamDefect() {}
 
 // UpstreamNodeRef names one activity-diagram node of a committed use case: the use case by
 // its name or id, the node by its id.
@@ -6316,6 +6353,135 @@ func AdmitUpstreamNodes(p *Project, route methodassets.UpstreamRoute, refs []Ups
 		out = append(out, n)
 	}
 	return out, nil
+}
+
+// AdmitUpstreamDefects is the mechanical admission of a report against the artifact the route's
+// gate judges, as p has it committed. Node references are admitted as AdmitUpstreamNodes
+// admits them (the kind is kept). A rule reference is admitted only when its rule is a
+// core-use-case rule, its use case resolves in the committed core use cases and the verb's
+// stamp (Finding) is present. At least one reference in all, and none repeats: a node by
+// use case and node, a rule by rule, use case and scenario.
+func AdmitUpstreamDefects(p *Project, route methodassets.UpstreamRoute, nodes []UpstreamNodeRef, rules []UpstreamRuleRef) ([]UpstreamDefect, error) {
+	kind, err := upstreamGateKind(route)
+	if err != nil {
+		return nil, err
+	}
+	if kind != KindCoreUseCases {
+		return nil, fmt.Errorf("gate %s judges %s, which has no use cases to name", route.Gate, kind.WireName())
+	}
+	if len(nodes)+len(rules) == 0 {
+		return nil, fmt.Errorf("name at least one node (nodeRefs) or rule finding (ruleFindings)")
+	}
+	cuc, err := committedCoreUseCases(p)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := make([]UpstreamDefect, 0, len(nodes)+len(rules))
+	for _, ref := range nodes {
+		n, err := resolveUpstreamNode(cuc, ref)
+		if err != nil {
+			return nil, err
+		}
+		key := "node/" + n.UseCaseID + "/" + n.NodeID
+		if seen[key] {
+			return nil, fmt.Errorf("node %s/%s is named twice", n.UseCaseID, n.NodeID)
+		}
+		seen[key] = true
+		out = append(out, UnrealizableNode{n})
+	}
+	for _, ref := range rules {
+		if !methodcheck.IsCoreUseCaseRule(methodcheck.RuleID(ref.RuleID)) {
+			return nil, fmt.Errorf("%q is not a core-use-case rule (%s)", ref.RuleID, coreUseCaseRuleList())
+		}
+		uc, err := resolveUpstreamUseCase(cuc, ref.UseCase)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(ref.Finding) == "" {
+			return nil, fmt.Errorf("rule finding %s at %q carries no finding: the verb stamps it from the refusal", ref.RuleID, uc.Name)
+		}
+		key := "rule/" + ref.RuleID + "/" + string(uc.ID) + "/" + ref.Scenario
+		if seen[key] {
+			return nil, fmt.Errorf("rule finding %s at %s%s is named twice", ref.RuleID, uc.ID, scenarioSuffix(ref.Scenario))
+		}
+		seen[key] = true
+		out = append(out, UseCaseRuleFinding{RuleID: ref.RuleID, UseCaseID: string(uc.ID), UseCaseName: uc.Name, Scenario: ref.Scenario, Finding: ref.Finding})
+	}
+	return out, nil
+}
+
+// StampUpstreamRuleRefs resolves each reference against errs, the Error findings the draft's
+// refusal reported, and returns them with Finding set to the refusal's message. A rule outside
+// CoreUseCaseRules, or one errs does not carry at that use case (and scenario, when given), is
+// refused: an agent names only what the refusal reported.
+func StampUpstreamRuleRefs(p *Project, refs []UpstreamRuleRef, errs []methodcheck.Finding) ([]UpstreamRuleRef, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	cuc, err := committedCoreUseCases(p)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UpstreamRuleRef, 0, len(refs))
+	for _, ref := range refs {
+		if !methodcheck.IsCoreUseCaseRule(methodcheck.RuleID(ref.RuleID)) {
+			return nil, fmt.Errorf("%q is not a core-use-case rule (%s)", ref.RuleID, coreUseCaseRuleList())
+		}
+		uc, err := resolveUpstreamUseCase(cuc, ref.UseCase)
+		if err != nil {
+			return nil, err
+		}
+		ref.Scenario = strings.TrimSpace(ref.Scenario)
+		i := slices.IndexFunc(errs, func(f methodcheck.Finding) bool {
+			return f.Severity == methodcheck.SeverityError && string(f.RuleID) == ref.RuleID && f.Location != nil &&
+				f.Location.UseCase == string(uc.ID) && (ref.Scenario == "" || f.Location.Scenario == ref.Scenario)
+		})
+		if i < 0 {
+			return nil, fmt.Errorf("%s reports no Error at %s%s: name only what the refusal reported", ref.RuleID, uc.ID, scenarioSuffix(ref.Scenario))
+		}
+		out = append(out, UpstreamRuleRef{RuleID: ref.RuleID, UseCase: string(uc.ID), Scenario: ref.Scenario, Finding: errs[i].Message})
+	}
+	return out, nil
+}
+
+func scenarioSuffix(scenario string) string {
+	if scenario == "" {
+		return ""
+	}
+	return " scenario " + scenario
+}
+
+func coreUseCaseRuleList() string {
+	ids := methodcheck.CoreUseCaseRules()
+	names := make([]string, len(ids))
+	for i, id := range ids {
+		names[i] = string(id)
+	}
+	return "core-use-case rules: " + strings.Join(names, ", ")
+}
+
+// committedCoreUseCases is the committed core-use-case model of p, or why there is none.
+func committedCoreUseCases(p *Project) (*CoreUseCases, error) {
+	if p.CoreUseCases.Status != ReviewCommitted {
+		return nil, fmt.Errorf("the core use cases are not committed, so there is nothing upstream to report against")
+	}
+	cuc, ok := p.CoreUseCases.Model.(*CoreUseCases)
+	if !ok || cuc == nil {
+		return nil, fmt.Errorf("the committed core use cases carry no model")
+	}
+	return cuc, nil
+}
+
+// resolveUpstreamUseCase finds one committed use case by id, or by name folded for case.
+func resolveUpstreamUseCase(cuc *CoreUseCases, ref string) (UseCase, error) {
+	want := strings.TrimSpace(ref)
+	for _, d := range cuc.Decisions {
+		if string(d.UseCase.ID) == want || strings.EqualFold(d.UseCase.Name, want) {
+			return d.UseCase, nil
+		}
+	}
+	return UseCase{}, fmt.Errorf("no committed use case is named or identified %q", ref)
 }
 
 // upstreamGateKind is the artifact kind the route's gate judges.

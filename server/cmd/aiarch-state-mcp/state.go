@@ -124,6 +124,7 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 	// the AMBIENT kind (pre-existing errors on slots this session cannot write —
 	// grandfathered committed data — do not block; only ambient-slot and structural
 	// findings reject the draft).
+	s.lastDraftCandidate = newBytes
 	findings, ferr := methodcheck.ValidateProjectJSON(newBytes, methodcheckOptions())
 	if ferr != nil {
 		return fmt.Errorf("the Method coherence check failed: %w", ferr)
@@ -252,22 +253,33 @@ func (s *Session) setCritiqueVerdict(verdict, notes string) error {
 	return nil
 }
 
+// upstreamRuleInput names one core-use-case rule finding the draft's refusal reported. The
+// finding text is not an input: the verb stamps it from the refusal.
+type upstreamRuleInput struct {
+	RuleID   string `json:"ruleId" jsonschema:"the core-use-case rule id the refusal named, e.g. UC-OUTCOME-AT-ASKING-SURFACE"`
+	UseCase  string `json:"useCase" jsonschema:"the use case the refusal named, by its name or id"`
+	Scenario string `json:"scenario,omitempty" jsonschema:"the scenario the refusal named, when it named one"`
+}
+
 // reportUpstreamDefectInput is a design draft's report that committed upstream nodes have no
-// call to make. The attempt is not an input: the verb stamps it, so an agent cannot report for
-// another attempt.
+// call to make, or that a core-use-case rule finding of the refusal is a defect of the use
+// cases themselves. The attempt is not an input: the verb stamps it, so an agent cannot report
+// for another attempt.
 type reportUpstreamDefectInput struct {
-	Gate      string                         `json:"gate" jsonschema:"the upstream review gate your task's lifecycle declares (for the architecture draft: coreUseCasesReview)"`
-	NodeRefs  []projectstate.UpstreamNodeRef `json:"nodeRefs" jsonschema:"the committed nodes no honest call realizes: each {useCase, node} names a use case by its name or id and an action/timeEvent/acceptEvent node by its id"`
-	Rationale string                         `json:"rationale" jsonschema:"per node, which earlier node already produced what it shows, and why no component makes a new call there"`
+	Gate         string                         `json:"gate" jsonschema:"the upstream review gate your task's lifecycle declares (for the architecture draft: coreUseCasesReview)"`
+	NodeRefs     []projectstate.UpstreamNodeRef `json:"nodeRefs,omitempty" jsonschema:"the committed nodes no honest call realizes: each {useCase, node} names a use case by its name or id and an action/timeEvent/acceptEvent node by its id"`
+	RuleFindings []upstreamRuleInput            `json:"ruleFindings,omitempty" jsonschema:"core-use-case rule findings your draft's refusal named, which no System can discharge: each {ruleId, useCase, scenario?} names only what the refusal reported"`
+	Rationale    string                         `json:"rationale" jsonschema:"per node, which earlier node already produced what it shows, and why no component makes a new call there; per rule finding, why the use case's shape, not your draft, is the defect"`
 }
 
 // reportUpstreamDefect records the allegation on this attempt (design draft mode). It writes
 // no upstream slot: the Manager admits the report and sends the upstream artifact back through
 // its own review. It holds the report to everything the Manager's admission holds it to that
 // this document can answer (the route the task declares, nodes of the committed artifact of a
-// kind that must be realized, a rationale), so a report the Manager would refuse is refused
-// here, while the agent can still act on why. It writes through the evidence path: the draft
-// it stands in for does not exist, so the Method rules have nothing to pass.
+// kind that must be realized, rule findings the draft's last refusal reported, a rationale), so
+// a report the Manager would refuse is refused here, while the agent can still act on why. It
+// writes through the evidence path: the draft it stands in for does not exist, so the Method
+// rules have nothing to pass.
 func (s *Session) reportUpstreamDefect(in reportUpstreamDefectInput) (string, error) {
 	revision := strings.TrimSpace(os.Getenv(envRevision))
 	if s.ActivityID == "" || s.TaskID == "" || revision == "" {
@@ -275,32 +287,70 @@ func (s *Session) reportUpstreamDefect(in reportUpstreamDefectInput) (string, er
 	}
 	in.Gate, in.Rationale = strings.TrimSpace(in.Gate), strings.TrimSpace(in.Rationale)
 	if in.Rationale == "" {
-		return "", fmt.Errorf("reportUpstreamDefect needs a rationale: per node, which earlier node already produced what it shows and why no call realizes it")
+		return "", fmt.Errorf("reportUpstreamDefect needs a rationale: per defect, why no call realizes the node or why the use case's shape is the defect")
 	}
-	var nodes []projectstate.UpstreamNode
+	var defects []projectstate.UpstreamDefect
 	err := s.applyEvidenceMutation("upstream defect report", func(p *projectstate.Project) error {
 		route, err := projectstate.UpstreamRouteOf(p, s.ActivityID, s.TaskID, in.Gate)
 		if err != nil {
 			return err
 		}
-		if nodes, err = projectstate.AdmitUpstreamNodes(p, route, in.NodeRefs); err != nil {
+		rules := make([]projectstate.UpstreamRuleRef, 0, len(in.RuleFindings))
+		for _, r := range in.RuleFindings {
+			rules = append(rules, projectstate.UpstreamRuleRef{RuleID: r.RuleID, UseCase: r.UseCase, Scenario: r.Scenario})
+		}
+		if len(rules) > 0 {
+			errs, err := s.refusalErrorFindings()
+			if err != nil {
+				return err
+			}
+			if rules, err = projectstate.StampUpstreamRuleRefs(p, rules, errs); err != nil {
+				return err
+			}
+		}
+		if defects, err = projectstate.AdmitUpstreamDefects(p, route, in.NodeRefs, rules); err != nil {
 			return err
 		}
-		refs := make([]projectstate.UpstreamNodeRef, 0, len(nodes))
-		for _, n := range nodes {
-			refs = append(refs, projectstate.UpstreamNodeRef{UseCase: n.UseCaseID, Node: n.NodeID})
+		var nodeRefs []projectstate.UpstreamNodeRef
+		var ruleRefs []projectstate.UpstreamRuleRef
+		for _, d := range defects {
+			switch d := d.(type) {
+			case projectstate.UnrealizableNode:
+				nodeRefs = append(nodeRefs, projectstate.UpstreamNodeRef{UseCase: d.UseCaseID, Node: d.NodeID})
+			case projectstate.UseCaseRuleFinding:
+				ruleRefs = append(ruleRefs, projectstate.UpstreamRuleRef{RuleID: d.RuleID, UseCase: d.UseCaseID, Scenario: d.Scenario, Finding: d.Finding})
+			}
 		}
 		projectstate.UpsertUpstreamDefect(p, projectstate.UpstreamDefectReport{
 			ID: projectstate.UpstreamDefectID(revision, route), Activity: s.ActivityID, Task: s.TaskID, Revision: revision,
-			ActivityType: route.ActivityType, Gate: route.Gate, NodeRefs: refs, Rationale: in.Rationale,
+			ActivityType: route.ActivityType, Gate: route.Gate, NodeRefs: nodeRefs, RuleFindings: ruleRefs, Rationale: in.Rationale,
 		})
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("The report naming %d node(s) was recorded. Call publishDraft, then finish without a draft: "+
-		"the system decides whether %s re-opens, and re-dispatches this draft once the amendment is committed.", len(nodes), in.Gate), nil
+	return fmt.Sprintf("The report naming %d defect(s) was recorded. Call publishDraft, then finish without a draft: "+
+		"the system decides whether %s re-opens, and re-dispatches this draft once the amendment is committed.", len(defects), in.Gate), nil
+}
+
+// refusalErrorFindings is the Error findings the draft's last refusal reported: those of the
+// document putDraftModel last validated, else of the current project. They are raw, WITHOUT
+// applyGateSeverityPolicies, whose slot-scoped downgrade hides exactly the coreUseCases
+// findings a draft of another slot is refused on.
+func (s *Session) refusalErrorFindings() ([]methodcheck.Finding, error) {
+	raw := s.lastDraftCandidate
+	if raw == nil {
+		var err error
+		if _, raw, err = s.readProject(); err != nil {
+			return nil, err
+		}
+	}
+	findings, err := methodcheck.ValidateProjectJSON(raw, methodcheckOptions())
+	if err != nil {
+		return nil, fmt.Errorf("the Method coherence check failed: %w", err)
+	}
+	return filterErrorFindings(findings), nil
 }
 
 // filterErrorFindings keeps only SeverityError findings — the ones that fail the CI

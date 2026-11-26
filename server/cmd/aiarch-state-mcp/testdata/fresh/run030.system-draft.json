@@ -1,0 +1,1101 @@
+{
+ "components": [
+  {
+   "id": "web-app",
+   "name": "WebApp",
+   "kind": "client",
+   "layer": "client",
+   "surface": "web",
+   "encapsulates": "Team Members in a browser: presentation, edit gestures, View Filter and Items Left shown.",
+   "encapsulatesVolatilities": [
+    "Access-channel volatility"
+   ]
+  },
+  {
+   "id": "workspace-app",
+   "name": "WorkspaceApp",
+   "kind": "client",
+   "layer": "client",
+   "surface": "mcpApp",
+   "encapsulates": "Workspace Users in hosted workspaces: the embedded MCP Apps list view and its host constraints.",
+   "encapsulatesVolatilities": [
+    "Access-channel volatility",
+    "Agent-and-host protocol volatility"
+   ]
+  },
+  {
+   "id": "todo-api",
+   "name": "TodoApi",
+   "kind": "client",
+   "layer": "client",
+   "surface": "rest",
+   "encapsulates": "Team Agents over the ordinary web API: the machine contract for the list actions.",
+   "encapsulatesVolatilities": [
+    "Access-channel volatility"
+   ]
+  },
+  {
+   "id": "agent-tools",
+   "name": "AgentTools",
+   "kind": "client",
+   "layer": "client",
+   "surface": "mcpTools",
+   "encapsulates": "Team Agents over MCP tools: the tool protocol revision the agents speak.",
+   "encapsulatesVolatilities": [
+    "Access-channel volatility",
+    "Agent-and-host protocol volatility"
+   ]
+  },
+  {
+   "id": "list-manager",
+   "name": "ListManager",
+   "kind": "manager",
+   "layer": "manager",
+   "encapsulates": "Encapsulates Access-channel volatility. Runs every list action one way for every channel.",
+   "encapsulatesVolatilities": [
+    "Access-channel volatility"
+   ]
+  },
+  {
+   "id": "list-ruling-engine",
+   "name": "ListRulingEngine",
+   "kind": "engine",
+   "layer": "engine",
+   "encapsulates": "Encapsulates Access-channel volatility. Applies the TodoMVC rules (wording, toggle-all, view, items left) once for all channels.",
+   "encapsulatesVolatilities": [
+    "Access-channel volatility"
+   ]
+  },
+  {
+   "id": "list-of-record-access",
+   "name": "ListOfRecordAccess",
+   "kind": "resourceAccess",
+   "layer": "resourceAccess",
+   "encapsulates": "Encapsulates List-of-record storage volatility. Atomic list verbs over the durable List of Record.",
+   "encapsulatesVolatilities": [
+    "List-of-record storage volatility"
+   ],
+   "atomicBusinessVerbs": [
+    "recallList",
+    "appendTodo",
+    "retitleTodo",
+    "markCompletion",
+    "discardTodos"
+   ]
+  },
+  {
+   "id": "list-of-record-store",
+   "name": "ListOfRecordStore",
+   "kind": "resource",
+   "layer": "resource",
+   "encapsulates": "",
+   "encapsulatesVolatilities": []
+  }
+ ],
+ "relationships": [
+  {
+   "from": "web-app",
+   "to": "list-manager",
+   "mode": "sync",
+   "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted | reviewList"
+  },
+  {
+   "from": "workspace-app",
+   "to": "list-manager",
+   "mode": "sync",
+   "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted | reviewList"
+  },
+  {
+   "from": "todo-api",
+   "to": "list-manager",
+   "mode": "sync",
+   "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted | reviewList"
+  },
+  {
+   "from": "agent-tools",
+   "to": "list-manager",
+   "mode": "sync",
+   "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted | reviewList"
+  },
+  {
+   "from": "list-manager",
+   "to": "list-ruling-engine",
+   "mode": "sync",
+   "label": "ValidateWording | DecideAggregateToggle | SelectView | CountItemsLeft"
+  },
+  {
+   "from": "list-manager",
+   "to": "list-of-record-access",
+   "mode": "sync",
+   "label": "recallList / appendTodo / retitleTodo / markCompletion / discardTodos"
+  },
+  {
+   "from": "list-of-record-access",
+   "to": "list-of-record-store",
+   "mode": "sync",
+   "label": "read the list / write changed todos (idempotency: per-todo id)"
+  }
+ ],
+ "dynamicViews": [
+  {
+   "useCaseId": "shape-the-list",
+   "key": "shape-the-list",
+   "title": "Shape the List",
+   "steps": [
+    {
+     "activityNodeId": "team-member-asks",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "AddTodo | RewordTodo | RemoveTodo | ToggleTodo | ToggleAll | ClearCompleted \u2014 asks for one change to their list"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "workspace-user-asks",
+     "calls": [
+      {
+       "from": "workspace-user",
+       "to": "workspace-app",
+       "mode": "sync",
+       "label": "AddTodo | RewordTodo | RemoveTodo | ToggleTodo | ToggleAll | ClearCompleted \u2014 asks for one change from the embedded view"
+      },
+      {
+       "from": "workspace-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "team-agent-asks",
+     "calls": [
+      {
+       "from": "team-agent",
+       "to": "todo-api",
+       "mode": "sync",
+       "label": "AddTodo | RewordTodo | RemoveTodo | ToggleTodo | ToggleAll | ClearCompleted \u2014 asks for one change to its member's list through the web API",
+       "alt": "s1"
+      },
+      {
+       "from": "team-agent",
+       "to": "agent-tools",
+       "mode": "sync",
+       "label": "AddTodo | RewordTodo | RemoveTodo | ToggleTodo | ToggleAll | ClearCompleted \u2014 asks for one change to its member's list through an MCP tool",
+       "alt": "s1"
+      },
+      {
+       "from": "todo-api",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted",
+       "alt": "s2"
+      },
+      {
+       "from": "agent-tools",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted",
+       "alt": "s2"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "apply-change",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "ValidateWording | DecideAggregateToggle \u2014 applies the TodoMVC list rules to the change"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "appendTodo | retitleTodo | markCompletion | discardTodos \u2014 records the change"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "count-left",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "review-the-list",
+   "key": "review-the-list",
+   "title": "Review the List",
+   "steps": [
+    {
+     "activityNodeId": "team-member-asks",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "ReviewList \u2014 opens their list and chooses a view"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList(filter)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "workspace-user-asks",
+     "calls": [
+      {
+       "from": "workspace-user",
+       "to": "workspace-app",
+       "mode": "sync",
+       "label": "ReviewList \u2014 opens the embedded list and chooses a view"
+      },
+      {
+       "from": "workspace-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList(filter)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "team-agent-asks",
+     "calls": [
+      {
+       "from": "team-agent",
+       "to": "todo-api",
+       "mode": "sync",
+       "label": "ReviewList \u2014 asks for its member's list or one view of it through the web API",
+       "alt": "s1"
+      },
+      {
+       "from": "team-agent",
+       "to": "agent-tools",
+       "mode": "sync",
+       "label": "ReviewList \u2014 asks for its member's list or one view of it through an MCP tool",
+       "alt": "s1"
+      },
+      {
+       "from": "todo-api",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList",
+       "alt": "s2"
+      },
+      {
+       "from": "agent-tools",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList",
+       "alt": "s2"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "recall-view",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "SelectView(todos, filter) \u2192 visible todos"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "add-a-todo",
+   "key": "add-a-todo",
+   "title": "Add a todo",
+   "steps": [
+    {
+     "activityNodeId": "submit-new",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "AddTodo \u2014 submits wording for a new todo"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "addTodo(title)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "check-wording",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "ValidateWording(title) \u2192 meaningful | blank"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "append-todo",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "appendTodo(title)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "count-after-add",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "reword-a-todo",
+   "key": "reword-a-todo",
+   "title": "Reword a todo",
+   "steps": [
+    {
+     "activityNodeId": "finish-edit",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "RewordTodo \u2014 commits (Enter or blur) or abandons (Escape) the edit of one todo"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "check-new-wording",
+     "calls": [
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "rewordTodo(todoId, title)"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "ValidateWording(title) \u2192 meaningful | blank"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "retitle-todo",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "retitleTodo(todoId, title)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "discard-blank",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "discardTodos(todoId)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "count-after-blank",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "remove-a-todo",
+   "key": "remove-a-todo",
+   "title": "Remove a todo",
+   "steps": [
+    {
+     "activityNodeId": "ask-remove",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "RemoveTodo \u2014 removes one todo, done or not"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "removeTodo(todoId)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "discard-one",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "discardTodos(todoId)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "count-after-remove",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "mark-a-todo-done-or-not-done",
+   "key": "mark-a-todo-done-or-not-done",
+   "title": "Mark a todo done or not done",
+   "steps": [
+    {
+     "activityNodeId": "ask-toggle",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "ToggleTodo \u2014 marks or unmarks one todo"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "toggleTodo(todoId)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "mark-one",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "markCompletion(todoId, completed)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "count-after-toggle",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "mark-everything-done-or-undo-that",
+   "key": "mark-everything-done-or-undo-that",
+   "title": "Mark everything done, or undo that",
+   "steps": [
+    {
+     "activityNodeId": "ask-toggle-all",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "ToggleAll \u2014 activates toggle-all"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "toggleAll()"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "recall-states",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "all-completed",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "DecideAggregateToggle(todos) \u2192 markAllActive | markAllCompleted"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "mark-all-active",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "markCompletion(all, active)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "mark-all-completed",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "markCompletion(all, completed)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "count-after-all",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "sweep-away-finished-todos",
+   "key": "sweep-away-finished-todos",
+   "title": "Sweep away finished todos",
+   "steps": [
+    {
+     "activityNodeId": "ask-clear",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "ClearCompleted \u2014 clears completed todos"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "clearCompleted()"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "discard-completed",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "discardTodos(completed)"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "let-agent-tooling-drive-the-list",
+   "key": "let-agent-tooling-drive-the-list",
+   "title": "Let agent tooling drive the list",
+   "steps": [
+    {
+     "activityNodeId": "agent-invokes",
+     "calls": [
+      {
+       "from": "team-agent",
+       "to": "todo-api",
+       "mode": "sync",
+       "label": "AddTodo | RewordTodo | RemoveTodo | ToggleTodo | ToggleAll | ClearCompleted \u2014 invokes one list action on its member's behalf through the web API",
+       "alt": "s1"
+      },
+      {
+       "from": "team-agent",
+       "to": "agent-tools",
+       "mode": "sync",
+       "label": "AddTodo | RewordTodo | RemoveTodo | ToggleTodo | ToggleAll | ClearCompleted \u2014 invokes one list action on its member's behalf through an MCP tool",
+       "alt": "s1"
+      },
+      {
+       "from": "todo-api",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted",
+       "alt": "s2"
+      },
+      {
+       "from": "agent-tools",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "addTodo | rewordTodo | removeTodo | toggleTodo | toggleAll | clearCompleted",
+       "alt": "s2"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "apply-agent-change",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "ValidateWording | DecideAggregateToggle \u2014 applies the TodoMVC list rules to the change"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "appendTodo | retitleTodo | markCompletion | discardTodos \u2014 records the change"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "write the changed todos (idempotency: per-todo id)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "count-after-agent",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "switch-between-everything-what-s-left-and-what-s-done",
+   "key": "switch-between-everything-what-s-left-and-what-s-done",
+   "title": "Switch between everything, what's left, and what's done",
+   "steps": [
+    {
+     "activityNodeId": "choose-filter",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "ReviewList \u2014 chooses All, Active or Completed"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList(filter)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "recall-filtered",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "SelectView(todos, filter) \u2192 visible todos"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "see-how-many-todos-are-left",
+   "key": "see-how-many-todos-are-left",
+   "title": "See how many todos are left",
+   "steps": [
+    {
+     "activityNodeId": "glance-list",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "ReviewList \u2014 looks at their list"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList(filter)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "recall-count",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "come-back-to-the-same-list-later",
+   "key": "come-back-to-the-same-list-later",
+   "title": "Come back to the same list later",
+   "steps": [
+    {
+     "activityNodeId": "reopen-app",
+     "calls": [
+      {
+       "from": "team-member",
+       "to": "web-app",
+       "mode": "sync",
+       "label": "ReviewList \u2014 reopens the app after a break"
+      },
+      {
+       "from": "web-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList(filter)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "recall-last",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "SelectView(todos, filter) \u2192 visible todos"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "useCaseId": "work-the-list-inside-a-hosted-workspace",
+   "key": "work-the-list-inside-a-hosted-workspace",
+   "title": "Work the list inside a hosted workspace",
+   "steps": [
+    {
+     "activityNodeId": "open-embedded",
+     "calls": [
+      {
+       "from": "workspace-user",
+       "to": "workspace-app",
+       "mode": "sync",
+       "label": "ReviewList \u2014 opens the embedded list experience"
+      },
+      {
+       "from": "workspace-app",
+       "to": "list-manager",
+       "mode": "sync",
+       "label": "reviewList(filter)"
+      }
+     ]
+    },
+    {
+     "activityNodeId": "recall-embedded",
+     "calls": [
+      {
+       "from": "list-manager",
+       "to": "list-of-record-access",
+       "mode": "sync",
+       "label": "recallList() \u2192 todos"
+      },
+      {
+       "from": "list-of-record-access",
+       "to": "list-of-record-store",
+       "mode": "sync",
+       "label": "read the whole list of record"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "SelectView(todos, filter) \u2192 visible todos"
+      },
+      {
+       "from": "list-manager",
+       "to": "list-ruling-engine",
+       "mode": "sync",
+       "label": "CountItemsLeft(todos) \u2192 itemsLeft"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

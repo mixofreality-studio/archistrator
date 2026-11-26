@@ -142,6 +142,10 @@ type Session struct {
 	// respondToReviewComment) so publishDraft can refuse a no-op publish (nothing drafted
 	// AND a clean tree) — the F17c "job went green having committed nothing" guard.
 	wroteState bool
+	// lastDraftCandidate is the re-encoded document putDraftModel last validated at GATE 2,
+	// set before the gate whether it passed or not: reportUpstreamDefect reads the refusal's
+	// findings from it.
+	lastDraftCandidate []byte
 	// admissionNotes are the Tier 1 problems of the last record that wait for Tier 2 (admission.go):
 	// the tool result carries them as a warning.
 	admissionNotes []string

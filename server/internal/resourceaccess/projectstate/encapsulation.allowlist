@@ -568,6 +568,15 @@ AdmitUpstreamNodes
 UpstreamNode
 UpstreamDefectID
 UpsertUpstreamDefect
+# AdmitUpstreamDefects / StampUpstreamRuleRefs / UpstreamDefect / UnrealizableNode /
+# UseCaseRuleFinding (ISS-030-2): the second report class (a core-use-case rule finding the
+# draft's refusal named), same category and same callers as AdmitUpstreamNodes above. The
+# verb stamps the findings from the refusal and admits them; the delivery Manager re-admits.
+AdmitUpstreamDefects
+StampUpstreamRuleRefs
+UpstreamDefect
+UnrealizableNode
+UseCaseRuleFinding
 # INTERNAL MCP TOOL SURFACE (agentic-managers spec item 3): the generated
 # ResourceAccess/Engine tool catalog (toolcatalog.gen.go — NOT port-reachable, so it
 # needs an explicit entry like the System model types) + its hand-written accessors.
