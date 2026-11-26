@@ -8202,6 +8202,10 @@ func replanHold(reports []projectstate.PlanDefectReport, current map[string]stri
 // ---------------------------------------------------------------------------
 // THE ROUTE FROM A DESIGN DRAFT BACK TO AN UPSTREAM ARTIFACT (FIX-044)
 //
+// The route carries two classes of defect (RUN-030): unrealizable nodes, and core-use-case rule
+// findings the draft's refusal named that no System can discharge. A report may name either or
+// both, and is judged by projectstate.AdmitUpstreamDefects.
+//
 // The architecture draft is checked against the core use cases, and a node at which no
 // component makes a new call cannot be realized honestly: CC-COVERAGE requires a call for it,
 // and inventing one, or demoting the node to clear the gate, makes the gate the reason the model
@@ -8257,12 +8261,12 @@ func upstreamNotePrefix(target ActivityID) string {
 
 // upstreamAdmission is an admitted report, resolved: everything the round needs.
 type upstreamAdmission struct {
-	report projectstate.UpstreamDefectReport
-	route  methodassets.UpstreamRoute
-	target ActivityID
-	nodes  []projectstate.UpstreamNode
-	trips  int64
-	note   string
+	report  projectstate.UpstreamDefectReport
+	route   methodassets.UpstreamRoute
+	target  ActivityID
+	defects []projectstate.UpstreamDefect
+	trips   int64
+	note    string
 	// kind is the committed slot whose review thread carries the note, and marker the text that
 	// dedups it there: the core use cases and the report's own marker for a report, the owning
 	// slot and the write refusal's marker for a construction write refusal.
@@ -8505,14 +8509,15 @@ func upstreamReportAt(p *projectstate.Project, activity, attemptID string) (proj
 // branch, which holds the reports. Pure, so it replays deterministically.
 //
 //   - the route is one the task declares, the rationale is not blank, and every node is a node
-//     of the committed artifact the gate judges, of a kind a call chain must realize (the
+//     of the committed artifact the gate judges, of a kind a call chain must realize, and every
+//     rule finding a core-use-case rule at a committed use case (the
 //     mechanical admission). A failure here is a refusal: the redraft can correct the report.
 //     A second refusal, or any rule below, holds for a human;
 //   - the target is the one activity of the route's type that precedes the reporter in the
 //     network, and nothing downstream of the target has passed without being downstream of the
 //     reporter too: a re-open must not leave a stale pass standing behind it;
-//   - no node comes back after an amendment it was already sent back for (the PM's cap: one
-//     bounce per node), so the two sides' reasoning goes to the operator instead.
+//   - no node or rule finding comes back after an amendment it was already sent back for (the
+//     PM's cap: one bounce per defect), so the two sides' reasoning goes to the operator instead.
 func judgeUpstreamDefect(
 	main, branch *projectstate.Project, task methodassets.LifecycleTask, activity string, report projectstate.UpstreamDefectReport,
 ) upstreamVerdict {
@@ -8523,7 +8528,7 @@ func judgeUpstreamDefect(
 		return upstreamVerdict{refusal: reason}
 	}
 	route := methodassets.UpstreamRoute{ActivityType: report.ActivityType, Gate: report.Gate}
-	nodes, _ := projectstate.AdmitUpstreamNodes(main, route, report.NodeRefs)
+	defects, _ := projectstate.AdmitUpstreamDefects(main, route, report.NodeRefs, report.RuleFindings)
 	target, reason := upstreamTarget(main, activity, route)
 	if reason != "" {
 		return upstreamVerdict{escalation: reason}
@@ -8533,8 +8538,8 @@ func judgeUpstreamDefect(
 		return upstreamVerdict{escalation: repeat}
 	}
 	return upstreamVerdict{admitted: &upstreamAdmission{
-		report: report, route: route, target: target, nodes: nodes, trips: int64(len(trips)),
-		note: upstreamDefectNote(activity, task.ID, report, nodes),
+		report: report, route: route, target: target, defects: defects, trips: int64(len(trips)),
+		note: upstreamDefectNote(activity, task.ID, report, defects),
 		kind: projectstate.KindCoreUseCases, marker: "[upstream defect report " + report.Revision + "]",
 	}}
 }
@@ -8549,7 +8554,7 @@ func upstreamMechanicalRefusal(main *projectstate.Project, task methodassets.Lif
 	if strings.TrimSpace(report.Rationale) == "" {
 		return "it carries no rationale"
 	}
-	if _, err := projectstate.AdmitUpstreamNodes(main, route, report.NodeRefs); err != nil {
+	if _, err := projectstate.AdmitUpstreamDefects(main, route, report.NodeRefs, report.RuleFindings); err != nil {
 		return err.Error()
 	}
 	return ""
@@ -8652,8 +8657,9 @@ func refusedUpstreamReports(main, branch *projectstate.Project, reporter, revisi
 	return n
 }
 
-// repeatedUpstreamNodes names a node an earlier round already sent back, with both sides'
-// reasoning, or "" when every node is new.
+// repeatedUpstreamNodes names a defect an earlier round already sent back, with both sides'
+// reasoning, or "" when every defect is new: a node by use case and node, a rule finding by
+// rule, use case and scenario (the finding's own text is the verb's stamp and does not count).
 func repeatedUpstreamNodes(report projectstate.UpstreamDefectReport, trips []projectstate.UpstreamDefectReport) string {
 	for _, prior := range trips {
 		for _, ref := range report.NodeRefs {
@@ -8662,20 +8668,50 @@ func repeatedUpstreamNodes(report projectstate.UpstreamDefectReport, trips []pro
 					ref.UseCase, ref.Node, prior.Rationale, report.Rationale)
 			}
 		}
+		for _, ref := range report.RuleFindings {
+			if slices.ContainsFunc(prior.RuleFindings, func(p projectstate.UpstreamRuleRef) bool {
+				return p.RuleID == ref.RuleID && p.UseCase == ref.UseCase && p.Scenario == ref.Scenario
+			}) {
+				scenario := ""
+				if ref.Scenario != "" {
+					scenario = " scenario " + ref.Scenario
+				}
+				return fmt.Sprintf("rule finding %s at %s%s came back after the amendment it was sent back for. Then: %s Now: %s",
+					ref.RuleID, ref.UseCase, scenario, prior.Rationale, report.Rationale)
+			}
+		}
 	}
 	return ""
 }
 
-// upstreamDefectNote is what the amendment is sent back with: the nodes, as committed, and the
+// upstreamDefectNote is what the amendment is sent back with: the defects, as committed, and the
 // architect's reasoning — a claim the amendment checks, and the customer behavior it must keep.
-func upstreamDefectNote(activity, task string, report projectstate.UpstreamDefectReport, nodes []projectstate.UpstreamNode) string {
+// The closing instruction is per class present (RUN-030).
+func upstreamDefectNote(activity, task string, report projectstate.UpstreamDefectReport, defects []projectstate.UpstreamDefect) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "The %s draft (%s/%s) cannot realize these nodes with an honest call, so it reports them as defects in the committed core use cases:", activity, activity, task)
-	for _, n := range nodes {
-		fmt.Fprintf(&b, " %s/%s %q (%s);", n.UseCaseID, n.NodeID, n.Label, n.Kind)
+	fmt.Fprintf(&b, "The %s draft (%s/%s) reports nodes it cannot realize with an honest call and/or core-use-case rule findings no System can discharge, as defects in the committed core use cases:", activity, activity, task)
+	var nodes, rules bool
+	for _, d := range defects {
+		switch d := d.(type) {
+		case projectstate.UnrealizableNode:
+			nodes = true
+			fmt.Fprintf(&b, " %s/%s %q (%s);", d.UseCaseID, d.NodeID, d.Label, d.Kind)
+		case projectstate.UseCaseRuleFinding:
+			rules = true
+			scenario := ""
+			if d.Scenario != "" {
+				scenario = " scenario " + d.Scenario
+			}
+			fmt.Fprintf(&b, " %s at %s%s: %s;", d.RuleID, d.UseCaseID, scenario, d.Finding)
+		}
 	}
 	fmt.Fprintf(&b, " Rationale: %s", report.Rationale)
-	b.WriteString(" Amend each named node so that an action is a place where some component makes a NEW call: a node that only returns or renders a result an earlier node produced, or refuses on a verdict an earlier check returned, is a note or a decision outcome. Keep the user-visible behavior (what the user sees or is told); reclassify it, never delete it.")
+	if nodes {
+		b.WriteString(" Amend each named node so that an action is a place where some component makes a NEW call: a node that only returns or renders a result an earlier node produced, or refuses on a verdict an earlier check returned, is a note or a decision outcome. Keep the user-visible behavior (what the user sees or is told); reclassify it, never delete it.")
+	}
+	if rules {
+		b.WriteString(" Amend the shape of each named use case so the named rule clears on the core use cases alone (e.g. give each actor's entry its own path to its own reply instead of merging entries and re-splitting by who asked), keeping the user-visible behavior.")
+	}
 	fmt.Fprintf(&b, " [upstream defect report %s]", report.Revision)
 	return b.String()
 }
