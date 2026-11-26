@@ -7778,7 +7778,9 @@ type admittedPlanDefect struct {
 }
 
 // judgePlanDefectReport reads what a red attempt of a route-carrying task reported and decides
-// it against that attempt's run. An admissible report is remembered for the variance decision. A
+// it against that attempt's run. The admission rules live in projectstate.AdmitPlanDefects, which
+// also admits the survivor shape: a report naming TP-DISCRIMINATE survivors whose scenario checks
+// are green and whose evidence is the red command:test-discriminate (RUN-031). An admissible report is remembered for the variance decision. A
 // refusal, and a run nobody reported on, is an ordinary red: the refusal is added to the
 // diagnostic the attempt records, so the reader sees why the route stayed shut.
 func (wf *csWorkflows) judgePlanDefectReport(
@@ -7816,10 +7818,10 @@ func (wf *csWorkflows) judgePlanDefectReport(
 		return obs
 	}
 	prior := tripReports(row, earlier, tc.Task.ID, tc.Task.SendsBackTo)
-	if reason := planDefectAdmissible(reports, prior, judged, current); reason != "" {
+	if err := projectstate.AdmitPlanDefects(reports, prior, judged, current); err != nil {
 		workflow.GetLogger(ctx).Warn("delivery.planDefect.refused", "activityId", tc.In.ActivityID,
-			"taskId", tc.Task.ID, "attemptId", attemptID, "reason", reason)
-		obs.Diagnostic += " (the plan defect report was refused: " + reason + ")"
+			"taskId", tc.Task.ID, "attemptId", attemptID, "reason", err.Error())
+		obs.Diagnostic += " (the plan defect report was refused: " + err.Error() + ")"
 		return obs
 	}
 	note := planDefectNote(reports)
@@ -7885,91 +7887,6 @@ func reportedContracts(reports []projectstate.PlanDefectReport) []string {
 	slices.Sort(out)
 	return slices.Compact(out)
 }
-
-// planDefectAdmissible returns "" when the reports may re-open the plan, else why not. current
-// digests the reported contracts' bindings as they stand. The rules say that the agent's claim
-// alone never re-opens anything: the run must agree with it.
-//
-//   - A run is recorded at the report's attempt: nothing else says what failed.
-//   - The red set is exactly the named scenarios: build, vet, layout and every other scenario are
-//     green, so the plan is the only thing left to blame.
-//   - Each named scenario has a recorded failing verdict. No verdict and a timeout are plumbing,
-//     which the test-engineer cannot fix.
-//   - Every reported contract has a green scenario. All red points at wiring or an unfilled hook,
-//     so a one-scenario contract takes the ordinary path, which is the safe direction.
-//   - A binding an earlier trip upheld, unchanged since, is settled.
-func planDefectAdmissible(reports, prior []projectstate.PlanDefectReport, run *projectstate.CheckRun, current map[string]string) string {
-	if run == nil {
-		return "no check run is recorded at this attempt"
-	}
-	named := map[string]bool{}
-	for _, r := range reports {
-		for _, id := range r.Scenarios {
-			named[projectstate.CheckKindScenario+":"+r.Contract+":"+id] = true
-		}
-	}
-	green := map[string]bool{}
-	for _, res := range run.Results {
-		if res.Status == checkStatusPass {
-			if contract := derefString(res.Contract, ""); res.Kind == projectstate.CheckKindScenario && contract != "" {
-				green[contract] = true
-			}
-		}
-		if reason := planDefectResultRefusal(res, named); reason != "" {
-			return reason
-		}
-		delete(named, res.CheckId)
-	}
-	if len(named) > 0 {
-		return "check(s) " + strings.Join(slices.Sorted(maps.Keys(named)), ", ") + " are named but the run holds no failure for them"
-	}
-	for _, r := range reports {
-		if !green[r.Contract] {
-			return "every scenario of " + r.Contract + " failed, which points at wiring or a hook rather than at a binding"
-		}
-	}
-	return planDefectUpheld(reports, prior, current)
-}
-
-// planDefectResultRefusal judges one check's result against what the reports named.
-func planDefectResultRefusal(res projectstate.CheckResult, named map[string]bool) string {
-	switch {
-	case res.Status == checkStatusPass:
-		if named[res.CheckId] {
-			return "check " + res.CheckId + " is named but passed"
-		}
-	case !named[res.CheckId] && res.Status == scenarioStatusSkip:
-		// Not red, and the job's gate lets it by, but the testing gate holds on it: the rule is
-		// that everything else is green, and a skip proved nothing.
-		return "check " + res.CheckId + " was skipped and is not named, so the run does not show the rest of the plan green"
-	case !named[res.CheckId]:
-		return "check " + res.CheckId + " is red and not named, so the plan is not the only thing wrong"
-	case res.Status != scenarioStatusFail:
-		return "check " + res.CheckId + " is " + res.Status + ", not a recorded failure"
-	case res.NoVerdict != nil && *res.NoVerdict:
-		return "check " + res.CheckId + " recorded no verdict, which is a plumbing defect and not a plan defect"
-	}
-	return ""
-}
-
-// planDefectUpheld refuses a scenario an earlier report named whose binding has not changed
-// since: the plan's review already ruled on it.
-func planDefectUpheld(reports, prior []projectstate.PlanDefectReport, current map[string]string) string {
-	for _, r := range reports {
-		for _, id := range r.Scenarios {
-			key := r.Contract + ":" + id
-			for _, p := range prior {
-				if p.Contract == r.Contract && slices.Contains(p.Scenarios, id) && p.Baseline[key] == current[key] {
-					return "the binding of " + id + " was reported before and upheld; integration must fix the component"
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// checkStatusPass is a check's green status, in a run's results.
-const checkStatusPass = scenarioStatusPass
 
 // planDefectNote is the steer the plan is sent back with: a claim to check, not evidence.
 func planDefectNote(reports []projectstate.PlanDefectReport) string {
