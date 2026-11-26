@@ -174,10 +174,15 @@ import (
 // (m.messageBus.DeliverSignal) rather than through the Activity invoker — the spelling
 // isBusProducerCall learned in the same commit, because the gate could not see it before.
 //
+// ISS-028-2 (06ef0528) took the channels from 11 to 12 and left the bus counts alone: the
+// construction child's pumpHalted channel (observePumpHalt), which the pump fills with
+// workflow.SignalExternalWorkflow, workflow to workflow, never through messageBus.deliverSignal.
+// That commit did not move this count; it is recorded here after the fact.
+//
 // A change to any of these is a change to this gate's coverage and must be made
 // deliberately, here, in the same commit as the code that moved it.
 const (
-	wantSignalChannelSites = 11
+	wantSignalChannelSites = 12
 	wantBusProducerSites   = 6
 	wantBusChannelSites    = 7
 )
