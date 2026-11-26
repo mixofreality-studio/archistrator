@@ -37499,6 +37499,13 @@
             "noVerdict": {
               "type": "boolean",
               "description": "The scenario's run recorded no verdict for it, so its fail says nothing about the scenario (a results path no check reads, a test that never started). Absent otherwise."
+            },
+            "survivors": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/DiscriminateSurvivor"
+              },
+              "description": "The null-subject run's survivors, on the command:test-discriminate result only: one per TP-DISCRIMINATE line of its log, in log order. Absent on every other check and when nothing survived."
             }
           },
           "required": [
@@ -38372,6 +38379,30 @@
             "deliveryStyle",
             "containers",
             "environments"
+          ],
+          "additionalProperties": false
+        },
+        "DiscriminateSurvivor": {
+          "type": "object",
+          "description": "One survivor of the null-subject run (TP-DISCRIMINATE): a scenario that still passed with the stimulus operation it names nulled, so its binding does not test the behavior it claims. Parsed from the run's `TP-DISCRIMINATE \u003ccontract\u003e \u003cscenario\u003e \u003coperation\u003e` line.",
+          "properties": {
+            "contract": {
+              "type": "string",
+              "description": "The serviceContracts key the scenario belongs to."
+            },
+            "scenario": {
+              "type": "string",
+              "description": "The scenario id, as in the scenario check id scenario:\u003ccontract\u003e:\u003cscenario\u003e."
+            },
+            "operation": {
+              "type": "string",
+              "description": "The stimulus operation that was nulled."
+            }
+          },
+          "required": [
+            "contract",
+            "scenario",
+            "operation"
           ],
           "additionalProperties": false
         },
@@ -41729,7 +41760,8 @@
                 "$ref": "#/$defs/ProjectSummary"
               }
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           },
           {
             "name": "ReadProject",
@@ -41744,7 +41776,8 @@
             "result": {
               "x-go-type": "Project"
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           },
           {
             "name": "ReadProjectVersion",
@@ -41759,7 +41792,8 @@
             "result": {
               "$ref": "#/$defs/Version"
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           },
           {
             "name": "RecordOperatorPaused",
