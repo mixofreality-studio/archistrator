@@ -341,15 +341,16 @@ type CheckItem struct {
 }
 
 type CheckResult struct {
-	CheckId    string  `json:"checkId"`
-	Contract   *string `json:"contract,omitempty"`
-	Kind       string  `json:"kind"`
-	Status     string  `json:"status"`
-	DurationMs int     `json:"durationMs"`
-	OutputRef  *string `json:"outputRef,omitempty"`
-	TraceRef   *string `json:"traceRef,omitempty"`
-	VideoRef   *string `json:"videoRef,omitempty"`
-	NoVerdict  *bool   `json:"noVerdict,omitempty"`
+	CheckId    string                 `json:"checkId"`
+	Contract   *string                `json:"contract,omitempty"`
+	Kind       string                 `json:"kind"`
+	Status     string                 `json:"status"`
+	DurationMs int                    `json:"durationMs"`
+	OutputRef  *string                `json:"outputRef,omitempty"`
+	TraceRef   *string                `json:"traceRef,omitempty"`
+	VideoRef   *string                `json:"videoRef,omitempty"`
+	NoVerdict  *bool                  `json:"noVerdict,omitempty"`
+	Survivors  []DiscriminateSurvivor `json:"survivors,omitempty"`
 }
 
 type CheckRun struct {
@@ -572,6 +573,12 @@ type DeploymentTopology struct {
 	Infrastructure []DeploymentInfraNode        `json:"infrastructure,omitempty"`
 	Bindings       []DeploymentComponentBinding `json:"bindings,omitempty"`
 	Settings       []DeploymentSettingSpec      `json:"settings,omitempty"`
+}
+
+type DiscriminateSurvivor struct {
+	Contract  string `json:"contract"`
+	Scenario  string `json:"scenario"`
+	Operation string `json:"operation"`
 }
 
 type DocNoteRecord struct {

@@ -314,6 +314,10 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 		argv = expanded
 	}
 	out, err := r.exec(ctx, dir, commandEnv(moduleGraphEnv(argv)...), argv...)
+	var survivors []projectstate.DiscriminateSurvivor
+	if c.ID == projectstate.DiscriminateCheckID {
+		survivors = parseDiscriminateSurvivors(out)
+	}
 	status := checkPass
 	switch {
 	case err == nil && boolVal(c.Source.RequireTests) && !ranATest(out):
@@ -326,7 +330,26 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 		status = checkFail
 		out = append(out, []byte("\n["+err.Error()+"]\n")...)
 	}
-	return r.finish(c, status, r.since(start), out)
+	res := r.finish(c, status, r.since(start), out)
+	res.Survivors = survivors
+	return res
+}
+
+// discriminateSurvivorLine is the marker of a scenario that still passed against a null subject.
+const discriminateSurvivorLine = "TP-DISCRIMINATE"
+
+// parseDiscriminateSurvivors reads the discriminate check's output: one survivor per line of
+// exactly `TP-DISCRIMINATE <contract> <scenario> <operation>`, in order. Any other line
+// (TP-BROKEN, a skip, noise) is ignored; nil when there is none.
+func parseDiscriminateSurvivors(out []byte) []projectstate.DiscriminateSurvivor {
+	var survivors []projectstate.DiscriminateSurvivor
+	for line := range strings.SplitSeq(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 4 && f[0] == discriminateSurvivorLine {
+			survivors = append(survivors, projectstate.DiscriminateSurvivor{Contract: f[1], Scenario: f[2], Operation: f[3]})
+		}
+	}
+	return survivors
 }
 
 // workspaceRootsEnv is the env var the venue hands the workspace repos' checkouts in: a JSON

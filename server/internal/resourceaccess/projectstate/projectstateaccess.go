@@ -6373,6 +6373,137 @@ func AdmitUpstreamDefects(p *Project, route methodassets.UpstreamRoute, nodes []
 	return out, nil
 }
 
+// Check-result statuses AdmitPlanDefects reads, as the check runner records them.
+const (
+	checkStatusPass = "pass"
+	checkStatusFail = "fail"
+	checkStatusSkip = "skip"
+)
+
+// DiscriminateCheckID is the check whose log lists the scenarios that survived a null subject:
+// the run records one DiscriminateSurvivor per `TP-DISCRIMINATE <contract> <scenario> <operation>`
+// line it prints, and no other check carries any.
+const DiscriminateCheckID = CheckKindCommand + ":test-discriminate"
+
+// AdmitPlanDefects is the mechanical admission of an integration attempt's plan-defect reports
+// against the check run recorded at that attempt (nil = admissible). The agent's claim alone
+// never re-opens a plan: the run must agree with it. current digests the reported contracts'
+// bindings as they stand; prior are the reports earlier trips upheld or ruled on. The rules:
+//
+//   - A run is recorded at the report's attempt: nothing else says what failed.
+//   - A check that was skipped and is not named is refused: a skip proved nothing about the rest
+//     of the plan.
+//   - A check that is red and not named is refused, so build, vet, layout and every other
+//     scenario are green and the plan is the only thing left to blame. The one exception is
+//     command:test-discriminate (RUN-031): it is red when scenarios survived a null subject, and
+//     the survivors are the evidence. A red discriminate check with survivors is admitted only
+//     if its status is fail and every survivor is a scenario the reports name (an unnamed
+//     survivor is refused, naming it); with no survivors it stays red and not named.
+//   - A named check must be a recorded failure: not a timeout or other status, and not a
+//     failure with no verdict, which is plumbing the test-engineer cannot fix.
+//   - A named scenario that passed is refused, unless it survived the discriminate check: a
+//     survivor's own scenario is green, and the log of the discriminate check is the evidence.
+//   - A named check the run holds no result for is refused.
+//   - Every reported contract has a green scenario: all red points at wiring or an unfilled hook,
+//     so a one-scenario contract takes the ordinary path, which is the safe direction.
+//   - A binding an earlier trip upheld, unchanged since, is settled: integration must fix the
+//     component.
+func AdmitPlanDefects(reports, prior []PlanDefectReport, run *CheckRun, current map[string]string) error {
+	if run == nil {
+		return errors.New("no check run is recorded at this attempt")
+	}
+	named := map[string]bool{}
+	for _, r := range reports {
+		for _, id := range r.Scenarios {
+			named[CheckKindScenario+":"+r.Contract+":"+id] = true
+		}
+	}
+	reported := maps.Clone(named) // named shrinks as results account for it; survivors are judged against all
+	survived := map[string]bool{}
+	for _, res := range run.Results {
+		if res.CheckId != DiscriminateCheckID {
+			continue
+		}
+		for _, s := range res.Survivors {
+			survived[CheckKindScenario+":"+s.Contract+":"+s.Scenario] = true
+		}
+	}
+	green := map[string]bool{}
+	for _, res := range run.Results {
+		if res.Status == checkStatusPass && res.Kind == CheckKindScenario {
+			if contract := derefString(res.Contract); contract != "" {
+				green[contract] = true
+			}
+		}
+		if err := planDefectResultRefusal(res, named, reported, survived); err != nil {
+			return err
+		}
+		delete(named, res.CheckId)
+	}
+	if len(named) > 0 {
+		return errors.New("check(s) " + strings.Join(slices.Sorted(maps.Keys(named)), ", ") + " are named but the run holds no failure for them")
+	}
+	for _, r := range reports {
+		if !green[r.Contract] {
+			return errors.New("every scenario of " + r.Contract + " failed, which points at wiring or a hook rather than at a binding")
+		}
+	}
+	return planDefectUpheld(reports, prior, current)
+}
+
+// planDefectResultRefusal judges one check's result against what the reports named and what
+// survived the discriminate check.
+func planDefectResultRefusal(res CheckResult, named, reported, survived map[string]bool) error {
+	switch {
+	case res.Status == checkStatusPass:
+		if named[res.CheckId] && !survived[res.CheckId] {
+			return errors.New("check " + res.CheckId + " is named but passed")
+		}
+	case !named[res.CheckId] && res.Status == checkStatusSkip:
+		return errors.New("check " + res.CheckId + " was skipped and is not named, so the run does not show the rest of the plan green")
+	case !named[res.CheckId]:
+		if res.CheckId == DiscriminateCheckID && len(res.Survivors) > 0 {
+			return discriminateSurvivorsRefusal(res, reported)
+		}
+		return errors.New("check " + res.CheckId + " is red and not named, so the plan is not the only thing wrong")
+	case res.Status != checkStatusFail:
+		return errors.New("check " + res.CheckId + " is " + res.Status + ", not a recorded failure")
+	case res.NoVerdict != nil && *res.NoVerdict:
+		return errors.New("check " + res.CheckId + " recorded no verdict, which is a plumbing defect and not a plan defect")
+	}
+	return nil
+}
+
+// discriminateSurvivorsRefusal admits the red discriminate check when it failed and every
+// survivor is a named scenario; otherwise it says why not.
+func discriminateSurvivorsRefusal(res CheckResult, named map[string]bool) error {
+	if res.Status != checkStatusFail {
+		return errors.New("check " + res.CheckId + " is " + res.Status + ", not a recorded failure")
+	}
+	for _, s := range res.Survivors {
+		if id := CheckKindScenario + ":" + s.Contract + ":" + s.Scenario; !named[id] {
+			return errors.New("check " + res.CheckId + " is red with survivor " + id + " which is not named, so the plan is not the only thing wrong")
+		}
+	}
+	return nil
+}
+
+// planDefectUpheld refuses a scenario an earlier report named whose binding has not changed
+// since: the plan's review already ruled on it.
+func planDefectUpheld(reports, prior []PlanDefectReport, current map[string]string) error {
+	for _, r := range reports {
+		for _, id := range r.Scenarios {
+			key := r.Contract + ":" + id
+			for _, p := range prior {
+				if p.Contract == r.Contract && slices.Contains(p.Scenarios, id) && p.Baseline[key] == current[key] {
+					return errors.New("the binding of " + id + " was reported before and upheld; integration must fix the component")
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // StampUpstreamRuleRefs resolves each reference against errs, the Error findings the draft's
 // refusal reported, and returns them with Finding set to the refusal's message. A rule outside
 // CoreUseCaseRules, or one errs does not carry at that use case (and scenario, when given), is
