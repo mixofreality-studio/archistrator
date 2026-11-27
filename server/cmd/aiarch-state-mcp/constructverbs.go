@@ -231,10 +231,33 @@ func (s *Session) recordServiceContractJSON(b []byte) error {
 		}
 		p.ServiceContracts[key] = sc
 		if strings.EqualFold(sc.Layer, "manager") || strings.EqualFold(sc.Interface.Layer, "manager") {
-			return projectstate.RecordMachineClientContracts(p)
+			return recordManagerContract(p, comp.ID, key, sc)
 		}
 		return nil
 	}, string(appgen.KindServiceContract))
+}
+
+// recordManagerContract files a Manager's contract with its readOnly flags derived from its designed
+// call chain, never from its names (projectstate.ManagerOpsReadOnly). The contract goes into the
+// project first, since the derivation reads the contracts recorded; the machine clients' contracts
+// are derived after the flags, so they copy them, and the recorded browser contracts that reach
+// the Manager are refreshed. A derivation that fails refuses the record, naming the Manager.
+func recordManagerContract(p *projectstate.Project, componentID, key string, sc projectstate.ServiceContract) error {
+	p.ServiceContracts[key] = sc
+	flags, err := projectstate.ManagerOpsReadOnly(p, componentID)
+	if err != nil {
+		return fmt.Errorf("recordServiceContract: deriving which operations of Manager %q are read-only: %w", componentID, err)
+	}
+	ops := slices.Clone(sc.Interface.Operations)
+	for i := range ops {
+		ops[i].ReadOnly = flags[ops[i].Name]
+	}
+	sc.Interface.Operations = ops
+	p.ServiceContracts[key] = sc
+	if err := projectstate.RecordMachineClientContracts(p); err != nil {
+		return err
+	}
+	return projectstate.RefreshBrowserReadOnly(p)
 }
 
 // facetKey is the key the contract is filed under. A component may own several contract facets
@@ -418,17 +441,20 @@ func jsonEqual(a, b json.RawMessage) bool {
 	return reflect.DeepEqual(x, y)
 }
 
-// markReadOnlyOperations sets each operation's readOnly flag from its name and layer, the one
-// classifier the internal tool catalog's readOnlyHint uses. Nobody authors it: methodcheck holds a
-// test probe to a read-only operation (TP-PROBE), so a flag an author could set would be a way to
-// probe a write.
+// markReadOnlyOperations sets each Engine, ResourceAccess and Utility operation's readOnly flag from
+// its name and layer (projectstate.OperationReadOnly). A Manager's, and any other layer's, is left
+// false here: a Manager's operations are read-only only by their designed call chain
+// (projectstate.ManagerOpsReadOnly, applied by recordServiceContractJSON). Nobody authors the flag:
+// methodcheck holds a test probe to a read-only operation (TP-PROBE), so a flag an author could set
+// would be a way to probe a write.
 func markReadOnlyOperations(sc *projectstate.ServiceContract) {
 	layer := sc.Layer
 	if layer == "" {
 		layer = sc.Interface.Layer
 	}
+	leaf := slices.ContainsFunc([]string{"engine", "resourceaccess", "utility"}, func(l string) bool { return strings.EqualFold(layer, l) })
 	for i := range sc.Interface.Operations {
-		sc.Interface.Operations[i].ReadOnly = projectstate.OperationReadOnly(layer, sc.Interface.Operations[i].Name)
+		sc.Interface.Operations[i].ReadOnly = leaf && projectstate.OperationReadOnly(layer, sc.Interface.Operations[i].Name)
 	}
 }
 

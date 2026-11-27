@@ -337,11 +337,16 @@ EncodeProjectJSON
 # BINDING MODEL V2 DIALECT SEAMS (fpc-2 Task 2.11): ApplyRuleWaivers is the dated rule-waiver
 # downgrade the aiarch-state-mcp gate and the method-design test both apply (one policy, two
 # callers); BrowserDialectDefs is the embedded UI-dialect $defs, one source for
-# RecordBrowserContract; OperationReadOnly is the verb-prefix classifier the recording verb and
+# RecordBrowserContract; OperationReadOnly is the verb-prefix classifier of the leaf layers the recording verb and
 # internaltoolsgen share. Same category as the codec: consumed by cmd/ binaries.
 ApplyRuleWaivers
 BrowserDialectDefs
 OperationReadOnly
+# ManagerOpsReadOnly derives a Manager's readOnly flags from its designed call chain and
+# RefreshBrowserReadOnly re-derives the recorded browser contracts' flags from the recorded Managers;
+# recordServiceContract (cmd/aiarch-state-mcp) calls both.
+ManagerOpsReadOnly
+RefreshBrowserReadOnly
 # IsTestCodePath is the edit-scope matcher's built-in exclusion (GC-1: no scope admits test
 # code); the aiarch-state-mcp gate and the task-spec tests read it through EditScopeGlobMatch.
 IsTestCodePath

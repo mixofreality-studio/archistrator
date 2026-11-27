@@ -6050,7 +6050,10 @@ type ContractOperation struct {
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  bool            `json:"error"`
 	// ReadOnly marks an operation that only observes (the platform's projectmodel field of the
-	// same name): methodcheck holds a test probe to one. Omitted when false, so every
+	// same name): methodcheck holds a test probe to one. Nobody authors it. An Engine, ResourceAccess
+	// or Utility operation's comes from its name (OperationReadOnly); a Manager's from its designed
+	// call chain (ManagerOpsReadOnly); a machine client's copies its Manager's and a browser
+	// surface's comes from the Manager operations it fans into. Omitted when false, so every
 	// operation that does not set it keeps its committed bytes.
 	ReadOnly bool `json:"readOnly,omitempty"`
 	// UI optionally marks this operation as rendering an MCP App view.
@@ -14166,10 +14169,16 @@ func RecordBrowserContract(p *Project, componentID string) error {
 		return err
 	}
 	want := slices.Sorted(slices.Values(ops))
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return err
+	}
+	readOnly := browserReadOnly(p, in, c)
 	if slices.Equal(have, want) {
+		refreshBrowserFlags(p, key, readOnly)
 		return nil
 	}
-	sc, err := browserContract(key, c.Name, ops)
+	sc, err := browserContract(key, c.Name, ops, readOnly)
 	if err != nil {
 		return fmt.Errorf("recording the UI design of %q: %w", componentID, err)
 	}
@@ -14212,7 +14221,7 @@ func familyOps(p *Project, componentID string) ([]string, error) {
 
 // browserContract builds the derived contract: no goPackage, so testgen routes it to Playwright,
 // each operation in the web dialect with its spelling kept literal.
-func browserContract(key, name string, ops []string) (ServiceContract, error) {
+func browserContract(key, name string, ops []string, readOnly map[string]bool) (ServiceContract, error) {
 	type param struct {
 		Name   string         `json:"name"`
 		Schema map[string]any `json:"schema"`
@@ -14222,7 +14231,7 @@ func browserContract(key, name string, ops []string) (ServiceContract, error) {
 		Params []param        `json:"params"`
 		Result map[string]any `json:"result"`
 		Error  bool           `json:"error"`
-		// ReadOnly is derived, never authored (markReadOnlyOperations).
+		// ReadOnly is derived from the Manager ops the surface fans into (browserReadOnly), never authored.
 		ReadOnly bool `json:"readOnly,omitempty"`
 	}
 	operations := make([]operation, 0, len(ops))
@@ -14231,7 +14240,7 @@ func browserContract(key, name string, ops []string) (ServiceContract, error) {
 			Name:     op,
 			Params:   []param{{Name: "action", Schema: map[string]any{"$ref": "#/$defs/UIAction"}}},
 			Result:   map[string]any{"$ref": "#/$defs/UIObservation"},
-			ReadOnly: OperationReadOnly("client", op),
+			ReadOnly: readOnly[op],
 		})
 	}
 	raw, err := json.Marshal(map[string]any{
@@ -14518,10 +14527,12 @@ var layerReadVerbs = map[string][]string{
 	"client": {"Open"},
 }
 
-// OperationReadOnly classifies a contract operation as one that only observes: every Engine
-// operation (Engines are pure computation), and any other operation whose name begins with a
-// read verb. It is the one classifier behind both the internal tool catalog's readOnlyHint and
-// a recorded contract's readOnly flag, which methodcheck holds a test probe to.
+// OperationReadOnly classifies a contract operation by its name and layer: every Engine operation
+// (Engines are pure computation), and any other operation whose name begins with a read verb. It is
+// the classifier of the leaves (Engine, ResourceAccess, Utility operations) and of the internal tool
+// catalog's readOnlyHint. It is NOT how a Manager's or a surface's operation is classified: those
+// are read-only only by their designed call chain (ManagerOpsReadOnly, browserReadOnly), never by
+// their name.
 func OperationReadOnly(layer, operation string) bool {
 	if strings.EqualFold(layer, "engine") {
 		return true
@@ -14664,5 +14675,313 @@ func (b *ScenarioBinding) UnmarshalJSON(raw []byte) error {
 		arrange = append(arrange, c)
 	}
 	*b = ScenarioBinding{Scenario: aux.Scenario, Arrange: arrange, Steps: aux.Steps, Skip: aux.Skip}
+	return nil
+}
+
+// ---- readOnly from the designed call chain (ISS-033-1) ----
+
+// systemByNormalizedID indexes the committed System's components by scenario.Normalize of their id,
+// the spelling a derived stimulus carries.
+func systemByNormalizedID(p *Project) map[string]Component {
+	out := map[string]Component{}
+	sys, ok := scenarioCommittedModel[*System](p, KindSystem)
+	if !ok {
+		if sys, ok = p.SystemDesign.Model.(*System); !ok || sys == nil {
+			return out
+		}
+	}
+	for _, c := range sys.Components {
+		out[scenario.Normalize(c.ID)] = c
+	}
+	return out
+}
+
+// recordedOpReadOnly is the recorded readOnly flag of operation op on the contract filed under the
+// key that normalizes to normalizedKey; false when no such contract or operation is recorded.
+func recordedOpReadOnly(p *Project, normalizedKey, op string) bool {
+	best, found := "", false
+	for k := range p.ServiceContracts {
+		if scenario.Normalize(k) == normalizedKey && (!found || k < best) {
+			best, found = k, true
+		}
+	}
+	if !found {
+		return false
+	}
+	for _, o := range p.ServiceContracts[best].Interface.Operations {
+		if o.Name == op {
+			return o.ReadOnly
+		}
+	}
+	return false
+}
+
+// ManagerOpsReadOnly derives, for every operation of the Manager component managerID, whether it
+// only observes, from the designed call chain and not from its name. The Manager's contract must
+// already be in p.ServiceContracts. Each stimulus of the derived scenarios that enters the Manager
+// and resolves one of its operations opens a segment: the call stimuli From the Manager that follow
+// it, until the next actor stimulus or the next call into the Manager. An operation is read-only
+// iff it opens at least one segment (callers of the same operation drawn side by side share one),
+// every segment has at least one call, and every call is into an
+// Engine, or into a ResourceAccess or Utility operation whose RECORDED contract flags it read-only.
+// It fails closed: a call into a Manager, a Client or a component the System does not name, a call
+// whose label resolves no operation, a callee with no recorded contract (the derivation drops such
+// a call, so the views are consulted too) and an operation on no path are all writes.
+func ManagerOpsReadOnly(p *Project, managerID string) (map[string]bool, error) {
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return nil, err
+	}
+	all, err := scenario.Derive(in)
+	if err != nil {
+		return nil, fmt.Errorf("deriving the scenarios of Manager %q: %w", managerID, err)
+	}
+	w := &managerWalk{p: p, in: in, mgr: scenario.Normalize(managerID), owned: map[string]bool{},
+		byID: systemByNormalizedID(p), verdicts: map[string]*opVerdict{}}
+	for key, c := range in.Contracts {
+		if scenario.Normalize(key) == w.mgr || (c.FacetOf != "" && scenario.Normalize(c.FacetOf) == w.mgr) {
+			w.owned[scenario.Normalize(key)] = true
+		}
+	}
+	for _, s := range all {
+		w.walk(s)
+	}
+	out := map[string]bool{}
+	for key, c := range in.Contracts {
+		if !w.owned[scenario.Normalize(key)] {
+			continue
+		}
+		for _, op := range c.Ops {
+			v := w.verdicts[op.Name]
+			out[op.Name] = v != nil && v.opened > 0 && v.ok
+		}
+	}
+	return out, nil
+}
+
+// opVerdict is what the segments of one Manager operation have shown so far.
+type opVerdict struct {
+	opened int
+	ok     bool
+}
+
+// managerWalk reads the derived scenarios for one Manager's segments.
+type managerWalk struct {
+	p        *Project
+	in       scenario.Input
+	mgr      string          // Normalize of the Manager's component id
+	owned    map[string]bool // Normalize of the keys of the Manager's contract family
+	byID     map[string]Component
+	verdicts map[string]*opVerdict
+}
+
+// walk reads one scenario's stimuli in order, opening and closing segments.
+func (w *managerWalk) walk(s scenario.Scenario) {
+	var seg *managerSegment
+	for i := range s.Stimuli {
+		st := &s.Stimuli[i]
+		switch {
+		case w.owned[st.Input.To]:
+			if seg != nil && seg.calls == 0 && seg.op == st.Input.Op {
+				// Sibling clients drawn side by side each call the same operation: one
+				// segment, the calls the Manager makes after them.
+				continue
+			}
+			w.finish(s, seg, st)
+			seg = nil
+			if st.Input.Op != "" {
+				seg = &managerSegment{op: st.Input.Op, ok: true, openNode: st.Node}
+			}
+		case st.Input.Kind != "call":
+			w.finish(s, seg, st)
+			seg = nil
+		case seg != nil && scenario.Normalize(st.Input.From) == w.mgr:
+			seg.calls++
+			seg.ok = seg.ok && managerCallReadOnly(w.p, w.byID, st.Input)
+		}
+	}
+	w.finish(s, seg, nil)
+}
+
+// finish counts a closed segment, if there is one, against its operation.
+func (w *managerWalk) finish(s scenario.Scenario, seg *managerSegment, closer *scenario.Stimulus) {
+	if seg == nil {
+		return
+	}
+	v := w.verdicts[seg.op]
+	if v == nil {
+		v = &opVerdict{ok: true}
+		w.verdicts[seg.op] = v
+	}
+	v.opened++
+	if seg.calls == 0 || !seg.ok || managerSegmentUncontracted(w.in, w.mgr, s, seg.openNode, closer) {
+		v.ok = false
+	}
+}
+
+// managerSegment is the calls one Manager operation's stimulus makes before the next stimulus that
+// is not its own.
+type managerSegment struct {
+	op       string
+	calls    int
+	ok       bool
+	openNode string
+}
+
+// managerCallReadOnly reports whether one call a Manager makes only observes.
+func managerCallReadOnly(p *Project, byID map[string]Component, ev scenario.InputEv) bool {
+	if ev.Op == "" {
+		return false
+	}
+	switch byID[ev.To].Kind {
+	case CompEngine:
+		return true
+	case CompResourceAccess, CompUtility:
+		return recordedOpReadOnly(p, ev.To, ev.Op)
+	case CompManager, CompClient, CompResource:
+		return false
+	}
+	return false
+}
+
+// managerSegmentUncontracted reports whether the views draw a call from the Manager, in the path
+// nodes of a segment, to a callee with no recorded contract. The derivation opens no stimulus for
+// such a call, so without this look the segment would read as shorter than the design draws it.
+func managerSegmentUncontracted(in scenario.Input, mgr string, s scenario.Scenario, openNode string, closer *scenario.Stimulus) bool {
+	from := slices.Index(s.Path, openNode)
+	if from < 0 {
+		return true
+	}
+	to := len(s.Path)
+	if closer != nil {
+		if closer.Node == openNode {
+			to = from + 1
+		} else if at := slices.Index(s.Path[from:], closer.Node); at >= 0 {
+			to = from + at
+		}
+	}
+	nodes := map[string]bool{}
+	for _, n := range s.Path[from:to] {
+		nodes[n] = true
+	}
+	for _, v := range in.Views {
+		if v.UseCaseID != s.UseCase {
+			continue
+		}
+		for _, step := range v.Steps {
+			if !nodes[step.NodeID] {
+				continue
+			}
+			for _, c := range step.Calls {
+				if scenario.Normalize(c.From) != mgr || in.Actors[c.To] {
+					continue
+				}
+				if _, ok := scenario.FamilyOps(in, c.To); !ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// browserReadOnly derives each operation of a browser surface: read-only iff the Manager operations
+// it fans into (the surface's calls into a Manager in the view where an actor calls it, the actor's
+// request and the surface's call being drawn in one step as often as in two) are at least one and all flagged read-only in the Manager's recorded contract. A fan-out call that
+// resolves no operation, or reaches a Manager with no recorded contract, is a write.
+func browserReadOnly(p *Project, in scenario.Input, c *Component) map[string]bool {
+	byID := systemByNormalizedID(p)
+	self := scenario.Normalize(c.ID)
+	seen := map[string]bool{}
+	ok := map[string]bool{}
+	for _, v := range in.Views {
+		var calls []scenario.Call
+		for _, step := range v.Steps {
+			calls = append(calls, step.Calls...)
+		}
+		fan := surfaceFanOutReadOnly(p, in, byID, self, calls)
+		for _, call := range calls {
+			if scenario.Normalize(call.To) != self || !in.Actors[call.From] {
+				continue
+			}
+			names, err := scenario.ClientOps([]string{call.Label})
+			if err != nil {
+				continue
+			}
+			for _, op := range names {
+				if !seen[op] {
+					seen[op], ok[op] = true, true
+				}
+				ok[op] = ok[op] && fan
+			}
+		}
+	}
+	return ok
+}
+
+// surfaceFanOutReadOnly reports whether the surface's calls into Managers within one view are at
+// least one and all read-only.
+func surfaceFanOutReadOnly(p *Project, in scenario.Input, byID map[string]Component, self string, step []scenario.Call) bool {
+	reached := 0
+	for _, call := range step {
+		if scenario.Normalize(call.From) != self || byID[scenario.Normalize(call.To)].Kind != CompManager {
+			continue
+		}
+		ops := scenario.ClientManagerOps(in, self, []scenario.Call{call})
+		if len(ops) == 0 {
+			return false
+		}
+		for _, m := range ops {
+			if !recordedOpReadOnly(p, scenario.Normalize(m.Contract), m.Op) {
+				return false
+			}
+			reached++
+		}
+	}
+	return reached > 0
+}
+
+// refreshBrowserFlags rewrites, in place, only the readOnly flags of the recorded contracts of one
+// browser surface's family (filed under key or owned by it).
+func refreshBrowserFlags(p *Project, key string, readOnly map[string]bool) {
+	for name, sc := range p.ServiceContracts {
+		if name != key && sc.Component != key {
+			continue
+		}
+		ops := slices.Clone(sc.Interface.Operations)
+		changed := false
+		for i := range ops {
+			want, known := readOnly[ops[i].Name]
+			if known && ops[i].ReadOnly != want {
+				ops[i].ReadOnly, changed = want, true
+			}
+		}
+		if changed {
+			sc.Interface.Operations = ops
+			p.ServiceContracts[name] = sc
+		}
+	}
+}
+
+// RefreshBrowserReadOnly re-derives the readOnly flag of every recorded browser contract from the
+// Manager contracts recorded now, touching nothing else: recording a Manager can change what a
+// surface that reaches it observes, and RecordBrowserContract only runs when a UI design is recorded.
+func RefreshBrowserReadOnly(p *Project) error {
+	sys, ok := p.SystemDesign.Model.(*System)
+	if !ok || sys == nil {
+		return nil
+	}
+	in, err := ScenarioInputOf(p)
+	if err != nil {
+		return err
+	}
+	for i := range sys.Components {
+		c := &sys.Components[i]
+		if !isBrowserSurface(c) {
+			continue
+		}
+		key, _ := ContractKeyFor(*c)
+		refreshBrowserFlags(p, key, browserReadOnly(p, in, c))
+	}
 	return nil
 }
