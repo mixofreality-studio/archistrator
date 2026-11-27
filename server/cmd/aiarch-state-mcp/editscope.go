@@ -45,6 +45,14 @@ package main
 // failed integration:1, stayed, passed integration:2, and conflicted at the merge). The net
 // diff sees it on every later attempt until it is reverted. Content merged in from main is
 // not in it: after the walk's refresh (FIX-038) the merge-base is main's tip.
+//
+// The scenario tests an integration job generated and committed are in that net diff for the rest
+// of the activity, and edit scope refuses all test code. Admission there is a property of the
+// ACTIVITY (spec.ActivityRegeneratesTests): every task's gate drops the test-code paths testgen
+// writes (admitActivityGeneratedTests), with no byte equality — an stp that amends the plan makes
+// them stale until integration's job regenerates them, and holding them fresh is that task's own
+// job. The per-attempt check stays strict: only an integration task's own diff is admitted, and
+// only byte-equal to regeneration (admitRegeneratedTests).
 
 import (
 	"bytes"
@@ -114,7 +122,7 @@ func runEditScope(args []string) error {
 	if bad, err = admitRegeneratedTests(wd, *spec, rng, bad); err != nil {
 		return exitError{2, err}
 	}
-	if stray, err = admitRegeneratedTests(wd, *spec, rng, stray); err != nil {
+	if stray, err = admitActivityGeneratedTests(wd, *spec, rng, stray); err != nil {
 		return exitError{2, err}
 	}
 	drift, err := generatedDriftViolations(wd, *spec, rng)

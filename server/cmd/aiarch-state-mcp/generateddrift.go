@@ -159,16 +159,40 @@ const testGenerator = "testgen"
 // runs and commits itself.
 var integrationCommands = []string{"service-integration", "frontend-integration"}
 
-// admitRegeneratedTests drops from violations the test-code paths (projectstate.IsTestCodePath) an
-// integration task's job generated: a changed path whose committed bytes at head equal what testgen
-// writes over the same project document. The agent writes no test code, and a path it wrote or
-// edited by hand differs from regeneration, so it stays a violation; the generated tests the job
-// itself wrote and committed before the agent ran are the job's output (they reach this list only
-// through the activity-level net diff, never an agent's per-attempt diff), held current by the same
-// regeneration the drift check above uses. Workspace paths (named "@<repo>/...") are
-// never admitted. A task that is not an integration, or a list holding no test-code path, costs
-// nothing; otherwise root must be a checkout of head.
+// admitRegeneratedTests is the PER-ATTEMPT admission: it drops from violations the test-code paths
+// (projectstate.IsTestCodePath) an integration task's job generated, a changed path whose committed
+// bytes at head equal what testgen writes over the same project document. The agent writes no test
+// code, and a path it wrote or edited by hand differs from regeneration, so it stays a violation;
+// the generated tests the job itself wrote and committed before the agent ran are the job's output
+// (they never reach an agent's per-attempt diff untouched), held current by the same regeneration
+// the drift check above uses. Workspace paths (named "@<repo>/...") are never admitted. A task that
+// is not an integration, or a list holding no test-code path, costs nothing; otherwise root must be
+// a checkout of head. The activity-level net diff does NOT come through here: see
+// admitActivityGeneratedTests.
 func admitRegeneratedTests(root, specPath string, rng editScopeRange, violations []string) ([]string, error) {
+	return admitTests(root, specPath, rng, violations, func(spec review.TaskSpec) bool {
+		return slices.Contains(integrationCommands, spec.Identity.Command)
+	}, true)
+}
+
+// admitActivityGeneratedTests is the ACTIVITY-LEVEL admission, a property of the activity and not of
+// the task being gated: when the spec's activity runs an integration task (spec.ActivityRegeneratesTests)
+// the integration job generates and commits the scenario tests onto the branch, and they stay in the
+// branch's net diff against main through every later task (a walk back to stp included). It drops
+// from violations each non-workspace test-code path that is a member of what testgen writes, with NO
+// byte equality: an stp that amends the plan makes the committed file stale until integration's job
+// regenerates it, and freshness is that task's own regeneration, drift check and per-attempt admission.
+// A path no generator writes stays a violation; a spec whose activity has no integration task admits
+// nothing. Otherwise root must be a checkout of head.
+func admitActivityGeneratedTests(root, specPath string, rng editScopeRange, violations []string) ([]string, error) {
+	return admitTests(root, specPath, rng, violations, func(spec review.TaskSpec) bool {
+		return spec.ActivityRegeneratesTests
+	}, false)
+}
+
+// admitTests drops the test-code paths of violations that testgen writes, when applies holds of the
+// spec; byteEqual also requires the committed bytes at head to equal the regenerated ones.
+func admitTests(root, specPath string, rng editScopeRange, violations []string, applies func(review.TaskSpec) bool, byteEqual bool) ([]string, error) {
 	var candidates []string
 	for _, v := range violations {
 		if !strings.HasPrefix(v, workspaceGlobPrefix) && projectstate.IsTestCodePath(v) {
@@ -182,7 +206,7 @@ func admitRegeneratedTests(root, specPath string, rng editScopeRange, violations
 	if err != nil {
 		return nil, err
 	}
-	if !slices.Contains(integrationCommands, spec.Identity.Command) {
+	if !applies(spec) {
 		return violations, nil
 	}
 	if at, err := commitSHA(root, "HEAD"); err != nil || at != rng.head {
@@ -194,16 +218,25 @@ func admitRegeneratedTests(root, specPath string, rng editScopeRange, violations
 	}
 	var kept []string
 	for _, v := range violations {
-		if slices.Contains(candidates, v) {
-			if want, ok := regenerated[v]; ok {
-				if got, err := isolatedGit(root, "show", rng.head+":"+v); err == nil && got == string(want) {
-					continue
-				}
-			}
+		if !slices.Contains(candidates, v) || !admitted(root, rng.head, v, regenerated, byteEqual) {
+			kept = append(kept, v)
 		}
-		kept = append(kept, v)
 	}
 	return kept, nil
+}
+
+// admitted reports whether the test path v is one testgen writes and, with byteEqual, whether its
+// bytes at head equal what testgen wrote.
+func admitted(root, head, v string, regenerated map[string][]byte, byteEqual bool) bool {
+	want, ok := regenerated[v]
+	if !ok {
+		return false
+	}
+	if !byteEqual {
+		return true
+	}
+	got, err := isolatedGit(root, "show", head+":"+v)
+	return err == nil && got == string(want)
 }
 
 func dirExists(p string) bool {

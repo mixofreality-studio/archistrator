@@ -13786,7 +13786,7 @@ const (
 // encoding — so a stale state tool is named as stale, not reported as "task spec
 // drifted" (R56). The method-assets half of StateToolVersion covers the prompts,
 // charters and lifecycles.
-const TaskSpecSchemaVersion = 9
+const TaskSpecSchemaVersion = 10
 
 // StateToolVersion is the generation of the task-spec code a binary carries: the
 // method-assets module version it was built with (from its own build info; a workspace
@@ -13936,7 +13936,9 @@ func ValidEditScopeGlob(g string) bool {
 // null.gen_test.go), and the once-seeded hooks files the old binding model had agents fill
 // (*_hooks_test.go). The job generates AND commits the generated ones before the agent runs, so
 // they are never in an agent's per-attempt diff; gen-tests-check holds them current, and the
-// activity-level net diff against main admits them only byte-equal to regeneration
+// activity-level net diff against main admits the ones testgen writes, whatever the task and
+// without byte equality, while the activity runs an integration task (admitActivityGeneratedTests);
+// an integration task's own per-attempt diff admits them only byte-equal to regeneration
 // (admitRegeneratedTests). An agent writes no test code, so excluding them from every scope costs
 // it nothing.
 // The grammar has no exclusion syntax; this is the one built-in exclusion, applied by
