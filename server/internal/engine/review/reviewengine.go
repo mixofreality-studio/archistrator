@@ -1137,6 +1137,11 @@ func (reviewEngineImpl) DeriveTaskSpec(_ fweng.Context, project string, facts Ta
 		return TaskSpec{}, fweng.New(fweng.InvalidInput, fmt.Sprintf("DeriveTaskSpec: %s/%s: %s", facts.Activity, facts.Task, err.Error()))
 	}
 	s.ActivityEditScope = tp.activityEditScope(key, lc, item, facts.Activity, facts.SlotRules)
+	// ActivityRegeneratesTests: true when the activity's lifecycle has an integration task,
+	// the one task that generates and commits the scenario tests. It is a property of the
+	// activity, not of this task, so every task of the activity (its stp task included) carries
+	// the same value and a gate judging the whole activity can admit those generated tests.
+	s.ActivityRegeneratesTests = lifecycleRegeneratesTests(key, lc, item, facts.Activity)
 	s.Contracts = tp.generatedContractsOf(ms.Command, item.componentID)
 	s.Generate = tp.generatorsOf(ms.Command, item.componentID)
 	outs, err := tp.manifestOf(ms.Command, item.componentID)
@@ -1362,6 +1367,28 @@ func builtinTools(ms methodassets.MethodSpec) []string {
 	return slices.Compact(out)
 }
 
+// The commands of the integration tasks, the ones that generate the scenario tests.
+const (
+	serviceIntegrationCommand  = "service-integration"
+	frontendIntegrationCommand = "frontend-integration"
+)
+
+// lifecycleRegeneratesTests reports whether some task of lc resolves to an integration
+// command. Like activityEditScope it is a pure function of the activity and the embedded
+// method assets.
+func lifecycleRegeneratesTests(key string, lc methodassets.Lifecycle, item taskItem, activityID string) bool {
+	for _, t := range lc.Tasks {
+		ms, err := methodassets.MethodSpecFor(key, t.ID, commandArgs(lc, t.ID, item.componentID, activityID))
+		if err != nil {
+			continue
+		}
+		if ms.Command == serviceIntegrationCommand || ms.Command == frontendIntegrationCommand {
+			return true
+		}
+	}
+	return false
+}
+
 // activityEditScope is the union of the edit scopes of every task of lc (FIX-040): each
 // component's paths and every extra glob any task may change, sorted and unique, and
 // StateOnly only when every task is state-only. It is a pure function of the project, the
@@ -1454,7 +1481,7 @@ func (tp *taskProject) scopeAndChecksBase(ms methodassets.MethodSpec, item taskI
 	}
 	contracts := tp.componentContracts(item.componentID)
 	switch ms.Command {
-	case "service-construction", "service-integration":
+	case "service-construction", serviceIntegrationCommand:
 		pkgs := tp.goPackagesOf(contracts)
 		if len(pkgs) == 0 && isMachineSurface(item.surface) {
 			return SpecEditScope{}, nil, fmt.Errorf("machine client %q has no contract: it is derived when the contract of the Manager its views call is recorded, so that Manager must be designed first and the views must draw the call", item.componentID)
@@ -1462,9 +1489,9 @@ func (tp *taskProject) scopeAndChecksBase(ms methodassets.MethodSpec, item taskI
 		if len(pkgs) == 0 {
 			break // no Go package to scope or check: the underivable posture below
 		}
-		return tp.serviceScopeAndChecks(ms.Command == "service-integration", item.componentID, pkgs, contracts)
-	case "frontend-construction", "frontend-integration":
-		return tp.frontendScopeAndChecks(ms.Command == "frontend-integration", item.componentID, contracts)
+		return tp.serviceScopeAndChecks(ms.Command == serviceIntegrationCommand, item.componentID, pkgs, contracts)
+	case "frontend-construction", frontendIntegrationCommand:
+		return tp.frontendScopeAndChecks(ms.Command == frontendIntegrationCommand, item.componentID, contracts)
 	case "deployment-integration":
 		// The rollout is the composed app's too: it boots through its run contract before it
 		// converges anywhere. Its scope stays explicit "any path", as every deployment task's.
@@ -1578,7 +1605,7 @@ func projectRuleCheck() SpecCheck {
 // generatedContractsOf is the contracts a service task's job generates, sorted: the
 // component's own recorded contracts that have a Go package to land in.
 func (tp *taskProject) generatedContractsOf(command, componentID string) []string {
-	if command != "service-construction" && command != "service-integration" {
+	if command != "service-construction" && command != serviceIntegrationCommand {
 		return nil
 	}
 	var out []string
@@ -1723,7 +1750,7 @@ func (tp *taskProject) generatorsOf(command, componentID string) []SpecGenerator
 		if tp.isManagerComponent(componentID) {
 			out = append(out, SpecGenerator{Title: "appgen temporal", Argv: tp.appgenArgv("temporal")})
 		}
-	case "frontend-construction", "frontend-integration":
+	case "frontend-construction", frontendIntegrationCommand:
 		web := tp.webDirFromModule()
 		// The surface kind seats the entry the surface's host needs: a web page, or an MCP Apps
 		// host-bridge seat. A Client with no stated surface passes none, so webgen refuses it.
@@ -1735,7 +1762,7 @@ func (tp *taskProject) generatorsOf(command, componentID string) []SpecGenerator
 			SpecGenerator{Title: "webgen bootstrap", Argv: bootstrap},
 			SpecGenerator{Title: "webgen generate", Argv: []string{"go", "tool", "webgen", "generate", "-C", web}},
 		)
-	case "service-integration":
+	case serviceIntegrationCommand:
 		if tp.composesServer(tp.componentContracts(componentID)) {
 			out = append(out, tp.compositionGeneratorsSpec()...)
 		}

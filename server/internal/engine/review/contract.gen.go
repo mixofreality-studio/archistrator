@@ -177,19 +177,20 @@ type TaskFacts struct {
 }
 
 type TaskSpec struct {
-	Activity          string          `json:"activity"`
-	Task              string          `json:"task"`
-	Identity          SpecIdentity    `json:"identity"`
-	Model             SpecModel       `json:"model"`
-	Prompt            SpecPrompt      `json:"prompt"`
-	Tools             SpecTools       `json:"tools"`
-	EditScope         SpecEditScope   `json:"editScope"`
-	ActivityEditScope SpecEditScope   `json:"activityEditScope"`
-	Checks            []SpecCheck     `json:"checks"`
-	Contracts         []string        `json:"contracts,omitempty"`
-	Generate          []SpecGenerator `json:"generate,omitempty"`
-	Generated         []string        `json:"generated,omitempty"`
-	Hash              string          `json:"hash"`
+	Activity                 string          `json:"activity"`
+	Task                     string          `json:"task"`
+	Identity                 SpecIdentity    `json:"identity"`
+	Model                    SpecModel       `json:"model"`
+	Prompt                   SpecPrompt      `json:"prompt"`
+	Tools                    SpecTools       `json:"tools"`
+	EditScope                SpecEditScope   `json:"editScope"`
+	ActivityEditScope        SpecEditScope   `json:"activityEditScope"`
+	ActivityRegeneratesTests bool            `json:"activityRegeneratesTests"`
+	Checks                   []SpecCheck     `json:"checks"`
+	Contracts                []string        `json:"contracts,omitempty"`
+	Generate                 []SpecGenerator `json:"generate,omitempty"`
+	Generated                []string        `json:"generated,omitempty"`
+	Hash                     string          `json:"hash"`
 }
 
 // ReviewEngine is the generated service-contract interface for this component.

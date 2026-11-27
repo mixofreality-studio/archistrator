@@ -910,6 +910,37 @@ func TestTaskSpecActivityEditScopeIsTheLifecycleUnion(t *testing.T) {
 	}
 }
 
+// TestTaskSpecActivityRegeneratesTestsIsTheLifecycleProperty pins that every task of an
+// activity whose lifecycle has an integration task (its stp task included) carries
+// activityRegeneratesTests, and that a design activity does not.
+func TestTaskSpecActivityRegeneratesTestsIsTheLifecycleProperty(t *testing.T) {
+	p := ownProject(t)
+	for _, id := range []string{"U-SPA-web-client", "C-review-engine"} {
+		lc, err := projectstate.ActivityLifecycle(p, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, task := range lc.Tasks {
+			s, err := deriveSpecErr(p, id, task.ID)
+			if err != nil {
+				t.Fatalf("%s/%s: %v", id, task.ID, err)
+			}
+			if !s.ActivityRegeneratesTests {
+				t.Errorf("%s/%s: activityRegeneratesTests is false, but the lifecycle has an integration task", id, task.ID)
+			}
+		}
+	}
+	for _, task := range designPrefixTasks(t, "requirements") {
+		s, err := deriveSpecErr(p, "requirements", task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.ActivityRegeneratesTests {
+			t.Errorf("requirements/%s: a design activity regenerates no tests", task)
+		}
+	}
+}
+
 // scopeGlobs is every glob a scope admits, its components' and its extras'.
 func scopeGlobs(scope review.SpecEditScope) []string {
 	out := slices.Clone(scope.Extra)
