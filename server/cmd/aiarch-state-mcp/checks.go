@@ -376,8 +376,9 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 	}
 	out, err := r.exec(ctx, dir, commandEnv(moduleGraphEnv(argv)...), argv...)
 	var survivors []projectstate.DiscriminateSurvivor
+	var broken []projectstate.DiscriminateBroken
 	if c.ID == projectstate.DiscriminateCheckID {
-		survivors = parseDiscriminateSurvivors(out)
+		survivors, broken = parseDiscriminateOutput(out)
 	}
 	status := checkPass
 	switch {
@@ -393,24 +394,35 @@ func (r checkRunner) runCommand(ctx context.Context, c review.SpecCheck) CheckRe
 	}
 	res := r.finish(c, status, r.since(start), out)
 	res.Survivors = survivors
+	res.Broken = broken
 	return res
 }
 
-// discriminateSurvivorLine is the marker of a scenario that still passed against a null subject.
-const discriminateSurvivorLine = "TP-DISCRIMINATE"
+// The two line kinds the discriminate check prints that a run records.
+const (
+	// discriminateSurvivorLine marks a scenario that still passed against a null subject.
+	discriminateSurvivorLine = "TP-DISCRIMINATE"
+	// discriminateBrokenLine marks a scenario that failed against its real subject.
+	discriminateBrokenLine = "TP-BROKEN"
+)
 
-// parseDiscriminateSurvivors reads the discriminate check's output: one survivor per line of
-// exactly `TP-DISCRIMINATE <contract> <scenario> <operation>`, in order. Any other line
-// (TP-BROKEN, a skip, noise) is ignored; nil when there is none.
-func parseDiscriminateSurvivors(out []byte) []projectstate.DiscriminateSurvivor {
+// parseDiscriminateOutput reads the discriminate check's output in one pass: one survivor per
+// line of exactly `TP-DISCRIMINATE <contract> <scenario> <operation>` and one broken scenario
+// per line of exactly `TP-BROKEN <contract> <scenario>`, each in log order. Any other line
+// (a skip, a malformed marker line, noise) is ignored; a kind with no line is nil.
+func parseDiscriminateOutput(out []byte) ([]projectstate.DiscriminateSurvivor, []projectstate.DiscriminateBroken) {
 	var survivors []projectstate.DiscriminateSurvivor
+	var broken []projectstate.DiscriminateBroken
 	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
-		if len(f) == 4 && f[0] == discriminateSurvivorLine {
+		switch {
+		case len(f) == 4 && f[0] == discriminateSurvivorLine:
 			survivors = append(survivors, projectstate.DiscriminateSurvivor{Contract: f[1], Scenario: f[2], Operation: f[3]})
+		case len(f) == 3 && f[0] == discriminateBrokenLine:
+			broken = append(broken, projectstate.DiscriminateBroken{Contract: f[1], Scenario: f[2]})
 		}
 	}
-	return survivors
+	return survivors, broken
 }
 
 // workspaceRootsEnv is the env var the venue hands the workspace repos' checkouts in: a JSON

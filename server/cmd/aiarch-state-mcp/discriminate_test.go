@@ -15,7 +15,10 @@ import (
 
 const discriminateOut = `noise before
 TP-DISCRIMINATE todoListAccess createList CreateList
-TP-BROKEN todoListAccess renameList RenameList
+TP-BROKEN todoListAccess renameList
+TP-BROKEN todoListAccess archiveList
+TP-BROKEN too few fields here
+TP-BROKEN onlyone
 skipped todoListAccess archiveList
   TP-DISCRIMINATE   todoListAccess   deleteList   DeleteList  
 TP-DISCRIMINATE too few
@@ -49,17 +52,31 @@ func TestDiscriminateSurvivorsParsed(t *testing.T) {
 	}
 }
 
+func TestDiscriminateBrokenParsed(t *testing.T) {
+	res := runDiscriminateCommand(t, projectstate.DiscriminateCheckID, discriminateOut, errors.New("exit status 1"))
+	want := []projectstate.DiscriminateBroken{
+		{Contract: "todoListAccess", Scenario: "renameList"},
+		{Contract: "todoListAccess", Scenario: "archiveList"},
+	}
+	if !slices.Equal(res.Broken, want) {
+		t.Fatalf("broken %+v, want exactly %+v in order (malformed TP-BROKEN lines ignored)", res.Broken, want)
+	}
+	if len(res.Survivors) != 2 {
+		t.Fatalf("survivors %+v, want the two well-formed TP-DISCRIMINATE lines", res.Survivors)
+	}
+}
+
 func TestDiscriminatePassingRunHasNoSurvivors(t *testing.T) {
 	res := runDiscriminateCommand(t, projectstate.DiscriminateCheckID, "all scenarios discriminate\n", nil)
-	if res.Status != checkPass || res.Survivors != nil {
-		t.Fatalf("status %q survivors %+v, want pass and nil", res.Status, res.Survivors)
+	if res.Status != checkPass || res.Survivors != nil || res.Broken != nil {
+		t.Fatalf("status %q survivors %+v broken %+v, want pass and nil", res.Status, res.Survivors, res.Broken)
 	}
 }
 
 func TestDiscriminateOtherCommandCarriesNoSurvivors(t *testing.T) {
 	res := runDiscriminateCommand(t, "command:vet", discriminateOut, errors.New("exit status 1"))
-	if res.Survivors != nil {
-		t.Fatalf("command:vet carries survivors %+v", res.Survivors)
+	if res.Survivors != nil || res.Broken != nil {
+		t.Fatalf("command:vet carries survivors %+v broken %+v", res.Survivors, res.Broken)
 	}
 }
 
@@ -68,12 +85,13 @@ func TestDiscriminateOtherCommandCarriesNoSurvivors(t *testing.T) {
 func TestDiscriminateSurvivorsSurviveFailedOnlyAndRecord(t *testing.T) {
 	dir := t.TempDir()
 	prev := []CheckResult{{CheckId: projectstate.DiscriminateCheckID, Kind: projectstate.CheckKindCommand, Status: checkFail,
-		Survivors: []projectstate.DiscriminateSurvivor{{Contract: "c", Scenario: "s", Operation: "O"}}}}
+		Survivors: []projectstate.DiscriminateSurvivor{{Contract: "c", Scenario: "s", Operation: "O"}},
+		Broken:    []projectstate.DiscriminateBroken{{Contract: "c", Scenario: "t"}}}}
 	if err := writeCheckResults(dir, prev); err != nil {
 		t.Fatal(err)
 	}
 	got, err := readPrevResults(dir)
-	if err != nil || !slices.Equal(got[0].Survivors, prev[0].Survivors) {
+	if err != nil || !slices.Equal(got[0].Survivors, prev[0].Survivors) || !slices.Equal(got[0].Broken, prev[0].Broken) {
 		t.Fatalf("round trip: %+v, %v", got, err)
 	}
 	// a check that passed before is not re-run and keeps its verdict whole
@@ -85,14 +103,14 @@ func TestDiscriminateSurvivorsSurviveFailedOnlyAndRecord(t *testing.T) {
 		{ID: projectstate.DiscriminateCheckID, Kind: projectstate.CheckKindCommand, Source: review.SpecCheckSource{Argv: []string{"y"}}},
 	}
 	out := runSpecChecks(context.Background(), r, checks, passed, true)
-	if len(out) != 2 || out[0].Status != checkPass || out[1].Survivors != nil {
+	if len(out) != 2 || out[0].Status != checkPass || out[1].Survivors != nil || out[1].Broken != nil {
 		t.Fatalf("failed-only: %+v", out)
 	}
 	// and a still-red previous discriminate result re-runs and is judged afresh
-	r = discriminateRunner("TP-DISCRIMINATE c s O\n", errors.New("exit status 1"))
+	r = discriminateRunner("TP-DISCRIMINATE c s O\nTP-BROKEN c t\n", errors.New("exit status 1"))
 	r.root, r.outDir = t.TempDir(), filepath.Join(dir, "out2")
 	out = runSpecChecks(context.Background(), r, checks, passed, true)
-	if len(out[1].Survivors) != 1 {
+	if len(out[1].Survivors) != 1 || len(out[1].Broken) != 1 {
 		t.Fatalf("failed-only rerun: %+v", out[1])
 	}
 }
@@ -110,6 +128,15 @@ func pdCmd(id, status string, survivors ...string) projectstate.CheckResult {
 	r := projectstate.CheckResult{CheckId: "command:" + id, Kind: projectstate.CheckKindCommand, Status: status}
 	for _, s := range survivors {
 		r.Survivors = append(r.Survivors, projectstate.DiscriminateSurvivor{Contract: pdContract, Scenario: s, Operation: "Op"})
+	}
+	return r
+}
+
+// pdDisc is the discriminate result with survivors and broken scenarios of pdContract.
+func pdDisc(status string, survivors, broken []string) projectstate.CheckResult {
+	r := pdCmd("test-discriminate", status, survivors...)
+	for _, b := range broken {
+		r.Broken = append(r.Broken, projectstate.DiscriminateBroken{Contract: pdContract, Scenario: b})
 	}
 	return r
 }
@@ -168,6 +195,34 @@ func TestAdmitPlanDefects(t *testing.T) {
 			run: pdRun(pdScenario("a", "pass"), pdScenario("b", "pass"),
 				pdCmd("test-discriminate", "timeout", "a")),
 			want: "not a recorded failure", today: "same (refused)"},
+		{name: "RUN-032 shape: broken scenarios only, all named, admitted", reports: pdReport("a", "c"),
+			run: pdRun(pdCmd("build", "pass"), pdScenario("a", "fail"), pdScenario("b", "pass"), pdScenario("c", "fail"),
+				pdDisc("fail", nil, []string{"a", "c"})),
+			want: "", today: "REFUSED today (discriminate red and not named)"},
+		{name: "broken plus survivors all named admitted", reports: pdReport("a", "c"),
+			run: pdRun(pdScenario("a", "pass"), pdScenario("b", "pass"), pdScenario("c", "fail"),
+				pdDisc("fail", []string{"a"}, []string{"c"})),
+			want: "", today: "REFUSED today (named but passed; discriminate red and not named)"},
+		{name: "unnamed broken refused", reports: pdReport("a"),
+			run: pdRun(pdScenario("a", "fail"), pdScenario("b", "pass"),
+				pdDisc("fail", nil, []string{"a", "b"})),
+			want: "red with broken scenario scenario:" + pdContract + ":b which is not named", today: "REFUSED today, but as red and not named"},
+		{name: "unnamed survivor refused before broken", reports: pdReport("a", "c"),
+			run: pdRun(pdScenario("a", "pass"), pdScenario("b", "pass"), pdScenario("c", "fail"),
+				pdDisc("fail", []string{"a", "b"}, []string{"c"})),
+			want: "red with survivor scenario:" + pdContract + ":b", today: "same (refused)"},
+		{name: "named broken but discriminate timeout refused", reports: pdReport("a"),
+			run: pdRun(pdScenario("a", "fail"), pdScenario("b", "pass"),
+				pdDisc("timeout", nil, []string{"a"})),
+			want: "not a recorded failure", today: "REFUSED today, but as red and not named"},
+		{name: "named broken plus red vet refused", reports: pdReport("a"),
+			run: pdRun(pdCmd("vet", "fail"), pdScenario("a", "fail"), pdScenario("b", "pass"),
+				pdDisc("fail", nil, []string{"a"})),
+			want: "command:vet is red and not named", today: "same (refused)"},
+		{name: "broken scenario named but passed refused", reports: pdReport("a"),
+			run: pdRun(pdScenario("a", "pass"), pdScenario("b", "pass"),
+				pdDisc("fail", nil, []string{"a"})),
+			want: "named but passed", today: "same (refused)"},
 		{name: "skip not named refused", reports: pdReport("a"),
 			run:  pdRun(pdScenario("a", "fail"), pdScenario("b", "pass"), pdCmd("build", "skip")),
 			want: "was skipped", today: "same (refused)"},

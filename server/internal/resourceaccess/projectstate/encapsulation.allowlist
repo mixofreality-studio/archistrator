@@ -572,10 +572,10 @@ UpsertUpstreamDefect
 # draft's refusal named), same category and same callers as the entries above. The
 # verb stamps the findings from the refusal and admits them; the delivery Manager re-admits.
 AdmitUpstreamDefects
-# AdmitPlanDefects / DiscriminateCheckID (ISS-031-3, RUN-031): the plan-defect admission the
+# AdmitPlanDefects / DiscriminateCheckID (ISS-031-3, RUN-031; ISS-032-5, RUN-032): the plan-defect admission the
 # delivery Manager judges a report by, moved here as one pure func over the run so the verb and
 # the Manager cannot admit a report differently; DiscriminateCheckID names the one check whose
-# run carries survivors, which the runner in aiarch-state-mcp and the admission both read.
+# run carries survivors and broken scenarios, which the runner in aiarch-state-mcp and the admission both read.
 AdmitPlanDefects
 DiscriminateCheckID
 StampUpstreamRuleRefs

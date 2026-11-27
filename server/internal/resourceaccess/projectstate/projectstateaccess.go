@@ -6380,9 +6380,10 @@ const (
 	checkStatusSkip = "skip"
 )
 
-// DiscriminateCheckID is the check whose log lists the scenarios that survived a null subject:
-// the run records one DiscriminateSurvivor per `TP-DISCRIMINATE <contract> <scenario> <operation>`
-// line it prints, and no other check carries any.
+// DiscriminateCheckID is the check whose log lists the scenarios that survived a null subject
+// or failed against their real subject: the run records one DiscriminateSurvivor per
+// `TP-DISCRIMINATE <contract> <scenario> <operation>` line it prints and one DiscriminateBroken
+// per `TP-BROKEN <contract> <scenario>` line, and no other check carries either.
 const DiscriminateCheckID = CheckKindCommand + ":test-discriminate"
 
 // AdmitPlanDefects is the mechanical admission of an integration attempt's plan-defect reports
@@ -6395,14 +6396,17 @@ const DiscriminateCheckID = CheckKindCommand + ":test-discriminate"
 //     of the plan.
 //   - A check that is red and not named is refused, so build, vet, layout and every other
 //     scenario are green and the plan is the only thing left to blame. The one exception is
-//     command:test-discriminate (RUN-031): it is red when scenarios survived a null subject, and
-//     the survivors are the evidence. A red discriminate check with survivors is admitted only
-//     if its status is fail and every survivor is a scenario the reports name (an unnamed
-//     survivor is refused, naming it); with no survivors it stays red and not named.
+//     command:test-discriminate (RUN-031, RUN-032): it is red when scenarios survived a null
+//     subject (RUN-031) or failed against their real subject, a wrong seed or arrange (RUN-032),
+//     and the survivors and broken scenarios are the evidence. A red discriminate check with
+//     either is admitted only if its status is fail and every survivor and every broken scenario
+//     is a scenario the reports name (an unnamed one is refused, naming it, survivors first);
+//     with neither it stays red and not named.
 //   - A named check must be a recorded failure: not a timeout or other status, and not a
 //     failure with no verdict, which is plumbing the test-engineer cannot fix.
 //   - A named scenario that passed is refused, unless it survived the discriminate check: a
 //     survivor's own scenario is green, and the log of the discriminate check is the evidence.
+//     A broken scenario is not excused: its own check is red, an ordinary named failure.
 //   - A named check the run holds no result for is refused.
 //   - Every reported contract has a green scenario: all red points at wiring or an unfilled hook,
 //     so a one-scenario contract takes the ordinary path, which is the safe direction.
@@ -6462,8 +6466,8 @@ func planDefectResultRefusal(res CheckResult, named, reported, survived map[stri
 	case !named[res.CheckId] && res.Status == checkStatusSkip:
 		return errors.New("check " + res.CheckId + " was skipped and is not named, so the run does not show the rest of the plan green")
 	case !named[res.CheckId]:
-		if res.CheckId == DiscriminateCheckID && len(res.Survivors) > 0 {
-			return discriminateSurvivorsRefusal(res, reported)
+		if res.CheckId == DiscriminateCheckID && (len(res.Survivors) > 0 || len(res.Broken) > 0) {
+			return discriminateEvidenceRefusal(res, reported)
 		}
 		return errors.New("check " + res.CheckId + " is red and not named, so the plan is not the only thing wrong")
 	case res.Status != checkStatusFail:
@@ -6474,15 +6478,20 @@ func planDefectResultRefusal(res CheckResult, named, reported, survived map[stri
 	return nil
 }
 
-// discriminateSurvivorsRefusal admits the red discriminate check when it failed and every
-// survivor is a named scenario; otherwise it says why not.
-func discriminateSurvivorsRefusal(res CheckResult, named map[string]bool) error {
+// discriminateEvidenceRefusal admits the red discriminate check when it failed and every
+// survivor and every broken scenario is a named scenario; otherwise it says why not.
+func discriminateEvidenceRefusal(res CheckResult, named map[string]bool) error {
 	if res.Status != checkStatusFail {
 		return errors.New("check " + res.CheckId + " is " + res.Status + ", not a recorded failure")
 	}
 	for _, s := range res.Survivors {
 		if id := CheckKindScenario + ":" + s.Contract + ":" + s.Scenario; !named[id] {
 			return errors.New("check " + res.CheckId + " is red with survivor " + id + " which is not named, so the plan is not the only thing wrong")
+		}
+	}
+	for _, b := range res.Broken {
+		if id := CheckKindScenario + ":" + b.Contract + ":" + b.Scenario; !named[id] {
+			return errors.New("check " + res.CheckId + " is red with broken scenario " + id + " which is not named, so the plan is not the only thing wrong")
 		}
 	}
 	return nil

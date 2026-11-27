@@ -351,6 +351,7 @@ type CheckResult struct {
 	VideoRef   *string                `json:"videoRef,omitempty"`
 	NoVerdict  *bool                  `json:"noVerdict,omitempty"`
 	Survivors  []DiscriminateSurvivor `json:"survivors,omitempty"`
+	Broken     []DiscriminateBroken   `json:"broken,omitempty"`
 }
 
 type CheckRun struct {
@@ -573,6 +574,11 @@ type DeploymentTopology struct {
 	Infrastructure []DeploymentInfraNode        `json:"infrastructure,omitempty"`
 	Bindings       []DeploymentComponentBinding `json:"bindings,omitempty"`
 	Settings       []DeploymentSettingSpec      `json:"settings,omitempty"`
+}
+
+type DiscriminateBroken struct {
+	Contract string `json:"contract"`
+	Scenario string `json:"scenario"`
 }
 
 type DiscriminateSurvivor struct {
