@@ -42688,7 +42688,7 @@
         },
         "TaskSpec": {
           "type": "object",
-          "description": "One lifecycle task's full agent configuration: who runs it, on which model at what estimated cost, with which prompt and tools, which files it may change and which typed checks decide it. contracts names the contracts whose generated Go the job writes before the agent runs; generate is the generators it runs after those; generated is every repo path those consumers write, which the edit-scope gate holds byte-equal to regeneration. hash is the sha256 of the canonical JSON with hash cleared (TaskSpecHash).",
+          "description": "One lifecycle task's full agent configuration: who runs it, on which model at what estimated cost, with which prompt and tools, which files it may change and which typed checks decide it. contracts names the contracts whose generated Go the job writes before the agent runs; generate is the generators it runs after those; generated is every repo path those consumers write, which the edit-scope gate holds byte-equal to regeneration. activityRegeneratesTests says the activity's lifecycle has an integration task, so the job-generated scenario tests on the activity's branch are the activity's own output whatever task runs. hash is the sha256 of the canonical JSON with hash cleared (TaskSpecHash).",
           "properties": {
             "activity": {
               "type": "string"
@@ -42713,6 +42713,10 @@
             },
             "activityEditScope": {
               "$ref": "#/$defs/SpecEditScope"
+            },
+            "activityRegeneratesTests": {
+              "type": "boolean",
+              "description": "True when a task of this activity's lifecycle is an integration (command service-integration or frontend-integration), whose job generates and commits the scenario tests (testgen) on the activity's branch before its agent runs. The edit-scope gate's activity-level check then admits a test-code path the test generator writes over the head tree whichever task of the activity is running; freshness stays with the integration task's own regeneration and admission."
             },
             "checks": {
               "type": [
@@ -42763,6 +42767,7 @@
             "tools",
             "editScope",
             "activityEditScope",
+            "activityRegeneratesTests",
             "checks",
             "hash"
           ],
