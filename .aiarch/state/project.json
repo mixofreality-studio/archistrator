@@ -37832,6 +37832,10 @@
             },
             "expect": {
               "$ref": "#/$defs/TestExpect"
+            },
+            "as": {
+              "type": "string",
+              "description": "The plan principal the call is made as: a key of the plan's principals. Required when the called component is a Manager or a Client (the layers that authorize the caller from the call's principal), absent for any other layer [TP-ARRANGE]."
             }
           },
           "required": [
