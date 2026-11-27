@@ -63,6 +63,9 @@ const (
 	checkFail    = "fail"
 	checkSkip    = "skip"
 	checkTimeout = "timeout"
+	// checkError is a verdict the runner could not reach (run_checks' in-session edit-scope
+	// gate with a malformed range or a git failure): never a pass.
+	checkError = "error"
 )
 
 const (

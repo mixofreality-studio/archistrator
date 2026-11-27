@@ -351,7 +351,97 @@ func (s *Session) runChecks(ctx context.Context, onlyFailed bool) (runChecksOutp
 		res.Failed++
 		res.Results = append(res.Results, runChecksFailure{ID: c.CheckId, Title: titles[c.CheckId], Status: c.Status, Tail: s.checkLog(c)})
 	}
+	// The edit-scope pseudo-check is recomputed on every call, failedOnly included, and is
+	// never part of s.checks.last or the results file.
+	if gate := s.editScopeCheck(spec); gate != nil {
+		if gate.Status == checkPass {
+			res.Passed++
+		} else {
+			res.Failed++
+			res.Results = append(res.Results, *gate)
+		}
+	}
 	return res, nil
+}
+
+// editScopeCheckID / editScopeCheckTitle name the in-session edit-scope pseudo-check.
+const (
+	editScopeCheckID    = "edit-scope"
+	editScopeCheckTitle = "edit scope gate (the job's gate, run in session)"
+)
+
+// editScopeSessionRange is envEditScopeRange's value: the gate's --base/--main/--workspace
+// captured before the agent ran. An empty main is no-main.
+type editScopeSessionRange struct {
+	Base       string `json:"base"`
+	Main       string `json:"main"`
+	Workspaces []struct {
+		ID   string `json:"id"`
+		Dir  string `json:"dir"`
+		Base string `json:"base"`
+		Main string `json:"main"`
+	} `json:"workspaces"`
+}
+
+// editScopeCheck runs the job's edit-scope judgment (editScopeVerdict, the one function the
+// edit-scope subcommand calls) over the committed work: head is the state root's HEAD, each
+// workspace's its dir's HEAD. nil when the session is ungated (envEditScopeRange unset); a
+// malformed range or a git failure is an "error" result, never a pass.
+func (s *Session) editScopeCheck(spec review.TaskSpec) *runChecksFailure {
+	if s.EditScopeRange == "" {
+		return nil
+	}
+	result := func(status, tail string) *runChecksFailure {
+		return &runChecksFailure{ID: editScopeCheckID, Title: editScopeCheckTitle, Status: status, Tail: tail}
+	}
+	fail := func(err error) *runChecksFailure {
+		return result(checkError, fmt.Sprintf("the in-session edit-scope gate could not judge: %v", err))
+	}
+	var in editScopeSessionRange
+	dec := json.NewDecoder(strings.NewReader(s.EditScopeRange))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		return fail(fmt.Errorf("%s is malformed: %w", envEditScopeRange, err))
+	}
+	head, err := commitSHA(s.StateRoot, "HEAD")
+	if err != nil {
+		return fail(err)
+	}
+	rng, err := resolveEditScopeRange(s.StateRoot, in.Base, head, in.Main, in.Main == "")
+	if err != nil {
+		return fail(err)
+	}
+	var workspaces []workspaceRange
+	for _, w := range in.Workspaces {
+		wh, err := commitSHA(w.Dir, "HEAD")
+		if err != nil {
+			return fail(fmt.Errorf("workspace %q: %w", w.ID, err))
+		}
+		workspaces = append(workspaces, workspaceRange{ID: w.ID, Dir: w.Dir, Base: w.Base, Head: wh, Main: w.Main})
+	}
+	scratch := filepath.Join(s.StateRoot, checksOutDir)
+	if err := ignoreScratchDir(filepath.Dir(scratch)); err != nil {
+		return fail(err)
+	}
+	if err := os.MkdirAll(scratch, 0o750); err != nil {
+		return fail(err)
+	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return fail(err)
+	}
+	specPath := filepath.Join(scratch, "edit-scope-spec.json")
+	if err := os.WriteFile(specPath, raw, 0o600); err != nil {
+		return fail(err)
+	}
+	msg, err := editScopeVerdict(s.StateRoot, specPath, rng, workspaces...)
+	if err != nil {
+		return fail(err)
+	}
+	if msg != "" {
+		return result(checkFail, msg)
+	}
+	return result(checkPass, "")
 }
 
 // tidyModuleGraph runs `go mod tidy` for a task the spec holds to a tidy module, and says

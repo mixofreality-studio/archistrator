@@ -85,6 +85,12 @@ const (
 	// reads it after the run: the refusal is otherwise visible only in the agent's own words. The
 	// cloud arm stamps none, and a session without one refuses exactly the same.
 	envRefusalsFile = "AIARCH_REFUSALS_FILE"
+	// envEditScopeRange is the range the job's edit-scope gate will judge, JSON
+	// {"base":"<40-hex>","main":"<40-hex or empty>","workspaces":[{"id","dir","base","main"}]}
+	// (workspaces omitted when none): the gate's --base/--main/--workspace values the local
+	// venue (agenticjob) captured before the agent ran. Head is read at call time. Absent on an
+	// ungated session. run_checks reads it to run the same judgment in session (runchecks.go).
+	envEditScopeRange = "AIARCH_EDIT_SCOPE_RANGE"
 )
 
 // statePathPrefix + projectFile mirror the projectstate git substrate's reserved
@@ -137,6 +143,9 @@ type Session struct {
 
 	// RefusalsFile is the sidecar the venue reads refusals from (AIARCH_REFUSALS_FILE), "" for none.
 	RefusalsFile string
+
+	// EditScopeRange is AIARCH_EDIT_SCOPE_RANGE verbatim ("" when the session is ungated).
+	EditScopeRange string
 
 	// wroteState is set by any state-mutating verb (putDraftModel / setCritiqueVerdict /
 	// respondToReviewComment) so publishDraft can refuse a no-op publish (nothing drafted
@@ -198,18 +207,19 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 	}
 
 	s := &Session{
-		Kind:         kind,
-		Mode:         mode,
-		StateRoot:    root,
-		TargetBranch: strings.TrimSpace(getenv(envTargetBranch)),
-		ComponentID:  strings.TrimSpace(getenv(envComponentID)),
-		ActivityID:   strings.TrimSpace(getenv(envActivityID)),
-		TaskID:       strings.TrimSpace(getenv(envTaskID)),
-		SpecHash:     strings.TrimSpace(getenv(envSpecHash)),
-		Command:      strings.TrimSpace(getenv(envCommand)),
-		OperatorNote: getenv(envOperatorNote),
-		RefusalsFile: strings.TrimSpace(getenv(envRefusalsFile)),
-		git:          runGit,
+		Kind:           kind,
+		Mode:           mode,
+		StateRoot:      root,
+		TargetBranch:   strings.TrimSpace(getenv(envTargetBranch)),
+		ComponentID:    strings.TrimSpace(getenv(envComponentID)),
+		ActivityID:     strings.TrimSpace(getenv(envActivityID)),
+		TaskID:         strings.TrimSpace(getenv(envTaskID)),
+		SpecHash:       strings.TrimSpace(getenv(envSpecHash)),
+		Command:        strings.TrimSpace(getenv(envCommand)),
+		OperatorNote:   getenv(envOperatorNote),
+		RefusalsFile:   strings.TrimSpace(getenv(envRefusalsFile)),
+		EditScopeRange: strings.TrimSpace(getenv(envEditScopeRange)),
+		git:            runGit,
 	}
 
 	// Project id: explicit env wins; else the committed project.json id; else the repo

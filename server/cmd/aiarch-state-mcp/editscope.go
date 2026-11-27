@@ -111,23 +111,39 @@ func runEditScope(args []string) error {
 	if err != nil {
 		return exitError{2, err}
 	}
-	bad, err := editScopeViolations(wd, *spec, rng, workspaces...)
+	msg, err := editScopeVerdict(wd, *spec, rng, workspaces...)
 	if err != nil {
 		return exitError{2, err}
 	}
-	stray, err := activityScopeViolations(wd, *spec, rng, workspaces...)
+	if msg != "" {
+		return exitError{1, errors.New(msg)}
+	}
+	return nil
+}
+
+// editScopeVerdict is the gate's whole judgment of rng in root against the spec at specPath:
+// the generated-file drift, the per-attempt scope and the activity-level scope, with the
+// admissions for regenerated tests. It returns the refusal message ("" when the change is
+// in scope) and an error when the gate could not judge at all. The edit-scope subcommand
+// and the run_checks verb both call it, so a green in session is the job's green.
+func editScopeVerdict(root, specPath string, rng editScopeRange, workspaces ...workspaceRange) (string, error) {
+	bad, err := editScopeViolations(root, specPath, rng, workspaces...)
 	if err != nil {
-		return exitError{2, err}
+		return "", err
 	}
-	if bad, err = admitRegeneratedTests(wd, *spec, rng, bad); err != nil {
-		return exitError{2, err}
-	}
-	if stray, err = admitActivityGeneratedTests(wd, *spec, rng, stray); err != nil {
-		return exitError{2, err}
-	}
-	drift, err := generatedDriftViolations(wd, *spec, rng)
+	stray, err := activityScopeViolations(root, specPath, rng, workspaces...)
 	if err != nil {
-		return exitError{2, err}
+		return "", err
+	}
+	if bad, err = admitRegeneratedTests(root, specPath, rng, bad); err != nil {
+		return "", err
+	}
+	if stray, err = admitActivityGeneratedTests(root, specPath, rng, stray); err != nil {
+		return "", err
+	}
+	drift, err := generatedDriftViolations(root, specPath, rng)
+	if err != nil {
+		return "", err
 	}
 	var msgs []string
 	if len(drift) > 0 {
@@ -141,10 +157,7 @@ func runEditScope(args []string) error {
 		msgs = append(msgs, fmt.Sprintf("%d path(s) the branch changes against main lie outside the edit scope of every task of this activity — revert each of them on the branch (an earlier attempt may have left it):\n  %s",
 			len(stray), shownPaths(stray)))
 	}
-	if len(msgs) > 0 {
-		return exitError{1, errors.New(strings.Join(msgs, "\n"))}
-	}
-	return nil
+	return strings.Join(msgs, "\n"), nil
 }
 
 // shownPaths is the paths as the gate prints them, one per line.
