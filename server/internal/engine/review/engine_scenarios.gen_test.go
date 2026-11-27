@@ -169,10 +169,8 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 		var in1 inputExecuteAProjectActivityP1S1
 		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -181,11 +179,13 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }}`, &in1)
 		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
 		expect(t, "execute-a-project-activity-P1", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
@@ -195,52 +195,53 @@ func TestScenario_execute_a_project_activity_P1(t *testing.T) {
 		var in2 inputExecuteAProjectActivityP1S2
 		mustUnmarshal(t, `{"spec":{
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
-		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P1", 2, out2, err2, `{"result":"\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"","errorExpected":false}`)
 		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=yes)
 		var out3 any
 		var err3 error
@@ -282,10 +283,8 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 		var in1 inputExecuteAProjectActivityP2S1
 		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -294,11 +293,13 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }}`, &in1)
 		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
 		expect(t, "execute-a-project-activity-P2", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
@@ -308,52 +309,53 @@ func TestScenario_execute_a_project_activity_P2(t *testing.T) {
 		var in2 inputExecuteAProjectActivityP2S2
 		mustUnmarshal(t, `{"spec":{
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
-		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P2", 2, out2, err2, `{"result":"\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"","errorExpected":false}`)
 		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=yes)
 		var out3 any
 		var err3 error
@@ -556,10 +558,8 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var in1 inputExecuteAProjectActivityP5S1
 		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -568,11 +568,13 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }}`, &in1)
 		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
 		expect(t, "execute-a-project-activity-P5", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
@@ -582,52 +584,53 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var in2 inputExecuteAProjectActivityP5S2
 		mustUnmarshal(t, `{"spec":{
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
-		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P5", 2, out2, err2, `{"result":"\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"","errorExpected":false}`)
 		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var out3 any
 		var err3 error
@@ -641,10 +644,8 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var in4 inputExecuteAProjectActivityP5S4
 		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -653,11 +654,13 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }}`, &in4)
 		out4, err4 = subject.DeriveTaskSpec(h.EngineContext(t), in4.Project, in4.Facts)
 		expect(t, "execute-a-project-activity-P5", 4, out4, err4, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
@@ -667,52 +670,53 @@ func TestScenario_execute_a_project_activity_P5(t *testing.T) {
 		var in5 inputExecuteAProjectActivityP5S5
 		mustUnmarshal(t, `{"spec":{
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }}`, &in5)
 		out5, err5 = subject.TaskSpecHash(h.EngineContext(t), in5.Spec)
-		expect(t, "execute-a-project-activity-P5", 5, out5, err5, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P5", 5, out5, err5, `{"result":"\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"","errorExpected":false}`)
 		// step 6: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=yes: retry, exit-met=yes)
 		var out6 any
 		var err6 error
@@ -754,10 +758,8 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 		var in1 inputExecuteAProjectActivityP6S1
 		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -766,11 +768,13 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }}`, &in1)
 		out1, err1 = subject.DeriveTaskSpec(h.EngineContext(t), in1.Project, in1.Facts)
 		expect(t, "execute-a-project-activity-P6", 1, out1, err1, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
@@ -780,52 +784,53 @@ func TestScenario_execute_a_project_activity_P6(t *testing.T) {
 		var in2 inputExecuteAProjectActivityP6S2
 		mustUnmarshal(t, `{"spec":{
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }}`, &in2)
 		out2, err2 = subject.TaskSpecHash(h.EngineContext(t), in2.Spec)
-		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P6", 2, out2, err2, `{"result":"\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"","errorExpected":false}`)
 		// step 3: AdmitArtifact (node observe-validate; guards task-kind=dispatch, exit-met=no, retry-remain=no: exhausted, operator-intervened=no, operator-intervened=yes)
 		var out3 any
 		var err3 error
@@ -937,10 +942,8 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 		var in3 inputExecuteAProjectActivityP7S3
 		mustUnmarshal(t, `{"project":"{\"id\": \"stp-review-derive\"}","facts":{
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -949,11 +952,13 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }}`, &in3)
 		out3, err3 = subject.DeriveTaskSpec(h.EngineContext(t), in3.Project, in3.Facts)
 		expect(t, "execute-a-project-activity-P7", 3, out3, err3, `{"result":"{\"activity\": \"requirements\", \"task\": \"glossaryDraft\", \"identity\": {\"kind\": \"dispatch\", \"command\": \"glossary-draft\"}, \"editScope\": {\"stateOnly\": true}}","errorExpected":false}`)
@@ -963,52 +968,53 @@ func TestScenario_execute_a_project_activity_P7(t *testing.T) {
 		var in4 inputExecuteAProjectActivityP7S4
 		mustUnmarshal(t, `{"spec":{
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }}`, &in4)
 		out4, err4 = subject.TaskSpecHash(h.EngineContext(t), in4.Spec)
-		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"result":"\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"","errorExpected":false}`)
+		expect(t, "execute-a-project-activity-P7", 4, out4, err4, `{"result":"\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"","errorExpected":false}`)
 		// step 5: AdmitArtifact (node observe-validate; guards task-kind=review, requires-human=agents only, verdict=sendBack: reopens the judged task as revision n+1, task-kind=dispatch, exit-met=yes)
 		var out5 any
 		var err5 error
