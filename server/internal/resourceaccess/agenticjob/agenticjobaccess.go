@@ -1337,6 +1337,54 @@ const defaultLocalRunTimeout = 25 * time.Minute
 // own tool subprocesses (go build, go test, git) may need a moment to unwind.
 const localExecWaitDelay = 5 * time.Second
 
+// groupCommand is exec.CommandContext for a command whose children are a process tree
+// (ISS-033-7). The command leads its own process group; when ctx ends, Cancel sends SIGTERM
+// to the whole group (-pgid), so the command can wind its children down, and if the group is
+// still alive once localExecWaitDelay passes it is SIGKILLed — the group, not only the pid,
+// which is all exec's own Cancel and WaitDelay escalation would reach. A SIGKILLed lead can
+// never cancel the children it started in their own groups, so the venue must signal the
+// group. The returned release must be called after the command's Wait (or Run) returns: it
+// stops the pending escalation and, when ctx ended, sweeps the group with SIGKILL. ESRCH
+// (the group is already gone) is never an error.
+func groupCommand(ctx context.Context, name string, args ...string) (*exec.Cmd, func()) {
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- callers pass fixed or shape-checked commands; no shell
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = localExecWaitDelay
+	var mu sync.Mutex
+	var escalate *time.Timer
+	released := false
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		pgid := cmd.Process.Pid
+		if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if !released {
+			escalate = time.AfterFunc(localExecWaitDelay, func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+		}
+		return nil
+	}
+	release := func() {
+		mu.Lock()
+		released = true
+		if escalate != nil {
+			escalate.Stop()
+		}
+		mu.Unlock()
+		if ctx.Err() != nil && cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}
+	return cmd, release
+}
+
 // localHandlePrefix distinguishes a local-executor handle from actions.go's
 // "run/<id>" GitHub-Actions handle shape — the two realisations are never mixed
 // (a given AgenticJobAccess instance is exactly one arm), but keeping the
@@ -2918,10 +2966,10 @@ func generateScenarioTests(g *localGate, workDir string) string {
 func runGenerator(g *localGate, dir string, argv []string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gateStepTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- readSpec held it to `go tool ...`; no shell
+	cmd, release := groupCommand(ctx, argv[0], argv[1:]...) // readSpec held it to `go tool ...`; no shell
+	defer release()
 	cmd.Dir = dir
 	cmd.Env = append(slices.Clone(g.env), "GOWORK=off")
-	cmd.WaitDelay = localExecWaitDelay
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -2930,10 +2978,10 @@ func runGenerator(g *localGate, dir string, argv []string) (string, error) {
 func runMakeTarget(g *localGate, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gateStepTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "make", args...) // #nosec G204 -- fixed target; contracts were shape-checked in readSpec
+	cmd, release := groupCommand(ctx, "make", args...) // fixed target; contracts were shape-checked in readSpec
+	defer release()
 	cmd.Dir = dir
 	cmd.Env = append(slices.Clone(g.env), "GOWORK=off")
-	cmd.WaitDelay = localExecWaitDelay
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -2983,11 +3031,12 @@ func (r gateToolResult) detail() string {
 func (g *localGate) run(timeout time.Duration, dir string, args ...string) gateToolResult {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	//nolint:gosec // G204: the binary is the configured state tool; args are its own subcommand flags with the dispatch's shape-checked ids, git-reported SHAs and executor-made paths. No shell.
-	cmd := exec.CommandContext(ctx, g.stateMCPBin, args...)
+	// The binary is the configured state tool; args are its own subcommand flags with the dispatch's
+	// shape-checked ids, git-reported SHAs and executor-made paths. No shell.
+	cmd, release := groupCommand(ctx, g.stateMCPBin, args...)
+	defer release()
 	cmd.Dir = dir
 	cmd.Env = g.env
-	cmd.WaitDelay = localExecWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
