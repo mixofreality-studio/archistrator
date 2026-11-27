@@ -199,6 +199,12 @@ func (r checkRunner) runRule(ctx context.Context, c review.SpecCheck) CheckResul
 	}
 	var log bytes.Buffer
 	status := checkPass
+	if msg, merr := missingPlanLine(r.root, c); merr != nil {
+		return r.finish(c, checkFail, r.since(start), []byte("rule check: "+merr.Error()+"\n"))
+	} else if msg != "" {
+		status = checkFail
+		log.WriteString(msg)
+	}
 	kept := 0
 	for _, f := range o.findings {
 		if !ruleInScope(string(f.RuleID), ambient, hasAmbient, c.Source.RulePrefixes) {
@@ -213,24 +219,79 @@ func (r checkRunner) runRule(ctx context.Context, c review.SpecCheck) CheckResul
 	if kept == 0 {
 		log.WriteString("no findings in scope\n")
 	}
-	// A prefix-scoped check (no RuleSlot, e.g. rule:tp / rule:atp) must also agree with the
-	// state write gate, which refuses on every Error in the whole document: an Error outside
-	// the prefixes is invisible above yet fatal to the write the task is about to make.
-	if !hasAmbient && len(c.Source.RulePrefixes) > 0 {
-		outside, gerr := writeGateErrorsOutside(r.root, c.Source.RulePrefixes)
-		if gerr != nil {
-			return r.finish(c, checkFail, r.since(start), []byte("rule check: "+gerr.Error()+"\n"))
-		}
-		if len(outside) > 0 {
-			status = checkFail
-			fmt.Fprintf(&log, "the state write gate also refuses (%d Error(s) outside %s):\n",
-				len(outside), strings.Join(c.Source.RulePrefixes, ", "))
-			for _, f := range outside {
-				log.WriteString(formatGateFinding(f) + "\n")
-			}
-		}
+	if gerr := appendWriteGateAgreement(r.root, c, hasAmbient, &log, &status); gerr != nil {
+		return r.finish(c, checkFail, r.since(start), []byte("rule check: "+gerr.Error()+"\n"))
 	}
 	return r.finish(c, status, r.since(start), log.Bytes())
+}
+
+// appendWriteGateAgreement makes a prefix-scoped check (no RuleSlot, e.g. rule:tp / rule:atp)
+// agree with the state write gate, which refuses on every Error in the whole document: an
+// Error outside the prefixes is invisible to the scoped findings yet fatal to the write the
+// task is about to make. It logs those Errors and sets status to checkFail when there are any.
+func appendWriteGateAgreement(root string, c review.SpecCheck, hasAmbient bool, log *bytes.Buffer, status *string) error {
+	if hasAmbient || len(c.Source.RulePrefixes) == 0 {
+		return nil
+	}
+	outside, err := writeGateErrorsOutside(root, c.Source.RulePrefixes)
+	if err != nil {
+		return err
+	}
+	if len(outside) > 0 {
+		*status = checkFail
+		fmt.Fprintf(log, "the state write gate also refuses (%d Error(s) outside %s):\n",
+			len(outside), strings.Join(c.Source.RulePrefixes, ", "))
+		for _, f := range outside {
+			log.WriteString(formatGateFinding(f) + "\n")
+		}
+	}
+	return nil
+}
+
+// missingPlanLine is the log line a contract-scoped check (rule:tp:<contractKey>) fails with
+// when its contract has no plan record: methodcheck runs TP-BOUND only over components that
+// HAVE a testPlan entry, so a contract with none yields no finding and the TP-* rules pass
+// vacuously. Empty for an unscoped check or a recorded plan.
+func missingPlanLine(root string, c review.SpecCheck) (string, error) {
+	contract := strings.TrimSpace(strVal(c.Source.Contract))
+	if contract == "" {
+		return "", nil
+	}
+	has, err := testPlanRecorded(root, contract)
+	if err != nil || has {
+		return "", err
+	}
+	return fmt.Sprintf("no test plan recorded for %s: record one binding every projected scenario (recordTestPlan); a Defect in testingState is not a test plan\n", contract), nil
+}
+
+// testPlanRecorded reports whether the checkout's committed state document has contract as a
+// serviceContracts key AND a phaseArtifacts.testPlan entry under exactly that key. A document
+// that does not exist or is empty records none; one that does not decode is the same hard
+// failure validateFindings reports.
+func testPlanRecorded(root, contract string) (bool, error) {
+	path := filepath.Join(root, statePathPrefix, projectFile)
+	raw, err := os.ReadFile(path) //nolint:gosec // path is the caller's checkout root joined to a constant
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+	proj, ok, err := projectstate.DecodeProjectJSON(raw, "")
+	if err != nil {
+		return false, fmt.Errorf("the committed project state does not decode (the server would reject it on read-back): %w", err)
+	}
+	if !ok {
+		return false, nil
+	}
+	if _, isContract := proj.ServiceContracts[contract]; !isContract {
+		return false, nil
+	}
+	if proj.PhaseArtifacts == nil {
+		return false, nil
+	}
+	_, has := proj.PhaseArtifacts.TestPlan[contract]
+	return has, nil
 }
 
 // writeGateErrorsOutside is the checkout's write-gate Errors (writeGateErrors over its
