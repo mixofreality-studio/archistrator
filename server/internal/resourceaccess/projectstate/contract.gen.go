@@ -443,6 +443,7 @@ type ContractCall struct {
 	Operation string     `json:"operation"`
 	Inputs    []TestArg  `json:"inputs"`
 	Expect    TestExpect `json:"expect"`
+	As        *string    `json:"as,omitempty"`
 }
 
 type ContractInterface struct {
