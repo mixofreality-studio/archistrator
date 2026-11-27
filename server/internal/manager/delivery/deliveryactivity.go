@@ -729,7 +729,7 @@ func (wf *csWorkflows) submitDesignJob(
 		workflow.GetVersion(ctx, changeDesignOperatorNoteDelivery, workflow.DefaultVersion, 1) >= 1
 	var notes renderedNotes
 	if carryNotes {
-		notes = pendingNotesBlock(tc.State, attemptID)
+		notes = pendingNotesBlock(tc.State, tc.Task.ID, attemptID)
 		if notes.block != "" {
 			// A note must never ride into a YAML that would reject it (§C.1.4): a repo seated
 			// before aiarch-design.yml declared operator_note answers a dispatch carrying it
@@ -1385,7 +1385,7 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 			workflow.GetVersion(ctx, changeUpstreamDesignDefect, workflow.DefaultVersion, 1) >= 1 {
 			return wf.endOnUpstreamDesignDefect(ctx, tc, deferred, attemptID, obs, defect)
 		}
-		verdict, held, waited, spent, verr := wf.judgeFailedDispatch(ctx, tc, obs, attempt, dispatches, deferred, typed, &streak)
+		verdict, held, waited, spent, verr := wf.judgeFailedDispatch(ctx, tc, attemptID, obs, attempt, dispatches, deferred, typed, &streak)
 		if waited {
 			continue // a host fault, waited out: dispatch again
 		}
@@ -1555,7 +1555,7 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 // fault (when causes are typed) is waited out and spends nothing (waited); anything else goes to the
 // variance machinery, and spent says a redispatch it chose is an attempt the work is to blame for.
 func (wf *csWorkflows) judgeFailedDispatch(
-	ctx workflow.Context, tc taskContext, obs csPipelineObservation, attempt, dispatches int,
+	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation, attempt, dispatches int,
 	deferred []routedSignal, typed bool, streak *hostFaultStreak,
 ) (verdict varianceVerdict, held []routedSignal, waited, spent bool, err error) {
 	if typed && faultClassOf(obs.Cause) == agenticjob.FaultHost && !obs.RefreshRefused {
@@ -1564,7 +1564,7 @@ func (wf *csWorkflows) judgeFailedDispatch(
 		return verdict, held, !escalated && err == nil, false, err
 	}
 	streak.reset()
-	verdict, held, err = wf.runTaskVariance(ctx, tc, obs, attempt, deferred)
+	verdict, held, err = wf.runTaskVariance(ctx, tc, attemptID, obs, attempt, deferred)
 	return verdict, held, false, verdict == varianceRedispatch && err == nil, err
 }
 
@@ -1779,7 +1779,7 @@ const (
 //     completedPhases skip-guard existed because the retired retry re-walked everything; the
 //     DAG has no such re-walk, so there is nothing to skip.
 func (wf *csWorkflows) runTaskVariance(
-	ctx workflow.Context, tc taskContext, obs csPipelineObservation, attempt int, deferred []routedSignal,
+	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation, attempt int, deferred []routedSignal,
 ) (varianceVerdict, []routedSignal, error) {
 	detail := dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs)
 	// The FLAGGED variance is the field the Activity Experience renders, and the retired
@@ -1835,7 +1835,7 @@ func (wf *csWorkflows) runTaskVariance(
 	case intervention.VarianceRetry, intervention.VarianceTakeover:
 		// EXECUTE retry / takeover: re-dispatch. The prior pipeline already reached a terminal
 		// before intervention was consulted, so there is nothing in flight to abandon.
-		carryGateFailure(ctx, tc.In.csIn(), tc.State, tc.Phase.ID, tc.State.workAttemptID, obs)
+		carryGateFailure(ctx, tc.In.csIn(), tc.State, tc.Phase.ID, tc.Task.ID, attemptID, obs)
 		tc.State.stage = StageDispatching
 		return varianceRedispatch, deferred, nil
 	case intervention.VarianceGiveUp:
@@ -2045,7 +2045,7 @@ func (wf *csWorkflows) submitConstructionJob(
 		Revision:    attemptID,
 		TaskID:      tc.Task.ID,
 		SpecHash:    specHash,
-	}, tc.State, attemptID, &tc.State.walk.gf, &tc.State.walk.headVersion)
+	}, tc.State, tc.Task.ID, attemptID, &tc.State.walk.gf, &tc.State.walk.headVersion)
 	if err != nil {
 		return constructionDispatch{}, false, err
 	}
@@ -5440,7 +5440,7 @@ func (wf *csWorkflows) mergeUnderSupervision(
 			state.mergeCompleted = true
 			return false, nil
 		}
-		verdict, held, verr := wf.runTaskVariance(ctx, tc, obs, attempt, deferred)
+		verdict, held, verr := wf.runTaskVariance(ctx, tc, "", obs, attempt, deferred)
 		deferred = held
 		switch {
 		case verr != nil:
@@ -6807,14 +6807,14 @@ func gateFailureNoteText(attemptID string, obs csPipelineObservation) (text stri
 // carrySendBackFeedback does. Without it the next agent is told nothing and re-affirms its plan.
 // It enqueues nothing for any other cause, and replaces a gate-failure note still waiting: only
 // the last attempt is news. hasSteeringNotes does not count it.
-func carryGateFailure(ctx workflow.Context, in constructActivityInput, state *constructState, gate, attemptID string, obs csPipelineObservation) {
+func carryGateFailure(ctx workflow.Context, in constructActivityInput, state *constructState, gate, taskID, attemptID string, obs csPipelineObservation) {
 	text, ok := gateFailureNoteText(attemptID, obs)
-	if !ok || !state.noteDelivery ||
+	if !ok || attemptID == "" || !state.noteDelivery ||
 		workflow.GetVersion(ctx, changeGateFailureNote, workflow.DefaultVersion, 1) < 1 {
 		return
 	}
 	state.pendingNotes = slices.DeleteFunc(state.pendingNotes, func(n projectstate.OperatorNote) bool {
-		return state.gateFailureNotes[n.NoteID]
+		return state.gateFailureNotes[n.NoteID] == taskID
 	})
 	state.noteSeq++
 	note := projectstate.OperatorNote{
@@ -6828,10 +6828,10 @@ func carryGateFailure(ctx workflow.Context, in constructActivityInput, state *co
 		state.ephemeralNotes = map[string]bool{}
 	}
 	if state.gateFailureNotes == nil {
-		state.gateFailureNotes = map[string]bool{}
+		state.gateFailureNotes = map[string]string{}
 	}
 	state.ephemeralNotes[note.NoteID] = true
-	state.gateFailureNotes[note.NoteID] = true
+	state.gateFailureNotes[note.NoteID] = taskID
 	state.pendingNotes = append(state.pendingNotes, note)
 }
 
@@ -6911,11 +6911,11 @@ func (wf *csWorkflows) submitCarryingNotes(
 	in constructActivityInput,
 	spec pipelineSpec,
 	state *constructState,
-	attemptID string,
+	taskID, attemptID string,
 	gf *gitForward,
 	headVersion *projectstate.Version,
 ) (pipelineHandle, error) {
-	notes := pendingNotesBlock(state, attemptID)
+	notes := pendingNotesBlock(state, taskID, attemptID)
 	spec.OperatorNote = notes.block
 	handle, err := wf.submitPipeline(ctx, spec)
 	if err != nil {
@@ -6928,9 +6928,14 @@ func (wf *csWorkflows) submitCarryingNotes(
 // pendingNotesBlock renders the pending notes NOT already carried into attemptID as the one
 // block a dispatch carries. It is the carry half shared by the construction and the design
 // submit.
-func pendingNotesBlock(state *constructState, attemptID string) renderedNotes {
+func pendingNotesBlock(state *constructState, taskID, attemptID string) renderedNotes {
 	var carry []projectstate.OperatorNote
 	for _, n := range state.pendingNotes {
+		// A gate-failure note belongs to the task whose attempt failed: a sibling's dispatch on
+		// a fork neither carries nor drains it.
+		if owner, gated := state.gateFailureNotes[n.NoteID]; gated && owner != taskID {
+			continue
+		}
 		if state.carriedTo[n.NoteID] != attemptID {
 			carry = append(carry, n)
 		}

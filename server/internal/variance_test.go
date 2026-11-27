@@ -129,6 +129,8 @@ type varianceRun struct {
 	started time.Time
 	// jobs is how many construction jobs were submitted.
 	jobs *int
+	// specs are the construction jobs submitted, in order (the refresh jobs are not here).
+	specs *[]agenticjob.PipelineSpec
 }
 
 func newVarianceRun(t *testing.T, repoRuns map[string][][2]string, script []agenticjob.PipelineObservation) *varianceRun {
@@ -138,6 +140,7 @@ func newVarianceRun(t *testing.T, repoRuns map[string][][2]string, script []agen
 	env.SetTestTimeout(10 * time.Minute)
 	ae := projectstate.NewGitLocalActivityExecutionAccess(url)
 	submitted := 0
+	var specs []agenticjob.PipelineSpec
 	answers := map[agenticjob.PipelineHandle]agenticjob.PipelineObservation{}
 	jobs := &agenticjobfake.FakeAgenticJobAccess{
 		SubmitAgenticJobFn: func(_ fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
@@ -146,6 +149,7 @@ func newVarianceRun(t *testing.T, repoRuns map[string][][2]string, script []agen
 				answers[h] = success()
 				return h, nil
 			}
+			specs = append(specs, spec)
 			obs := success()
 			if submitted < len(script) {
 				obs = script[submitted]
@@ -171,7 +175,7 @@ func newVarianceRun(t *testing.T, repoRuns map[string][][2]string, script []agen
 		jobs, nil, projectstate.NewGitLocalGitActivityStatusAccess(url), projectstate.NewGitLocalDesignSessionAccess(url),
 		ae, bus, episode.NewLocalFSEpisodeAccess(url), 0, "tiered")
 	delivery.RegisterManagerWorker(envWorker{env: env}, mgr)
-	return &varianceRun{env: env, mgr: mgr, ae: ae, ps: ps, jobs: &submitted}
+	return &varianceRun{env: env, mgr: mgr, ae: ae, ps: ps, jobs: &submitted, specs: &specs}
 }
 
 // attempts is the srs task's attempt ledger, oldest first.

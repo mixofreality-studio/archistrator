@@ -14263,9 +14263,10 @@ type constructState struct {
 	ephemeralNotes map[string]bool
 
 	// gateFailureNotes are the ids of the ephemeral notes that report the previous attempt's
-	// failure at the job's gate (carryGateFailure). They are also in ephemeralNotes. They
+	// failure at the job's gate (carryGateFailure), each mapped to the task whose attempt failed:
+	// only that task's next dispatch carries it. They are also in ephemeralNotes. They
 	// report the last attempt rather than add input, so hasSteeringNotes does not count them.
-	gateFailureNotes map[string]bool
+	gateFailureNotes map[string]string
 }
 
 // hasSteeringNotes reports whether a note waits for the next dispatch that is NEW input to it
@@ -14273,7 +14274,7 @@ type constructState struct {
 // last attempt, so it neither resets the progress comparison nor excuses a repeat.
 func (s *constructState) hasSteeringNotes() bool {
 	for _, n := range s.pendingNotes {
-		if !s.gateFailureNotes[n.NoteID] {
+		if _, gated := s.gateFailureNotes[n.NoteID]; !gated {
 			return true
 		}
 	}
