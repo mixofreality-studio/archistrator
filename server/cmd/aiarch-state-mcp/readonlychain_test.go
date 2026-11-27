@@ -30,6 +30,10 @@ type roUseCase struct {
 	managerLabel string // the client's call into the Manager
 	managerCalls []roCall
 	clients      []string
+	// clientCalls are calls each client also makes into something else in the same step as its
+	// call into the Manager (RUN-033: subscribe(ListChanged) into the message bus), drawn between
+	// the client's call and the Manager's own.
+	clientCalls []roCall
 }
 
 func roUseCases() []roUseCase {
@@ -37,15 +41,19 @@ func roUseCases() []roUseCase {
 	permit := roCall{roManager, "access-granting-engine", "Permit(principal, owner, intent)"}
 	retrieve := roCall{roManager, "todo-list-access", "retrieveList(owner) → todos"}
 	return []roUseCase{
-		{"view-list", "ViewList", "viewList(view) → todos", []roCall{permit, retrieve}, both},
-		{"count-items-left", "CountItemsLeft", "countItemsLeft() → count", []roCall{permit, retrieve}, both},
+		{"view-list", "ViewList", "viewList(view) → todos", []roCall{permit, retrieve}, both,
+			[]roCall{{"", "message-bus", "subscribe(ListChanged)"}}},
+		{"count-items-left", "CountItemsLeft", "countItemsLeft() → count", []roCall{permit, retrieve}, both, nil},
 		{"add-todo", "AddTodo", "addTodo(wording) → todo", []roCall{permit,
 			{roManager, "todo-list-access", "recordTodos(owner, todos)"},
-			{roManager, "message-bus", "publish(ListChanged)"}}, both},
+			{roManager, "message-bus", "publish(ListChanged)"}}, both, nil},
 		{"get-stale", "GetStale", "getStale() → todos", []roCall{permit,
-			{roManager, "todo-list-access", "discardTodos(owner, ids)"}}, nil},
+			{roManager, "todo-list-access", "discardTodos(owner, ids)"}}, nil, nil},
+		// The Manager only asks the Engine, but the Engine records: a write through an Engine.
+		{"sync-todos", "SyncTodos", "syncTodos() → todos", []roCall{permit,
+			{"access-granting-engine", "todo-list-access", "recordTodos(owner, todos)"}}, both, nil},
 		{"peek-list", "PeekList", "peekList() → todos", []roCall{permit,
-			{roManager, "todo-list-access", "frobnicate(owner)"}}, nil},
+			{roManager, "todo-list-access", "frobnicate(owner)"}}, nil, nil},
 	}
 }
 
@@ -79,6 +87,9 @@ func roViewJSON(uc roUseCase) map[string]any {
 	for _, client := range uc.clients {
 		actor = append(actor, call(roCall{"team-member", client, uc.op + " — asks"}))
 		managerStep = append(managerStep, call(roCall{client, roManager, uc.managerLabel}))
+		for _, c := range uc.clientCalls {
+			managerStep = append(managerStep, call(roCall{client, c.to, c.label}))
+		}
 	}
 	for _, c := range uc.managerCalls {
 		managerStep = append(managerStep, call(c))
@@ -188,7 +199,7 @@ func roRecordLeaves(p *projectstate.Project) {
 }
 
 func roManagerContract() projectstate.ServiceContract {
-	return roOps("Manager", "TodoListManager", "ViewList", "CountItemsLeft", "AddTodo", "GetStale", "ListOrphans", "PeekList")
+	return roOps("Manager", "TodoListManager", "ViewList", "CountItemsLeft", "AddTodo", "GetStale", "ListOrphans", "PeekList", "SyncTodos")
 }
 
 // roFlags is name → readOnly of a recorded contract's operations.
@@ -227,6 +238,7 @@ func TestManagerReadOnlyComesFromItsCallChain(t *testing.T) {
 		"GetStale":       false, // its name says read; its chain discards
 		"ListOrphans":    false, // on no path: nothing says it only observes
 		"PeekList":       false, // a segment with a label no operation resolves
+		"SyncTodos":      false, // the Manager only asks the Engine, which records the todos
 	})
 	// The machine client copies the flags the Manager now carries; none is set by hand.
 	roRequire(t, "rest client", roFlags(p, "todoApi"), map[string]bool{

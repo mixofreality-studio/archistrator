@@ -14775,11 +14775,16 @@ type managerWalk struct {
 	verdicts map[string]*opVerdict
 }
 
-// walk reads one scenario's stimuli in order, opening and closing segments.
+// walk reads one scenario's stimuli in order, opening and closing segments. A segment's downstream
+// is the Manager and every Engine it calls, transitively: their calls are the segment's calls. A
+// stimulus from anything else (a sibling client's own call into a Utility, drawn in the same step)
+// belongs to another flow and leaves the segment open; only an actor's stimulus, an un-called
+// event, or the next call into the Manager closes it.
 func (w *managerWalk) walk(s scenario.Scenario) {
 	var seg *managerSegment
 	for i := range s.Stimuli {
 		st := &s.Stimuli[i]
+		from := scenario.Normalize(st.Input.From)
 		switch {
 		case w.owned[st.Input.To]:
 			if seg != nil && seg.calls == 0 && seg.op == st.Input.Op {
@@ -14790,14 +14795,18 @@ func (w *managerWalk) walk(s scenario.Scenario) {
 			w.finish(s, seg, st)
 			seg = nil
 			if st.Input.Op != "" {
-				seg = &managerSegment{op: st.Input.Op, ok: true, openNode: st.Node}
+				seg = &managerSegment{op: st.Input.Op, ok: true, openNode: st.Node,
+					down: map[string]bool{w.mgr: true}}
 			}
-		case st.Input.Kind != "call":
+		case st.Input.From == "" || w.in.Actors[st.Input.From]:
 			w.finish(s, seg, st)
 			seg = nil
-		case seg != nil && scenario.Normalize(st.Input.From) == w.mgr:
+		case seg != nil && seg.down[from]:
 			seg.calls++
 			seg.ok = seg.ok && managerCallReadOnly(w.p, w.byID, st.Input)
+			if w.byID[st.Input.To].Kind == CompEngine {
+				seg.down[st.Input.To] = true
+			}
 		}
 	}
 	w.finish(s, seg, nil)
@@ -14814,18 +14823,19 @@ func (w *managerWalk) finish(s scenario.Scenario, seg *managerSegment, closer *s
 		w.verdicts[seg.op] = v
 	}
 	v.opened++
-	if seg.calls == 0 || !seg.ok || managerSegmentUncontracted(w.in, w.mgr, s, seg.openNode, closer) {
+	if seg.calls == 0 || !seg.ok || managerSegmentUncontracted(w.in, seg.down, s, seg.openNode, closer) {
 		v.ok = false
 	}
 }
 
 // managerSegment is the calls one Manager operation's stimulus makes before the next stimulus that
-// is not its own.
+// is not its own (see walk).
 type managerSegment struct {
 	op       string
 	calls    int
 	ok       bool
 	openNode string
+	down     map[string]bool // Normalize of the Manager and the Engines its segment has reached
 }
 
 // managerCallReadOnly reports whether one call a Manager makes only observes.
@@ -14847,7 +14857,7 @@ func managerCallReadOnly(p *Project, byID map[string]Component, ev scenario.Inpu
 // managerSegmentUncontracted reports whether the views draw a call from the Manager, in the path
 // nodes of a segment, to a callee with no recorded contract. The derivation opens no stimulus for
 // such a call, so without this look the segment would read as shorter than the design draws it.
-func managerSegmentUncontracted(in scenario.Input, mgr string, s scenario.Scenario, openNode string, closer *scenario.Stimulus) bool {
+func managerSegmentUncontracted(in scenario.Input, down map[string]bool, s scenario.Scenario, openNode string, closer *scenario.Stimulus) bool {
 	from := slices.Index(s.Path, openNode)
 	if from < 0 {
 		return true
@@ -14873,7 +14883,7 @@ func managerSegmentUncontracted(in scenario.Input, mgr string, s scenario.Scenar
 				continue
 			}
 			for _, c := range step.Calls {
-				if scenario.Normalize(c.From) != mgr || in.Actors[c.To] {
+				if !down[scenario.Normalize(c.From)] || in.Actors[c.To] {
 					continue
 				}
 				if _, ok := scenario.FamilyOps(in, c.To); !ok {
