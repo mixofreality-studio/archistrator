@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
@@ -1513,7 +1514,7 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 	// A note riding this attempt changed its inputs, so the result it comes back with is not a
 	// repeat of the attempt before it. Send-back feedback and an operator's answer to an
 	// escalation both arrive as pending notes, so this one reset covers them all.
-	if len(tc.State.pendingNotes) > 0 {
+	if tc.State.hasSteeringNotes() {
 		delete(tc.State.lastFingerprint, tc.Task.ID)
 	}
 	dispatch, ok, err := wf.submitConstructionJob(ctx, tc, attemptID)
@@ -1678,7 +1679,7 @@ func (wf *csWorkflows) settleFailureCause(
 		// the activity at the loop, and a repeat of it is no reason to call it noProgress.
 		return obs
 	}
-	if obs.ReachedModel && obs.ProgressFingerprint != "" && len(tc.State.pendingNotes) == 0 &&
+	if obs.ReachedModel && obs.ProgressFingerprint != "" && !tc.State.hasSteeringNotes() &&
 		obs.ProgressFingerprint == tc.State.lastFingerprint[tc.Task.ID] {
 		obs.Cause = &agenticjob.NoProgressCause{Fingerprint: obs.ProgressFingerprint}
 	}
@@ -1809,7 +1810,7 @@ func (wf *csWorkflows) runTaskVariance(
 	// the last word however it failed (dispatchConstructionOnce restarts the comparison).
 	report, reported := tc.State.planDefects[tc.Task.ID]
 	switch {
-	case len(tc.State.pendingNotes) == 0 && tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint):
+	case !tc.State.hasSteeringNotes() && tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint):
 		// Before a report: a repeat is no progress whatever the agent says about it. The
 		// comparison carries across a trip, so a plan the review upheld unchanged ends here.
 		kind = intervention.NoProgress
@@ -1834,6 +1835,7 @@ func (wf *csWorkflows) runTaskVariance(
 	case intervention.VarianceRetry, intervention.VarianceTakeover:
 		// EXECUTE retry / takeover: re-dispatch. The prior pipeline already reached a terminal
 		// before intervention was consulted, so there is nothing in flight to abandon.
+		carryGateFailure(ctx, tc.In.csIn(), tc.State, tc.Phase.ID, tc.State.workAttemptID, obs)
 		tc.State.stage = StageDispatching
 		return varianceRedispatch, deferred, nil
 	case intervention.VarianceGiveUp:
@@ -6758,6 +6760,78 @@ func carrySendBackFeedback(ctx workflow.Context, in constructActivityInput, stat
 		state.ephemeralNotes = map[string]bool{}
 	}
 	state.ephemeralNotes[note.NoteID] = true
+	state.pendingNotes = append(state.pendingNotes, note)
+}
+
+// changeGateFailureNote fences carryGateFailure: a new ephemeral note in an existing history.
+const changeGateFailureNote = "delivery-gate-failure-note"
+
+// gateFailureNoteText is the note that tells the next attempt its predecessor FAILED at the
+// job's gate, from the structured cause alone. ok is false for every cause that is not the
+// gate's (a refused edit scope, red checks). The text is cut to maxOperatorNoteBodyBytes.
+func gateFailureNoteText(attemptID string, obs csPipelineObservation) (text string, ok bool) {
+	var b strings.Builder
+	switch c := obs.Cause.(type) {
+	case *agenticjob.ToolRefusedByPolicy:
+		fmt.Fprintf(&b, "Attempt %s FAILED at the job's gate (cause toolRefusedByPolicy), even if its own run_checks was green. "+
+			"The job's edit scope refused these paths:\n", attemptID)
+		for _, p := range c.Paths {
+			b.WriteString(p + "\n")
+		}
+		b.WriteString("Do not re-affirm the previous plan. Your next commit must take every refused path out of the branch's net diff against main.")
+	case *agenticjob.GateRed:
+		fmt.Fprintf(&b, "Attempt %s FAILED at the job's gate (cause gateRed), even if its own run_checks was green. These checks are red:\n", attemptID)
+		for _, id := range c.Checks {
+			b.WriteString(id + "\n")
+		}
+		b.WriteString("Do not re-affirm the previous plan. Make these checks pass before you finish.")
+	default:
+		return "", false
+	}
+	if d := strings.TrimSpace(obs.Diagnostic); d != "" {
+		b.WriteString("\nThe gate said: " + d)
+	}
+	text = b.String()
+	if len(text) > maxOperatorNoteBodyBytes {
+		cut := maxOperatorNoteBodyBytes
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut]
+	}
+	return text, true
+}
+
+// carryGateFailure puts the failure of the attempt that just ended at the job's gate in front of
+// the next one, as ONE workflow-local note (never stored, never stamped), the way
+// carrySendBackFeedback does. Without it the next agent is told nothing and re-affirms its plan.
+// It enqueues nothing for any other cause, and replaces a gate-failure note still waiting: only
+// the last attempt is news. hasSteeringNotes does not count it.
+func carryGateFailure(ctx workflow.Context, in constructActivityInput, state *constructState, gate, attemptID string, obs csPipelineObservation) {
+	text, ok := gateFailureNoteText(attemptID, obs)
+	if !ok || !state.noteDelivery ||
+		workflow.GetVersion(ctx, changeGateFailureNote, workflow.DefaultVersion, 1) < 1 {
+		return
+	}
+	state.pendingNotes = slices.DeleteFunc(state.pendingNotes, func(n projectstate.OperatorNote) bool {
+		return state.gateFailureNotes[n.NoteID]
+	})
+	state.noteSeq++
+	note := projectstate.OperatorNote{
+		NoteID:     operatorNoteID(in.ActivityID, workflow.GetInfo(ctx).WorkflowExecution.RunID, state.noteSeq),
+		Kind:       projectstate.NoteRetry,
+		Gate:       gate,
+		Text:       text,
+		RecordedAt: workflow.Now(ctx),
+	}
+	if state.ephemeralNotes == nil {
+		state.ephemeralNotes = map[string]bool{}
+	}
+	if state.gateFailureNotes == nil {
+		state.gateFailureNotes = map[string]bool{}
+	}
+	state.ephemeralNotes[note.NoteID] = true
+	state.gateFailureNotes[note.NoteID] = true
 	state.pendingNotes = append(state.pendingNotes, note)
 }
 

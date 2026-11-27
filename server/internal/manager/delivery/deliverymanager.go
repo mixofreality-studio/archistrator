@@ -14261,6 +14261,23 @@ type constructState struct {
 	// They render into the dispatch block like any other note and are never stamped
 	// delivered, because there is no stored note to stamp.
 	ephemeralNotes map[string]bool
+
+	// gateFailureNotes are the ids of the ephemeral notes that report the previous attempt's
+	// failure at the job's gate (carryGateFailure). They are also in ephemeralNotes. They
+	// report the last attempt rather than add input, so hasSteeringNotes does not count them.
+	gateFailureNotes map[string]bool
+}
+
+// hasSteeringNotes reports whether a note waits for the next dispatch that is NEW input to it
+// (a send-back's feedback, an operator's note or answer). A gate-failure note only reports the
+// last attempt, so it neither resets the progress comparison nor excuses a repeat.
+func (s *constructState) hasSteeringNotes() bool {
+	for _, n := range s.pendingNotes {
+		if !s.gateFailureNotes[n.NoteID] {
+			return true
+		}
+	}
+	return false
 }
 
 // modelEnvelope/projectEnvelope are ALIASES to the projectstate types (the shared
