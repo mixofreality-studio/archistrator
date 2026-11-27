@@ -100159,7 +100159,7 @@
       },
       "reviewEngine": {
         "component": "reviewEngine",
-        "principals": {},
+        "principals": null,
         "bindings": [
           {
             "scenario": "commit-to-a-project-option-P1",
@@ -100489,10 +100489,8 @@
                       "model": {
                         "json": {
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -100501,11 +100499,13 @@
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }
                       }
                     },
@@ -100530,49 +100530,50 @@
                       "model": {
                         "json": {
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }
                       }
                     },
@@ -100580,7 +100581,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "result": "\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -100665,10 +100666,8 @@
                       "model": {
                         "json": {
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -100677,11 +100676,13 @@
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }
                       }
                     },
@@ -100706,49 +100707,50 @@
                       "model": {
                         "json": {
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }
                       }
                     },
@@ -100756,7 +100758,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "result": "\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -101233,10 +101235,8 @@
                       "model": {
                         "json": {
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -101245,11 +101245,13 @@
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }
                       }
                     },
@@ -101274,49 +101276,50 @@
                       "model": {
                         "json": {
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }
                       }
                     },
@@ -101324,7 +101327,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "result": "\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -101403,10 +101406,8 @@
                       "model": {
                         "json": {
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -101415,11 +101416,13 @@
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }
                       }
                     },
@@ -101444,49 +101447,50 @@
                       "model": {
                         "json": {
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }
                       }
                     },
@@ -101494,7 +101498,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "result": "\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -101579,10 +101583,8 @@
                       "model": {
                         "json": {
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -101591,11 +101593,13 @@
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }
                       }
                     },
@@ -101620,49 +101624,50 @@
                       "model": {
                         "json": {
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }
                       }
                     },
@@ -101670,7 +101675,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "result": "\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"",
                   "errorExpected": false,
                   "errorCode": ""
                 },
@@ -101953,10 +101958,8 @@
                       "model": {
                         "json": {
                           "activity": "requirements",
-                          "task": "glossaryDraft",
                           "componentId": "",
                           "lifecycleKey": "requirements",
-                          "surface": "",
                           "model": {
                             "id": "",
                             "source": "",
@@ -101965,11 +101968,13 @@
                             "usd": 0
                           },
                           "slotRules": {
-                            "slot": "glossary",
                             "prefixes": [
                               "GLOSS-"
-                            ]
-                          }
+                            ],
+                            "slot": "glossary"
+                          },
+                          "surface": "",
+                          "task": "glossaryDraft"
                         }
                       }
                     },
@@ -101994,49 +101999,50 @@
                       "model": {
                         "json": {
                           "activity": "A-1",
-                          "task": "construction",
-                          "identity": {
-                            "kind": "dispatch",
-                            "title": "T",
-                            "phase": "construction",
-                            "command": "c",
-                            "agent": "a",
-                            "workerClass": "w",
-                            "artifactKind": "k",
-                            "exitCriterion": "e",
-                            "mode": "construct"
-                          },
-                          "model": {
-                            "id": "m",
-                            "source": "charter",
-                            "estimate": {
-                              "tokensIn": 0,
-                              "tokensOut": 0,
-                              "usd": 0
-                            }
-                          },
-                          "prompt": {
-                            "text": "p",
-                            "tokens": 0,
-                            "charter": "c",
-                            "skills": []
-                          },
-                          "tools": {
-                            "mcp": [],
-                            "builtin": []
-                          },
-                          "editScope": {
-                            "components": [],
-                            "extra": [],
-                            "stateOnly": true
-                          },
                           "activityEditScope": {
                             "components": [],
                             "extra": [],
                             "stateOnly": true
                           },
+                          "activityRegeneratesTests": false,
                           "checks": [],
-                          "hash": ""
+                          "editScope": {
+                            "components": [],
+                            "extra": [],
+                            "stateOnly": true
+                          },
+                          "hash": "",
+                          "identity": {
+                            "agent": "a",
+                            "artifactKind": "k",
+                            "command": "c",
+                            "exitCriterion": "e",
+                            "kind": "dispatch",
+                            "mode": "construct",
+                            "phase": "construction",
+                            "title": "T",
+                            "workerClass": "w"
+                          },
+                          "model": {
+                            "estimate": {
+                              "tokensIn": 0,
+                              "tokensOut": 0,
+                              "usd": 0
+                            },
+                            "id": "m",
+                            "source": "charter"
+                          },
+                          "prompt": {
+                            "charter": "c",
+                            "skills": [],
+                            "text": "p",
+                            "tokens": 0
+                          },
+                          "task": "construction",
+                          "tools": {
+                            "builtin": [],
+                            "mcp": []
+                          }
                         }
                       }
                     },
@@ -102044,7 +102050,7 @@
                   }
                 ],
                 "expect": {
-                  "result": "\"dd5ddc87611454891c9b5b2b2b0798d50b8203d56cc65c67690ba3b4bb3a1c1a\"",
+                  "result": "\"3ea43c1afef3a6aae20ba64c78d4c7dfbe263e962ef83319134281d79ded3dd8\"",
                   "errorExpected": false,
                   "errorCode": ""
                 },
