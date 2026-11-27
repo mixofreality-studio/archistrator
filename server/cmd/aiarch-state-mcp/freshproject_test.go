@@ -190,11 +190,9 @@ func gate(t *testing.T, repo string, spec review.TaskSpec) (map[string]string, m
 	if err := os.WriteFile(specPath, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(stateBinary(t), "run-checks", "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
-	cmd.Dir = repo
 	// The sandbox is a standalone module: a workspace the developer's shell exports (go.work of
 	// the archistrator checkout) must not reach golangci-lint, which the runner leaves un-pinned.
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd := runChecksCmd(t.Context(), t, repo, append(os.Environ(), "GOWORK=off"), "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
 	_, _ = cmd.CombinedOutput() // exit 1 is a red check; the results file says which
 	results, err := readPrevResults(filepath.Join(out, "res"))
 	if err != nil || results == nil {
@@ -484,8 +482,7 @@ func TestFreshRedGateDigestsItsFailure(t *testing.T) {
 		if err := os.WriteFile(specPath, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(stateBinary(t), "run-checks", "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
-		cmd.Dir = repo
+		cmd := runChecksCmd(t.Context(), t, repo, os.Environ(), "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
 		_, _ = cmd.CombinedOutput()
 		got, err := os.ReadFile(filepath.Join(out, "res", failureDigestFile))
 		if err != nil || len(got) == 0 {
@@ -583,8 +580,7 @@ func TestFreshRedScenarioRunDigestsAlike(t *testing.T) {
 		if err := os.WriteFile(specPath, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(stateBinary(t), "run-checks", "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
-		cmd.Dir = repo
+		cmd := runChecksCmd(t.Context(), t, repo, os.Environ(), "--gate", "--spec", specPath, "--out", filepath.Join(out, "res"))
 		_, _ = cmd.CombinedOutput()
 		got, err := os.ReadFile(filepath.Join(out, "res", failureDigestFile))
 		if err != nil || len(got) == 0 {

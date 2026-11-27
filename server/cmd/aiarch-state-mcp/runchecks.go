@@ -236,7 +236,11 @@ func runRunChecks(args []string, stdout io.Writer) error {
 			return exitError{2, err}
 		}
 	}
-	results := runSpecChecks(context.Background(), checkRunner{root: root, outDir: a.out, workspaces: workspaceRootsFromEnv()}, a.spec.Checks, prev, a.onlyFailed)
+	// A termination signal or the death of the parent cancels the run: execCommand then kills
+	// each check's process group, the results are still written, and nothing cancelled passes.
+	ctx, stop := lifelineContext(context.Background())
+	defer stop()
+	results := runSpecChecks(ctx, checkRunner{root: root, outDir: a.out, workspaces: workspaceRootsFromEnv()}, a.spec.Checks, prev, a.onlyFailed)
 	if err := writeCheckResults(a.out, results); err != nil {
 		return exitError{2, fmt.Errorf("write the results: %w", err)}
 	}
