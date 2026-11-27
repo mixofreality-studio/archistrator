@@ -1381,8 +1381,8 @@ type localRun struct {
 	mu         sync.Mutex
 	status     localRunStatus
 	diagnostic string
-	// fingerprint is the gated run's progress fingerprint, "" unless its checks went red AND the
-	// run reached the model: a run that never reached it proves nothing about the work, so it can
+	// fingerprint is the gated run's progress fingerprint, "" unless its gates went red (checks or
+	// edit scope) AND the run reached the model: a run that never reached it proves nothing about the work, so it can
 	// never compare equal to the attempt before it.
 	fingerprint string
 	// reachedModel is whether the run reached the model (see classifyLocal); a venue job, which
@@ -2294,7 +2294,8 @@ type localGate struct {
 	// generators are the `go tool` runs the spec names for the task, after the contracts:
 	// the composition root at integration, the web project for a browser surface.
 	generators [][]string
-	// fingerprint is the red run's progress fingerprint (progressFingerprint), "" otherwise.
+	// fingerprint is the red run's progress fingerprint (progressFingerprint: checks or edit scope
+	// red, every gate having run), "" otherwise.
 	fingerprint string
 	// specHash is the dispatched spec's hash, which the job held the resolved spec to.
 	specHash string
@@ -3029,6 +3030,10 @@ func (v gateVerdict) failure() string { return strings.Join(v.failures, "; ") }
 // templates' always() steps do.
 func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 	var v gateVerdict
+	g.fingerprint = ""
+	// incomplete is whether a gate or the checks could not run: such a verdict proves nothing about
+	// the agent's work, so it never earns a progress fingerprint.
+	incomplete := false
 	scope := []string{"edit-scope", "--spec", g.specPath, "--base", g.baseSHA, "--head", headSHA}
 	if g.mainSHA != "" {
 		scope = append(scope, "--main", g.mainSHA)
@@ -3037,8 +3042,9 @@ func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 	}
 	if flags, werr := g.workspaceGateFlags(); werr != nil {
 		v.failures = append(v.failures, "the edit scope gate could not run: "+werr.Error())
+		incomplete = true
 	} else {
-		v.runEditScope(g, workDir, append(scope, flags...))
+		incomplete = !v.runEditScope(g, workDir, append(scope, flags...))
 	}
 
 	// The check gate judges exactly what the gated branch holds: the worktree back on that
@@ -3065,17 +3071,25 @@ func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 		}
 	}
 	res := g.run(checkGateTimeout, workDir, "run-checks", "--gate", "--spec", g.specPath, "--out", checkResultsDir)
+	var digest []byte
 	switch res.code {
 	case 0:
 	case 1:
 		why, red := failingChecks(workDir, res)
 		v.failures = append(v.failures, why)
 		v.checksRed, v.redChecks = true, red
-		g.fingerprint = progressFingerprint(g, workDir, headSHA)
+		// Read before the record step: it is the checks' own account of how they failed.
+		digest, _ = readFileInDir(filepath.Join(workDir, checkResultsDir), "failure-digest")
+		if len(digest) == 0 {
+			incomplete = true
+		}
 	default:
 		// An internal error (or a killed run) leaves no results to record.
 		v.failures = append(v.failures, "the checks could not run: "+res.detail())
 		return v
+	}
+	if !incomplete && (v.checksRed || v.scopeRed) {
+		g.fingerprint = progressFingerprint(g, workDir, headSHA, v, digest)
 	}
 	if why := recordCheckRun(g, workDir); why != "" {
 		v.failures = append(v.failures, why)
@@ -3083,8 +3097,9 @@ func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 	return v
 }
 
-// runEditScope runs the edit-scope gate with args and records its verdict.
-func (v *gateVerdict) runEditScope(g *localGate, workDir string, args []string) {
+// runEditScope runs the edit-scope gate with args and records its verdict. It returns whether the
+// gate ran to a verdict (green or red) rather than failing to run.
+func (v *gateVerdict) runEditScope(g *localGate, workDir string, args []string) bool {
 	switch res := g.run(gateStepTimeout, workDir, args...); res.code {
 	case 0:
 	case 1:
@@ -3092,7 +3107,9 @@ func (v *gateVerdict) runEditScope(g *localGate, workDir string, args []string) 
 		v.scopeRed, v.scopePaths = true, editScopePaths(res.stderr)
 	default:
 		v.failures = append(v.failures, "the edit scope gate could not run: "+res.detail())
+		return false
 	}
+	return true
 }
 
 // editScopePaths reads the paths the edit-scope gate named off its stderr: every message lists
@@ -3165,42 +3182,90 @@ func failingChecks(workDir string, res gateToolResult) (string, []string) {
 	return "the checks did not pass: " + res.detail(), nil
 }
 
-// progressFingerprint says what this red attempt amounted to: the tree it left (excluding the
-// state directory, whose bookkeeping changes on every attempt), the task spec it ran under,
-// and the digest of how it failed. Two consecutive attempts with the same fingerprint changed
-// nothing and failed the same way, so a third cannot do better. It is set only when the gate
-// ran to completion with red checks: infrastructure deaths and cancellations must never
-// count, so an empty fingerprint never compares equal. Any failure to compute it is empty too.
-func progressFingerprint(g *localGate, workDir, headSHA string) string {
-	digest, err := readFileInDir(filepath.Join(workDir, checkResultsDir), "failure-digest")
-	if err != nil || len(digest) == 0 {
-		return ""
-	}
-	listing, err := gitExec(workDir, gateGit("ls-tree", "-r", headSHA))
+// progressFingerprint says what this red attempt amounted to: the agent's NET DIFF, the task
+// spec it ran under, and how it failed. Two consecutive attempts with the same fingerprint
+// changed nothing and failed the same way, so a third cannot do better.
+//
+// The net diff is what the edit-scope gate judges, with main netted out: with the captured main,
+// the raw tree diff merge-base(main, head)..head with blob ids (so merging a moved main into the
+// branch between attempts leaves it unchanged); with no main, the head's whole tree listing. The
+// state directory is excluded, its bookkeeping changing on every attempt. A workspace repo's
+// diff is taken the same way against its own main. How it failed is the checks' failure digest
+// when they were red, and the sorted paths the edit scope refused when it was: either red
+// verdict earns a fingerprint, whatever the other gate said.
+//
+// It is set only when every gate ran to a verdict: infrastructure deaths and cancellations must
+// never count, so an empty fingerprint never compares equal. Any failure to compute it is
+// empty too.
+func progressFingerprint(g *localGate, workDir, headSHA string, v gateVerdict, digest []byte) string {
+	var tree strings.Builder
+	net, err := netDiff(workDir, headSHA, g.mainSHA)
 	if err != nil {
 		return ""
 	}
-	var tree strings.Builder
-	for line := range strings.Lines(listing) {
-		if _, entry, ok := strings.Cut(line, "\t"); ok && !strings.HasPrefix(entry, ".aiarch/") {
-			tree.WriteString(line)
-		}
-	}
-	// What the attempt left in a workspace repo is part of the tree it left: two attempts that
-	// edit the platform differently and fail the same way did change something.
+	tree.WriteString(net)
+	// What the attempt left in a workspace repo is part of what it did: two attempts that edit the
+	// platform differently and fail the same way did change something.
 	for _, w := range g.workspaces {
 		wHead, err := revParseBranch(w.repoPath, g.branch)
 		if err != nil {
 			return ""
 		}
-		wListing, err := gitExec(w.workDir, gateGit("ls-tree", "-r", wHead))
+		wNet, err := netDiff(w.workDir, wHead, w.mainSHA)
 		if err != nil {
 			return ""
 		}
-		tree.WriteString("\x00@" + w.id + "\n" + wListing)
+		tree.WriteString("\x00@" + w.id + "\n" + wNet)
 	}
-	sum := sha256.Sum256([]byte(tree.String() + "\x00" + g.specHash + "\x00" + string(digest)))
+	var failure strings.Builder
+	failure.Write(digest)
+	if v.scopeRed {
+		failure.WriteString("\x00scope")
+		for _, p := range slices.Sorted(slices.Values(v.scopePaths)) {
+			failure.WriteString("\x00" + p)
+		}
+	}
+	sum := sha256.Sum256([]byte(tree.String() + "\x00" + g.specHash + "\x00" + failure.String()))
 	return hex.EncodeToString(sum[:])
+}
+
+// netDiff is what head changes against main in the repo dir holds, as the edit-scope gate nets
+// out main: the raw tree diff merge-base(main, head)..head with blob ids (-z, no renames), or,
+// with no main, head's tree listing. Paths under the state directory are left out.
+func netDiff(dir, head, main string) (string, error) {
+	var raw string
+	var err error
+	if main == "" {
+		raw, err = gitStdout(dir, gateGit("ls-tree", "-r", "-z", "--full-tree", head))
+	} else {
+		var base string
+		if base, err = gitStdout(dir, gateGit("merge-base", "--end-of-options", main, head)); err != nil {
+			return "", err
+		}
+		raw, err = gitStdout(dir, gateGit("diff-tree", "-r", "-z", "--no-renames", "--no-ext-diff", "--no-textconv",
+			"--raw", "--no-abbrev", strings.TrimSpace(base), head))
+	}
+	if err != nil {
+		return "", err
+	}
+	// Records are "<meta>\x00<path>\x00" (diff-tree) or "<meta>\t<path>\x00" (ls-tree); the
+	// state directory's are dropped.
+	var out strings.Builder
+	if main == "" {
+		for rec := range strings.SplitSeq(raw, "\x00") {
+			if _, entry, ok := strings.Cut(rec, "\t"); ok && !strings.HasPrefix(entry, ".aiarch/") {
+				out.WriteString(rec + "\x00")
+			}
+		}
+		return out.String(), nil
+	}
+	parts := strings.Split(raw, "\x00")
+	for i := 0; i+1 < len(parts); i += 2 {
+		if !strings.HasPrefix(parts[i+1], ".aiarch/") {
+			out.WriteString(parts[i] + "\x00" + parts[i+1] + "\x00")
+		}
+	}
+	return out.String(), nil
 }
 
 // recordCheckRun is step 7: the gate's results become the task's CheckRun on the state
@@ -5626,6 +5691,42 @@ func revParseBranch(repoPath, branch string) (string, error) {
 // agent: a JSON object, repo id -> worktree dir (aiarch-state-mcp's workspaceRootsEnv).
 const workspaceRootsKey = "AIARCH_WORKSPACE_ROOTS"
 
+// editScopeRangeKey is the rig key carrying the edit-scope gate's SHAs to the agent's state tool: a
+// JSON object {"base","main","workspaces":[{"id","dir","base","main"}]}, exactly runGates'
+// --base/--main/--workspace values minus the head. aiarch-state-mcp's run_checks runs the
+// edit-scope gate in-session with it, so green in session means green at the job. A guardrail, not
+// a security boundary (R27). Set on gated runs only.
+const editScopeRangeKey = "AIARCH_EDIT_SCOPE_RANGE"
+
+// editScopeRange is editScopeRangeKey's value.
+type editScopeRange struct {
+	Base       string                    `json:"base"`
+	Main       string                    `json:"main"`
+	Workspaces []editScopeRangeWorkspace `json:"workspaces,omitempty"`
+}
+
+type editScopeRangeWorkspace struct {
+	ID   string `json:"id"`
+	Dir  string `json:"dir"`
+	Base string `json:"base"`
+	Main string `json:"main"`
+}
+
+// stampEditScopeRange puts the gate's edit-scope range on the rig, once the gate's base (after the
+// generated-output commit), main and the workspaces' tips are final.
+func stampEditScopeRange(g *localGate, rig map[string]string) error {
+	r := editScopeRange{Base: g.baseSHA, Main: g.mainSHA}
+	for _, w := range g.workspaces {
+		r.Workspaces = append(r.Workspaces, editScopeRangeWorkspace{ID: w.id, Dir: w.workDir, Base: w.beforeSHA, Main: w.mainSHA})
+	}
+	enc, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	rig[editScopeRangeKey] = string(enc)
+	return nil
+}
+
 // workspaceWorktree is one workspace repo's worktree of a dispatch: the repo it came from, the
 // worktree and git dir the sandbox opens, and the tips captured before the agent ran (R26).
 type workspaceWorktree struct {
@@ -5850,6 +5951,13 @@ func (a *localExecAccess) prepareGateAndWorkspaces(s dispatchedTaskSpec, parentD
 		return gate, nil, refused, err
 	}
 	ws, refused = a.addWorkspaceWorktrees(gate, rig, parentDir, branch)
+	if refused != "" {
+		return gate, ws, refused, nil
+	}
+	if err := stampEditScopeRange(gate, rig); err != nil {
+		a.removeWorkspaceWorktrees(ws)
+		return gate, nil, "", fwra.Wrap(fwra.Infrastructure, err, "localexec: stamp the edit scope range")
+	}
 	return gate, ws, refused, nil
 }
 
