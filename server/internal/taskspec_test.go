@@ -162,9 +162,34 @@ func TestTaskSpecForStateTaskAndTestPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The merge commits the plan testgen reads: Tier 2 admission rides beside the rule check.
-	if !stp.EditScope.StateOnly || !slices.Equal(checkIDs(stp), []string{"admission:tier2", "rule:tp"}) ||
-		!slices.Equal(stp.Checks[0].Source.RulePrefixes, []string{"TP-"}) {
-		t.Fatalf("stp spec: %+v %+v", stp.EditScope, stp.Checks)
+	// Each contract the component owns is required to have a recorded plan: one rule check per key.
+	var keys []string
+	for name, sc := range p.ServiceContracts {
+		if sc.Component == "agenticJobAccess" {
+			keys = append(keys, name)
+		}
+	}
+	slices.Sort(keys)
+	if len(keys) == 0 {
+		t.Fatal("fixture: agentic-job-access owns no service contract")
+	}
+	wantIDs := []string{"admission:tier2"}
+	for _, k := range keys {
+		wantIDs = append(wantIDs, "rule:tp:"+k)
+	}
+	if !stp.EditScope.StateOnly || !slices.Equal(checkIDs(stp), wantIDs) {
+		t.Fatalf("stp spec: %+v %+v, want checks %v", stp.EditScope, stp.Checks, wantIDs)
+	}
+	for _, k := range keys {
+		var c review.SpecCheck
+		for _, sc := range stp.Checks {
+			if sc.ID == "rule:tp:"+k {
+				c = sc
+			}
+		}
+		if !slices.Equal(c.Source.RulePrefixes, []string{"TP-"}) || c.Source.Contract == nil || *c.Source.Contract != k {
+			t.Fatalf("stp check %s: prefixes %v contract %v, want TP- and %q", c.ID, c.Source.RulePrefixes, c.Source.Contract, k)
+		}
 	}
 }
 

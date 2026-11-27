@@ -1446,10 +1446,7 @@ func (tp *taskProject) scopeAndChecksBase(ms methodassets.MethodSpec, item taskI
 	case isDesignMode(ms.Mode):
 		return stateOnly, []SpecCheck{slotRuleCheck(ms.ArtifactKind, slot)}, nil
 	case ms.Phase == "test_plan":
-		return stateOnly, []SpecCheck{{
-			ID: "rule:tp", Kind: checkKindRule, Title: "Test plan rules (TP-*)",
-			Source: SpecCheckSource{RulePrefixes: []string{"TP-"}}, TimeoutSec: ruleCheckTimeoutSec,
-		}}, nil
+		return stateOnly, tp.testPlanChecks(item.componentID), nil
 	case ms.Phase == "acceptance_plan":
 		return stateOnly, []SpecCheck{atpRuleCheck()}, nil
 	case ms.Phase == "requirements" || ms.Phase == "detailed_design" || ms.Kind == methodassets.LifecycleTaskReview:
@@ -1480,6 +1477,39 @@ func (tp *taskProject) scopeAndChecksBase(ms methodassets.MethodSpec, item taskI
 	// its scope is an explicit "any path" rather than a stateOnly that would reject its
 	// legitimate output.
 	return SpecEditScope{Extra: []string{anyPath}}, []SpecCheck{projectRuleCheck()}, nil
+}
+
+// testPlanChecks is the test_plan task's rule checks: one per contract the component owns, each
+// naming the plan it requires, so a contract with no recorded test plan fails its check rather
+// than passing vacuously. A component with no contract names no plan to require, so it keeps the
+// single unscoped check.
+func (tp *taskProject) testPlanChecks(componentID string) []SpecCheck {
+	contracts := tp.componentContracts(componentID)
+	if len(contracts) == 0 {
+		return []SpecCheck{tpRuleCheck("")}
+	}
+	checks := make([]SpecCheck, 0, len(contracts))
+	for _, c := range contracts {
+		checks = append(checks, tpRuleCheck(c))
+	}
+	sortChecks(checks)
+	return checks
+}
+
+// tpRuleCheck is the test plan's rule check (TP-*). Given a contract it requires that contract's
+// recorded plan (a missing one fails) and runs the TP-* findings over it; given "" it is the
+// unscoped check over the whole document, for a component that owns no contract.
+func tpRuleCheck(contract string) SpecCheck {
+	if contract == "" {
+		return SpecCheck{
+			ID: "rule:tp", Kind: checkKindRule, Title: "Test plan rules (TP-*)",
+			Source: SpecCheckSource{RulePrefixes: []string{"TP-"}}, TimeoutSec: ruleCheckTimeoutSec,
+		}
+	}
+	return SpecCheck{
+		ID: "rule:tp:" + contract, Kind: checkKindRule, Title: "Test plan rules (TP-*) for " + contract,
+		Source: SpecCheckSource{RulePrefixes: []string{"TP-"}, Contract: &contract}, TimeoutSec: ruleCheckTimeoutSec,
+	}
 }
 
 // atpRuleCheck is the acceptance plan's rule check (ATP-*, with TP-* over every bound step). The
