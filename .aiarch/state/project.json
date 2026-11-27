@@ -26603,7 +26603,9 @@
       "ownedPaths": [
         "@archistrator-platform/framework-go/methodcheck",
         "@archistrator-platform/framework-go-conformance",
-        "@archistrator-platform/method-assets"
+        "@archistrator-platform/method-assets",
+        "@archistrator-platform/framework-go-app-generator/testgen",
+        "@archistrator-platform/framework-go-scenariohost"
       ],
       "title": "design-health engine contract",
       "$defs": {
