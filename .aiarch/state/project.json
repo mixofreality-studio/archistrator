@@ -37508,6 +37508,13 @@
                 "$ref": "#/$defs/DiscriminateSurvivor"
               },
               "description": "The null-subject run's survivors, on the command:test-discriminate result only: one per TP-DISCRIMINATE line of its log, in log order. Absent on every other check and when nothing survived."
+            },
+            "broken": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/DiscriminateBroken"
+              },
+              "description": "The null-subject run's broken scenarios, on the command:test-discriminate result only: one per TP-BROKEN line of its log, in log order. Absent on every other check and when nothing was broken."
             }
           },
           "required": [
@@ -38381,6 +38388,25 @@
             "deliveryStyle",
             "containers",
             "environments"
+          ],
+          "additionalProperties": false
+        },
+        "DiscriminateBroken": {
+          "type": "object",
+          "description": "One broken scenario of the null-subject run (TP-BROKEN): a scenario that failed against its real subject, so the run could not tell whether its binding discriminates. Parsed from the run's `TP-BROKEN \u003ccontract\u003e \u003cscenario\u003e` line.",
+          "properties": {
+            "contract": {
+              "type": "string",
+              "description": "The serviceContracts key the scenario belongs to."
+            },
+            "scenario": {
+              "type": "string",
+              "description": "The scenario id, as in the scenario check id scenario:\u003ccontract\u003e:\u003cscenario\u003e."
+            }
+          },
+          "required": [
+            "contract",
+            "scenario"
           ],
           "additionalProperties": false
         },
