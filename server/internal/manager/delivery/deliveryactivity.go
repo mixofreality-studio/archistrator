@@ -1381,9 +1381,8 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 				Detail: "dispatched " + tc.Task.Command + " for " + tc.Phase.ID,
 			}, nil
 		}
-		if defect := upstreamDesignDefectOf(obs.Cause); defect != nil &&
-			workflow.GetVersion(ctx, changeUpstreamDesignDefect, workflow.DefaultVersion, 1) >= 1 {
-			return wf.endOnUpstreamDesignDefect(ctx, tc, deferred, attemptID, obs, defect)
+		if subject, ended, serr := wf.endOnDesignDefect(ctx, tc, deferred, attemptID, obs); ended {
+			return subject, serr
 		}
 		verdict, held, waited, spent, verr := wf.judgeFailedDispatch(ctx, tc, attemptID, obs, attempt, dispatches, deferred, typed, &streak)
 		if waited {
@@ -1418,6 +1417,41 @@ func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskCo
 	}
 }
 
+// changeGenerationRefused fences the construction loop's end on a generation refusal and the job
+// arm of the progress comparison (ISS-034-3): new commands and a new decision in an existing history.
+const changeGenerationRefused = "iss0343-generation-refused"
+
+// inputsMayDiffer reports whether the next dispatch of the task may run on inputs other than the
+// last one's, which is what excuses a repeated result from being no progress. An agent reads its
+// pending notes, so a steering note changes its inputs; a venue job reads only committed state,
+// so no note can.
+func inputsMayDiffer(ctx workflow.Context, tc taskContext) bool {
+	if tc.Task.Kind == methodassets.LifecycleTaskJob &&
+		workflow.GetVersion(ctx, changeGenerationRefused, workflow.DefaultVersion, 1) >= 1 {
+		return false
+	}
+	return tc.State.hasSteeringNotes()
+}
+
+// endOnDesignDefect ends the construction loop at once on a failed dispatch whose cause is a defect
+// of a committed design: a refusal a design slot owns, or a generation the design could not
+// survive. ended is false for every other cause, and the loop judges the failure as usual.
+func (wf *csWorkflows) endOnDesignDefect(
+	ctx workflow.Context, tc taskContext, deferred []routedSignal, attemptID string, obs csPipelineObservation,
+) (subject producedSubject, ended bool, err error) {
+	if defect := upstreamDesignDefectOf(obs.Cause); defect != nil &&
+		workflow.GetVersion(ctx, changeUpstreamDesignDefect, workflow.DefaultVersion, 1) >= 1 {
+		subject, err = wf.endOnUpstreamDesignDefect(ctx, tc, deferred, attemptID, obs, defect)
+		return subject, true, err
+	}
+	if refused, ok := obs.Cause.(*agenticjob.GenerationRefused); ok &&
+		workflow.GetVersion(ctx, changeGenerationRefused, workflow.DefaultVersion, 1) >= 1 {
+		subject, err = wf.endOnGenerationRefused(ctx, tc, deferred, attemptID, obs, refused)
+		return subject, true, err
+	}
+	return producedSubject{}, false, nil
+}
+
 // endOnUpstreamDesignDefect is the construction loop's answer to a refusal a committed design slot
 // owns. No attempt can cure a defect in a design slot the work is built on, so none is spent and
 // none is retried. Where one committed slot alone owns the refusal, its amendment is the cure and
@@ -1439,6 +1473,38 @@ func (wf *csWorkflows) endOnUpstreamDesignDefect(
 	}
 	subject, err := wf.constructionGaveUp(ctx, tc, deferred,
 		projectstate.ActivityOutcomeUnknown, projectstate.UpstreamDesignDefect, detail)
+	subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
+	return subject, err
+}
+
+// maxGenerationRefusedDetailBytes caps the generator's own words in an activity's failure detail.
+const maxGenerationRefusedDetailBytes = 1024
+
+// generationRefusedDetail is the failure detail of an activity ended by a generation refusal: which
+// generator refused the committed design and why, the generator's words cut to a sensible length.
+func generationRefusedDetail(gr *agenticjob.GenerationRefused) string {
+	d := strings.TrimSpace(gr.Detail)
+	if len(d) > maxGenerationRefusedDetailBytes {
+		cut := maxGenerationRefusedDetailBytes
+		for cut > 0 && !utf8.RuneStart(d[cut]) {
+			cut--
+		}
+		d = d[:cut] + "..."
+	}
+	return fmt.Sprintf("upstream design defect: the committed design could not be generated (%s), and no attempt can cure it; amend the design it reads first: %s",
+		gr.Generator, d)
+}
+
+// endOnGenerationRefused ends the construction loop on the first generation refusal: the committed
+// design the generator reads is defective, so no attempt is spent, none is retried and the
+// intervention Engine is not asked. It is the not-routed end of endOnUpstreamDesignDefect.
+func (wf *csWorkflows) endOnGenerationRefused(
+	ctx workflow.Context, tc taskContext, deferred []routedSignal, attemptID string, obs csPipelineObservation,
+	refused *agenticjob.GenerationRefused,
+) (producedSubject, error) {
+	wf.reofferDeferred(ctx, tc, deferred)
+	subject, err := wf.constructionGaveUp(ctx, tc, nil,
+		projectstate.ActivityOutcomeUnknown, projectstate.UpstreamDesignDefect, generationRefusedDetail(refused))
 	subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
 	return subject, err
 }
@@ -1514,7 +1580,7 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 	// A note riding this attempt changed its inputs, so the result it comes back with is not a
 	// repeat of the attempt before it. Send-back feedback and an operator's answer to an
 	// escalation both arrive as pending notes, so this one reset covers them all.
-	if tc.State.hasSteeringNotes() {
+	if inputsMayDiffer(ctx, tc) {
 		delete(tc.State.lastFingerprint, tc.Task.ID)
 	}
 	dispatch, ok, err := wf.submitConstructionJob(ctx, tc, attemptID)
@@ -1679,7 +1745,17 @@ func (wf *csWorkflows) settleFailureCause(
 		// the activity at the loop, and a repeat of it is no reason to call it noProgress.
 		return obs
 	}
-	if obs.ReachedModel && obs.ProgressFingerprint != "" && !tc.State.hasSteeringNotes() &&
+	if _, ok := obs.Cause.(*agenticjob.GenerationRefused); ok &&
+		workflow.GetVersion(ctx, changeGenerationRefused, workflow.DefaultVersion, 1) >= 1 {
+		// A refusal of the committed design is the root; it ends the activity at the loop.
+		return obs
+	}
+	reached := obs.ReachedModel
+	if tc.Task.Kind == methodassets.LifecycleTaskJob &&
+		workflow.GetVersion(ctx, changeGenerationRefused, workflow.DefaultVersion, 1) >= 1 {
+		reached = true // a job runs no model; its fingerprint over committed inputs is the whole comparison
+	}
+	if reached && obs.ProgressFingerprint != "" && !inputsMayDiffer(ctx, tc) &&
 		obs.ProgressFingerprint == tc.State.lastFingerprint[tc.Task.ID] {
 		obs.Cause = &agenticjob.NoProgressCause{Fingerprint: obs.ProgressFingerprint}
 	}
@@ -1810,7 +1886,7 @@ func (wf *csWorkflows) runTaskVariance(
 	// the last word however it failed (dispatchConstructionOnce restarts the comparison).
 	report, reported := tc.State.planDefects[tc.Task.ID]
 	switch {
-	case !tc.State.hasSteeringNotes() && tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint):
+	case !inputsMayDiffer(ctx, tc) && tc.State.progressRepeated(tc.Task.ID, obs.ProgressFingerprint):
 		// Before a report: a repeat is no progress whatever the agent says about it. The
 		// comparison carries across a trip, so a plan the review upheld unchanged ends here.
 		kind = intervention.NoProgress

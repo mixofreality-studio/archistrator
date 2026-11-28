@@ -13025,7 +13025,7 @@ func faultClassOf(c agenticjob.FailureCause) agenticjob.FaultClass {
 		return agenticjob.FaultHost
 	case *agenticjob.AgentGaveUp, *agenticjob.NoProgressCause, *agenticjob.ToolRefusedByPolicy, *agenticjob.WriteRefused:
 		return agenticjob.FaultAgent
-	case *agenticjob.GateRed:
+	case *agenticjob.GateRed, *agenticjob.GenerationRefused:
 		return agenticjob.FaultGate
 	case *agenticjob.UnknownCause:
 		return agenticjob.FaultUnknown
