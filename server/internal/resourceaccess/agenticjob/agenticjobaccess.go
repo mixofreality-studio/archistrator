@@ -1479,6 +1479,8 @@ type localExecAccess struct {
 	// stale binary (R56).
 	stateToolVer string
 	runTimeout   time.Duration
+	// checkGateTimeout bounds the check gate (checkGateTimeout unless a LocalExecOption set it).
+	checkGateTimeout time.Duration
 
 	// claudeBin is the Claude Code CLI, resolved on PATH ONCE at construction
 	// (exec.LookPath) — the agent runtime every claude dispatch starts. When the
@@ -1509,6 +1511,20 @@ type localExecAccess struct {
 
 var _ AgenticJobAccess = (*localExecAccess)(nil)
 
+// LocalExecOption tunes a local executor at construction.
+type LocalExecOption func(*localExecAccess)
+
+// WithCheckGateTimeout bounds the check gate by d instead of the templates' 45 minutes (d <= 0
+// keeps the default). The venue's timeout path — a gate whose run-checks is cancelled while its
+// make -> testgen -> go test tree runs — is only reachable in a test through this bound.
+func WithCheckGateTimeout(d time.Duration) LocalExecOption {
+	return func(a *localExecAccess) {
+		if d > 0 {
+			a.checkGateTimeout = d
+		}
+	}
+}
+
 // NewLocalExecAgenticJobAccess builds the local-executor realisation.
 // repoURL must address a LOCAL repo — a file:// URL or a plain filesystem path
 // (local mode always passes the same value the projectstate GitStore was
@@ -1529,7 +1545,7 @@ var _ AgenticJobAccess = (*localExecAccess)(nil)
 // the activity branch). Best-effort: a prune failure (e.g. the repo does not
 // exist yet) is NOT a constructor error — the same fault surfaces per-dispatch
 // with a proper diagnostic.
-func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin, stateToolVersion string, runTimeout time.Duration) (AgenticJobAccess, error) {
+func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin, stateToolVersion string, runTimeout time.Duration, opts ...LocalExecOption) (AgenticJobAccess, error) {
 	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "agenticjob.NewLocalExecAgenticJobAccess: empty repoURL")
@@ -1578,7 +1594,7 @@ func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin, stateToolVers
 	}
 
 	claudeBin, claudeLookErr := exec.LookPath("claude")
-	return &localExecAccess{
+	access := &localExecAccess{
 		repoURL:       repoURL,
 		repoPath:      repoPath,
 		projectID:     projectID,
@@ -1588,7 +1604,13 @@ func NewLocalExecAgenticJobAccess(repoURL, projectID, stateMCPBin, stateToolVers
 		claudeBin:     claudeBin,
 		claudeLookErr: claudeLookErr,
 		runs:          map[string]*localRun{},
-	}, nil
+
+		checkGateTimeout: checkGateTimeout,
+	}
+	for _, opt := range opts {
+		opt(access)
+	}
+	return access, nil
 }
 
 // localRepoPath derives the shared repo's local filesystem path from the
@@ -2363,6 +2385,8 @@ type localGate struct {
 	// resultsRoot is the absolute dir a local CheckRun's results are kept under
 	// (localResultsDir); the run records them repo-relative, as localResultsRoot/<run>.
 	resultsRoot string
+	// checkTimeout bounds the check gate.
+	checkTimeout time.Duration
 }
 
 // The fixed names and bounds of the local sequence.
@@ -2684,14 +2708,15 @@ func excludeLinesMissing(existing string, lines ...string) string {
 // before the agent runs (R26).
 func (a *localExecAccess) resolveTaskSpec(s dispatchedTaskSpec, parentDir, workDir string, rig map[string]string) (*localGate, string) {
 	g := &localGate{
-		stateMCPBin: a.stateMCPBin,
-		specPath:    filepath.Join(parentDir, localSpecFile),
-		env:         gateEnv(rig, parentDir),
-		integration: s.taskID == localTaskIntegration,
-		specHash:    s.hash,
-		attempt:     firstNonEmpty(rig[rigRevisionKey], s.activityID+":"+s.taskID),
-		revision:    rig[rigRevisionKey],
-		resultsRoot: localResultsDir(a.repoPath),
+		stateMCPBin:  a.stateMCPBin,
+		specPath:     filepath.Join(parentDir, localSpecFile),
+		env:          gateEnv(rig, parentDir),
+		integration:  s.taskID == localTaskIntegration,
+		specHash:     s.hash,
+		attempt:      firstNonEmpty(rig[rigRevisionKey], s.activityID+":"+s.taskID),
+		revision:     rig[rigRevisionKey],
+		resultsRoot:  localResultsDir(a.repoPath),
+		checkTimeout: a.checkGateTimeout,
 	}
 	if why := g.staleStateTool(workDir, a.stateToolVer); why != "" {
 		return nil, why
@@ -3119,7 +3144,7 @@ func runGates(g *localGate, workDir, headSHA string) gateVerdict {
 			return v
 		}
 	}
-	res := g.run(checkGateTimeout, workDir, "run-checks", "--gate", "--spec", g.specPath, "--out", checkResultsDir)
+	res := g.run(g.checkTimeout, workDir, "run-checks", "--gate", "--spec", g.specPath, "--out", checkResultsDir)
 	var digest []byte
 	switch res.code {
 	case 0:

@@ -12,6 +12,10 @@ NewDryRunAgenticJobAccess
 # FinalizeAgenticJobAccess alongside the generated GitHub-Actions
 # constructor and the dry-run stub.
 NewLocalExecAgenticJobAccess
+# LOCAL-EXECUTOR CONSTRUCTOR OPTION (same category): the one construction-time tuning the venue
+# tests need, the check gate's bound (ISS-033-7 pins the timed-out gate's process-group kill).
+LocalExecOption
+WithCheckGateTimeout
 # DISPATCH-INPUT VOCABULARY (local-merge-and-policy Commit 1): the job key +
 # merge-job value the constructionManager stamps into the frozen Submit
 # surface's open DispatchInputs map to route the local-executor merge job
