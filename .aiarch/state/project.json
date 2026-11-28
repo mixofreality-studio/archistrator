@@ -17734,7 +17734,7 @@
           "x-go-base": "int"
         },
         "FailureCause": {
-          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy, writeRefused), the gate (gateRed) or nobody known (unknown).",
+          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy, writeRefused), the gate (gateRed, generationRefused) or nobody known (unknown).",
           "oneOf": [
             {
               "type": "object",
@@ -17884,6 +17884,22 @@
               "type": "object",
               "properties": {
                 "kind": {
+                  "const": "generationRefused"
+                },
+                "model": {
+                  "$ref": "#/$defs/GenerationRefused"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
                   "const": "unknown"
                 },
                 "model": {
@@ -17949,6 +17965,11 @@
                 "kindConst": "FailureWriteRefused"
               },
               {
+                "kind": "generationRefused",
+                "type": "GenerationRefused",
+                "kindConst": "FailureGenerationRefused"
+              },
+              {
                 "kind": "unknown",
                 "type": "UnknownCause",
                 "kindConst": "FailureUnknown"
@@ -17968,6 +17989,7 @@
             "toolRefusedByPolicy",
             "gateRed",
             "writeRefused",
+            "generationRefused",
             "unknown"
           ],
           "x-enum-varnames": [
@@ -17980,6 +18002,7 @@
             "FailureToolRefusedByPolicy",
             "FailureGateRed",
             "FailureWriteRefused",
+            "FailureGenerationRefused",
             "FailureUnknown"
           ]
         },
@@ -18031,6 +18054,23 @@
           },
           "required": [
             "checks"
+          ],
+          "additionalProperties": false
+        },
+        "GenerationRefused": {
+          "type": "object",
+          "description": "A gated run's generation step refused the committed design before any agent could start or the job's checks could judge it: generator names the step (make gen-models, a spec generator such as go tool appgen clients, or make gen-tests) and detail is its message. The outcome depends only on committed inputs (the reviewed plan, the contracts and the pinned toolchain), so re-dispatching the same inputs cannot cure it; the design the step reads must change first.",
+          "properties": {
+            "generator": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "generator",
+            "detail"
           ],
           "additionalProperties": false
         },
@@ -19338,7 +19378,8 @@
               "x-go-type": "ActivityExecution",
               "description": "The whole stored execution record for one activity: the lifecycle pin and the head facts (type, variant, started, completed, failure) beside the two append-only ledgers, its produced artifacts, its operator notes and its per-activity version. Bound through x-go-type rather than a $def because the stored row carries omitempty head facts the schema dialect cannot express — a not-required $ref emits a pointer, a required one emits a member on every row — and the stored shape is the one thing this wave must keep byte-exact. The same seam the attempt ledger already uses (x-go-type []TaskAttempt)."
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           }
         ]
       },
@@ -19474,7 +19515,7 @@
           "additionalProperties": false
         },
         "FailureCause": {
-          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy, writeRefused), the gate (gateRed) or nobody known (unknown).",
+          "description": "Why an agentic job failed, as a closed sum the delivery Manager switches on exhaustively. The kind says WHO to blame (see FaultClass): the host (modelUnreachable, rateLimited, runnerLost, infraTimeout), the agent (agentGaveUp, noProgress, toolRefusedByPolicy, writeRefused), the gate (gateRed, generationRefused) or nobody known (unknown).",
           "oneOf": [
             {
               "type": "object",
@@ -19624,6 +19665,22 @@
               "type": "object",
               "properties": {
                 "kind": {
+                  "const": "generationRefused"
+                },
+                "model": {
+                  "$ref": "#/$defs/GenerationRefused"
+                }
+              },
+              "required": [
+                "kind",
+                "model"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
                   "const": "unknown"
                 },
                 "model": {
@@ -19689,6 +19746,11 @@
                 "kindConst": "FailureWriteRefused"
               },
               {
+                "kind": "generationRefused",
+                "type": "GenerationRefused",
+                "kindConst": "FailureGenerationRefused"
+              },
+              {
                 "kind": "unknown",
                 "type": "UnknownCause",
                 "kindConst": "FailureUnknown"
@@ -19708,6 +19770,7 @@
             "toolRefusedByPolicy",
             "gateRed",
             "writeRefused",
+            "generationRefused",
             "unknown"
           ],
           "x-enum-varnames": [
@@ -19720,6 +19783,7 @@
             "FailureToolRefusedByPolicy",
             "FailureGateRed",
             "FailureWriteRefused",
+            "FailureGenerationRefused",
             "FailureUnknown"
           ]
         },
@@ -19755,6 +19819,23 @@
           },
           "required": [
             "checks"
+          ],
+          "additionalProperties": false
+        },
+        "GenerationRefused": {
+          "type": "object",
+          "description": "A gated run's generation step refused the committed design before any agent could start or the job's checks could judge it: generator names the step (make gen-models, a spec generator such as go tool appgen clients, or make gen-tests) and detail is its message. The outcome depends only on committed inputs (the reviewed plan, the contracts and the pinned toolchain), so re-dispatching the same inputs cannot cure it; the design the step reads must change first.",
+          "properties": {
+            "generator": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "generator",
+            "detail"
           ],
           "additionalProperties": false
         },
@@ -20239,7 +20320,8 @@
             "result": {
               "$ref": "#/$defs/PipelineObservation"
             },
-            "error": true
+            "error": true,
+            "readOnly": true
           },
           {
             "name": "SubmitAgenticJob",
