@@ -6,12 +6,12 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.32.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.18
+	github.com/mixofreality-studio/archistrator-platform/framework-go-app-generator v0.33.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-conformance v0.5.19
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.9.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.11.0
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.41.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-scenariohost v0.12.0
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.42.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
@@ -125,11 +125,11 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
-	github.com/mixofreality-studio/archistrator-platform/framework-go v0.43.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go v0.44.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github v0.3.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-keycloak v0.2.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.0
-	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.0
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-otel v0.1.1
+	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-postgres v0.1.1
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-temporal v0.3.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/nexus-rpc/sdk-go v0.6.0 // indirect
