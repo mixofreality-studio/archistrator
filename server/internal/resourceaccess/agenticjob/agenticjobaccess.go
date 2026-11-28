@@ -2358,6 +2358,10 @@ type localGate struct {
 	// generation failed ("" when it did not run or succeeded).
 	integration bool
 	genFailure  string
+	// genRefusedBy is the generator whose step produced genFailure ("make gen-models", the
+	// generator argv's first words, "make gen-tests" or "commit generated output"), "" with no
+	// failure: the refusal's structured half, held next to its message (ISS-034-3).
+	genRefusedBy string
 	// contracts are the contracts whose generated Go the job writes before the agent runs
 	// (the spec's contracts): this component's own, on construction and integration alike.
 	contracts []string
@@ -2508,7 +2512,7 @@ func (a *localExecAccess) prepareGate(s dispatchedTaskSpec, parentDir, workDir, 
 		return nil, why, nil
 	}
 	g.branch, g.baseSHA = branch, beforeSHA
-	g.genFailure = generateScenarioTests(g, workDir)
+	g.genRefusedBy, g.genFailure = generateScenarioTests(g, workDir)
 	if g.genFailure == "" {
 		// The job owns what it generated end to end: it commits it here, before any agent runs,
 		// and the gate's base moves to the tip after that commit. That one base is the edit
@@ -2516,6 +2520,7 @@ func (a *localExecAccess) prepareGate(s dispatchedTaskSpec, parentDir, workDir, 
 		// back from the gate), so the agent's diff never holds the job's output.
 		tip, err := a.commitGeneratedOutput(g, workDir)
 		if err != nil {
+			g.genRefusedBy = genStepCommit
 			g.genFailure = "the job's generated output could not be committed: " + singleLine(outputTail(err.Error(), 600))
 		} else {
 			g.baseSHA = tip
@@ -2569,6 +2574,7 @@ func (a *localExecAccess) gateWithoutAgent(run *localRun, scope completionScope)
 	headSHA, revErr := revParseBranch(a.repoPath, scope.branch)
 	a.gitMu.Unlock()
 	diagnostic := scope.gate.genFailure
+	refusal := &GenerationRefused{Generator: scope.gate.genRefusedBy, Detail: scope.gate.genFailure}
 	var verdict gateVerdict
 	if revErr == nil {
 		verdict = runGates(scope.gate, scope.workDir, headSHA)
@@ -2582,12 +2588,12 @@ func (a *localExecAccess) gateWithoutAgent(run *localRun, scope completionScope)
 	a.removeWorkspaceWorktrees(scope.workspaces)
 	_ = os.RemoveAll(scope.parentDir)
 	// No agent started, so there is no model to have reached and no host fault to blame: the
-	// scenario tests could not be generated, a failure of the work the run was dispatched to judge.
+	// generated output could not be produced, a refusal of the gate whatever the gates then found.
 	run.mu.Lock()
 	run.status = localRunFailed
 	run.diagnostic = diagnostic
 	run.reachedModel = true
-	run.cause, run.faultClass = &UnknownCause{Detail: diagnostic}, FaultUnknown
+	run.cause, run.faultClass = classifyLocal(localOutcome{reachedModel: true, gate: verdict, detail: diagnostic, generationRefusal: refusal})
 	run.gateFailures = verdict.redChecks
 	run.mu.Unlock()
 }
@@ -2620,8 +2626,10 @@ func (a *localExecAccess) runJob(run *localRun, scope completionScope) {
 	a.gitMu.Unlock()
 	var failures []string
 	var verdict gateVerdict
+	var refusal *GenerationRefused
 	if scope.gate.genFailure != "" {
 		failures = append(failures, scope.gate.genFailure)
+		refusal = &GenerationRefused{Generator: scope.gate.genRefusedBy, Detail: scope.gate.genFailure}
 	}
 	if revErr != nil {
 		failures = append(failures, "the branch could not be read: "+revErr.Error())
@@ -2641,8 +2649,11 @@ func (a *localExecAccess) runJob(run *localRun, scope completionScope) {
 	run.fingerprint = scope.gate.fingerprint
 	if len(failures) > 0 {
 		run.status, run.diagnostic = localRunFailed, strings.Join(failures, "; ")
-		run.cause, run.faultClass = classifyLocal(localOutcome{reachedModel: true, gate: verdict, detail: run.diagnostic})
+		run.cause, run.faultClass = classifyLocal(localOutcome{reachedModel: true, gate: verdict, detail: run.diagnostic, generationRefusal: refusal})
 		run.gateFailures = verdict.redChecks
+		if run.fingerprint == "" && revErr == nil {
+			run.fingerprint = jobInputFingerprint(scope.gate, scope.workDir, headSHA, verdict)
+		}
 	}
 }
 
@@ -2951,6 +2962,14 @@ func buildCacheDir(parentDir string) string { return filepath.Join(parentDir, "g
 // the job like gocache.
 func lintCacheDir(parentDir string) string { return filepath.Join(parentDir, "golangci-lint-cache") }
 
+// The generator names a GenerationRefused carries for the steps that are not a spec generator
+// (a spec generator is named by its argv's first words, as the diagnostic prints them).
+const (
+	genStepModels = "make gen-models"
+	genStepTests  = "make gen-tests"
+	genStepCommit = "commit generated output"
+)
+
 // generateScenarioTests is step 3: the generated half of a component is the JOB's. It writes
 // the component's own contract.gen.go and fakes before the agent runs, so the agent builds
 // against the real generated surface and never improvises a generator. For the integration
@@ -2958,33 +2977,34 @@ func lintCacheDir(parentDir string) string { return filepath.Join(parentDir, "go
 // AND commits this generated half (prepareGate commits it right after this returns "") before
 // the agent runs: the agent writes no test code and never commits generated output; it wires
 // the component and fills the hooks. It returns why generation failed (the agent then never
-// starts, nothing is committed, the gates still run), or "".
-func generateScenarioTests(g *localGate, workDir string) string {
+// starts, nothing is committed, the gates still run) and which generator step refused, or "", "".
+func generateScenarioTests(g *localGate, workDir string) (generator, failure string) {
 	if !g.integration && len(g.contracts) == 0 && len(g.generators) == 0 {
-		return ""
+		return "", ""
 	}
 	moduleDir, err := projectModuleDir(workDir)
 	if err != nil {
-		return "the component's generated code could not be written: " + err.Error()
+		return genStepModels, "the component's generated code could not be written: " + err.Error()
 	}
 	dir := filepath.Join(workDir, moduleDir) // the project's module dir (ruling R43)
 	if len(g.contracts) > 0 {
 		if out, err := runMakeTarget(g, dir, "gen-models", "CONTRACTS="+strings.Join(g.contracts, " ")); err != nil {
-			return "the component's models could not be generated (make gen-models): " + singleLine(outputTail(err.Error()+": "+out, 600))
+			return genStepModels, "the component's models could not be generated (make gen-models): " + singleLine(outputTail(err.Error()+": "+out, 600))
 		}
 	}
 	for _, argv := range g.generators {
 		if out, err := runGenerator(g, dir, argv); err != nil {
-			return strings.Join(argv[:min(len(argv), 4)], " ") + " failed: " + singleLine(outputTail(err.Error()+": "+out, 600))
+			name := strings.Join(argv[:min(len(argv), 4)], " ")
+			return name, name + " failed: " + singleLine(outputTail(err.Error()+": "+out, 600))
 		}
 	}
 	if !g.integration {
-		return ""
+		return "", ""
 	}
 	if out, err := runMakeTarget(g, dir, "gen-tests"); err != nil {
-		return "the scenario tests could not be generated (make gen-tests): " + singleLine(outputTail(err.Error()+": "+out, 600))
+		return genStepTests, "the scenario tests could not be generated (make gen-tests): " + singleLine(outputTail(err.Error()+": "+out, 600))
 	}
-	return ""
+	return "", ""
 }
 
 // runGenerator runs one spec generator in dir, the project's module dir.
@@ -3272,24 +3292,9 @@ func failingChecks(workDir string, res gateToolResult) (string, []string) {
 // never count, so an empty fingerprint never compares equal. Any failure to compute it is
 // empty too.
 func progressFingerprint(g *localGate, workDir, headSHA string, v gateVerdict, digest []byte) string {
-	var tree strings.Builder
-	net, err := netDiff(workDir, headSHA, g.mainSHA)
+	tree, err := gateNetDiff(g, workDir, headSHA)
 	if err != nil {
 		return ""
-	}
-	tree.WriteString(net)
-	// What the attempt left in a workspace repo is part of what it did: two attempts that edit the
-	// platform differently and fail the same way did change something.
-	for _, w := range g.workspaces {
-		wHead, err := revParseBranch(w.repoPath, g.branch)
-		if err != nil {
-			return ""
-		}
-		wNet, err := netDiff(w.workDir, wHead, w.mainSHA)
-		if err != nil {
-			return ""
-		}
-		tree.WriteString("\x00@" + w.id + "\n" + wNet)
 	}
 	var failure strings.Builder
 	failure.Write(digest)
@@ -3299,7 +3304,56 @@ func progressFingerprint(g *localGate, workDir, headSHA string, v gateVerdict, d
 			failure.WriteString("\x00" + p)
 		}
 	}
-	sum := sha256.Sum256([]byte(tree.String() + "\x00" + g.specHash + "\x00" + failure.String()))
+	sum := sha256.Sum256([]byte(tree + "\x00" + g.specHash + "\x00" + failure.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+// gateNetDiff is the run's whole net diff as progressFingerprint reads it: the primary repo's
+// (netDiff against the captured main) and each workspace repo's against its own main. What the
+// attempt left in a workspace repo is part of what it did: two attempts that edit the platform
+// differently and fail the same way did change something.
+func gateNetDiff(g *localGate, workDir, headSHA string) (string, error) {
+	var tree strings.Builder
+	net, err := netDiff(workDir, headSHA, g.mainSHA)
+	if err != nil {
+		return "", err
+	}
+	tree.WriteString(net)
+	for _, w := range g.workspaces {
+		wHead, err := revParseBranch(w.repoPath, g.branch)
+		if err != nil {
+			return "", err
+		}
+		wNet, err := netDiff(w.workDir, wHead, w.mainSHA)
+		if err != nil {
+			return "", err
+		}
+		tree.WriteString("\x00@" + w.id + "\n" + wNet)
+	}
+	return tree.String(), nil
+}
+
+// jobInputFingerprint is the progress fingerprint of a failed venue job whose gates earned none
+// (ISS-034-3): a job's outcome depends only on committed inputs, so re-running it unchanged
+// cannot do better. It is the sha256 over a "job" domain tag, the spec hash, the net diff
+// progressFingerprint uses, the generator that refused (if any), and the sorted red check ids and
+// sorted refused scope paths; never the diagnostic text, timings, temp paths or attempt ids. Any
+// failure to compute it is "", which never compares equal.
+func jobInputFingerprint(g *localGate, workDir, headSHA string, v gateVerdict) string {
+	tree, err := gateNetDiff(g, workDir, headSHA)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("job\x00" + g.specHash + "\x00" + tree + "\x00gen\x00" + g.genRefusedBy + "\x00checks")
+	for _, id := range slices.Sorted(slices.Values(v.redChecks)) {
+		b.WriteString("\x00" + id)
+	}
+	b.WriteString("\x00scope")
+	for _, p := range slices.Sorted(slices.Values(v.scopePaths)) {
+		b.WriteString("\x00" + p)
+	}
+	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -4643,6 +4697,9 @@ type localOutcome struct {
 	stderr, detail string
 	// gate is what the gates found.
 	gate gateVerdict
+	// generationRefusal is the generation refusal that barred a gated run's agent (or a job), nil
+	// when generation did not refuse.
+	generationRefusal *GenerationRefused
 	// refusal is the state write the Method write gate refused during the run, nil when none was.
 	refusal *WriteRefused
 }
@@ -4654,6 +4711,7 @@ type localOutcome struct {
 //	timed out, model unreached            infraTimeout     host
 //	model unreached, 429 / rate limit     rateLimited      host
 //	model unreached                       modelUnreachable host
+//	generation refused                    generationRefused{generator, detail}  gate
 //	edit-scope gate red                   toolRefusedByPolicy{paths}  agent
 //	checks red                            gateRed{checks}  gate
 //	agent failed after a refused write    writeRefused{verb, findings}  agent
@@ -4670,6 +4728,8 @@ func classifyLocal(o localOutcome) (FailureCause, FaultClass) {
 		cause = &RateLimited{Detail: o.detail}
 	case !o.reachedModel:
 		cause = &ModelUnreachable{Detail: o.detail}
+	case o.generationRefusal != nil:
+		cause = o.generationRefusal
 	case o.gate.scopeRed:
 		cause = &ToolRefusedByPolicy{Paths: slices.Clone(o.gate.scopePaths)}
 	case o.gate.checksRed:
@@ -4705,7 +4765,7 @@ func faultClassFor(cause FailureCause) FaultClass {
 		return FaultHost
 	case *AgentGaveUp, *NoProgressCause, *ToolRefusedByPolicy, *WriteRefused:
 		return FaultAgent
-	case *GateRed:
+	case *GateRed, *GenerationRefused:
 		return FaultGate
 	case *UnknownCause:
 		return FaultUnknown

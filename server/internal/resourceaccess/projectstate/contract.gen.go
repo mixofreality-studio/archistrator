@@ -665,6 +665,9 @@ func (*GateRed) Kind() FailureCauseKind { return FailureGateRed }
 func (*WriteRefused) isFailureCause()        {}
 func (*WriteRefused) Kind() FailureCauseKind { return FailureWriteRefused }
 
+func (*GenerationRefused) isFailureCause()        {}
+func (*GenerationRefused) Kind() FailureCauseKind { return FailureGenerationRefused }
+
 func (*UnknownCause) isFailureCause()        {}
 func (*UnknownCause) Kind() FailureCauseKind { return FailureUnknown }
 
@@ -696,6 +699,8 @@ func kindStringFailureCause(k FailureCauseKind) (string, bool) {
 		return "gateRed", true
 	case FailureWriteRefused:
 		return "writeRefused", true
+	case FailureGenerationRefused:
+		return "generationRefused", true
 	case FailureUnknown:
 		return "unknown", true
 	default:
@@ -742,6 +747,8 @@ func newFailureCauseForKind(kind string) (FailureCause, bool) {
 		return &GateRed{}, true
 	case "writeRefused":
 		return &WriteRefused{}, true
+	case "generationRefused":
+		return &GenerationRefused{}, true
 	case "unknown":
 		return &UnknownCause{}, true
 	default:
@@ -781,6 +788,7 @@ const (
 	FailureToolRefusedByPolicy FailureCauseKind = "toolRefusedByPolicy"
 	FailureGateRed             FailureCauseKind = "gateRed"
 	FailureWriteRefused        FailureCauseKind = "writeRefused"
+	FailureGenerationRefused   FailureCauseKind = "generationRefused"
 	FailureUnknown             FailureCauseKind = "unknown"
 )
 
@@ -803,6 +811,11 @@ const (
 
 type GateRed struct {
 	Checks []string `json:"checks"`
+}
+
+type GenerationRefused struct {
+	Generator string `json:"generator"`
+	Detail    string `json:"detail"`
 }
 
 type Glossary struct {
